@@ -13,9 +13,9 @@ export function FtpIndicator({ status }: { status: string }) {
     :                          "bg-muted-foreground/40";
 
   const label =
-    status === "connected"   ? "FTP connected"
-    : status === "checking"  ? "Checking FTP…"
-    :                          "FTP not reachable";
+    status === "connected"   ? "FTP conectado"
+    : status === "checking"  ? "Verificando FTP…"
+    :                          "FTP indisponível";
 
   return (
     <div
@@ -101,14 +101,14 @@ export function ToolboxDropdown({
             onClick={() => { setOpen(false); onIso2God(); }}
           >
             <Disc className="h-3.5 w-3.5 text-blue-400" />
-            ISO to GOD
+            ISO para GOD
           </button>
           <button
             className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
             onClick={() => { setOpen(false); onIso2Xex(); }}
           >
             <FolderOpen className="h-3.5 w-3.5 text-green-400" />
-            ISO to XEX
+            ISO para XEX
           </button>
           {!simpleMode && (
             <button
@@ -124,7 +124,7 @@ export function ToolboxDropdown({
             onClick={() => { setOpen(false); onFtpManager(); }}
           >
             <HardDrive className="h-3.5 w-3.5 text-yellow-400" />
-            FTP Manager
+            Gerenciador FTP
           </button>
         </div>
       )}
@@ -196,7 +196,7 @@ export default function MainNav({
 
       <Button
         size="icon"
-        title="Retry FTP connection"
+        title="Reconectar FTP"
         disabled={ftpChecking}
         onClick={onReconnect}
       >
@@ -219,7 +219,7 @@ export default function MainNav({
       {showLibBtn && (
         <Button
           size="icon"
-          title={libraryLoading ? "Connecting to Xbox…" : "Xbox Library"}
+          title={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
           disabled={libraryLoading}
           variant={currentPage === "library" ? "primary" : "default"}
           onClick={onLibraryToggle}
@@ -233,7 +233,7 @@ export default function MainNav({
       {hasQueueJobs && (
         <Button
           size="icon"
-          title={`Server queue (${queueJobs.length} job${queueJobs.length !== 1 ? "s" : ""})`}
+          title={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
           onClick={onNavigateQueue}
           className={cn("relative", currentPage === "queue" && activeBtnClass)}
         >
@@ -246,7 +246,7 @@ export default function MainNav({
 
       <Button
         size="icon"
-        title="Browse & Download"
+        title="Procurar e baixar"
         variant={currentPage === "browse" ? "primary" : "default"}
         onClick={onNavigateBrowse}
       >
@@ -263,7 +263,7 @@ export default function MainNav({
 
       <Button
         size="icon"
-        title="Restart backend"
+        title="Reiniciar serviço"
         onClick={() => window.godsendApi.restartProcess()}
       >
         <RefreshCw className="h-4 w-4" />
@@ -271,7 +271,7 @@ export default function MainNav({
 
       <Button
         size="icon"
-        title="Settings"
+        title="Configurações"
         variant={currentPage === "settings" ? "primary" : "default"}
         onClick={onNavigateSettings}
       >

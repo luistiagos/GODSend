@@ -37,7 +37,7 @@ async function clickTitle(page: Page, title: string): Promise<boolean> {
 }
 
 async function clickInToolbox(page: Page, menuText: RegExp): Promise<boolean> {
-  if (!(await clickTitle(page, "Toolbox"))) return false;
+  if (!(await clickTitle(page, "Mais opções")) && !(await clickTitle(page, "Abrir outras funções"))) return false;
   await page.waitForTimeout(300);
   const item = page.locator("button").filter({ hasText: menuText }).first();
   if (await item.isVisible().catch(() => false)) {
@@ -74,27 +74,27 @@ test("capture site screenshots", async ({}, testInfo) => {
   await shoot(page, "01-home-terminal");
 
   // ── 2. Settings ─────────────────────────────────────────────────────────
-  if (await clickTitle(page, "Settings")) {
+  if (await clickTitle(page, "Configurações")) {
     await page.waitForTimeout(1500);
     await shoot(page, "02-settings");
     await backHome(page);
   }
 
   // ── 3. Browse & Download (store) ────────────────────────────────────────
-  if (await clickTitle(page, "Browse & Download")) {
+  if (await clickTitle(page, "Procurar e baixar")) {
     await page.waitForTimeout(2000);
     await shoot(page, "03-browse-store");
     await backHome(page);
   }
 
   // ── 4. ISO to GOD (Toolbox) ─────────────────────────────────────────────
-  if (await clickInToolbox(page, /ISO to GOD/i)) {
+  if (await clickInToolbox(page, /ISO para GOD/i)) {
     await shoot(page, "04-iso-to-god");
     await backHome(page);
   }
 
   // ── 5. ISO to XEX (Toolbox) ─────────────────────────────────────────────
-  if (await clickInToolbox(page, /ISO to XEX/i)) {
+  if (await clickInToolbox(page, /ISO para XEX/i)) {
     await shoot(page, "05-iso-to-xex");
     await backHome(page);
   }
@@ -106,13 +106,13 @@ test("capture site screenshots", async ({}, testInfo) => {
   }
 
   // ── 7. FTP Manager (Toolbox) ────────────────────────────────────────────
-  if (await clickInToolbox(page, /FTP Manager/i)) {
+  if (await clickInToolbox(page, /Gerenciador FTP/i)) {
     await shoot(page, "07-ftp-manager");
     await backHome(page);
   }
 
   // ── 8. Xbox Library (only if Xbox connected) ───────────────────────────
-  if (await clickTitle(page, "Xbox Library")) {
+  if (await clickTitle(page, "Biblioteca do Xbox")) {
     await page.waitForTimeout(3000);
     await shoot(page, "08-xbox-library");
   } else {

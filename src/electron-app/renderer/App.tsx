@@ -13,12 +13,12 @@ import MainNav from "./components/MainNav";
 type PageId = "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb";
 
 const PAGE_TITLES: Record<string, string> = {
-  settings:   "Settings",
-  queue:      "Job Queue",
-  browse:     "Browse & Download",
-  iso2god:    "ISO to GOD",
-  iso2xex:    "ISO to XEX",
-  ftpmanager: "FTP Manager",
+  settings:   "Configurações",
+  queue:      "Fila de tarefas",
+  browse:     "Procurar e baixar",
+  iso2god:    "ISO para GOD",
+  iso2xex:    "ISO para XEX",
+  ftpmanager: "Gerenciador FTP",
   badavatarusb: "Preparar dispositivo",
 };
 
