@@ -144,7 +144,7 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
       });
       if (!response?.ok) throw new Error(response?.error || "Não foi possível preparar o dispositivo.");
       setDone(true);
-      setStatus("Pronto! Agora conecte o dispositivo ao Xbox 360.");
+      setStatus("Pronto! O pendrive está preparado para o Xbox 360.");
       setPercent(100);
       await refreshDrives();
     } catch (prepareError: any) {
@@ -268,6 +268,25 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
         </label>
       </section>
 
+      <details className="mt-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+        <summary className="cursor-pointer font-medium text-foreground">
+          Como funciona e o que esperar
+        </summary>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5">
+          <li>
+            O BadAvatar é <span className="font-medium text-foreground">temporário</span>: sempre que
+            o Xbox liga ou reinicia, é preciso abrir o perfil de novo para ativá-lo.
+          </li>
+          <li>Pode não funcionar logo de primeira — às vezes leva algumas tentativas.</li>
+          <li>
+            Preparar o pendrive <span className="font-medium text-foreground">não modifica nada de
+            forma permanente</span> no console. A memória interna (NAND) não é tocada.
+          </li>
+          <li>Mantenha o Xbox sem internet (Wi-Fi e cabo de rede desconectados) durante o uso.</li>
+          <li>Nunca entre na Xbox Live usando o perfil do exploit.</li>
+        </ul>
+      </details>
+
       <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
         <Checkbox
           checked={requirementsAccepted}
@@ -304,6 +323,12 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
           <p className={`mt-2 text-[11px] ${error ? "text-red-300" : done ? "text-green-300" : "text-muted-foreground"}`}>
             {error || status}
           </p>
+          {done && !error && (
+            <p className="mt-2 text-[11px] leading-relaxed text-green-200/80">
+              Abra o BadAvatar pelo perfil no console. Isso não desbloqueia o Xbox de forma
+              permanente — repita a ativação a cada vez que ligar e mantenha o console sem internet.
+            </p>
+          )}
           {done && onBrowseGames && (
             <Button className="mt-3 h-10 w-full" onClick={onBrowseGames}>
               <Gamepad2 className="h-4 w-4" />
