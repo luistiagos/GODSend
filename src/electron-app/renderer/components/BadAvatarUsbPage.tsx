@@ -23,8 +23,30 @@ interface UsbDrive {
   freeBytes?: number;
   safety?: {
     allowed: boolean;
+    codes?: string[];
     reasons: string[];
   };
+}
+
+// Mensagens curtas e acionáveis para o usuário leigo, mapeadas pelos códigos
+// estáveis de deviceSafetyPolicy.ts. Cai para o motivo técnico quando o código
+// for desconhecido.
+const BLOCK_REASONS: Record<string, string> = {
+  NOT_USB: "Este disco não é um pendrive ou HD conectado por USB. Ligue o dispositivo direto numa porta USB.",
+  BOOT_OR_SYSTEM: "Este é um disco do sistema. Por segurança ele nunca é usado — escolha um pendrive ou HD USB.",
+  WINDOWS_VOLUME: "Esta é a unidade onde o Windows está rodando. Escolha um pendrive ou HD USB.",
+  DISK_ZERO: "Este é o disco principal do computador. Escolha um pendrive ou HD USB.",
+  READ_ONLY: "O dispositivo está protegido contra gravação. Desative a trava de proteção e clique em Atualizar.",
+  OFFLINE: "O dispositivo está offline no Windows. Coloque-o online e clique em Atualizar.",
+  AMBIGUOUS_IDENTITY: "O Windows não reconhece um identificador estável deste dispositivo. Tente outra porta USB ou outro pendrive.",
+  INVALID_CAPACITY: "Capacidade não reconhecida ou menor que 1 GB. Use um pendrive ou HD de pelo menos 1 GB.",
+  MULTIPLE_MOUNTED_PARTITIONS: "Este dispositivo tem mais de uma partição. Use um com partição única ou marque “Formatar antes”.",
+};
+
+function blockReason(device?: UsbDrive): string {
+  const code = device?.safety?.codes?.find((c) => BLOCK_REASONS[c]);
+  if (code) return BLOCK_REASONS[code];
+  return device?.safety?.reasons?.[0] || "Escolha outro pendrive ou HD USB.";
 }
 
 interface BadAvatarUsbPageProps {
@@ -229,7 +251,7 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
 
             {selectedDevice && !deviceAllowed && (
               <p className="mt-2 text-[11px] leading-relaxed text-red-300">
-                {selectedDevice.safety?.reasons?.[0] || "Escolha outro dispositivo USB."}
+                {blockReason(selectedDevice)}
               </p>
             )}
           </>
