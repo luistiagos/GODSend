@@ -44,8 +44,19 @@ function stateIcon(state: string) {
   return "?";
 }
 
+// Traduz apenas a EXIBIÇÃO do estado. As comparações de lógica continuam
+// usando os valores originais do backend (stateColor, stateIcon, filtros).
+function stateLabel(state: string) {
+  if (state === "Ready")       return "Pronto";
+  if (state === "Error")       return "Erro";
+  if (state === "Pending FTP") return "Aguardando FTP";
+  if (state === "Queued")      return "Na fila";
+  if (state === "Processing")  return "Processando";
+  return state;
+}
+
 function sourceLabel(source: "pipeline" | "ftp") {
-  return source === "pipeline" ? "Store" : "FTP";
+  return source === "pipeline" ? "Loja" : "FTP";
 }
 
 function sourceIcon(source: "pipeline" | "ftp") {
@@ -74,7 +85,7 @@ function JobRow({ job, onRemove, removing }: JobRowProps) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="text-[13px] font-medium text-foreground truncate">{job.name}</span>
-          <span className={cn("text-[11px] shrink-0", stateColor(job.state))}>{job.state}</span>
+          <span className={cn("text-[11px] shrink-0", stateColor(job.state))}>{stateLabel(job.state)}</span>
           {!isFinished && pct !== null && pct > 0 && (
             <span className="text-[11px] text-muted-foreground shrink-0">{pct}%</span>
           )}
@@ -103,7 +114,8 @@ function JobRow({ job, onRemove, removing }: JobRowProps) {
       <Button
         size="icon"
         className="shrink-0 h-6 w-6"
-        title="Remove from queue"
+        title="Remover da fila"
+        aria-label="Remover da fila"
         disabled={removing}
         onClick={() => onRemove(job)}
       >
@@ -207,14 +219,14 @@ export default function QueuePage() {
         <span className="text-[13px] text-muted-foreground flex-1">
           {!loading && jobs.length > 0 && (
             <>
-              {jobs.length} job{jobs.length !== 1 ? "s" : ""}
-              {activeCount > 0 ? `, ${activeCount} active` : ""}
-              {pendingCount > 0 ? `, ${pendingCount} pending FTP` : ""}
-              {ftpActiveCount > 0 ? `, ${ftpActiveCount} FTP transfer${ftpActiveCount !== 1 ? "s" : ""}` : ""}
+              {jobs.length} tarefa{jobs.length !== 1 ? "s" : ""}
+              {activeCount > 0 ? `, ${activeCount} ativa${activeCount !== 1 ? "s" : ""}` : ""}
+              {pendingCount > 0 ? `, ${pendingCount} aguardando FTP` : ""}
+              {ftpActiveCount > 0 ? `, ${ftpActiveCount} transferência${ftpActiveCount !== 1 ? "s" : ""} FTP` : ""}
             </>
           )}
         </span>
-        <Button size="icon" title="Refresh" onClick={fetchAll} disabled={loading}>
+        <Button size="icon" title="Atualizar" aria-label="Atualizar" onClick={fetchAll} disabled={loading}>
           {loading
             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
             : <RefreshCw className="h-3.5 w-3.5" />}
@@ -229,9 +241,9 @@ export default function QueuePage() {
           </div>
         ) : jobs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-24 gap-1">
-            <p className="text-[13px] text-muted-foreground">No active jobs.</p>
+            <p className="text-[13px] text-muted-foreground">Nenhuma tarefa ativa.</p>
             <p className="text-[11px] text-muted-foreground">
-              Game downloads, FTP uploads, copies, and moves will appear here.
+              Downloads de jogos, envios FTP, cópias e movimentações aparecem aqui.
             </p>
           </div>
         ) : (
@@ -252,8 +264,8 @@ export default function QueuePage() {
       {pendingCount > 0 && (
         <footer className="shrink-0 px-1 py-1.5 border-t border-border">
           <p className="text-[11px] text-yellow-400/80">
-            {pendingCount} job{pendingCount !== 1 ? "s are" : " is"} waiting for Xbox FTP.
-            The server will retry automatically when the console is reachable.
+            {pendingCount} tarefa{pendingCount !== 1 ? "s" : ""} aguardando o FTP do Xbox.
+            O servidor tentará novamente assim que o console estiver acessível.
           </p>
         </footer>
       )}
