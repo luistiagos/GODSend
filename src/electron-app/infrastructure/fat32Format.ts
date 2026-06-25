@@ -38,6 +38,17 @@ function runCommand(
   });
 }
 
+async function runElevatedPowerShell(script: string): Promise<{ code: number; stdout: string; stderr: string }> {
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const wrapper = [
+    `$p = Start-Process -FilePath 'powershell.exe'`,
+    `  -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand','${encoded}')`,
+    `  -Verb RunAs -WindowStyle Hidden -Wait -PassThru;`,
+    `exit $p.ExitCode`,
+  ].join(" ");
+  return runCommand("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", wrapper]);
+}
+
 function driveLetterFromRoot(driveRoot: string): string {
   const m = driveRoot.trim().match(/^([A-Za-z]):/);
   if (!m) throw new Error(`Invalid Windows drive path: ${driveRoot}`);
@@ -58,18 +69,6 @@ export function resolveFat32FormatExe(): string | null {
   return null;
 }
 
-async function dismountWindowsVolume(letter: string): Promise<void> {
-  const script = [
-    `$l = '${letter}';`,
-    `try {`,
-    `  $p = Get-Partition -DriveLetter $l -ErrorAction Stop;`,
-    `  $paths = @($p.AccessPaths) | Where-Object { $_ };`,
-    `  foreach ($ap in $paths) { Remove-PartitionAccessPath -DiskNumber $p.DiskNumber -PartitionNumber $p.PartitionNumber -AccessPath $ap -ErrorAction SilentlyContinue };`,
-    `} catch {}`,
-  ].join(" ");
-  await runCommand("powershell.exe", ["-NoProfile", "-Command", script]);
-}
-
 async function formatWindowsFat32(
   driveRoot: string,
   label: string,
@@ -78,22 +77,19 @@ async function formatWindowsFat32(
   const letter = driveLetterFromRoot(driveRoot);
   const exe = resolveFat32FormatExe();
 
-  onProgress({ status: "Preparing drive…", percent: 4 });
-  await dismountWindowsVolume(letter);
+  onProgress({ status: "Preparando dispositivo…", percent: 4 });
 
   if (exe) {
     onProgress({ status: "Formatting to FAT32 (large-volume tool)…", percent: 8 });
-    // fat32format prompts for confirmation; -y (some builds) or stdin Y. Try -f when supported.
-    let result = await runCommand(exe, ["-y", `${letter}:`]);
-    if (result.code !== 0) {
-      result = await runCommand(exe, ["-f", `${letter}:`], { stdin: "Y\n" });
-    }
-    if (result.code !== 0) {
-      result = await runCommand(exe, [`${letter}:`], { stdin: "Y\n" });
-    }
+    const escapedExe = exe.replace(/'/g, "''");
+    const result = await runElevatedPowerShell([
+      `$ErrorActionPreference = 'Stop';`,
+      `"Y" | & '${escapedExe}' '${letter}:';`,
+      `exit $LASTEXITCODE`,
+    ].join(" "));
     if (result.code !== 0) {
       const msg = (result.stderr || result.stdout).trim();
-      throw new Error(msg || "fat32format failed. Close other apps using the drive and try again.");
+      throw new Error(msg || "A formatação foi cancelada ou falhou. Feche outros programas usando o dispositivo e tente novamente.");
     }
   } else {
     onProgress({ status: "Formatting to FAT32…", percent: 8 });
@@ -101,7 +97,7 @@ async function formatWindowsFat32(
       `$v = Get-Volume -DriveLetter '${letter}' -ErrorAction Stop;`,
       `$v | Format-Volume -FileSystem FAT32 -NewFileSystemLabel '${label.replace(/'/g, "''")}' -Force -Confirm:$false;`,
     ].join(" ");
-    const { code, stderr } = await runCommand("powershell.exe", ["-NoProfile", "-Command", script]);
+    const { code, stderr } = await runElevatedPowerShell(script);
     if (code !== 0) {
       const err = stderr.trim() || "Format failed.";
       if (/32\s*GB|34359738368/i.test(err)) {

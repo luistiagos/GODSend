@@ -19,11 +19,11 @@ const PAGE_TITLES: Record<string, string> = {
   iso2god:    "ISO to GOD",
   iso2xex:    "ISO to XEX",
   ftpmanager: "FTP Manager",
-  badavatarusb: "BadAvatar USB",
+  badavatarusb: "Preparar dispositivo",
 };
 
 export default function App() {
-  const [page, setPage] = useState<PageId>("home");
+  const [page, setPage] = useState<PageId>("badavatarusb");
 
   // ── Console output ────────────────────────────────────────────────────────
   const [outputLines, setOutputLines] = useState<string[]>([]);
@@ -324,7 +324,7 @@ export default function App() {
   } else if (page === "ftpmanager") {
     pageContent = <FTPManagerPage />;
   } else if (page === "badavatarusb") {
-    pageContent = <BadAvatarUsbPage />;
+    pageContent = <BadAvatarUsbPage onBrowseGames={navProps.onNavigateBrowse} />;
   }
 
   return (

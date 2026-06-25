@@ -13,6 +13,11 @@ dist/
 # Local tools (external binaries, not tracked)
 tools/
 
+# Pacote BadAvatar incorporado (~726 MB de binarios de terceiros).
+# Catalogado por SHA-256 em assets/badavatar-*.json (esses ficam versionados).
+# Reimportavel com `npm run payload:update`; nao versionar a arvore binaria.
+src/electron-app/assets/badavatar-1.1/
+
 # Electron / Node
 node_modules/
 src/electron-app/node_modules/

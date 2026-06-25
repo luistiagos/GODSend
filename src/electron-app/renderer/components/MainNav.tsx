@@ -36,10 +36,22 @@ interface ToolboxDropdownProps {
   onIso2Xex: () => void;
   onFtpManager: () => void;
   onBadAvatarUsb: () => void;
+  onBrowse?: () => void;
+  onSettings?: () => void;
+  simpleMode?: boolean;
   active?: boolean;
 }
 
-export function ToolboxDropdown({ onIso2God, onIso2Xex, onFtpManager, onBadAvatarUsb, active }: ToolboxDropdownProps) {
+export function ToolboxDropdown({
+  onIso2God,
+  onIso2Xex,
+  onFtpManager,
+  onBadAvatarUsb,
+  onBrowse,
+  onSettings,
+  simpleMode = false,
+  active,
+}: ToolboxDropdownProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -55,15 +67,35 @@ export function ToolboxDropdown({ onIso2God, onIso2Xex, onFtpManager, onBadAvata
   return (
     <div className="relative" ref={ref}>
       <Button
-        size="icon"
-        title="Toolbox"
+        size={simpleMode ? "sm" : "icon"}
+        title={simpleMode ? "Abrir outras funções" : "Mais opções"}
         variant={active ? "primary" : "default"}
         onClick={() => setOpen(!open)}
       >
         <Wrench className="h-4 w-4" />
+        {simpleMode && "Outras funções"}
       </Button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-48 bg-surface border border-border rounded-lg shadow-lg overflow-hidden animate-fade-in">
+        <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-surface border border-border rounded-lg shadow-lg overflow-hidden animate-fade-in">
+          {simpleMode && onBrowse && (
+            <button
+              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+              onClick={() => { setOpen(false); onBrowse(); }}
+            >
+              <Store className="h-3.5 w-3.5 text-green-400" />
+              Jogos e downloads
+            </button>
+          )}
+          {simpleMode && onSettings && (
+            <button
+              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+              onClick={() => { setOpen(false); onSettings(); }}
+            >
+              <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+              Configurações
+            </button>
+          )}
+          {simpleMode && <div className="border-t border-border/60" />}
           <button
             className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
             onClick={() => { setOpen(false); onIso2God(); }}
@@ -78,13 +110,15 @@ export function ToolboxDropdown({ onIso2God, onIso2Xex, onFtpManager, onBadAvata
             <FolderOpen className="h-3.5 w-3.5 text-green-400" />
             ISO to XEX
           </button>
-          <button
-            className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
-            onClick={() => { setOpen(false); onBadAvatarUsb(); }}
-          >
-            <Usb className="h-3.5 w-3.5 text-orange-400" />
-            BadAvatar USB
-          </button>
+          {!simpleMode && (
+            <button
+              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+              onClick={() => { setOpen(false); onBadAvatarUsb(); }}
+            >
+              <Usb className="h-3.5 w-3.5 text-orange-400" />
+              Preparar dispositivo
+            </button>
+          )}
           <button
             className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
             onClick={() => { setOpen(false); onFtpManager(); }}
@@ -139,6 +173,22 @@ export default function MainNav({
   const onHome       = currentPage === "home";
 
   const activeBtnClass = "ring-1 ring-accent ring-offset-1 ring-offset-background";
+
+  if (currentPage === "badavatarusb") {
+    return (
+      <div className="flex items-center">
+        <ToolboxDropdown
+          onIso2God={onNavigateIso2God}
+          onIso2Xex={onNavigateIso2Xex}
+          onFtpManager={onNavigateFtpManager}
+          onBadAvatarUsb={onNavigateBadAvatarUsb}
+          onBrowse={onNavigateBrowse}
+          onSettings={onNavigateSettings}
+          simpleMode
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-1.5">

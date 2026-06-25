@@ -123,13 +123,19 @@ contextBridge.exposeInMainWorld("godsendApi", {
 
   toolsBadAvatarListDrives: () => ipcRenderer.invoke("tools:badavatar-list-drives"),
   toolsBadAvatarIsAdmin:    () => ipcRenderer.invoke("tools:badavatar-is-admin"),
-  toolsBadAvatarCreate:     (payload: any) => ipcRenderer.invoke("tools:badavatar-create", payload),
-  onBadAvatarProgress: (callback: (data: any) => void) => {
+  toolsBadAvatarPreview:    (payload: any) => ipcRenderer.invoke("tools:badavatar-preview", payload),
+  toolsBadAvatarPreviewCancel: () => ipcRenderer.invoke("tools:badavatar-preview-cancel"),
+  toolsBadAvatarPrepare:    (payload: any) => ipcRenderer.invoke("tools:badavatar-prepare", payload),
+  onBadAvatarPrepareProgress: (callback: (data: any) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-    ipcRenderer.on("tools:badavatar-progress", handler);
-    return () => ipcRenderer.removeListener("tools:badavatar-progress", handler);
+    ipcRenderer.on("tools:badavatar-prepare-progress", handler);
+    return () => ipcRenderer.removeListener("tools:badavatar-prepare-progress", handler);
   },
-
+  onBadAvatarPreviewProgress: (callback: (data: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on("tools:badavatar-preview-progress", handler);
+    return () => ipcRenderer.removeListener("tools:badavatar-preview-progress", handler);
+  },
   onFtpDebugLog: (callback: (line: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, line: string) => callback(line);
     ipcRenderer.on("godsend-ftp-debug", handler);

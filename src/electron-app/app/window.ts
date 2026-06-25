@@ -2,6 +2,7 @@ import { app, BrowserWindow } from "electron";
 import path from "path";
 
 import { getFirstValidIconPath } from "../infrastructure/fileSystem";
+import { isAllowedApplicationNavigation } from "../infrastructure/navigationPolicy";
 import { setMainWindowRef } from "../services/backendClient";
 
 let mainWindow: BrowserWindow | null = null;
@@ -50,7 +51,28 @@ export function createMainWindow(): void {
       preload:          path.join(__dirname, "..", "preload.js"),
       contextIsolation: true,
       nodeIntegration:  false,
+      sandbox:          true,
+      webSecurity:      true,
+      allowRunningInsecureContent: false,
+      navigateOnDragDrop: false,
+      safeDialogs:      true,
+      devTools:         process.env.NODE_ENV === "development",
     },
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
+    if (!isAllowedApplicationNavigation(
+      targetUrl,
+      mainWindow?.webContents.getURL() || "",
+      process.env.VITE_DEV_SERVER_URL,
+    )) {
+      event.preventDefault();
+    }
+  });
+  mainWindow.webContents.session.setPermissionCheckHandler(() => false);
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {

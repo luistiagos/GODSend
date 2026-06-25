@@ -100,7 +100,7 @@ test("capture site screenshots", async ({}, testInfo) => {
   }
 
   // ── 6. BadAvatar USB (Toolbox) ──────────────────────────────────────────
-  if (await clickInToolbox(page, /BadAvatar USB/i)) {
+  if (await clickInToolbox(page, /Preparar dispositivo/i)) {
     await shoot(page, "06-badavatar-usb");
     await backHome(page);
   }

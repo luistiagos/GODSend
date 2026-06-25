@@ -152,7 +152,11 @@ func main() {
 		fmt.Printf("[FATAL] invalid server port %q\n", a.ServerPort)
 		os.Exit(1)
 	}
-	listener, chosenPort, err := a.ListenOnAvailablePort(requestedPort)
+	listenHost := os.Getenv("GODSEND_BIND_HOST")
+	if listenHost == "" {
+		listenHost = "127.0.0.1"
+	}
+	listener, chosenPort, err := a.ListenOnAvailablePortAt(listenHost, requestedPort)
 	if err != nil {
 		fmt.Printf("[FATAL] %v\n", err)
 		os.Exit(1)
@@ -161,7 +165,7 @@ func main() {
 		a.Logf("[INFO] Port %d was in use; listening on %d instead", requestedPort, chosenPort)
 	}
 	a.ServerPort = strconv.Itoa(chosenPort)
-	fmt.Printf("\n[INFO] Server IP: %s:%s\n", a.ServerIP, a.ServerPort)
+	fmt.Printf("\n[INFO] Server bind: %s:%s\n", listenHost, a.ServerPort)
 	a.Logf("[INFO] GODSEND_LISTEN_PORT=%s", a.ServerPort)
 
 	server := &http.Server{

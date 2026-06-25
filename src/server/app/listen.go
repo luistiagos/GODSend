@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -29,13 +30,27 @@ func IsTCPAddrInUse(err error) bool {
 		strings.Contains(msg, "wsaeaddrinuse")
 }
 
-// ListenOnAvailablePort binds to start, then start+1, … until success or a non–address-in-use error.
+// ListenOnAvailablePort binds to loopback by default. Network exposure must be
+// an explicit caller decision through ListenOnAvailablePortAt.
 func (a *App) ListenOnAvailablePort(start int) (net.Listener, int, error) {
+	return a.ListenOnAvailablePortAt("127.0.0.1", start)
+}
+
+// ListenOnAvailablePortAt binds to host:start, then start+1, … until success
+// or a non–address-in-use error.
+func (a *App) ListenOnAvailablePortAt(host string, start int) (net.Listener, int, error) {
 	if start < 1 || start > 65535 {
 		return nil, 0, fmt.Errorf("invalid start port %d", start)
 	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if host != "localhost" && net.ParseIP(host) == nil {
+		return nil, 0, fmt.Errorf("invalid listen host %q", host)
+	}
 	for p := start; p <= 65535; p++ {
-		addr := fmt.Sprintf(":%d", p)
+		addr := net.JoinHostPort(host, strconv.Itoa(p))
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
 			return ln, p, nil

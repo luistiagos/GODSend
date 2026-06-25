@@ -1,0 +1,3226 @@
+{
+  "manifestVersion": 1,
+  "manifestId": "godsend.fixed.badavatar",
+  "release": "1.1-autostart-aurora-freestyle-dashlaunch-xexmenu",
+  "createdAt": "2026-06-23T00:00:00.000Z",
+  "bundleSha256": "7ad445ff7d201fc6a86e744dbeca6d2d795d3fae50215b35eeefae0acdc5b1b2",
+  "fileCount": 643,
+  "totalBytes": 759225234,
+  "files": [
+    {
+      "path": "apps/Aurora/Data/Logs/debug.log",
+      "sizeBytes": 52135,
+      "sha256": "1e6bb8d6220bcd37dcdd7c6ca3f53032a261e7b5a9f940f25a35157d5138103c"
+    },
+    {
+      "path": "apps/Aurora/Data/Logs/debug.log.last",
+      "sizeBytes": 49774,
+      "sha256": "ca2bc02980d9bd328e143d2b2a5932025ad3631d87779a699e0adafbe0244f76"
+    },
+    {
+      "path": "apps/Aurora/default.xex",
+      "sizeBytes": 12333056,
+      "sha256": "583bcd442d8017d6fcb2645b93cda987f4c0a43a688b652d7364ccaedaeefa9f"
+    },
+    {
+      "path": "apps/Aurora/live.json",
+      "sizeBytes": 3199,
+      "sha256": "2aeb4bf9ee2c29237ff8bdc684cb5c41142058ecd7b0ba39445780fbe92a7995"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Background.png",
+      "sizeBytes": 373202,
+      "sha256": "73cf3d2df54c4896377610b527892c114429649f77decd1ca37192c0f0270f47"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Banner.png",
+      "sizeBytes": 17281,
+      "sha256": "9164a648edae7691772b378db735806684c5c866ac1c4a14c73e58c6061ed638"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Boxart.Large.png",
+      "sizeBytes": 23286,
+      "sha256": "fc4bc3298ad58e306e30a3e4bdac5c69b27184e227543dcdea2202b191c7569d"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Boxart.Small.png",
+      "sizeBytes": 7514,
+      "sha256": "b168e2ff64a91754cf1153c6b342dbd5b5e7fd7c19419b0e90c44561766523e4"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Icon.png",
+      "sizeBytes": 4311,
+      "sha256": "69262f058be31d040e933aafeb6ee6cd21229cf99a2b914a4462fb9949586f18"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0001.png",
+      "sizeBytes": 616741,
+      "sha256": "e3f4d8300c91a2440154a339986a4f247c0e8870ccd503a1a79215deed45cdd1"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0002.png",
+      "sizeBytes": 598072,
+      "sha256": "eb77b8ce19f5f4658a75e98b16e37a96861d54f3b79b1464202bf557dec29da1"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0003.png",
+      "sizeBytes": 731060,
+      "sha256": "6de85dc1064662f72c559322f98c67b2185dd9156076f18ce9d6b2a764ef5bc8"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0004.png",
+      "sizeBytes": 307214,
+      "sha256": "3289f58c8b28ee4ff0b52096a714ef72fce2837b9d582bc0604a47f5f220ec96"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0005.png",
+      "sizeBytes": 119794,
+      "sha256": "7f1e4bf85374d01486b9136949a405a80b7e563cf0cd5decbdf8d26f5d3b6467"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0006.png",
+      "sizeBytes": 170264,
+      "sha256": "11efb68b4f28a2c55052a2e9843786cf9625bd8a96b5ba4a24cdaece41b6958e"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0007.png",
+      "sizeBytes": 141277,
+      "sha256": "3f05e73a5487f59017395222cf0df7e3c6e448562e68b0839ab59904331949be"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0008.png",
+      "sizeBytes": 109510,
+      "sha256": "b2c8a8b6bd8ad4d94dad9141bef836e75781dd89716eb90ce2f284534a82a417"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0009.png",
+      "sizeBytes": 167296,
+      "sha256": "f50965bec994e461142dba502e6974a2de8eedfb24b35e4286b186d1d77f39b8"
+    },
+    {
+      "path": "apps/Aurora/Media/Assets/Aurora.Assets.Screenshot.0010.png",
+      "sizeBytes": 232487,
+      "sha256": "7c8d3e7b4695a58f01b02529f0d7fa6ed9e38411f60b02051796a6ac81ffc9f1"
+    },
+    {
+      "path": "apps/Aurora/Media/Effects/SimpleShaders.fxobj",
+      "sizeBytes": 18780,
+      "sha256": "3b7ec1b4c77877a9aca69a4781307ff207679303fa1c836e1e9c4b71b1613b7a"
+    },
+    {
+      "path": "apps/Aurora/Media/Fonts/Arial_16.xpr",
+      "sizeBytes": 118796,
+      "sha256": "a81b97c5433a9ab633b5ea2cb06194d2a61e1b5b572d4eea76cc3a135460ad8f"
+    },
+    {
+      "path": "apps/Aurora/Media/Fonts/xenonclatin.xtt",
+      "sizeBytes": 1236992,
+      "sha256": "0a812c4fb3ed6ba2b7f8913e9d47a2ab79791413665a737fe9a06bea85869f8b"
+    },
+    {
+      "path": "apps/Aurora/Media/Fonts/xenonsclatin.xtt",
+      "sizeBytes": 1392640,
+      "sha256": "8ecfaa7b5b3ee8f5e5e8ac9ba2a54a99e8635f5f3fbb7638564ce07994a85dfe"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Bookshelf by Phoenix.cfljson",
+      "sizeBytes": 11892,
+      "sha256": "445df936e0f1fbc6c958e1d1d63181382e18186c77480acb9ea617537a7d0baa"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Flock by Phoenix.cfljson",
+      "sizeBytes": 11853,
+      "sha256": "42316c90d0adc23d5817b314f1eea6b5a4ee1a439b6d19d9fcf3c4462420f4dc"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/FlowCover by Phoenix.cfljson",
+      "sizeBytes": 11904,
+      "sha256": "072f6f10f482794195dd663817f42a9844089f1e626916ecc32b83aadf62a730"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Gallery by Phoenix.cfljson",
+      "sizeBytes": 11787,
+      "sha256": "98f1400dd42e63091a1c862b6e7efbe17fa45e4daa6b87a2a5dd74b6a30ab1cb"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Lazy Stack by Swizzy.cfljson",
+      "sizeBytes": 40956,
+      "sha256": "6ae3c2aa693f37f21b4a057a2567bfd97aaa14278743fa79fe26906864d24df1"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Minimal by Phoenix.cfljson",
+      "sizeBytes": 40954,
+      "sha256": "4e7700fffe2d7ac388bc2a2f6c95557b7a0ff870224580b42ffbb66246444d27"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Ribbon by Phoenix.cfljson",
+      "sizeBytes": 11855,
+      "sha256": "782cb3c45488888e43a4fcc579b81602be8df319a20d19a596750dd9aef32f0f"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Spine by Phoenix.cfljson",
+      "sizeBytes": 11784,
+      "sha256": "17fc670b15f81cea4a3925d19e4d407ba36b10b8c348388f86b44693b41a6d91"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Spiral Stack by Swizzy.cfljson",
+      "sizeBytes": 40971,
+      "sha256": "563ce443dcb5ff7b0fcb868e4828ab863b60c07ccba267a36e4a316b564ed136"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Stack By TraJiK.cfljson",
+      "sizeBytes": 41008,
+      "sha256": "0ee1554c699711527e68f784b1f3d9508769fdd911a6821b8a60ece63e8e123c"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Stand Up by Phoenix.cfljson",
+      "sizeBytes": 11926,
+      "sha256": "85709cb209f211da8b29099f7142b0f538abacfe2978a451f217343e3b321b60"
+    },
+    {
+      "path": "apps/Aurora/Media/Layouts/Table by Phoenix.cfljson",
+      "sizeBytes": 11830,
+      "sha256": "0f71c683dca587c2e376977f65f03303d185304b1aba7bb8d6a9cbf8e2cc5c5b"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/DE-DE.xzp",
+      "sizeBytes": 305024,
+      "sha256": "54ae3a4856caf80506021bc3cd88c21b4e263c8b8f00dcc1efd2d29f8dc62f97"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/EL-GR.xzp",
+      "sizeBytes": 265953,
+      "sha256": "185447d9a6c202df332730dc823d7bc54d291b99fa80c387c8cb5a24925aa5b2"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/ES-ES.xzp",
+      "sizeBytes": 306027,
+      "sha256": "da9ee9f425ad37bb0df7e7e3a2c3d344fba51ab063a8300488bbf164e57f4505"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/FR-FR.xzp",
+      "sizeBytes": 304469,
+      "sha256": "968fad6a7cd5c71ca13185dce1ee4968e42cf80ca46c233317508723cb483f4b"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/NL-NL.xzp",
+      "sizeBytes": 304116,
+      "sha256": "6a94c991ab4d071da8defdbe462dd4cc47d53ac045bee44b6db148c418ad4211"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/PT-BR.xzp",
+      "sizeBytes": 309551,
+      "sha256": "a505077a267a85b1c0b35be664da32919e749131df7c03f09e422505995fa54e"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/RU-RU.xzp",
+      "sizeBytes": 299285,
+      "sha256": "54c320324aa8c1a2c769f7c871010aa83e1b2a26840e8aac01ec404732a8fb88"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/TR-TR.xzp",
+      "sizeBytes": 300723,
+      "sha256": "f6c90ff871bad557f56681f88570646ed98fd263c4e1537f4aa61fa8fc9e833c"
+    },
+    {
+      "path": "apps/Aurora/Media/Locales/ZH-CN.xzp",
+      "sizeBytes": 279260,
+      "sha256": "d62962f5cc1900d46050c7839ba066b529edf3dd5565a7cb2280f69255ecaedc"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/Enums.lua",
+      "sizeBytes": 1729,
+      "sha256": "99c367a66717dae625584cd9d75ce435ce817645341f5361f6ae2ab915c02f01"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/Filter.lua",
+      "sizeBytes": 1471,
+      "sha256": "83af6f5067a11fe6e9016a8ed00b86e4b36bdf45e01eca317520b0cf29cc561e"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/FilterCategories/FilterCategoryGenres.lua",
+      "sizeBytes": 2818,
+      "sha256": "77b7dab5f85fe3eb25a4679a664c2bac991411c6fd3931adbf52e0d8f8d5ebcb"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/FilterCategories/FilterCategoryMisc.lua",
+      "sizeBytes": 1421,
+      "sha256": "8a1c3a6376396dfb73d7173f9491827bb9c187f4dab71c31725773ff8789d2b0"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/FilterCategories/FilterCategoryName.lua",
+      "sizeBytes": 3333,
+      "sha256": "1736979e83e62cf34967d84abb5c74d7304cdec937a9046b70a11a2b907385e1"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/FilterCategories/FilterCategoryUser.lua",
+      "sizeBytes": 222,
+      "sha256": "4c764120c0901db87a59260c48b8baf9040db8ad4ae4fddf4933956fe89466fe"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/FilterFunctions.lua",
+      "sizeBytes": 1485,
+      "sha256": "637826ff8577036981c83bab15b14c00ee6b93a111f212250db92f8eb5229cb6"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/Sort.lua",
+      "sizeBytes": 1097,
+      "sha256": "778da8b526d8a71c3201424871cffcfae03b3a5b6b7905cac9e8ff54e91f121f"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/SortFunctions.lua",
+      "sizeBytes": 6223,
+      "sha256": "1f8265ea116cb95f10b060671dcd55ac076366afa5bcfe9a2498ed0115cf5a58"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/Subtitle.lua",
+      "sizeBytes": 1516,
+      "sha256": "90039eeaf448ac6a0c68fba292721fcce3f82262d27cc7755115ad43ead081f0"
+    },
+    {
+      "path": "apps/Aurora/Media/Scripts/Content/SubtitleFunctions.lua",
+      "sizeBytes": 4146,
+      "sha256": "0d921ef2be961c7cd5aceb19e6a405740d80489bf4888692749c1f8c3049d077"
+    },
+    {
+      "path": "apps/Aurora/nxeart",
+      "sizeBytes": 708608,
+      "sha256": "16776cc1e0093309054c98545d801ef0f5b943df4336128744e58a72f7dde115"
+    },
+    {
+      "path": "apps/Aurora/Plugins/FtpDll.xex",
+      "sizeBytes": 200704,
+      "sha256": "4546fcd1bd9dad672142046ad48beecfdcc475f11715517eba1a87f2e56bfda6"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/CreateRoom.xur",
+      "sizeBytes": 3419,
+      "sha256": "e17f54165759d0723c02b334a396ac6b3f4a47ae44db4f2c8dda7fa4e2a6a77f"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/FileBrowser.xur",
+      "sizeBytes": 796,
+      "sha256": "15449dc024023e54b5ae4d72f139ee3a43444e6aad81d4d39044b51622fcf3a9"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/GameInfoScene.xur",
+      "sizeBytes": 696,
+      "sha256": "78eecc459ea0b4af49b1e84ec916329f61d14e48ec2c45873f48702d113c6a90"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/HomeTabSignedIn.xur",
+      "sizeBytes": 1298,
+      "sha256": "9af32a771d5f9b9a94999444afdfb3502cb6941368ea6b0f5b8bc7ba641e6acf"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/HomeTabSignedOut.xur",
+      "sizeBytes": 1290,
+      "sha256": "3e8190fa7bed66bd040e385d5bd1afb2036389152ec3a6e82e00ad9d64b0ef75"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/HudUiSkinCustom.xur",
+      "sizeBytes": 8665,
+      "sha256": "fa96bb9e205a31895be2daa1a2769aab7fe7cb18c0440f80b9af57806367a271"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_22x_reputation0.png",
+      "sizeBytes": 248,
+      "sha256": "23a60d80b27a6ecc1aef010713f85e62d52d9dfe6f050274e676ddc189c1994f"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_22x_reputation1.png",
+      "sizeBytes": 350,
+      "sha256": "cb9571a76a03191dfa270bb0b9c1b22fa4210c4da818dfd12c5227c71c4ef6d1"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_22x_reputation2.png",
+      "sizeBytes": 449,
+      "sha256": "1d67d4210d9eeb3360e7f87b4d8d0d3ceb48309d45530c4d9e1503a43d4ef2a3"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_22x_reputation3.png",
+      "sizeBytes": 501,
+      "sha256": "b231f44bbb7978af382cea71a948195df50827a2350a5ea445a3d02517c1a3ee"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_22x_reputation4.png",
+      "sizeBytes": 547,
+      "sha256": "f463d8a52757b95810fb7f921e1db4108dd11eef4994669920fd390334d1bf9f"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_24x_developer.png",
+      "sizeBytes": 3417,
+      "sha256": "7de1895f7ac15b89d7867bfaccd288089d10a97f18a3192aeb2febc7cfa4d570"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_24x_leader.png",
+      "sizeBytes": 3450,
+      "sha256": "0ed2d0d6037079c629d443a1635b0a75ce1de5a7a18d15a043166a90612e90ad"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_24x_moderator.png",
+      "sizeBytes": 3496,
+      "sha256": "42877d482a6cf5bdf548c6062da3edba7a9bee14cae9c0c05f65af62fc090547"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_alert.png",
+      "sizeBytes": 844,
+      "sha256": "acd6c096a4416fe61c64c0bd1f5444b0ee01e98b3982385bc1db4216f087eef4"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_file.png",
+      "sizeBytes": 2996,
+      "sha256": "baa3e37f8450968404d4da4b4beb75c2e48325a5eca8eca7f9dcac9d065cab66"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_folder.png",
+      "sizeBytes": 2923,
+      "sha256": "4addf7bdd78b21999b3b0c8574a5515272d4fa6a6268b943c6f0eabb29c501af"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_game.png",
+      "sizeBytes": 3409,
+      "sha256": "6f8daa6863e9e37554feb53615d465bcfe6776fe0e7ea0ded3929b37245d2c04"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_hdd.png",
+      "sizeBytes": 3276,
+      "sha256": "6bd95f876dd6a4c02eb516ebbaf8fbee0b0b195e01cb6961137c4891fac2e9e4"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_main_aurora.png",
+      "sizeBytes": 4214,
+      "sha256": "911002df6abf573ac4dde131f2845f01b3103dcc533f78d11ecf152cd5bef3d1"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_main_f3home.png",
+      "sizeBytes": 3453,
+      "sha256": "e2b513cfd0c00e55e14a391686a9a63dfd2f9f44e03977858fb1b96a37a07c3e"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_main_link.png",
+      "sizeBytes": 3756,
+      "sha256": "2b80f4dd4ad3ae13db7811762a1c6bad8d86a6241e6d5be0dcdd9bd0f6b45054"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_mu.png",
+      "sizeBytes": 3335,
+      "sha256": "22378a77efb9223002efceead2cf6772abc66414395c01239506afa1442212e5"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_nand.png",
+      "sizeBytes": 2959,
+      "sha256": "3a66296b0397ab184f614b6f5a8bc3a1e42deefb490c63d405d33fbfb3bb186b"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_syslink_info.png",
+      "sizeBytes": 3486,
+      "sha256": "c49b4ab5cdc2de583d25a41f41b6016f9a77e804ba52c39a2786751d3de5ca38"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_syslink_lobbies.png",
+      "sizeBytes": 3598,
+      "sha256": "0649df66f915137e6d670c0e0cc592a1cd034bcce41079ce1a2ab4792847058e"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_32x_usb.png",
+      "sizeBytes": 3308,
+      "sha256": "41e39a85aecc73e215c763d8b6fb7c11ff9e6795f68ed4ccd7ca375c52437267"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_player_blocked.png",
+      "sizeBytes": 4695,
+      "sha256": "27cbd38ad1ff8b8273e54ec2c3f066f8c12b3a85de86ac97cdecc02d815e2b27"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_player_friend.png",
+      "sizeBytes": 4638,
+      "sha256": "d1ad22b827f208b749e0af8015d9e0b50ad73996bfd2a631475ea8e009be5e30"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_player.png",
+      "sizeBytes": 3990,
+      "sha256": "5af3db59feb460721f8806ca9a1767e8dddf3ccce5d046011912179409d83016"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_global_active.png",
+      "sizeBytes": 5606,
+      "sha256": "be568d1d9e48a71f164d5763b3b2506dba07170ffffbc27df1b273bd90166289"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_global_kicked.png",
+      "sizeBytes": 5486,
+      "sha256": "4532533609fd64049fd1d9a4bfece83e67fdca39687cd5247a087f346aac6673"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_global.png",
+      "sizeBytes": 5035,
+      "sha256": "7fe905fb4abc3f42caf2da5244c2843529a917f557afa304c5ef7b4e869784ca"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_private_active.png",
+      "sizeBytes": 5114,
+      "sha256": "4b7a5c0b40111872289360a70b149513306e47e0687cb2402546b67e31a25c4f"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_private_kicked.png",
+      "sizeBytes": 4794,
+      "sha256": "cc5a788f3865dff0bfac8afcd03a2827648ea7d3f83ccab1e064894250e6a6cc"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_private.png",
+      "sizeBytes": 3920,
+      "sha256": "d64f618c17bfe42354ce77f6991c109d651ddef619d6b94b038859383f329d54"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_user_active.png",
+      "sizeBytes": 5563,
+      "sha256": "b1bdd2cbaa44f02d075cbb68d0e9ab6a507ce4943622093b913922f453ed6959"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_user_kicked.png",
+      "sizeBytes": 5351,
+      "sha256": "660c6a93c2a1b5f91ebd4fa5e0220cef1d23a4206a867d330dd5e6af304379d3"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_40x_room_user.png",
+      "sizeBytes": 4651,
+      "sha256": "af98f514d42879126914b39b4d920ae57195d8bdc792b428c5045020add7f720"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/Images/ico_48x_missing.png",
+      "sizeBytes": 844,
+      "sha256": "6dcc688f253a857943ef51cfdd76c98a294878dce9a0b2db58bcc10619574a47"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/novaFileBrowser.xur",
+      "sizeBytes": 856,
+      "sha256": "4975477c83689a775af52ee64f8b0293b029f5d9222464cc29b749e8989dcc5c"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/novaHomeTabSignedIn.xur",
+      "sizeBytes": 1152,
+      "sha256": "6a68e914bc5694f7bad7c9e8e3ace433bc43c3e10fb1a7bc32d3233b2188b5c0"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/novaHomeTabSignedOut.xur",
+      "sizeBytes": 1200,
+      "sha256": "ce79fa9dc388945ae9b04bdede3e080754f7e4f5b5ece7fb5683fb03df62dde7"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/novaHudUISkin.xur",
+      "sizeBytes": 8665,
+      "sha256": "fa96bb9e205a31895be2daa1a2769aab7fe7cb18c0440f80b9af57806367a271"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/PasswordEntry.xur",
+      "sizeBytes": 3497,
+      "sha256": "ce4ea8e34b96bea92311193576905f478524bb27890635a79b5f4960960f7952"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/PlayerInfo.xur",
+      "sizeBytes": 2224,
+      "sha256": "73d2a7d6c280b69f54784f75588eb4857e7cf46ce6cf6bfcc8515ce4e24e5d84"
+    },
+    {
+      "path": "apps/Aurora/Plugins/HudScene/SystemLink.xur",
+      "sizeBytes": 8313,
+      "sha256": "4ca9548755b2789cb1cac22cd9ad9f5d96862feb5f27614fd9ec6b049a6d3cd4"
+    },
+    {
+      "path": "apps/Aurora/Plugins/Nova.xex",
+      "sizeBytes": 245760,
+      "sha256": "3fdf5175a4caaa74e075a839776b12d15982ac304807ebc9f8d9ff0b8ae218fa"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/00000000/Screenshots/0000000020220311173638376.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "1592769bd783ae4f0d52e097188aadb56593e92eafb0ab973e04e77fe66c4531"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/00000000/Screenshots/0000000020220311173638376.meta",
+      "sizeBytes": 169,
+      "sha256": "5b73ebad36aca99c1c07c5837267ed34277312982b58b38437aac42c1f1a7fb7"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/00000000/Screenshots/0000000020220311173703589.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "a52d21d3cbb17cdf944221a38f179ca11e24724b5640a25c532f2a91b594397c"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/00000000/Screenshots/0000000020220311173703589.meta",
+      "sizeBytes": 169,
+      "sha256": "2b656359effb79d9c4ada5f365b15c08de8ac48505fb1bf43cd583a6af34c943"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/00000000/Screenshots/0000000020220311174407935.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "50234b4e6e5ff6539bd6a242aa3a18dad6743741fd06c8af81a776cde25634e5"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/00000000/Screenshots/0000000020220311174407935.meta",
+      "sizeBytes": 169,
+      "sha256": "f39d873aae982f5e02218a4540874445fcf4ea8c74c710578935d0a02ef3b1bd"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/1CED2911/Screenshots/1CED291120220315225531206.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "05e5e29948339c8b1890005fcdca6d20c723afdb7f7cd62cdab89a1ddfc0cf95"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/1CED2911/Screenshots/1CED291120220315225531206.meta",
+      "sizeBytes": 169,
+      "sha256": "fa5d467bf053657a0eddaa2e4ca1fd5d70928ce57ffbe2f870e25912cc7f851b"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/1CED2911/Screenshots/1CED291120220315225539760.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "dc7a6b7d3df719d80567ba1361c492b145f4f3101ef087091f080c894c317dba"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/1CED2911/Screenshots/1CED291120220315225539760.meta",
+      "sizeBytes": 169,
+      "sha256": "2f7525bb881f2ad8a3e88ae1978a911f20889153117fe152876d2a493072ebb4"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/4E4D0869/Screenshots/4E4D086920220307230319868.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "ee3beb0f770eef894582edf7f45a8de89e3132af570cf37e04d9801500962826"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/4E4D0869/Screenshots/4E4D086920220307230319868.meta",
+      "sizeBytes": 169,
+      "sha256": "55ba4f649cd115c2e5253dc3052e0b5b82125629236de3af572980c3166fa941"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/4E4D0869/Screenshots/4E4D08692022030723032298.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "e935d3bc2045ce4614c560c09fe6ef24eb986e9fbb1bd9b1c8e90e2a25a7591a"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/4E4D0869/Screenshots/4E4D08692022030723032298.meta",
+      "sizeBytes": 167,
+      "sha256": "ca1e53caf28278d0adb672d7cd4a48a5c691081f6f791405e44f609559da95ce"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/FFED0707/Screenshots/FFED07072022031218405918.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "952194322a68972e4a009673b1a1355a8a0cd18281afdb64e5c602252b4b0ab2"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/FFED0707/Screenshots/FFED07072022031218405918.meta",
+      "sizeBytes": 167,
+      "sha256": "5576ccee99f2d89d1241850d532a3392e1f15ce155d3544a633a087fa4ef58b7"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/FFED0707/Screenshots/FFED070720220312184100681.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "03e37c666cc5d4fb9f70f3471663cf512423417a8edbd7ed5273a34f4c3d45dc"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/FFED0707/Screenshots/FFED070720220312184100681.meta",
+      "sizeBytes": 169,
+      "sha256": "7a03405b941eac79ef2cf7e6b27897b5a2835b66439c1f5fbf8793f8ea67e6eb"
+    },
+    {
+      "path": "apps/Aurora/Plugins/UserData/syslink.dat",
+      "sizeBytes": 740,
+      "sha256": "f6cd94ff80d845b385b135ad329ca3056308776bf111b7ab04e3c94fdc1db086"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getAchievementEntry.json",
+      "sizeBytes": 118,
+      "sha256": "d592aa83b52650e685716778e1a76a890eb6d0f9a71ffc8b3d1ab4c18312365c"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getDashLaunchInfo.json",
+      "sizeBytes": 84,
+      "sha256": "0f3d0e0ec86ac7f8e760984167b367cc82a62e91db670c5dea14dd0189545bce"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getDashLaunchOption.json",
+      "sizeBytes": 50,
+      "sha256": "f60b7c796efd12a61899e182b236864768774cb3461a658d5d2035037e5872fb"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getFileListEntry.json",
+      "sizeBytes": 39,
+      "sha256": "0f7a5c8f786b5dc05c7ec6e6eb94b15d9a6b672136f08ecbca0cc45557e8148f"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getGameInfo.json",
+      "sizeBytes": 180,
+      "sha256": "f70e8d8f1d32436e621123cd04c75075da843059992259187306f35bd8df97d5"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getMemoryInfo.json",
+      "sizeBytes": 32,
+      "sha256": "15e77b4bf6b853005686192f08f9b3a0d9d0b1aaaddc641e33c6aba53b41b9d6"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getMultidiscEntry.json",
+      "sizeBytes": 28,
+      "sha256": "3270693d2a9ff76da18c84040519f6389a37b08507ceffbb9b1646a827d24dbf"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getMultidiscInfo.json",
+      "sizeBytes": 68,
+      "sha256": "ff9aea2e356fefe317507e58b2777a059a8a4fc2205b838a8027786d4cf76d69"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getPlayerAchievementEntry.json",
+      "sizeBytes": 32,
+      "sha256": "8b26bad4708a84c072d09bc94fe02dd1dd06be500ef9f97cbacbf4dbb446e453"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getPluginInfo.json",
+      "sizeBytes": 281,
+      "sha256": "bc4c86a630450124d7f8262dff54d883caf9dbaac1c9434eda3ed1b19dcaa2d8"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getProfileInfo.json",
+      "sizeBytes": 76,
+      "sha256": "485cd0bb6dd3c453c9a5cced6f4b6f034ecb0ca5eba5c2c2ce472abda831799b"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getScreenCaptureCount.json",
+      "sizeBytes": 12,
+      "sha256": "4d2424de1793c996ffbed0db0980250c6ed3358eaabd69db78c0dbcd799aca8f"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getSMCInfo.json",
+      "sizeBytes": 320,
+      "sha256": "b25291259ccc7ba533d98867e676be2f82023b2db20e3f2023727daf1906aefd"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getSystemInfo.json",
+      "sizeBytes": 157,
+      "sha256": "704aab1113d99aec3074ce05ce0ef144d8a9d5e94cc7f1ee7b97b6557b327389"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getSystemLinkBandwidth.json",
+      "sizeBytes": 86,
+      "sha256": "761eb90b86650b89f264617ccfd2533578b018abd05662ed98841d13cc9520c6"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getSystemLinkInfo.json",
+      "sizeBytes": 213,
+      "sha256": "fa6b731f9471da4ed3966342ad2c7297c15e1270dcc83dbab218fb7e966df759"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getTemperatureInfo.json",
+      "sizeBytes": 66,
+      "sha256": "60f5f5b0a1a5afa97451d8b4ee907da23bc528c46f52fc95821b6afd1abbdb95"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getThreadInfo.json",
+      "sizeBytes": 86,
+      "sha256": "dffab564010ba34a8230ae801408f6acdb59833dd74ec878dae3798910ffe9e6"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getThreadState.json",
+      "sizeBytes": 12,
+      "sha256": "c7d3153b098da3b8a9244bd0264be7315cdb6103974a11b95e2e249f90ad7342"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/getUpdateNotification.json",
+      "sizeBytes": 63,
+      "sha256": "a2a9edcbfe5e51a83b7c2078c6a6a078c006ba1d455ea942c8fc6852d5ec4196"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/api/templates/postAuthenticate.json",
+      "sizeBytes": 14,
+      "sha256": "f2e5717468b140c895e7663d40c2950f16f1303c14cb860911a5649833102a1f"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/css/app.css",
+      "sizeBytes": 3376,
+      "sha256": "889ffd5caa4586c5f7fc99d4fe68879de5d5e5b8357aa24918e73318474d8161"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/css/app.css.map",
+      "sizeBytes": 88,
+      "sha256": "25fd3d4b67aa968563ac656d21cf3bffa537591e78cdc84627781916163c2961"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/400.html",
+      "sizeBytes": 101,
+      "sha256": "2a4b2dd0a9d5393bae4fd681cd52e658aedc7cb22dad4bbea5cac7855a80c636"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/401.html",
+      "sizeBytes": 102,
+      "sha256": "fd550ee27301197e19479a08a07c0310a4d778388934c9bad936d831d4f1006a"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/403.html",
+      "sizeBytes": 99,
+      "sha256": "80e5fb58300c8d6cbcde054ba32c3e839a6be887dd5d5e7e4d8745dc1884aed4"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/404.html",
+      "sizeBytes": 108,
+      "sha256": "c364faeadb505b79e40f6c981e3f7688535e5b5259a39842fc58ca61e9d0eba7"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/409.html",
+      "sizeBytes": 98,
+      "sha256": "3e0635ba6d7774ce3203627091c00c2ba57e4b6e8e92dbde70b5915765a4f79a"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/424.html",
+      "sizeBytes": 107,
+      "sha256": "5d615d827345aafeb671382a3e422674959cc765d2f0870c38576e44b4cad971"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/429.html",
+      "sizeBytes": 107,
+      "sha256": "e2e6900ef73d28396000bfe2a1df55604acdb2cacc4d7893e0c3cbba056fe761"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/500.html",
+      "sizeBytes": 111,
+      "sha256": "911c7faec1c6e29e1dfa32d5f7d525964dd072a19f6240556d32f54a5d68f278"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/errors/501.html",
+      "sizeBytes": 105,
+      "sha256": "0faf4bafa3d222797ec147a6da46a9bcc908945a6785c6c4266958187650923d"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.secret.png",
+      "sizeBytes": 19237,
+      "sha256": "6866613ca794050ba6fcf0b8b2fde42524c3bf54888236efb2765094e1982319"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.type.checkpoint.png",
+      "sizeBytes": 1103,
+      "sha256": "36273f2772bcbc60bd50201bc9a1386406c0a6bc39209c0659bf92407cb8b70e"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.type.completion.png",
+      "sizeBytes": 1198,
+      "sha256": "73cc1d1ce884cdf4dfbe9d8934c17588f3c40f55ab44700e88150552b63c788d"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.type.event.png",
+      "sizeBytes": 1180,
+      "sha256": "638c708b336022cb968034552624e07455b2a3f03a9700ae4a0c3d1ad76308a6"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.type.leveling.png",
+      "sizeBytes": 1084,
+      "sha256": "223b30f6dd66b03ca3b5877e0db767784944eb75adaaff010dc77a59a9fbaf4b"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.type.other.png",
+      "sizeBytes": 1041,
+      "sha256": "8a4eba6b2e82a63871349535e9b9acf968770515b39dd1ed66241e68c6c5e0d3"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.type.tournament.png",
+      "sizeBytes": 1252,
+      "sha256": "7ecb26fbda611583223807ce71517754446e60703d186754ef4bf6cc73c56428"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.type.undefined.png",
+      "sizeBytes": 1144,
+      "sha256": "1de4adb42f270c358023f0aed76025f388a49929d843fb5ace4b7eff74a11df4"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/achievement.type.unlock.png",
+      "sizeBytes": 1200,
+      "sha256": "0ff5a19cdf7af8e87ba9c780306cce675d30ad6fc664885e49e400af0911d943"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/favicon.ico",
+      "sizeBytes": 34494,
+      "sha256": "4b3c69a09c3d73b319990de0a82d27c4ea38e2ae9c757fef796ef05ff6104b26"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/icon.nova.png",
+      "sizeBytes": 4737,
+      "sha256": "89208099353b1a54a252fd86e772206becb2481dc166ed99714cfa57f24b879d"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/loader.svg",
+      "sizeBytes": 1278,
+      "sha256": "d9315017bc3779d08e24b1caf10fc2842ba4388737c925d8af5197027460c501"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/logo.nova.png",
+      "sizeBytes": 35964,
+      "sha256": "9523ab74f56cd035a571a7c13145b16d74c8966c46fff8eeadbe783bf0aceb0b"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/img/profile.gamerscore.png",
+      "sizeBytes": 1264,
+      "sha256": "656076ee825d102f76f2d166221e539f424c9fb23d7ce703c25c9b5b6f3a15c0"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/index.html",
+      "sizeBytes": 1245,
+      "sha256": "d1c3863423511189b51a4291c823841e46373e0284a57a10ae3c2d1a22e68385"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/js/app.js",
+      "sizeBytes": 474167,
+      "sha256": "3c80650f35e7983820c5a44de0f810e8b91967b0283eb12e9ddc2c218c150af8"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/js/app.js.map",
+      "sizeBytes": 2266724,
+      "sha256": "7d33d8b429b06ad77a1d22010c8131db69c117ccbbfcc5e5b1b06f51533f152e"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/js/polyfills.js",
+      "sizeBytes": 143525,
+      "sha256": "ada33373e20f4523c807b5f454a5e43db970137687c0865bb3b52fdc1925b96a"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/js/polyfills.js.map",
+      "sizeBytes": 1103138,
+      "sha256": "45d5efe48b81414d632f7b9ecca8783c48deee150b38d71221a771debb063f7c"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/js/vendor.js",
+      "sizeBytes": 1023249,
+      "sha256": "a2003aa08fc3ea32e399719eb301f081d73455fd7644d7092a0069d8a6df5362"
+    },
+    {
+      "path": "apps/Aurora/Plugins/WebRoot/js/vendor.js.map",
+      "sizeBytes": 7560305,
+      "sha256": "b4a1268c47e7f2561943c0d2032f81391e4f2436b9ff762ae35ab03e13eba7f5"
+    },
+    {
+      "path": "apps/Aurora/Skins/Default.xzp",
+      "sizeBytes": 5180269,
+      "sha256": "3b958674d4331d98c84caf7836eac8e72c747b6de66328d43113337a62187776"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Content/Filters/HideBackups.lua",
+      "sizeBytes": 440,
+      "sha256": "a813f0de7b5df0485703fad0fdf5f7c58dcafbec99d3b8afe4957e843615ecf2"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Content/Filters/HideKinect.lua",
+      "sizeBytes": 186,
+      "sha256": "6bc592bdde5d7b2fdaedba9c0a0b6df28803ea446def3188ca511c9a20573e20"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Content/Filters/HideMultiDisc.lua",
+      "sizeBytes": 144,
+      "sha256": "69743a899afe9c2e75e14f440563d52b7abb3fba1a2eba3fe91fc6fb2fe47c59"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Content/Sorts/Genre.lua",
+      "sizeBytes": 821,
+      "sha256": "48a4d7e2c1cec088c7b52643233f43f984acdb76777a6f6c0f7ae3d2c5ced6f3"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Content/Subtitles/DeviceCode.lua",
+      "sizeBytes": 219,
+      "sha256": "3fd2331a47b430dadbb16bd05fa5567a4a07824aaf7a100180311d76b2ee0956"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Main.lua",
+      "sizeBytes": 219,
+      "sha256": "2e7e252cd8ad696f1b190bb22cdc550a8ffd952448ef4653926162c5e97755fa"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Utility/AuroraRepo/icon.png",
+      "sizeBytes": 2878,
+      "sha256": "738b5e45602b2f071b7c65f95e9770a8c42fdf7b35036ad9d502b40d43ef73a6"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Utility/AuroraRepo/Main.lua",
+      "sizeBytes": 9355,
+      "sha256": "b7d0811486b9bb8fa0649dcc51f338196b2520bf0b1f855df43b76d709d0ab06"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Utility/AuroraRepo/MenuSystem.lua",
+      "sizeBytes": 3914,
+      "sha256": "a0683ad6a1bb1d8a9e0b1cbc8c2104822b13271cb62ccce5305953918a64a135"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Utility/AuroraRepo/Repos.ini",
+      "sizeBytes": 622,
+      "sha256": "03b4e676b4744e6582a6ca26a93b56d11b425a518c1a4600273b806d619496d8"
+    },
+    {
+      "path": "apps/Aurora/User/Scripts/Utility/readme.txt",
+      "sizeBytes": 126,
+      "sha256": "f31cab5e9e9809819014787c99a4e80ae505a260691cb89a050dd0b1cf374356"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/for_xxbuild.zip",
+      "sizeBytes": 57911,
+      "sha256": "38fa854e48998c0894afcb610a1b44006aa6f9119a5efb500ad674311da628d5"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/info_launch.ini",
+      "sizeBytes": 12648,
+      "sha256": "59ab10ff5e33a68ddc150942b7981774791f60b1dd03c6770269fa090f7b6aab"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/Installer/default.xex",
+      "sizeBytes": 1701888,
+      "sha256": "7d18d34f17c7765e5cf61cf1c6d7684fefa8f5a9ce5250004541f2fc2f06c845"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/launch_sysdll_exports_examples.c",
+      "sizeBytes": 8932,
+      "sha256": "d808a71a764d73402d237b9eaad6d377bda00ff285b7c03875f673712bef96cb"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/readme.txt",
+      "sizeBytes": 32856,
+      "sha256": "69a1f98de896c58a409ac1adaa18480e69fb9a56b8883e3efcced025922028c1"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/sample_launch.ini",
+      "sizeBytes": 173,
+      "sha256": "382112fa9daaec5db555fd194c6239ff57c993a4d46f5a1dc30cdc9052f536c4"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/skin_src.zip",
+      "sizeBytes": 825475,
+      "sha256": "5dae5ac1bc4c823dfffe74ba7f66bb5e4560687c88ab51c4abce7636eb23b74f"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/templog.py",
+      "sizeBytes": 3618,
+      "sha256": "9427285be9b5516f5c2207234e4d91177e44af7ef3e6874682aa4bc0bcedcd70"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/XellLaunch/default.xex",
+      "sizeBytes": 26624,
+      "sha256": "5809bc7160ebe197c3e7edbd792e5dbdde1389da7b9a820361a895057c7dd258"
+    },
+    {
+      "path": "apps/dash_launch_v3.21/XellLaunch/readme.txt",
+      "sizeBytes": 523,
+      "sha256": "1cf866873d9e5cd2dba0214b8af96163a244b5abaedbe26a05bc3dafb24b2383"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Databases/content.db",
+      "sizeBytes": 82944,
+      "sha256": "0597f83203d7f0201cc67b8223ed2a1e2f70b82b1539b6ffc79efd2aa60fcd09"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Databases/settings.db",
+      "sizeBytes": 31744,
+      "sha256": "2c7f58d477ff56558b235230da62d6c475ff4b1c7e00f37ca6577eb2b30ce1fe"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Logs/debug.log",
+      "sizeBytes": 18003,
+      "sha256": "8d2442f5f3612702c67739a27f0b4766c62c407fc52183f458235651dbd35d00"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Logs/FreeStylePluginDebug.log",
+      "sizeBytes": 1034,
+      "sha256": "4621c45df0121eba5d234a5d8e5fe260292d919c4e09ff353fab226be61d3786"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Screenshots/screenshot.20250410132907221.png",
+      "sizeBytes": 308301,
+      "sha256": "dae70b41af8cf91e3256e466349fd0fb3112bca73aa3deb65a8e27fa7bc07731"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Screenshots/screenshot.20250410132908303.png",
+      "sizeBytes": 308382,
+      "sha256": "adeeb6ef18d8fee7841e975fb49a5b3e92f6a3ce6bc0dd3275379d0eb6cbd461"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Screenshots/screenshot.20250410132909370.png",
+      "sizeBytes": 307567,
+      "sha256": "0764411943d65432237ac49165a3d9ab79e452d97d12292afce77a946f750c59"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Screenshots/screenshot.20250410132910437.png",
+      "sizeBytes": 302939,
+      "sha256": "5c8c7e48e38ad2d5cebbe67571a4ed51d4e1658d175364f90626c85baa2cacf5"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Screenshots/screenshot.20250410132911503.png",
+      "sizeBytes": 305129,
+      "sha256": "013fcfbf5b9af92c66f6cc78dc63ca89372497f228b973b634baa5599feb9034"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Screenshots/screenshot.20250410132912570.png",
+      "sizeBytes": 309950,
+      "sha256": "ffc0e18067139b74a856eed5adcf1351fec22d35bc7cf5b8366edd415a309981"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Screenshots/screenshot.20250410132913637.png",
+      "sizeBytes": 316337,
+      "sha256": "0518534c5a7a1145855142f6cd8691ed316e7909b86275fd13f45abed6f9171e"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Screenshots/screenshot.20250410132922220.png",
+      "sizeBytes": 309640,
+      "sha256": "7e824410e9c53460a2d7469c5b45ea1c9f81a2fcb2c181a56c1d2ebc93942ca3"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/Settings/MenuSettings.xml",
+      "sizeBytes": 8135,
+      "sha256": "88511c386f26704721d2e3504b1277de487952cefdb8281ccfab296b6a5d53b1"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/Settings/SkinSettings.xml",
+      "sizeBytes": 353,
+      "sha256": "3e93eb7fafff0a52ea13420c7af95fbda52201c1f2279e5560fa2467a06a8d98"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/BkgListA.xml",
+      "sizeBytes": 5201,
+      "sha256": "6feca72a6e95cf648e434ec765189591722519398238842fa98e97c70f6b9bd7"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/BkgListB.xml",
+      "sizeBytes": 1261,
+      "sha256": "4d6ec5bb7ef4a8bd303a7ab329de7688f91c953d1c630a55cf6ddf8ae9ccba8c"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/BlackVisual.xml",
+      "sizeBytes": 5013,
+      "sha256": "3acc8db45f855800b912175d6a96b3dc4dae14ea9e5dab6fd7f6ceb2ba639130"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/BlueVisual.xml",
+      "sizeBytes": 4980,
+      "sha256": "ec65410c2c96056af722ddd7929301d543b8c1cf7ec1d9fd8648cc331c7ef45a"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/CLayout.xml",
+      "sizeBytes": 1560,
+      "sha256": "3a88379a12c079ac287545874c0e824a7acebc4820f8cef9fa1c97108e39f589"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/DarkGreyVisual.xml",
+      "sizeBytes": 5124,
+      "sha256": "892ae3ab053e79162d1c0712296cf1923aef6d706f07deefc8620ef8666221d2"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/F3Visual.xml",
+      "sizeBytes": 4909,
+      "sha256": "2dea281f35adda1956afe0093e761cde34ea939d2693014696fcb749156dd6c0"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/GreenVisual.xml",
+      "sizeBytes": 5014,
+      "sha256": "845f0959313d7247d31d3ce371e2a61750ece13054c2eb39d17667fec4f2f8bc"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/KinectBlueVisual.xml",
+      "sizeBytes": 4024,
+      "sha256": "0ac541e9d27c580c03a68b778c3be0590e85c9daa6f1eb0474ee5a2ddae75dec"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/KinectVisual.xml",
+      "sizeBytes": 4002,
+      "sha256": "4289a8c945f5083bed17bf39779dce73c3c218525b07fca6f7b2db0c4846440b"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/LightGreyVisual.xml",
+      "sizeBytes": 5156,
+      "sha256": "b8f6ad0fb1417e2c0ca60ec7d3e5bbcfb86c9f72c0b12c2052c289646451b11a"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/OrangeVisual.xml",
+      "sizeBytes": 5050,
+      "sha256": "7b837d719437d314fcf6971404d2142e4d425a7e22671cac66ed114d2bec94ea"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/RedVisual.xml",
+      "sizeBytes": 4948,
+      "sha256": "078103075e841069d95e29d684b2f0707e25e9297fb0a837344aee53ecc8aeab"
+    },
+    {
+      "path": "apps/FreeStyle/Data/Skins/Default.xzp/XML/VisualList.xml",
+      "sizeBytes": 436,
+      "sha256": "db10c4aca9cfc8bfe2d01bbe8d8e713c887130550252584aab5cca12b11f2a7a"
+    },
+    {
+      "path": "apps/FreeStyle/Database.xmplr",
+      "sizeBytes": 13168640,
+      "sha256": "b56a6ccb9213be7f295c6c74f732a8312629e3ac5e3643c2104e2f96e9f1d5e3"
+    },
+    {
+      "path": "apps/FreeStyle/default.xex",
+      "sizeBytes": 16531456,
+      "sha256": "8181206d1487739a955712eee853d50185ac19efb7f106651835cfc6e2fae33a"
+    },
+    {
+      "path": "apps/FreeStyle/live.json",
+      "sizeBytes": 3797,
+      "sha256": "18736ac7732fb0f2f2448d3405ec6e8dcfa6f93c5cd28e7af3357818ad518c70"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/background.jpg",
+      "sizeBytes": 33216,
+      "sha256": "8bd377763230e61090b1e5596611f1be27a424ebccef1ef73dbc62ebc927c3de"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/banner.png",
+      "sizeBytes": 17491,
+      "sha256": "eab7ddacb5d44291ab053b1f0f5a1d5e469c1f19f9a06e1b19f9fe72a3e72b05"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/boxartlg.jpg",
+      "sizeBytes": 15591,
+      "sha256": "59766313677bfbcf1f40a042f80c6a0938c1d5b2a175dabef7265f8bd63b326a"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/boxartsm.jpg",
+      "sizeBytes": 6619,
+      "sha256": "1b6906fa19c94f06f7307ec4487ad970bd553a03af67f0e994982790bc5889eb"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/screenlg1.jpg",
+      "sizeBytes": 151695,
+      "sha256": "9e46d28f732f96e01686b8bfcd500fc389b2c02f4041cd48f4c353742810660b"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/screenlg2.jpg",
+      "sizeBytes": 103312,
+      "sha256": "3442e826ff9df0c0d4361e46ac37baddb8e98d0e5c69e7ee8585dd1cbab26040"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/screenlg3.jpg",
+      "sizeBytes": 183909,
+      "sha256": "313833aa18ada560122ed6248c906b6d53e45724a84a8bedab8e51751d9624e5"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/screenlg4.jpg",
+      "sizeBytes": 148822,
+      "sha256": "6851a693a887aca0d63a981ade40ff15c373e97eba01c09964696e34adcb5b6e"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/screenlg5.jpg",
+      "sizeBytes": 240951,
+      "sha256": "c5dffc02cd22823d5d0d3b2e6b80fd818cafc5d86f4d1c31e31baace058ae9d8"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/screenlg6.jpg",
+      "sizeBytes": 91968,
+      "sha256": "abc1a76f88ecd23f95af9da6c8fa1121c7f3175d5f6a7f52d752bf639d3db3eb"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/screenlg7.jpg",
+      "sizeBytes": 66370,
+      "sha256": "ea7893f7024cf87aef48830ee2909a6a25543f9623d7cefa1a9d3384475623c9"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/screenlg8.jpg",
+      "sizeBytes": 102727,
+      "sha256": "25627771697d3cbab139a2fdb9800505a19784c7b2abdf19e9588dceb9ffbd19"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Assets/tile.png",
+      "sizeBytes": 4142,
+      "sha256": "9f98aac1b3a3069db3c71e83ec6c107bf0cd6f5a0d463977946e87bb59a1413c"
+    },
+    {
+      "path": "apps/FreeStyle/Media/destruct.wav",
+      "sizeBytes": 495476,
+      "sha256": "5251e56f1e89e718df19f0319dc75b3d5fb2b539a15026577b20185849bbcdff"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Effects/SimpleShaders.fxobj",
+      "sizeBytes": 17660,
+      "sha256": "52aa21b84545a68e8aa3b951f59ecbbc4ca58a56fdda6523b7255076915d69d5"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Fonts/Arial_16.xpr",
+      "sizeBytes": 118796,
+      "sha256": "a81b97c5433a9ab633b5ea2cb06194d2a61e1b5b572d4eea76cc3a135460ad8f"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Grammar/Grammar.cfg",
+      "sizeBytes": 1800,
+      "sha256": "a18701776dd5b529d59a150eea9de336498fe026efa2842a2169ad06dfb44223"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Nui/F3Nui.gbd",
+      "sizeBytes": 261967,
+      "sha256": "bd55fe537954b531d911ef6e50698206929717a6dabaf648bd32259ecf1bbe06"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Shaders/DefaultPS.xpu",
+      "sizeBytes": 252,
+      "sha256": "2b0960dfb2a49910ceab5e4aea8956aa4e107e9a3a0c81b85008f7679f33caf7"
+    },
+    {
+      "path": "apps/FreeStyle/Media/Shaders/DefaultVS.xvu",
+      "sizeBytes": 404,
+      "sha256": "3dc8a978de90c024cd6f923686436ed31150b24ea87cee7d77d98da89a1e0672"
+    },
+    {
+      "path": "apps/FreeStyle/NuiIdentity.bin.be",
+      "sizeBytes": 3272704,
+      "sha256": "b6c5a937ef39e03c3e55cddd32dbe6a53751e0d9893beae299d9d441cb9c089e"
+    },
+    {
+      "path": "apps/FreeStyle/nuisp1033",
+      "sizeBytes": 1003520,
+      "sha256": "80cfc14fa46676d19ca0748d7f20474936265ab6517a33f4664abe9c1ffc0bb7"
+    },
+    {
+      "path": "apps/FreeStyle/nxeart",
+      "sizeBytes": 221184,
+      "sha256": "1e5a29bffd6a570213c47d289f22e4f76ca2ee9491ddfcf9fb66933da3b36ddd"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/FreeStylePlugin.xex",
+      "sizeBytes": 196608,
+      "sha256": "c626f50f11fd0a752ecc039cb87729d24df4a62464cad3559794e8d5fceeb935"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/CreateRoom.xur",
+      "sizeBytes": 3419,
+      "sha256": "e17f54165759d0723c02b334a396ac6b3f4a47ae44db4f2c8dda7fa4e2a6a77f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/FileBrowser.xur",
+      "sizeBytes": 796,
+      "sha256": "15449dc024023e54b5ae4d72f139ee3a43444e6aad81d4d39044b51622fcf3a9"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/GameInfoScene.xur",
+      "sizeBytes": 696,
+      "sha256": "78eecc459ea0b4af49b1e84ec916329f61d14e48ec2c45873f48702d113c6a90"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/HomeTabSignedIn.xur",
+      "sizeBytes": 1310,
+      "sha256": "2cba72d50fd1df897551f210501c97f990f2b9c02b39a08710eedd074ff83973"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/HomeTabSignedOut.xur",
+      "sizeBytes": 1302,
+      "sha256": "4466da6bc3a5b59ffceb43028ae4aed088f0c1078c304a7a3925900bd5571b7f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/HudUiSkinCustom.xur",
+      "sizeBytes": 3899,
+      "sha256": "16ce3cc7e9b6a1cd3293a685e66692586b5abab82fd2f8769f44f42906095eb2"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_22x_reputation0.png",
+      "sizeBytes": 248,
+      "sha256": "23a60d80b27a6ecc1aef010713f85e62d52d9dfe6f050274e676ddc189c1994f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_22x_reputation1.png",
+      "sizeBytes": 350,
+      "sha256": "cb9571a76a03191dfa270bb0b9c1b22fa4210c4da818dfd12c5227c71c4ef6d1"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_22x_reputation2.png",
+      "sizeBytes": 449,
+      "sha256": "1d67d4210d9eeb3360e7f87b4d8d0d3ceb48309d45530c4d9e1503a43d4ef2a3"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_22x_reputation3.png",
+      "sizeBytes": 501,
+      "sha256": "b231f44bbb7978af382cea71a948195df50827a2350a5ea445a3d02517c1a3ee"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_22x_reputation4.png",
+      "sizeBytes": 547,
+      "sha256": "f463d8a52757b95810fb7f921e1db4108dd11eef4994669920fd390334d1bf9f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_24x_developer.png",
+      "sizeBytes": 3208,
+      "sha256": "e1e0deb5c5b401ce6ad577189c99b8930c79ee118984c52432475b7b4f6b3d59"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_24x_leader.png",
+      "sizeBytes": 3450,
+      "sha256": "0ed2d0d6037079c629d443a1635b0a75ce1de5a7a18d15a043166a90612e90ad"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_24x_moderator.png",
+      "sizeBytes": 3496,
+      "sha256": "42877d482a6cf5bdf548c6062da3edba7a9bee14cae9c0c05f65af62fc090547"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_alert.png",
+      "sizeBytes": 844,
+      "sha256": "acd6c096a4416fe61c64c0bd1f5444b0ee01e98b3982385bc1db4216f087eef4"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_file.png",
+      "sizeBytes": 2996,
+      "sha256": "baa3e37f8450968404d4da4b4beb75c2e48325a5eca8eca7f9dcac9d065cab66"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_folder.png",
+      "sizeBytes": 2923,
+      "sha256": "4addf7bdd78b21999b3b0c8574a5515272d4fa6a6268b943c6f0eabb29c501af"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_game.png",
+      "sizeBytes": 3409,
+      "sha256": "6f8daa6863e9e37554feb53615d465bcfe6776fe0e7ea0ded3929b37245d2c04"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_hdd.png",
+      "sizeBytes": 3276,
+      "sha256": "6bd95f876dd6a4c02eb516ebbaf8fbee0b0b195e01cb6961137c4891fac2e9e4"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_main_f3home.png",
+      "sizeBytes": 3453,
+      "sha256": "e2b513cfd0c00e55e14a391686a9a63dfd2f9f44e03977858fb1b96a37a07c3e"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_main_link.png",
+      "sizeBytes": 3756,
+      "sha256": "2b80f4dd4ad3ae13db7811762a1c6bad8d86a6241e6d5be0dcdd9bd0f6b45054"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_mu.png",
+      "sizeBytes": 3335,
+      "sha256": "22378a77efb9223002efceead2cf6772abc66414395c01239506afa1442212e5"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_nand.png",
+      "sizeBytes": 2959,
+      "sha256": "3a66296b0397ab184f614b6f5a8bc3a1e42deefb490c63d405d33fbfb3bb186b"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_syslink_info.png",
+      "sizeBytes": 3486,
+      "sha256": "c49b4ab5cdc2de583d25a41f41b6016f9a77e804ba52c39a2786751d3de5ca38"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_syslink_lobbies.png",
+      "sizeBytes": 3598,
+      "sha256": "0649df66f915137e6d670c0e0cc592a1cd034bcce41079ce1a2ab4792847058e"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_32x_usb.png",
+      "sizeBytes": 3308,
+      "sha256": "41e39a85aecc73e215c763d8b6fb7c11ff9e6795f68ed4ccd7ca375c52437267"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_player_blocked.png",
+      "sizeBytes": 4695,
+      "sha256": "27cbd38ad1ff8b8273e54ec2c3f066f8c12b3a85de86ac97cdecc02d815e2b27"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_player_friend.png",
+      "sizeBytes": 4638,
+      "sha256": "d1ad22b827f208b749e0af8015d9e0b50ad73996bfd2a631475ea8e009be5e30"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_player.png",
+      "sizeBytes": 3990,
+      "sha256": "5af3db59feb460721f8806ca9a1767e8dddf3ccce5d046011912179409d83016"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_global_active.png",
+      "sizeBytes": 5606,
+      "sha256": "be568d1d9e48a71f164d5763b3b2506dba07170ffffbc27df1b273bd90166289"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_global_kicked.png",
+      "sizeBytes": 5486,
+      "sha256": "4532533609fd64049fd1d9a4bfece83e67fdca39687cd5247a087f346aac6673"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_global.png",
+      "sizeBytes": 5035,
+      "sha256": "7fe905fb4abc3f42caf2da5244c2843529a917f557afa304c5ef7b4e869784ca"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_private_active.png",
+      "sizeBytes": 5114,
+      "sha256": "4b7a5c0b40111872289360a70b149513306e47e0687cb2402546b67e31a25c4f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_private_kicked.png",
+      "sizeBytes": 4794,
+      "sha256": "cc5a788f3865dff0bfac8afcd03a2827648ea7d3f83ccab1e064894250e6a6cc"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_private.png",
+      "sizeBytes": 3920,
+      "sha256": "d64f618c17bfe42354ce77f6991c109d651ddef619d6b94b038859383f329d54"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_user_active.png",
+      "sizeBytes": 5563,
+      "sha256": "b1bdd2cbaa44f02d075cbb68d0e9ab6a507ce4943622093b913922f453ed6959"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_user_kicked.png",
+      "sizeBytes": 5351,
+      "sha256": "660c6a93c2a1b5f91ebd4fa5e0220cef1d23a4206a867d330dd5e6af304379d3"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/Images/ico_40x_room_user.png",
+      "sizeBytes": 4651,
+      "sha256": "af98f514d42879126914b39b4d920ae57195d8bdc792b428c5045020add7f720"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/PasswordEntry.xur",
+      "sizeBytes": 3497,
+      "sha256": "ce4ea8e34b96bea92311193576905f478524bb27890635a79b5f4960960f7952"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/PlayerInfo.xur",
+      "sizeBytes": 2224,
+      "sha256": "73d2a7d6c280b69f54784f75588eb4857e7cf46ce6cf6bfcc8515ce4e24e5d84"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/HudScene/SystemLink.xur",
+      "sizeBytes": 8313,
+      "sha256": "4ca9548755b2789cb1cac22cd9ad9f5d96862feb5f27614fd9ec6b049a6d3cd4"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/errors/304.html",
+      "sizeBytes": 114,
+      "sha256": "5148985efc3a877381fc78e1fe4ec1bdde00fa8701d976721229fe94fe49ac70"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/errors/401.html",
+      "sizeBytes": 114,
+      "sha256": "d3dc4dbfb1ff8e942cd0607f85b1bd7e5a668519ff74f8c852451872e2ffa860"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/errors/403.html",
+      "sizeBytes": 118,
+      "sha256": "5c8d66f22731f83dd393ca58a2dfeeda20bb20e94721a20ffe10ee8fe08aa8e7"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/errors/404.html",
+      "sizeBytes": 116,
+      "sha256": "3d886d9da1bdbb43b4c7bf430c2311e68f3b644f1fca203b3d1e309cd1c58348"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/errors/500.html",
+      "sizeBytes": 123,
+      "sha256": "e885a7eb3492f11235668b31a06809216b9703743bf5acee3f8211dcb9b8fbe6"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/errors/503.html",
+      "sizeBytes": 121,
+      "sha256": "69ed21382c0ebca09327d5f18197926d0d47d9d16c0eccd9b82d57cdc3b0b0e5"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/favicon.ico",
+      "sizeBytes": 1150,
+      "sha256": "a690cd8ab6cbd3eabed8307dffc99e64fb08a9bddd0bac4cfd7a4e4564f587d7"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/blank.gif",
+      "sizeBytes": 1093,
+      "sha256": "601b0d76b7835742df77dc85298ce05864fde10002999ecf3c8cf0e1d1649cda"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/camera_skins.png",
+      "sizeBytes": 24198,
+      "sha256": "a99f5a6bab7efec1d87835d754900adffe01497c407a8749fec13456a3f5baa2"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/camera-loader.gif",
+      "sizeBytes": 9289,
+      "sha256": "54ecb255faaf5ef40b325def1fe3ed203589d761ddaacc784fd9401c651156d2"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay1.png",
+      "sizeBytes": 937,
+      "sha256": "0c0baffd97e7956cb0b920ccffc86bbf78da5620aee13ab59c09168cf3209f59"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay10.png",
+      "sizeBytes": 923,
+      "sha256": "ed4e2a54a4e506127e650629d6b2718a97ded7b5928a511928d14ef12d9db29a"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay2.png",
+      "sizeBytes": 935,
+      "sha256": "c6e7ef067d19aede9bdd229e34151e805f9acfbd935484fc221974c5fba5f22f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay3.png",
+      "sizeBytes": 938,
+      "sha256": "4760492725880a139a81c04ce0c8219ef45ed04f93f624b503091f8d256ef1f7"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay4.png",
+      "sizeBytes": 924,
+      "sha256": "3083eb1fcffa365a9cf5d16e768039196039e1407124424a36e09013818e205b"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay5.png",
+      "sizeBytes": 924,
+      "sha256": "a580b0a9845f5d4571dfc68a0cd8a6c71ea8da3544d9c44057f43616517c4d4c"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay6.png",
+      "sizeBytes": 959,
+      "sha256": "b2aec2f20f228cf290715ee3dc85311324525b7bb39be0562cb2e2061a955aa9"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay7.png",
+      "sizeBytes": 97,
+      "sha256": "1ccdcf1768bb31e03ffc3a28f5b97f37efd81366ba5ae1b44f5db18968d99772"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay8.png",
+      "sizeBytes": 948,
+      "sha256": "edcb5a7979378ce8a605a418ae6713331613b31dfcfcf19aae58e8f323a12125"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/camera/patterns/overlay9.png",
+      "sizeBytes": 926,
+      "sha256": "726638220b22398f31c10f989df06be635fae658415319cbcd97dc550bee5226"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/fancybox/blank.gif",
+      "sizeBytes": 43,
+      "sha256": "b1442e85b03bdcaf66dc58c7abb98745dd2687d86350be9a298a1d9382ac849b"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/fancybox/fancybox_loading.gif",
+      "sizeBytes": 3866,
+      "sha256": "1496dc51eb8a5c71111f9975683029e72f023aaf94649304cc28b4469ba93595"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/fancybox/fancybox_overlay.png",
+      "sizeBytes": 1003,
+      "sha256": "a163bab86035b0ba62c98fbbd4d8b4f5edabbbb774eca0b5e9e5081b5711b2ab"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/fancybox/fancybox_sprite.png",
+      "sizeBytes": 1362,
+      "sha256": "b9d6fddb0988440902fcfc72f371ecfa80ee2eb36073f9eebc17449ee41c886f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/gamerscore.png",
+      "sizeBytes": 1264,
+      "sha256": "656076ee825d102f76f2d166221e539f424c9fb23d7ce703c25c9b5b6f3a15c0"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/loader.small.gif",
+      "sizeBytes": 7690,
+      "sha256": "d34176758a83a1c629918b2fc1796df1196f404edd754afa54a6c1842298a027"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/logo.png",
+      "sizeBytes": 11506,
+      "sha256": "123ddb494b00ed54e40426376fe0f6398140a179a906a42c85224eb911d2debd"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/no.png",
+      "sizeBytes": 1065,
+      "sha256": "01a7ad83f734265830fcaa8c9ce15606b90c44b3243a9036bde890e3e03263d5"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/add.png",
+      "sizeBytes": 2888,
+      "sha256": "784570efab6914b97fb3f3cd407090cb9ad2933b08c2ba631d837fb3cb6e19f6"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/cancel.png",
+      "sizeBytes": 2852,
+      "sha256": "fb446d47cd328580f5a060fc46d6c241a95c156985769b155e2f099d484a583e"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/delete.png",
+      "sizeBytes": 2907,
+      "sha256": "af45428b3f61cc5d92d30ab2cdaeddd19295ee97b0d5d501d100c8ae6b6a296a"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/edit.png",
+      "sizeBytes": 2890,
+      "sha256": "eda03b9ef171aa2ee3472fc37822f37d430688a7a03456ad204b512469993451"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/hide.png",
+      "sizeBytes": 2860,
+      "sha256": "0ca54c6a98a988d8328221832e0a925a2f85e8390b7de7d53fcd4c2966d409af"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/link.png",
+      "sizeBytes": 2916,
+      "sha256": "f88d1a9a1fcd018874a4f3b97a75747904f1b6d1992135f75c2f54b04f93bd4f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/loader.gif",
+      "sizeBytes": 723,
+      "sha256": "5a8f886ffb6afed6497f36d8940ab950086a2eb72fe82266f8ac96acc43a8de2"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/notes.png",
+      "sizeBytes": 2919,
+      "sha256": "f345284db63efec3301e816ac75d5644866ca49e11906635ac2e316c023845ed"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/reload.png",
+      "sizeBytes": 2927,
+      "sha256": "03785c5f93c17d563e056da04ece0fc0001142fb28e927dd9ed6b52ef1f416c0"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/resize.png",
+      "sizeBytes": 2902,
+      "sha256": "6749653447432df72cfb0eb8dc967edc1db94b65f2ff1f1f72ff1a2243a5caab"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/save.png",
+      "sizeBytes": 2877,
+      "sha256": "45d001bd6a2e8efc9e636c0ed24060d38cd7115c64633cf25d8ffec9988ef2ff"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/notes/show.png",
+      "sizeBytes": 2867,
+      "sha256": "2ea5837a0d1734e50b0053fa3807b9f70502a1026fce18748c868470a4bf0040"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/pause.png",
+      "sizeBytes": 977,
+      "sha256": "db8966383b13e5ac581605335130af3f1aa4d6caaae69da27852dd99d2d63fec"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/play.png",
+      "sizeBytes": 1041,
+      "sha256": "da3b7e6c3970356fdc7ac0d0b56ca6ce7c267a35467fe64d952ab71bbf43e1ef"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/profile.0.in.png",
+      "sizeBytes": 4355,
+      "sha256": "18b43131d53bcdac77fb0c00eb760214d4ddc8143f2b7022d817897d43d45685"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/profile.0.out.png",
+      "sizeBytes": 4235,
+      "sha256": "3df2a6204e5d4c5a95664a17ac7676925a6c515f0a619c1ba29995ed1d62a55d"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/profile.1.in.png",
+      "sizeBytes": 4683,
+      "sha256": "1326a10df087cfe0d727b4e27a2a7de7ba1d5e3e36ad75d1cefcaa351f19f984"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/profile.1.out.png",
+      "sizeBytes": 4542,
+      "sha256": "0b8e41416b09501d67137be6266f11234f1ece79cc5a6a246e6495905e4b78c7"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/profile.2.in.png",
+      "sizeBytes": 4673,
+      "sha256": "906571c1bb1498feb1f72213d0244423e310a94ac4658e8828d0a135b10b8802"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/profile.2.out.png",
+      "sizeBytes": 4501,
+      "sha256": "c0f3e300ca92b0b0df23c778d66fcc0704359ecfa713cc2ff8e73c222e1e6c0a"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/profile.3.in.png",
+      "sizeBytes": 4244,
+      "sha256": "a5d28120f41f77140a68aeb6cdbd4df0d90e78df7f737d527db2c66a6c1009ab"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/profile.3.out.png",
+      "sizeBytes": 4136,
+      "sha256": "07a5c00dde70cdd5241d6f1f0539673b18d3bcce240697b49298d6dbbb4688ce"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/rating.png",
+      "sizeBytes": 1946,
+      "sha256": "6b62e19339c04feb7ab83f05ec0ada133a61421cf74a12716fd3cc6d9c0daf12"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/refresh.png",
+      "sizeBytes": 1351,
+      "sha256": "b1edd502e221e039eb94b6636ed1adbf4458340e33c8dbc9785fff62a1c8ad3c"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/secretachievement.png",
+      "sizeBytes": 4012,
+      "sha256": "8f74b5b87db2442e3dd39885563bec1d5d7a1d0d18540f424a52f1510abd5bff"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/images/yes.png",
+      "sizeBytes": 1036,
+      "sha256": "e92e8eba3723e9da0f96cf36cf805627c1a43a7f1a6b08d4bc30551a0156def1"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/index.html",
+      "sizeBytes": 47205,
+      "sha256": "3fac613aca12f1f434db7489d1dbc24be5b158e63b3b64817c42c86e52a12974"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getAchievementEntry.json",
+      "sizeBytes": 118,
+      "sha256": "d592aa83b52650e685716778e1a76a890eb6d0f9a71ffc8b3d1ab4c18312365c"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getDashLaunchInfo.json",
+      "sizeBytes": 84,
+      "sha256": "0f3d0e0ec86ac7f8e760984167b367cc82a62e91db670c5dea14dd0189545bce"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getDashLaunchOption.json",
+      "sizeBytes": 50,
+      "sha256": "f60b7c796efd12a61899e182b236864768774cb3461a658d5d2035037e5872fb"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getFileListEntry.json",
+      "sizeBytes": 39,
+      "sha256": "0f7a5c8f786b5dc05c7ec6e6eb94b15d9a6b672136f08ecbca0cc45557e8148f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getGameInfo.json",
+      "sizeBytes": 180,
+      "sha256": "f70e8d8f1d32436e621123cd04c75075da843059992259187306f35bd8df97d5"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getMemoryInfo.json",
+      "sizeBytes": 32,
+      "sha256": "15e77b4bf6b853005686192f08f9b3a0d9d0b1aaaddc641e33c6aba53b41b9d6"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getMultidiscEntry.json",
+      "sizeBytes": 28,
+      "sha256": "3270693d2a9ff76da18c84040519f6389a37b08507ceffbb9b1646a827d24dbf"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getMultidiscInfo.json",
+      "sizeBytes": 68,
+      "sha256": "ff9aea2e356fefe317507e58b2777a059a8a4fc2205b838a8027786d4cf76d69"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getPlayerAchievementEntry.json",
+      "sizeBytes": 32,
+      "sha256": "8b26bad4708a84c072d09bc94fe02dd1dd06be500ef9f97cbacbf4dbb446e453"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getPluginInfo.json",
+      "sizeBytes": 281,
+      "sha256": "bc4c86a630450124d7f8262dff54d883caf9dbaac1c9434eda3ed1b19dcaa2d8"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getProfileInfo.json",
+      "sizeBytes": 76,
+      "sha256": "485cd0bb6dd3c453c9a5cced6f4b6f034ecb0ca5eba5c2c2ce472abda831799b"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getScreenCaptureCount.json",
+      "sizeBytes": 12,
+      "sha256": "4d2424de1793c996ffbed0db0980250c6ed3358eaabd69db78c0dbcd799aca8f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getSystemInfo.json",
+      "sizeBytes": 157,
+      "sha256": "704aab1113d99aec3074ce05ce0ef144d8a9d5e94cc7f1ee7b97b6557b327389"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getSystemLinkBandwidth.json",
+      "sizeBytes": 86,
+      "sha256": "761eb90b86650b89f264617ccfd2533578b018abd05662ed98841d13cc9520c6"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getSystemLinkInfo.json",
+      "sizeBytes": 213,
+      "sha256": "fa6b731f9471da4ed3966342ad2c7297c15e1270dcc83dbab218fb7e966df759"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getTemperatureInfo.json",
+      "sizeBytes": 66,
+      "sha256": "60f5f5b0a1a5afa97451d8b4ee907da23bc528c46f52fc95821b6afd1abbdb95"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getThreadInfo.json",
+      "sizeBytes": 86,
+      "sha256": "dffab564010ba34a8230ae801408f6acdb59833dd74ec878dae3798910ffe9e6"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getThreadState.json",
+      "sizeBytes": 12,
+      "sha256": "c7d3153b098da3b8a9244bd0264be7315cdb6103974a11b95e2e249f90ad7342"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/json/getUpdateNotification.json",
+      "sizeBytes": 52,
+      "sha256": "6afb98c70a7c38617133de9217bc7a840838068a03f09627d7503a5c1d17bb8e"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/d3.v2.min.js",
+      "sizeBytes": 115692,
+      "sha256": "4ab5438363baac545e128763c63a7055f8ad89efa181551598e2544ed423bc11"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/f3.jquery.notes.js",
+      "sizeBytes": 37395,
+      "sha256": "26fde822841486736a7a1293294f36141e0bcd55c8194b94df5ea77950366ccb"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/f3.plugin.behavior.js",
+      "sizeBytes": 59340,
+      "sha256": "79a3b7a7461c4678fce74f901cda9d1d25f953d2c8163395221bd2b8a91e76f5"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/f3.plugin.common.js",
+      "sizeBytes": 15250,
+      "sha256": "482a880ab1e2c8d001402377458bcb4b679c4086fd9fe7383cdf4ae225bcd724"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/f3.plugin.dashlaunch.js",
+      "sizeBytes": 15941,
+      "sha256": "4f077fad590022a81c70e2e5755794151cecf6125e6f8efe8c7cdf2d4605d19f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/f3.plugin.js",
+      "sizeBytes": 3061,
+      "sha256": "542f6d58c50701ac5f823c5453f80b0c43320351591256ba7e6c17af0c6e3621"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/f3.plugin.main.js",
+      "sizeBytes": 19693,
+      "sha256": "a3e217820e6240852252be5741101d85c96659d14ef847997aa9d51aea7ec004"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/jquery.camera.min.js",
+      "sizeBytes": 46269,
+      "sha256": "24047dc828581f0abe8309474255ad9086306506ef2b7aa004d9bf16518072b9"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/jquery.checkall.min.js",
+      "sizeBytes": 1501,
+      "sha256": "ea03d89d4b0e42854091178bb9a631e88905fc6b55599c82191acdf65f3ba02b"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/jquery.dateFormat.min.js",
+      "sizeBytes": 3944,
+      "sha256": "01eb13259154d6055e5bef5b791e4ad8d2f461bab174e4959e2f50770a3ee77d"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/jquery.easing.min.js",
+      "sizeBytes": 5597,
+      "sha256": "2fb629f978dbd65c571b54605fee83753a3945081c1bd00ebde873b76f55b136"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/jquery.fancybox.min.js",
+      "sizeBytes": 22595,
+      "sha256": "4330215f7a858522e3186202c41b82ae686c8ad2b5d81664eb0f86a067058e85"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/jquery.min.js",
+      "sizeBytes": 93435,
+      "sha256": "f554d2f09272c6f71447ebfe4532d3b1dd1959bce669f9a5ccc99e64ef511729"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/jquery.scrollTo.min.js",
+      "sizeBytes": 2434,
+      "sha256": "d16763e88305bcd7f3bb7b77202921eec1fbeafa99323d261e35edb2bc7f734d"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/jquery.ui.min.js",
+      "sizeBytes": 205038,
+      "sha256": "acd191cf36501836b6d6a1d28cf3faad9bc63c7945c1224c9d77ef7935694608"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/libraries/rickshaw.min.js",
+      "sizeBytes": 34574,
+      "sha256": "48828e3190e8684bf0aacee467f3e924c20a9fb13099c5abb465fa4cf552146e"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/stylesheets/camera.css",
+      "sizeBytes": 26580,
+      "sha256": "f706b14d5b8047a1e71055a216caea330d14b92016a1a6f681ad825ba4714b72"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/stylesheets/f3.plugin.css",
+      "sizeBytes": 15747,
+      "sha256": "5bae45d933b24ef796f27f6990f0f7021b3049deaada9643fe9299dfd2cb5bff"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/stylesheets/f3.reset.css",
+      "sizeBytes": 976,
+      "sha256": "fb8ce4ef43f02db0b056a70dc769c015804d81fc487c20591790311a4fa68d7f"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/stylesheets/fancybox.css",
+      "sizeBytes": 4216,
+      "sha256": "e175bfad74614f5b0413322c909d54fa608341010b23b2e8505861b586e478da"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/stylesheets/notes.lteIE8.css",
+      "sizeBytes": 585,
+      "sha256": "054287e8f16b384dfa591f4344cb52dbc86961fc7d9db3f42c74da225df27170"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/stylesheets/notes.style.css",
+      "sizeBytes": 6758,
+      "sha256": "23511e208521c4f237526e26718408d86d5603b5fa50e7ab52ecf51eb9e81dae"
+    },
+    {
+      "path": "apps/FreeStyle/Plugins/WebRoot/stylesheets/rickshaw.min.css",
+      "sizeBytes": 4897,
+      "sha256": "afaf13391873362f07f988c6d70780f7f31d9506ad44c129c5356c3d98a90dac"
+    },
+    {
+      "path": "apps/FreeStyle/Skins/Default.xzp",
+      "sizeBytes": 49228570,
+      "sha256": "c4b41d6230f9e226887bfb798365e9988b3851bdd7b3c99ef34625867ce362c1"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250915222705.crash.log",
+      "sizeBytes": 32296,
+      "sha256": "02d5baebb62530e2351a6eb631404398654ee1c7b885d0049d5923d54d20c097"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250915222705.crash.log.callstack",
+      "sizeBytes": 1597,
+      "sha256": "a4636b7a465da6ba2421524f924fdb71cb1e92537d38323524d5e8a73900f990"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250915222920.crash.log",
+      "sizeBytes": 32296,
+      "sha256": "8762e013b8e1f733aa87c997eb81566b507bba49c9d362bcdbbf5247d33aebe6"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250915222920.crash.log.callstack",
+      "sizeBytes": 1597,
+      "sha256": "c4a447b0f6fa91436e5b8692c50ec63de41568ab69015f4573fb0d06a52b287a"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250915222937.crash.log",
+      "sizeBytes": 4354,
+      "sha256": "af8d4c33e1e3845754f3f763489212528c6be6564671cc16b713d7a1964c6403"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250915222937.crash.log.callstack",
+      "sizeBytes": 1597,
+      "sha256": "e83456e45cd41f5a9ceb75db7cfe7eb2c3be82ad58e19849bdcf30d6c8645e38"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916001146.crash.log",
+      "sizeBytes": 21490,
+      "sha256": "da8453a9013b9447898a870931865c01897753e647d04d83e6a49c5b5de2acb9"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916001146.crash.log.callstack",
+      "sizeBytes": 3543,
+      "sha256": "2ad45d19d95213b5faf5a5e73b4faa93a819693e4275c47783c2265d591105b9"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916014039.crash.log",
+      "sizeBytes": 42348,
+      "sha256": "1672f86d5e7c74bc305759c66e36798d008dd38c7b44ec8ffe22e71d9fe23911"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916014039.crash.log.callstack",
+      "sizeBytes": 1859,
+      "sha256": "e497f3d0f3cacd52167efa025b5eb0c030e4091fa9cd72812415ccbf22b8eff6"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916014053.crash.log",
+      "sizeBytes": 2104,
+      "sha256": "3749320371b93a8edafb8559de160dee8a2e7901a119d86ba42257902ff5ad40"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916014053.crash.log.callstack",
+      "sizeBytes": 1888,
+      "sha256": "b9f5623cfd25617a2ff3b2614f72b89324841b059acc31012a64feb09d76e22c"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916014056.crash.log",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916014056.crash.log.callstack",
+      "sizeBytes": 1943,
+      "sha256": "a586b94a008ccf77d02ddd3ce6acb4223e94af4b6ea6be1a9d856c0daa686a3d"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916014059.crash.log",
+      "sizeBytes": 351,
+      "sha256": "447237f052d72748c6c617836a7641dec171386ded489d15e368035da3fcd597"
+    },
+    {
+      "path": "Aurora/Data/Logs/20250916014059.crash.log.callstack",
+      "sizeBytes": 1998,
+      "sha256": "efe0898134c800098e0ec0f83342332a03951f54d3937e95bcae8712ef24998c"
+    },
+    {
+      "path": "Aurora/Data/Logs/20251004165013.crash.log",
+      "sizeBytes": 61446,
+      "sha256": "c9247a9887dd8964a25ae278049c6596bdf6b8dfe99503eb68d31c11cd3779e8"
+    },
+    {
+      "path": "Aurora/Data/Logs/20251004165013.crash.log.callstack",
+      "sizeBytes": 1575,
+      "sha256": "3f86bbca2c559c3c884e6c0b14b5676395afb3fbfa5cb86952e15f29dc3d6da1"
+    },
+    {
+      "path": "Aurora/Data/Logs/debug.log",
+      "sizeBytes": 49410,
+      "sha256": "f03304568117e97c54d3a2f5bd854dd5b69cd236ad52998b801fe96c310440eb"
+    },
+    {
+      "path": "Aurora/Data/Logs/debug.log.last",
+      "sizeBytes": 49397,
+      "sha256": "6916ee6384506b9917ddfdc27ca00eb3f8efe75d453f0af941d9398bcf85e7ee"
+    },
+    {
+      "path": "Aurora/default.xex",
+      "sizeBytes": 12333056,
+      "sha256": "583bcd442d8017d6fcb2645b93cda987f4c0a43a688b652d7364ccaedaeefa9f"
+    },
+    {
+      "path": "Aurora/live.json",
+      "sizeBytes": 3199,
+      "sha256": "2aeb4bf9ee2c29237ff8bdc684cb5c41142058ecd7b0ba39445780fbe92a7995"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Background.png",
+      "sizeBytes": 373202,
+      "sha256": "73cf3d2df54c4896377610b527892c114429649f77decd1ca37192c0f0270f47"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Banner.png",
+      "sizeBytes": 17281,
+      "sha256": "9164a648edae7691772b378db735806684c5c866ac1c4a14c73e58c6061ed638"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Boxart.Large.png",
+      "sizeBytes": 23286,
+      "sha256": "fc4bc3298ad58e306e30a3e4bdac5c69b27184e227543dcdea2202b191c7569d"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Boxart.Small.png",
+      "sizeBytes": 7514,
+      "sha256": "b168e2ff64a91754cf1153c6b342dbd5b5e7fd7c19419b0e90c44561766523e4"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Icon.png",
+      "sizeBytes": 4311,
+      "sha256": "69262f058be31d040e933aafeb6ee6cd21229cf99a2b914a4462fb9949586f18"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0001.png",
+      "sizeBytes": 616741,
+      "sha256": "e3f4d8300c91a2440154a339986a4f247c0e8870ccd503a1a79215deed45cdd1"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0002.png",
+      "sizeBytes": 598072,
+      "sha256": "eb77b8ce19f5f4658a75e98b16e37a96861d54f3b79b1464202bf557dec29da1"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0003.png",
+      "sizeBytes": 731060,
+      "sha256": "6de85dc1064662f72c559322f98c67b2185dd9156076f18ce9d6b2a764ef5bc8"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0004.png",
+      "sizeBytes": 307214,
+      "sha256": "3289f58c8b28ee4ff0b52096a714ef72fce2837b9d582bc0604a47f5f220ec96"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0005.png",
+      "sizeBytes": 119794,
+      "sha256": "7f1e4bf85374d01486b9136949a405a80b7e563cf0cd5decbdf8d26f5d3b6467"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0006.png",
+      "sizeBytes": 170264,
+      "sha256": "11efb68b4f28a2c55052a2e9843786cf9625bd8a96b5ba4a24cdaece41b6958e"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0007.png",
+      "sizeBytes": 141277,
+      "sha256": "3f05e73a5487f59017395222cf0df7e3c6e448562e68b0839ab59904331949be"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0008.png",
+      "sizeBytes": 109510,
+      "sha256": "b2c8a8b6bd8ad4d94dad9141bef836e75781dd89716eb90ce2f284534a82a417"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0009.png",
+      "sizeBytes": 167296,
+      "sha256": "f50965bec994e461142dba502e6974a2de8eedfb24b35e4286b186d1d77f39b8"
+    },
+    {
+      "path": "Aurora/Media/Assets/Aurora.Assets.Screenshot.0010.png",
+      "sizeBytes": 232487,
+      "sha256": "7c8d3e7b4695a58f01b02529f0d7fa6ed9e38411f60b02051796a6ac81ffc9f1"
+    },
+    {
+      "path": "Aurora/Media/Effects/SimpleShaders.fxobj",
+      "sizeBytes": 18780,
+      "sha256": "3b7ec1b4c77877a9aca69a4781307ff207679303fa1c836e1e9c4b71b1613b7a"
+    },
+    {
+      "path": "Aurora/Media/Fonts/Arial_16.xpr",
+      "sizeBytes": 118796,
+      "sha256": "a81b97c5433a9ab633b5ea2cb06194d2a61e1b5b572d4eea76cc3a135460ad8f"
+    },
+    {
+      "path": "Aurora/Media/Fonts/xenonclatin.xtt",
+      "sizeBytes": 1236992,
+      "sha256": "0a812c4fb3ed6ba2b7f8913e9d47a2ab79791413665a737fe9a06bea85869f8b"
+    },
+    {
+      "path": "Aurora/Media/Fonts/xenonsclatin.xtt",
+      "sizeBytes": 1392640,
+      "sha256": "8ecfaa7b5b3ee8f5e5e8ac9ba2a54a99e8635f5f3fbb7638564ce07994a85dfe"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Arrow by MatteIta.cfljson",
+      "sizeBytes": 11799,
+      "sha256": "e778e5a717ba482f22347f642e10a7b33fc485bfe147aad8a388afbf37849b3a"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Bookshelf by Phoenix.cfljson",
+      "sizeBytes": 11892,
+      "sha256": "445df936e0f1fbc6c958e1d1d63181382e18186c77480acb9ea617537a7d0baa"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Cash (Wall) by MatteIta.cfljson",
+      "sizeBytes": 11865,
+      "sha256": "5bc0d8e7ce384af65dabb62d5ad5c60fec2d20eec0546f932d53bd9e16fd433d"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Cash by MatteIta.cfljson",
+      "sizeBytes": 11854,
+      "sha256": "c93b52a737088136160c997dabfe15d5a868de7db417027af344cce5a1633850"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Circle by MatteIta.cfljson",
+      "sizeBytes": 40773,
+      "sha256": "a03cac606ca9225170a4fd21a70383794f8e548b995d61155a092bea2a30b842"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Escalator by MatteIta.cfljson",
+      "sizeBytes": 11837,
+      "sha256": "230cbaa2d5eda4ee76176b25b3b39c4b1773bacbcfc909e17d500dd7f155d55a"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Flock by Phoenix.cfljson",
+      "sizeBytes": 11853,
+      "sha256": "42316c90d0adc23d5817b314f1eea6b5a4ee1a439b6d19d9fcf3c4462420f4dc"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Flock_begalEdit by Phoenix_begallegal1.cfljson",
+      "sizeBytes": 40850,
+      "sha256": "6e2d60b90ce37069959db9bed1d4e05be33c6dfc83e49a78f0f0978d45812b18"
+    },
+    {
+      "path": "Aurora/Media/Layouts/FlowCover by Phoenix.cfljson",
+      "sizeBytes": 11904,
+      "sha256": "072f6f10f482794195dd663817f42a9844089f1e626916ecc32b83aadf62a730"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Focus (Wall) by MatteIta.cfljson",
+      "sizeBytes": 11828,
+      "sha256": "d13068cb951d0422de2940473c9f2ba2e225f77ef25f12afede8c81ee6cc7305"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Focus by MatteIta.cfljson",
+      "sizeBytes": 11781,
+      "sha256": "73bffa4fed98dcaa6009ee6d397a71e1127fe6d64bbbe21c5ddaeee00d8df391"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Galà by MatteIta.cfljson",
+      "sizeBytes": 11850,
+      "sha256": "b2fdccf47023f63527a673c7b35c3dc77c3c1be6f9d069e3cca2da49719321cb"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Gallery by Phoenix.cfljson",
+      "sizeBytes": 11787,
+      "sha256": "98f1400dd42e63091a1c862b6e7efbe17fa45e4daa6b87a2a5dd74b6a30ab1cb"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Lazy Stack by Swizzy.cfljson",
+      "sizeBytes": 40956,
+      "sha256": "6ae3c2aa693f37f21b4a057a2567bfd97aaa14278743fa79fe26906864d24df1"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Matrix by MatteIta.cfljson",
+      "sizeBytes": 11846,
+      "sha256": "895b9ddc84ff59f6b2e25ccca14e44cd6ef1a3ff142621f1a36abee647792d9b"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Minimal by Phoenix.cfljson",
+      "sizeBytes": 40954,
+      "sha256": "4e7700fffe2d7ac388bc2a2f6c95557b7a0ff870224580b42ffbb66246444d27"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Movie (No spin) by MatteIta.cfljson",
+      "sizeBytes": 11846,
+      "sha256": "75374ba11beadcab488f898b7bcaae0e75caa6f1d466779766a8b0d6d730be2d"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Movie (Spin) by MatteIta.cfljson",
+      "sizeBytes": 11846,
+      "sha256": "ca047c2fcd6069d779dfbb51058dd2256726bd201fd4d35fa4bd797b39e90e99"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Newsstand (Wall) by MatteIta.cfljson",
+      "sizeBytes": 40945,
+      "sha256": "2d013269c44a668863d1c03e1387fee78da1e8988717d7ed298a24db1f2346b5"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Ribbon by Phoenix.cfljson",
+      "sizeBytes": 11855,
+      "sha256": "782cb3c45488888e43a4fcc579b81602be8df319a20d19a596750dd9aef32f0f"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Roman by MatteIta.cfljson",
+      "sizeBytes": 11824,
+      "sha256": "331ed27d9cfa0b20d953ecb429f11a8e0deb29bb653ae6f7959cef0e8d961bb9"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Simple 3D Default by adriancaz.cfljson",
+      "sizeBytes": 11813,
+      "sha256": "8619b172d1b4b7a606864b7978ca0ddab00f8eedf7985d176208d447be749c9f"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Spine by Phoenix.cfljson",
+      "sizeBytes": 11784,
+      "sha256": "17fc670b15f81cea4a3925d19e4d407ba36b10b8c348388f86b44693b41a6d91"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Spiral Stack by Swizzy.cfljson",
+      "sizeBytes": 40971,
+      "sha256": "563ce443dcb5ff7b0fcb868e4828ab863b60c07ccba267a36e4a316b564ed136"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Stack By TraJiK.cfljson",
+      "sizeBytes": 41008,
+      "sha256": "0ee1554c699711527e68f784b1f3d9508769fdd911a6821b8a60ece63e8e123c"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Stairs by MatteIta.cfljson",
+      "sizeBytes": 11851,
+      "sha256": "4b4f4641d2a4951a7df6c2584bd6729cb66a2719419c633532791aec4f376370"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Stand Up by Phoenix.cfljson",
+      "sizeBytes": 11926,
+      "sha256": "85709cb209f211da8b29099f7142b0f538abacfe2978a451f217343e3b321b60"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Star Wars by MatteIta.cfljson",
+      "sizeBytes": 11961,
+      "sha256": "5bce0c105c2913c0ae55794be6e5f98645791321050992d268ddbf50c757cdfc"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Table by Phoenix.cfljson",
+      "sizeBytes": 11830,
+      "sha256": "0f71c683dca587c2e376977f65f03303d185304b1aba7bb8d6a9cbf8e2cc5c5b"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Towers by MatteIta.cfljson",
+      "sizeBytes": 11843,
+      "sha256": "df6ba502a6b0adce18ba28f97f54a34758a722ee08c8c1ba023197346eb6cc52"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Towers v2 by MatteIta.cfljson",
+      "sizeBytes": 11848,
+      "sha256": "18f70bb83eeaee25a3da6fa94a8ae2925c0ca5a53c88f2a1ee6d29d0dc4486e5"
+    },
+    {
+      "path": "Aurora/Media/Layouts/Wall by MatteIta.cfljson",
+      "sizeBytes": 11770,
+      "sha256": "b7b219933d0f311f263ee3025fe2a785b408b5ef7b12d81eddbb9cdb89c06e25"
+    },
+    {
+      "path": "Aurora/Media/Locales/DE-DE.xzp",
+      "sizeBytes": 305024,
+      "sha256": "54ae3a4856caf80506021bc3cd88c21b4e263c8b8f00dcc1efd2d29f8dc62f97"
+    },
+    {
+      "path": "Aurora/Media/Locales/EL-GR.xzp",
+      "sizeBytes": 265953,
+      "sha256": "185447d9a6c202df332730dc823d7bc54d291b99fa80c387c8cb5a24925aa5b2"
+    },
+    {
+      "path": "Aurora/Media/Locales/ES-ES.xzp",
+      "sizeBytes": 306027,
+      "sha256": "da9ee9f425ad37bb0df7e7e3a2c3d344fba51ab063a8300488bbf164e57f4505"
+    },
+    {
+      "path": "Aurora/Media/Locales/FR-FR.xzp",
+      "sizeBytes": 304469,
+      "sha256": "968fad6a7cd5c71ca13185dce1ee4968e42cf80ca46c233317508723cb483f4b"
+    },
+    {
+      "path": "Aurora/Media/Locales/NL-NL.xzp",
+      "sizeBytes": 304116,
+      "sha256": "6a94c991ab4d071da8defdbe462dd4cc47d53ac045bee44b6db148c418ad4211"
+    },
+    {
+      "path": "Aurora/Media/Locales/PT-BR.xzp",
+      "sizeBytes": 309551,
+      "sha256": "a505077a267a85b1c0b35be664da32919e749131df7c03f09e422505995fa54e"
+    },
+    {
+      "path": "Aurora/Media/Locales/RU-RU.xzp",
+      "sizeBytes": 299285,
+      "sha256": "54c320324aa8c1a2c769f7c871010aa83e1b2a26840e8aac01ec404732a8fb88"
+    },
+    {
+      "path": "Aurora/Media/Locales/TR-TR.xzp",
+      "sizeBytes": 300723,
+      "sha256": "f6c90ff871bad557f56681f88570646ed98fd263c4e1537f4aa61fa8fc9e833c"
+    },
+    {
+      "path": "Aurora/Media/Locales/ZH-CN.xzp",
+      "sizeBytes": 279260,
+      "sha256": "d62962f5cc1900d46050c7839ba066b529edf3dd5565a7cb2280f69255ecaedc"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/Enums.lua",
+      "sizeBytes": 1729,
+      "sha256": "99c367a66717dae625584cd9d75ce435ce817645341f5361f6ae2ab915c02f01"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/Filter.lua",
+      "sizeBytes": 1471,
+      "sha256": "83af6f5067a11fe6e9016a8ed00b86e4b36bdf45e01eca317520b0cf29cc561e"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/FilterCategories/FilterCategoryGenres.lua",
+      "sizeBytes": 2818,
+      "sha256": "77b7dab5f85fe3eb25a4679a664c2bac991411c6fd3931adbf52e0d8f8d5ebcb"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/FilterCategories/FilterCategoryMisc.lua",
+      "sizeBytes": 1421,
+      "sha256": "8a1c3a6376396dfb73d7173f9491827bb9c187f4dab71c31725773ff8789d2b0"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/FilterCategories/FilterCategoryName.lua",
+      "sizeBytes": 3333,
+      "sha256": "1736979e83e62cf34967d84abb5c74d7304cdec937a9046b70a11a2b907385e1"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/FilterCategories/FilterCategoryUser.lua",
+      "sizeBytes": 222,
+      "sha256": "4c764120c0901db87a59260c48b8baf9040db8ad4ae4fddf4933956fe89466fe"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/FilterFunctions.lua",
+      "sizeBytes": 1485,
+      "sha256": "637826ff8577036981c83bab15b14c00ee6b93a111f212250db92f8eb5229cb6"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/Sort.lua",
+      "sizeBytes": 1097,
+      "sha256": "778da8b526d8a71c3201424871cffcfae03b3a5b6b7905cac9e8ff54e91f121f"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/SortFunctions.lua",
+      "sizeBytes": 6223,
+      "sha256": "1f8265ea116cb95f10b060671dcd55ac076366afa5bcfe9a2498ed0115cf5a58"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/Subtitle.lua",
+      "sizeBytes": 1516,
+      "sha256": "90039eeaf448ac6a0c68fba292721fcce3f82262d27cc7755115ad43ead081f0"
+    },
+    {
+      "path": "Aurora/Media/Scripts/Content/SubtitleFunctions.lua",
+      "sizeBytes": 4146,
+      "sha256": "0d921ef2be961c7cd5aceb19e6a405740d80489bf4888692749c1f8c3049d077"
+    },
+    {
+      "path": "Aurora/nxeart",
+      "sizeBytes": 708608,
+      "sha256": "16776cc1e0093309054c98545d801ef0f5b943df4336128744e58a72f7dde115"
+    },
+    {
+      "path": "Aurora/Plugins/FtpDll.xex",
+      "sizeBytes": 200704,
+      "sha256": "4546fcd1bd9dad672142046ad48beecfdcc475f11715517eba1a87f2e56bfda6"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/CreateRoom.xur",
+      "sizeBytes": 3419,
+      "sha256": "e17f54165759d0723c02b334a396ac6b3f4a47ae44db4f2c8dda7fa4e2a6a77f"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/FileBrowser.xur",
+      "sizeBytes": 796,
+      "sha256": "15449dc024023e54b5ae4d72f139ee3a43444e6aad81d4d39044b51622fcf3a9"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/GameInfoScene.xur",
+      "sizeBytes": 696,
+      "sha256": "78eecc459ea0b4af49b1e84ec916329f61d14e48ec2c45873f48702d113c6a90"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/HomeTabSignedIn.xur",
+      "sizeBytes": 1298,
+      "sha256": "9af32a771d5f9b9a94999444afdfb3502cb6941368ea6b0f5b8bc7ba641e6acf"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/HomeTabSignedOut.xur",
+      "sizeBytes": 1290,
+      "sha256": "3e8190fa7bed66bd040e385d5bd1afb2036389152ec3a6e82e00ad9d64b0ef75"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/HudUiSkinCustom.xur",
+      "sizeBytes": 8665,
+      "sha256": "fa96bb9e205a31895be2daa1a2769aab7fe7cb18c0440f80b9af57806367a271"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_22x_reputation0.png",
+      "sizeBytes": 248,
+      "sha256": "23a60d80b27a6ecc1aef010713f85e62d52d9dfe6f050274e676ddc189c1994f"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_22x_reputation1.png",
+      "sizeBytes": 350,
+      "sha256": "cb9571a76a03191dfa270bb0b9c1b22fa4210c4da818dfd12c5227c71c4ef6d1"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_22x_reputation2.png",
+      "sizeBytes": 449,
+      "sha256": "1d67d4210d9eeb3360e7f87b4d8d0d3ceb48309d45530c4d9e1503a43d4ef2a3"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_22x_reputation3.png",
+      "sizeBytes": 501,
+      "sha256": "b231f44bbb7978af382cea71a948195df50827a2350a5ea445a3d02517c1a3ee"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_22x_reputation4.png",
+      "sizeBytes": 547,
+      "sha256": "f463d8a52757b95810fb7f921e1db4108dd11eef4994669920fd390334d1bf9f"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_24x_developer.png",
+      "sizeBytes": 3417,
+      "sha256": "7de1895f7ac15b89d7867bfaccd288089d10a97f18a3192aeb2febc7cfa4d570"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_24x_leader.png",
+      "sizeBytes": 3450,
+      "sha256": "0ed2d0d6037079c629d443a1635b0a75ce1de5a7a18d15a043166a90612e90ad"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_24x_moderator.png",
+      "sizeBytes": 3496,
+      "sha256": "42877d482a6cf5bdf548c6062da3edba7a9bee14cae9c0c05f65af62fc090547"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_alert.png",
+      "sizeBytes": 844,
+      "sha256": "acd6c096a4416fe61c64c0bd1f5444b0ee01e98b3982385bc1db4216f087eef4"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_file.png",
+      "sizeBytes": 2996,
+      "sha256": "baa3e37f8450968404d4da4b4beb75c2e48325a5eca8eca7f9dcac9d065cab66"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_folder.png",
+      "sizeBytes": 2923,
+      "sha256": "4addf7bdd78b21999b3b0c8574a5515272d4fa6a6268b943c6f0eabb29c501af"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_game.png",
+      "sizeBytes": 3409,
+      "sha256": "6f8daa6863e9e37554feb53615d465bcfe6776fe0e7ea0ded3929b37245d2c04"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_hdd.png",
+      "sizeBytes": 3276,
+      "sha256": "6bd95f876dd6a4c02eb516ebbaf8fbee0b0b195e01cb6961137c4891fac2e9e4"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_main_aurora.png",
+      "sizeBytes": 4214,
+      "sha256": "911002df6abf573ac4dde131f2845f01b3103dcc533f78d11ecf152cd5bef3d1"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_main_f3home.png",
+      "sizeBytes": 3453,
+      "sha256": "e2b513cfd0c00e55e14a391686a9a63dfd2f9f44e03977858fb1b96a37a07c3e"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_main_link.png",
+      "sizeBytes": 3756,
+      "sha256": "2b80f4dd4ad3ae13db7811762a1c6bad8d86a6241e6d5be0dcdd9bd0f6b45054"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_mu.png",
+      "sizeBytes": 3335,
+      "sha256": "22378a77efb9223002efceead2cf6772abc66414395c01239506afa1442212e5"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_nand.png",
+      "sizeBytes": 2959,
+      "sha256": "3a66296b0397ab184f614b6f5a8bc3a1e42deefb490c63d405d33fbfb3bb186b"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_syslink_info.png",
+      "sizeBytes": 3486,
+      "sha256": "c49b4ab5cdc2de583d25a41f41b6016f9a77e804ba52c39a2786751d3de5ca38"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_syslink_lobbies.png",
+      "sizeBytes": 3598,
+      "sha256": "0649df66f915137e6d670c0e0cc592a1cd034bcce41079ce1a2ab4792847058e"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_32x_usb.png",
+      "sizeBytes": 3308,
+      "sha256": "41e39a85aecc73e215c763d8b6fb7c11ff9e6795f68ed4ccd7ca375c52437267"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_player_blocked.png",
+      "sizeBytes": 4695,
+      "sha256": "27cbd38ad1ff8b8273e54ec2c3f066f8c12b3a85de86ac97cdecc02d815e2b27"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_player_friend.png",
+      "sizeBytes": 4638,
+      "sha256": "d1ad22b827f208b749e0af8015d9e0b50ad73996bfd2a631475ea8e009be5e30"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_player.png",
+      "sizeBytes": 3990,
+      "sha256": "5af3db59feb460721f8806ca9a1767e8dddf3ccce5d046011912179409d83016"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_global_active.png",
+      "sizeBytes": 5606,
+      "sha256": "be568d1d9e48a71f164d5763b3b2506dba07170ffffbc27df1b273bd90166289"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_global_kicked.png",
+      "sizeBytes": 5486,
+      "sha256": "4532533609fd64049fd1d9a4bfece83e67fdca39687cd5247a087f346aac6673"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_global.png",
+      "sizeBytes": 5035,
+      "sha256": "7fe905fb4abc3f42caf2da5244c2843529a917f557afa304c5ef7b4e869784ca"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_private_active.png",
+      "sizeBytes": 5114,
+      "sha256": "4b7a5c0b40111872289360a70b149513306e47e0687cb2402546b67e31a25c4f"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_private_kicked.png",
+      "sizeBytes": 4794,
+      "sha256": "cc5a788f3865dff0bfac8afcd03a2827648ea7d3f83ccab1e064894250e6a6cc"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_private.png",
+      "sizeBytes": 3920,
+      "sha256": "d64f618c17bfe42354ce77f6991c109d651ddef619d6b94b038859383f329d54"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_user_active.png",
+      "sizeBytes": 5563,
+      "sha256": "b1bdd2cbaa44f02d075cbb68d0e9ab6a507ce4943622093b913922f453ed6959"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_user_kicked.png",
+      "sizeBytes": 5351,
+      "sha256": "660c6a93c2a1b5f91ebd4fa5e0220cef1d23a4206a867d330dd5e6af304379d3"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_40x_room_user.png",
+      "sizeBytes": 4651,
+      "sha256": "af98f514d42879126914b39b4d920ae57195d8bdc792b428c5045020add7f720"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/Images/ico_48x_missing.png",
+      "sizeBytes": 844,
+      "sha256": "6dcc688f253a857943ef51cfdd76c98a294878dce9a0b2db58bcc10619574a47"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/novaFileBrowser.xur",
+      "sizeBytes": 856,
+      "sha256": "4975477c83689a775af52ee64f8b0293b029f5d9222464cc29b749e8989dcc5c"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/novaHomeTabSignedIn.xur",
+      "sizeBytes": 1152,
+      "sha256": "6a68e914bc5694f7bad7c9e8e3ace433bc43c3e10fb1a7bc32d3233b2188b5c0"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/novaHomeTabSignedOut.xur",
+      "sizeBytes": 1200,
+      "sha256": "ce79fa9dc388945ae9b04bdede3e080754f7e4f5b5ece7fb5683fb03df62dde7"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/novaHudUISkin.xur",
+      "sizeBytes": 8665,
+      "sha256": "fa96bb9e205a31895be2daa1a2769aab7fe7cb18c0440f80b9af57806367a271"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/PasswordEntry.xur",
+      "sizeBytes": 3497,
+      "sha256": "ce4ea8e34b96bea92311193576905f478524bb27890635a79b5f4960960f7952"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/PlayerInfo.xur",
+      "sizeBytes": 2224,
+      "sha256": "73d2a7d6c280b69f54784f75588eb4857e7cf46ce6cf6bfcc8515ce4e24e5d84"
+    },
+    {
+      "path": "Aurora/Plugins/HudScene/SystemLink.xur",
+      "sizeBytes": 8313,
+      "sha256": "4ca9548755b2789cb1cac22cd9ad9f5d96862feb5f27614fd9ec6b049a6d3cd4"
+    },
+    {
+      "path": "Aurora/Plugins/NetISO.xex",
+      "sizeBytes": 28672,
+      "sha256": "3672c88a7a3542746bd43db0f400a6eb4c0b2ca41aa382c4188e02526e8012ea"
+    },
+    {
+      "path": "Aurora/Plugins/NetISO.xex.txt",
+      "sizeBytes": 13,
+      "sha256": "416380f3fa1e757eff275be569bc0c6225e931c182b114eac0e97a45fc1dd228"
+    },
+    {
+      "path": "Aurora/Plugins/Nova.xex",
+      "sizeBytes": 245760,
+      "sha256": "3fdf5175a4caaa74e075a839776b12d15982ac304807ebc9f8d9ff0b8ae218fa"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/00000000/Screenshots/0000000020051122103732606.bmp",
+      "sizeBytes": 8355962,
+      "sha256": "f3fbd2f772fb8bc9f3aefa2b8e203f24221373e6a393edb856088c6ff80194d0"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/00000000/Screenshots/0000000020051122103732606.meta",
+      "sizeBytes": 170,
+      "sha256": "4bb11fd9cc6cab0c71d22e35d1b52953c1890dca03e8b8fa1f25a278a329ec47"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/00000000/Screenshots/0000000020051122103747202.bmp",
+      "sizeBytes": 8355962,
+      "sha256": "44d6ba475e2afd22711408644424ff39a6b9655ef25342c0a4dd8d6a812051c8"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/00000000/Screenshots/0000000020051122103747202.meta",
+      "sizeBytes": 170,
+      "sha256": "8e77fea8c7c62e4362e9be301b95fb73e02d6e8290f9c70817418c36d548823e"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/00000000/Screenshots/0000000020051122103756964.bmp",
+      "sizeBytes": 8355962,
+      "sha256": "4556eaf6f388abccbfe00d4c795c700ebbd647673eb58c722b92d2cadbd4c5ff"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/00000000/Screenshots/0000000020051122103756964.meta",
+      "sizeBytes": 170,
+      "sha256": "e709fd3c911ff2c83a8a9dc6697e2cf1c2274b2700efd03c2113f5f06e99dbbc"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/FFED7301/Screenshots/FFED730120051122103311720.bmp",
+      "sizeBytes": 3768442,
+      "sha256": "b3cfc50432f7e2cd0205648c9b1b2347c9fd1b49c3d5064a45690057ca6f5480"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/FFED7301/Screenshots/FFED730120051122103311720.meta",
+      "sizeBytes": 169,
+      "sha256": "88ab79f8dff5042ba90d7482642441466ce0f855008d0170b2e8fa8ec0bbad9b"
+    },
+    {
+      "path": "Aurora/Plugins/UserData/syslink.dat",
+      "sizeBytes": 740,
+      "sha256": "f6cd94ff80d845b385b135ad329ca3056308776bf111b7ab04e3c94fdc1db086"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getAchievementEntry.json",
+      "sizeBytes": 118,
+      "sha256": "d592aa83b52650e685716778e1a76a890eb6d0f9a71ffc8b3d1ab4c18312365c"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getDashLaunchInfo.json",
+      "sizeBytes": 84,
+      "sha256": "0f3d0e0ec86ac7f8e760984167b367cc82a62e91db670c5dea14dd0189545bce"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getDashLaunchOption.json",
+      "sizeBytes": 50,
+      "sha256": "f60b7c796efd12a61899e182b236864768774cb3461a658d5d2035037e5872fb"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getFileListEntry.json",
+      "sizeBytes": 39,
+      "sha256": "0f7a5c8f786b5dc05c7ec6e6eb94b15d9a6b672136f08ecbca0cc45557e8148f"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getGameInfo.json",
+      "sizeBytes": 180,
+      "sha256": "f70e8d8f1d32436e621123cd04c75075da843059992259187306f35bd8df97d5"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getMemoryInfo.json",
+      "sizeBytes": 32,
+      "sha256": "15e77b4bf6b853005686192f08f9b3a0d9d0b1aaaddc641e33c6aba53b41b9d6"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getMultidiscEntry.json",
+      "sizeBytes": 28,
+      "sha256": "3270693d2a9ff76da18c84040519f6389a37b08507ceffbb9b1646a827d24dbf"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getMultidiscInfo.json",
+      "sizeBytes": 68,
+      "sha256": "ff9aea2e356fefe317507e58b2777a059a8a4fc2205b838a8027786d4cf76d69"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getPlayerAchievementEntry.json",
+      "sizeBytes": 32,
+      "sha256": "8b26bad4708a84c072d09bc94fe02dd1dd06be500ef9f97cbacbf4dbb446e453"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getPluginInfo.json",
+      "sizeBytes": 281,
+      "sha256": "bc4c86a630450124d7f8262dff54d883caf9dbaac1c9434eda3ed1b19dcaa2d8"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getProfileInfo.json",
+      "sizeBytes": 76,
+      "sha256": "485cd0bb6dd3c453c9a5cced6f4b6f034ecb0ca5eba5c2c2ce472abda831799b"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getScreenCaptureCount.json",
+      "sizeBytes": 12,
+      "sha256": "4d2424de1793c996ffbed0db0980250c6ed3358eaabd69db78c0dbcd799aca8f"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getSMCInfo.json",
+      "sizeBytes": 320,
+      "sha256": "b25291259ccc7ba533d98867e676be2f82023b2db20e3f2023727daf1906aefd"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getSystemInfo.json",
+      "sizeBytes": 157,
+      "sha256": "704aab1113d99aec3074ce05ce0ef144d8a9d5e94cc7f1ee7b97b6557b327389"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getSystemLinkBandwidth.json",
+      "sizeBytes": 86,
+      "sha256": "761eb90b86650b89f264617ccfd2533578b018abd05662ed98841d13cc9520c6"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getSystemLinkInfo.json",
+      "sizeBytes": 213,
+      "sha256": "fa6b731f9471da4ed3966342ad2c7297c15e1270dcc83dbab218fb7e966df759"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getTemperatureInfo.json",
+      "sizeBytes": 66,
+      "sha256": "60f5f5b0a1a5afa97451d8b4ee907da23bc528c46f52fc95821b6afd1abbdb95"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getThreadInfo.json",
+      "sizeBytes": 86,
+      "sha256": "dffab564010ba34a8230ae801408f6acdb59833dd74ec878dae3798910ffe9e6"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getThreadState.json",
+      "sizeBytes": 12,
+      "sha256": "c7d3153b098da3b8a9244bd0264be7315cdb6103974a11b95e2e249f90ad7342"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/getUpdateNotification.json",
+      "sizeBytes": 63,
+      "sha256": "a2a9edcbfe5e51a83b7c2078c6a6a078c006ba1d455ea942c8fc6852d5ec4196"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/api/templates/postAuthenticate.json",
+      "sizeBytes": 14,
+      "sha256": "f2e5717468b140c895e7663d40c2950f16f1303c14cb860911a5649833102a1f"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/css/app.css",
+      "sizeBytes": 3376,
+      "sha256": "889ffd5caa4586c5f7fc99d4fe68879de5d5e5b8357aa24918e73318474d8161"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/css/app.css.map",
+      "sizeBytes": 88,
+      "sha256": "25fd3d4b67aa968563ac656d21cf3bffa537591e78cdc84627781916163c2961"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/400.html",
+      "sizeBytes": 101,
+      "sha256": "2a4b2dd0a9d5393bae4fd681cd52e658aedc7cb22dad4bbea5cac7855a80c636"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/401.html",
+      "sizeBytes": 102,
+      "sha256": "fd550ee27301197e19479a08a07c0310a4d778388934c9bad936d831d4f1006a"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/403.html",
+      "sizeBytes": 99,
+      "sha256": "80e5fb58300c8d6cbcde054ba32c3e839a6be887dd5d5e7e4d8745dc1884aed4"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/404.html",
+      "sizeBytes": 108,
+      "sha256": "c364faeadb505b79e40f6c981e3f7688535e5b5259a39842fc58ca61e9d0eba7"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/409.html",
+      "sizeBytes": 98,
+      "sha256": "3e0635ba6d7774ce3203627091c00c2ba57e4b6e8e92dbde70b5915765a4f79a"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/424.html",
+      "sizeBytes": 107,
+      "sha256": "5d615d827345aafeb671382a3e422674959cc765d2f0870c38576e44b4cad971"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/429.html",
+      "sizeBytes": 107,
+      "sha256": "e2e6900ef73d28396000bfe2a1df55604acdb2cacc4d7893e0c3cbba056fe761"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/500.html",
+      "sizeBytes": 111,
+      "sha256": "911c7faec1c6e29e1dfa32d5f7d525964dd072a19f6240556d32f54a5d68f278"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/errors/501.html",
+      "sizeBytes": 105,
+      "sha256": "0faf4bafa3d222797ec147a6da46a9bcc908945a6785c6c4266958187650923d"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.secret.png",
+      "sizeBytes": 19237,
+      "sha256": "6866613ca794050ba6fcf0b8b2fde42524c3bf54888236efb2765094e1982319"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.type.checkpoint.png",
+      "sizeBytes": 1103,
+      "sha256": "36273f2772bcbc60bd50201bc9a1386406c0a6bc39209c0659bf92407cb8b70e"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.type.completion.png",
+      "sizeBytes": 1198,
+      "sha256": "73cc1d1ce884cdf4dfbe9d8934c17588f3c40f55ab44700e88150552b63c788d"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.type.event.png",
+      "sizeBytes": 1180,
+      "sha256": "638c708b336022cb968034552624e07455b2a3f03a9700ae4a0c3d1ad76308a6"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.type.leveling.png",
+      "sizeBytes": 1084,
+      "sha256": "223b30f6dd66b03ca3b5877e0db767784944eb75adaaff010dc77a59a9fbaf4b"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.type.other.png",
+      "sizeBytes": 1041,
+      "sha256": "8a4eba6b2e82a63871349535e9b9acf968770515b39dd1ed66241e68c6c5e0d3"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.type.tournament.png",
+      "sizeBytes": 1252,
+      "sha256": "7ecb26fbda611583223807ce71517754446e60703d186754ef4bf6cc73c56428"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.type.undefined.png",
+      "sizeBytes": 1144,
+      "sha256": "1de4adb42f270c358023f0aed76025f388a49929d843fb5ace4b7eff74a11df4"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/achievement.type.unlock.png",
+      "sizeBytes": 1200,
+      "sha256": "0ff5a19cdf7af8e87ba9c780306cce675d30ad6fc664885e49e400af0911d943"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/favicon.ico",
+      "sizeBytes": 34494,
+      "sha256": "4b3c69a09c3d73b319990de0a82d27c4ea38e2ae9c757fef796ef05ff6104b26"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/icon.nova.png",
+      "sizeBytes": 4737,
+      "sha256": "89208099353b1a54a252fd86e772206becb2481dc166ed99714cfa57f24b879d"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/loader.svg",
+      "sizeBytes": 1278,
+      "sha256": "d9315017bc3779d08e24b1caf10fc2842ba4388737c925d8af5197027460c501"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/logo.nova.png",
+      "sizeBytes": 35964,
+      "sha256": "9523ab74f56cd035a571a7c13145b16d74c8966c46fff8eeadbe783bf0aceb0b"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/img/profile.gamerscore.png",
+      "sizeBytes": 1264,
+      "sha256": "656076ee825d102f76f2d166221e539f424c9fb23d7ce703c25c9b5b6f3a15c0"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/index.html",
+      "sizeBytes": 1245,
+      "sha256": "d1c3863423511189b51a4291c823841e46373e0284a57a10ae3c2d1a22e68385"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/js/app.js",
+      "sizeBytes": 474167,
+      "sha256": "3c80650f35e7983820c5a44de0f810e8b91967b0283eb12e9ddc2c218c150af8"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/js/app.js.map",
+      "sizeBytes": 2266724,
+      "sha256": "7d33d8b429b06ad77a1d22010c8131db69c117ccbbfcc5e5b1b06f51533f152e"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/js/polyfills.js",
+      "sizeBytes": 143525,
+      "sha256": "ada33373e20f4523c807b5f454a5e43db970137687c0865bb3b52fdc1925b96a"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/js/polyfills.js.map",
+      "sizeBytes": 1103138,
+      "sha256": "45d5efe48b81414d632f7b9ecca8783c48deee150b38d71221a771debb063f7c"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/js/vendor.js",
+      "sizeBytes": 1023249,
+      "sha256": "a2003aa08fc3ea32e399719eb301f081d73455fd7644d7092a0069d8a6df5362"
+    },
+    {
+      "path": "Aurora/Plugins/WebRoot/js/vendor.js.map",
+      "sizeBytes": 7560305,
+      "sha256": "b4a1268c47e7f2561943c0d2032f81391e4f2436b9ff762ae35ab03e13eba7f5"
+    },
+    {
+      "path": "Aurora/Skins/Default.xzp",
+      "sizeBytes": 5180269,
+      "sha256": "3b958674d4331d98c84caf7836eac8e72c747b6de66328d43113337a62187776"
+    },
+    {
+      "path": "Aurora/User/Scripts/Content/Filters/HideBackups.lua",
+      "sizeBytes": 440,
+      "sha256": "a813f0de7b5df0485703fad0fdf5f7c58dcafbec99d3b8afe4957e843615ecf2"
+    },
+    {
+      "path": "Aurora/User/Scripts/Content/Filters/HideKinect.lua",
+      "sizeBytes": 186,
+      "sha256": "6bc592bdde5d7b2fdaedba9c0a0b6df28803ea446def3188ca511c9a20573e20"
+    },
+    {
+      "path": "Aurora/User/Scripts/Content/Filters/HideMultiDisc.lua",
+      "sizeBytes": 144,
+      "sha256": "69743a899afe9c2e75e14f440563d52b7abb3fba1a2eba3fe91fc6fb2fe47c59"
+    },
+    {
+      "path": "Aurora/User/Scripts/Content/Sorts/Genre.lua",
+      "sizeBytes": 821,
+      "sha256": "48a4d7e2c1cec088c7b52643233f43f984acdb76777a6f6c0f7ae3d2c5ced6f3"
+    },
+    {
+      "path": "Aurora/User/Scripts/Content/Subtitles/DeviceCode.lua",
+      "sizeBytes": 219,
+      "sha256": "3fd2331a47b430dadbb16bd05fa5567a4a07824aaf7a100180311d76b2ee0956"
+    },
+    {
+      "path": "Aurora/User/Scripts/Main.lua",
+      "sizeBytes": 219,
+      "sha256": "2e7e252cd8ad696f1b190bb22cdc550a8ffd952448ef4653926162c5e97755fa"
+    },
+    {
+      "path": "Aurora/User/Scripts/Utility/AuroraRepo/icon.png",
+      "sizeBytes": 2878,
+      "sha256": "738b5e45602b2f071b7c65f95e9770a8c42fdf7b35036ad9d502b40d43ef73a6"
+    },
+    {
+      "path": "Aurora/User/Scripts/Utility/AuroraRepo/Main.lua",
+      "sizeBytes": 9355,
+      "sha256": "b7d0811486b9bb8fa0649dcc51f338196b2520bf0b1f855df43b76d709d0ab06"
+    },
+    {
+      "path": "Aurora/User/Scripts/Utility/AuroraRepo/MenuSystem.lua",
+      "sizeBytes": 3914,
+      "sha256": "a0683ad6a1bb1d8a9e0b1cbc8c2104822b13271cb62ccce5305953918a64a135"
+    },
+    {
+      "path": "Aurora/User/Scripts/Utility/AuroraRepo/Repos.ini",
+      "sizeBytes": 622,
+      "sha256": "03b4e676b4744e6582a6ca26a93b56d11b425a518c1a4600273b806d619496d8"
+    },
+    {
+      "path": "Aurora/User/Scripts/Utility/readme.txt",
+      "sizeBytes": 126,
+      "sha256": "f31cab5e9e9809819014787c99a4e80ae505a260691cb89a050dd0b1cf374356"
+    },
+    {
+      "path": "BadUpdatePayload/BadUpdateExploit-2ndStage.bin",
+      "sizeBytes": 2175484,
+      "sha256": "48f0b175e6b25d2ef205a009fb282f660723c74248446950821566a391e934f5"
+    },
+    {
+      "path": "BadUpdatePayload/BadUpdateExploit-3rdStage.bin",
+      "sizeBytes": 65536,
+      "sha256": "c4d417caa7ab64f9d969c9e993f7a1078384044f2589045e904aadaed2d869d1"
+    },
+    {
+      "path": "BadUpdatePayload/BadUpdateExploit-4thStage.bin",
+      "sizeBytes": 65920,
+      "sha256": "25a75b533b110973ea1b94967bf0dff1bbb82e621fa145f12b7862f1e13d3cc9"
+    },
+    {
+      "path": "BadUpdatePayload/BadUpdateExploit-Data.bin",
+      "sizeBytes": 380,
+      "sha256": "21527732e3e720fd5f0badb01f8135a0ccfe4822063e61bdd2c283efe246fff6"
+    },
+    {
+      "path": "BadUpdatePayload/default.xex",
+      "sizeBytes": 3921920,
+      "sha256": "280dc23edf34e893f0395b6743ea8217625621cc473f267cca5f130d5ac38140"
+    },
+    {
+      "path": "BadUpdatePayload/OGXboxPrep.xex",
+      "sizeBytes": 18432,
+      "sha256": "93f3b925f67e55cfbec342aeb646419ea179a01ab0555db737d97bb30c49c722"
+    },
+    {
+      "path": "BadUpdatePayload/OriginalMACAddress.bin",
+      "sizeBytes": 6,
+      "sha256": "fdd9eb970c39b485eed7f319c09ba81a7bfd37c33702f2dfab3b93329750014e"
+    },
+    {
+      "path": "BadUpdatePayload/Trinity-1bl.bin",
+      "sizeBytes": 32768,
+      "sha256": "891ff52b20e3475194a66e7f24014309489f2a7d17d65ca194b804ec95ac58bb"
+    },
+    {
+      "path": "BadUpdatePayload/update_data.bin",
+      "sizeBytes": 45360,
+      "sha256": "141604af68d4ccd24663ce7cad56ad1e2a9ed9467dbb629159ad4d2d6c837cb7"
+    },
+    {
+      "path": "BadUpdatePayload/xell-2f.bin",
+      "sizeBytes": 262144,
+      "sha256": "367d4dae746e81f06dbccc5925004379ecbf93fd0e857b7c24fe7ea3e693a58d"
+    },
+    {
+      "path": "BadUpdatePayload/XeUnshackleAutoStart.txt",
+      "sizeBytes": 4,
+      "sha256": "561b2814d3c09e62a92442c946307918f7f63f833c84876c08bd4c406767e53b"
+    },
+    {
+      "path": "BadUpdatePayload/xke_update.bin",
+      "sizeBytes": 20480,
+      "sha256": "88f456c0b0091d691b3723dea190b428b3002443c13b7171b0ae9dafc92b5402"
+    },
+    {
+      "path": "Content/0000000000000000/10102001/00007000/DashLaunch 3.21",
+      "sizeBytes": 3321856,
+      "sha256": "e7b1f4430e5e2249d3dc7fa205ff1710db5869a04adcc5c257173f7e7d195506"
+    },
+    {
+      "path": "Content/0000000000000000/394707D1/00000001/CONTENTFILE",
+      "sizeBytes": 4235264,
+      "sha256": "e7ed62e3f1b4b985950223b95f1976f592e4a4f661cb478cd692abc5dd4c75aa"
+    },
+    {
+      "path": "Content/0000000000000000/394707D1/00007000/465AA605E13444272459FDD81D27EB7339",
+      "sizeBytes": 45056,
+      "sha256": "bd8eec3128c6ca1296a1b2ad5ef9c67e22abd51fd469be0145e340e4bd3d0254"
+    },
+    {
+      "path": "Content/0000000000000000/394707D1/00007000/465AA605E13444272459FDD81D27EB7339.data/Data0000",
+      "sizeBytes": 52523008,
+      "sha256": "4760baf87f3bde1a852b186a35630d1c9beaa0d10e9da2b479f8be9944700ec8"
+    },
+    {
+      "path": "Content/0000000000000000/394707D1/000B0000/tu00000012_00000000",
+      "sizeBytes": 26017792,
+      "sha256": "1bcb30ab31ab6dba7eaffcfea54d1f662c0de8fd003d5fa4883f0755c978dfdd"
+    },
+    {
+      "path": "Content/0000000000000000/584D07D1/00040000/asset_refresh_cookie",
+      "sizeBytes": 57344,
+      "sha256": "60b7ec95806a7315ca576f47c74ae4f8f38b7be26eb51d774ce308d36f01bc56"
+    },
+    {
+      "path": "Content/0000000000000000/C0DE9999/00007000/Aurora",
+      "sizeBytes": 290816,
+      "sha256": "fb778a43fc0d4f159b16068f5ecd9be8d6db1a26e01d7d968ff3e54e4468ab2a"
+    },
+    {
+      "path": "Content/0000000000000000/C0DE9999/00007000/Freestyle",
+      "sizeBytes": 290816,
+      "sha256": "e02d64cf9affb25aff6014d9b0e78c3a86146ad64c8261d6eaeea2758ecda97a"
+    },
+    {
+      "path": "Content/0000000000000000/C0DE9999/00080000/C0DE99990F586558",
+      "sizeBytes": 213245952,
+      "sha256": "8ae1f78d8c97e951a4ee6ec50d650fc5b422f6f0acf55e6fd6922b87c529f1f9"
+    },
+    {
+      "path": "Content/0000000000000000/FFFE07DF/00000002/532BBD19E5F023B68824854EEEB3F4C47A2A95F4FF",
+      "sizeBytes": 442368,
+      "sha256": "5d256dcc633fae7ae6c6b3d4dc53ed0a6c72226fdc0a4b67c8fcb0e82376e895"
+    },
+    {
+      "path": "Content/0000000000000000/FFFE07DF/00000002/E80F25563729D257B11083100B9BB7F6846404CCFF",
+      "sizeBytes": 4812800,
+      "sha256": "6f16152f2dc03bf5e51f51a73a07c84fbfcdd6574ae499a658d813657e9719a4"
+    },
+    {
+      "path": "Content/0000000000000000/FFFE07DF/00040000/ContentCache.pkg",
+      "sizeBytes": 65536,
+      "sha256": "6c672ee547a79fd57179287917f93bd82632344476c7611028526fb142c84d0d"
+    },
+    {
+      "path": "Content/0000000000000000/FFFE07DF/00040000/MicArrayCalibrate.mec",
+      "sizeBytes": 901120,
+      "sha256": "211c2032a6c726dda8aeab031248c33a8fe70c6cd13940de0bee0de3a01aba05"
+    },
+    {
+      "path": "Content/0000000000000000/FFFE07DF/00040000/XlfsUploadCache.dat",
+      "sizeBytes": 157327360,
+      "sha256": "2cb889d1234a7de78759689d3e097e9fb647524096cdd73a7218c23d967d2de0"
+    },
+    {
+      "path": "Content/0000000000000000/FFFE07DF/000F0000/JanusDatastore.dat",
+      "sizeBytes": 196608,
+      "sha256": "ea3c7bb153b489b8f32109c21c8ee13804be51103584258b51a0ce6821bc583e"
+    },
+    {
+      "path": "Content/E0002FF78DFBDE7B/FFFE07D1/00010000/E0002FF78DFBDE7B",
+      "sizeBytes": 335872,
+      "sha256": "51631962a981136bdee63a2dcf31ff27f64a706ecc70af6c20aae87f86cca4b9"
+    },
+    {
+      "path": "games/Street Fighter II' HF/584107F4/000D0000/38AD647E68F9542F2F78C4EC1FEED0B5588DB87558",
+      "sizeBytes": 51093504,
+      "sha256": "ec1dbbfdf2cab4baadd647bb6bc07685123a218bbcb653c30a947bef43934668"
+    },
+    {
+      "path": "lhelper.xex",
+      "sizeBytes": 18432,
+      "sha256": "834fbb42612151609688cbab1843b512b807a72259b1266eb037c0e3ffcdb241"
+    },
+    {
+      "path": "UsbdSecPatch.xex",
+      "sizeBytes": 16384,
+      "sha256": "e83af27ef45c59b80bf0297e49f69ff1ec2378e899ae8c4a3ddd3af4a129004b"
+    }
+  ]
+}

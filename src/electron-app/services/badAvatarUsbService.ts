@@ -11,6 +11,15 @@ import { spawn } from "child_process";
 import https from "https";
 import http from "http";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
+import {
+  enumerateSafeWindowsUsbDevices,
+  requireSafeWindowsUsbTarget,
+} from "../infrastructure/windowsUsbDeviceService";
+
+// The inherited writer downloads unpinned archives and extracts them directly
+// onto the target. Keep it impossible to invoke until the trusted-manifest and
+// transactional writer milestones replace that implementation.
+const PREPARATION_WRITES_ENABLED = false;
 
 const BADSTICK_PACKAGES_BASE =
   "https://github.com/LxcyDr0p/BadStick/releases/download/packages";
@@ -19,6 +28,21 @@ export interface UsbDriveInfo {
   rootPath: string;
   label: string;
   sizeBytes: number;
+  fingerprint?: string;
+  serialNumber?: string;
+  friendlyName?: string;
+  manufacturer?: string;
+  diskNumber?: number;
+  partitionNumber?: number;
+  busType?: string;
+  fileSystem?: string;
+  freeBytes?: number;
+  allocationUnitBytes?: number;
+  safety?: {
+    allowed: boolean;
+    codes: string[];
+    reasons: string[];
+  };
 }
 
 export interface BadAvatarPackage {
@@ -63,6 +87,7 @@ export const BADAVATAR_OPTIONAL_PACKAGES: BadAvatarPackage[] = [
 
 export interface BadAvatarCreateOptions {
   driveRoot: string;
+  expectedDeviceFingerprint?: string;
   formatDrive: boolean;
   overwriteExisting: boolean;
   installProto: boolean;
@@ -77,6 +102,10 @@ export interface BadAvatarProgress {
 }
 
 export type ProgressCallback = (progress: BadAvatarProgress) => void;
+
+export function isBadAvatarPreparationEnabled(): boolean {
+  return PREPARATION_WRITES_ENABLED;
+}
 
 function cacheDir(): string {
   const dir = path.join(app.getPath("userData"), "badavatar-cache");
@@ -307,7 +336,7 @@ function addLinuxMount(full: string, roots: UsbDriveInfo[], seen: Set<string>): 
 
 /** USB / external drives (any filesystem) suitable for BadAvatar setup. */
 export async function listFat32UsbDrives(): Promise<UsbDriveInfo[]> {
-  if (process.platform === "win32") return listWindowsUsbDrives();
+  if (process.platform === "win32") return enumerateSafeWindowsUsbDevices();
   if (process.platform === "darwin") return listDarwinUsbDrives();
   if (process.platform === "linux") return listLinuxUsbDrives();
   return [];
@@ -420,6 +449,19 @@ export async function createBadAvatarUsb(
   opts: BadAvatarCreateOptions,
   onProgress: ProgressCallback,
 ): Promise<void> {
+  if (process.platform !== "win32") {
+    throw new Error("O novo preparador seguro está disponível somente no Windows nesta fase.");
+  }
+  if (!opts.expectedDeviceFingerprint) {
+    throw new Error("Atualize a lista e selecione novamente o dispositivo USB.");
+  }
+  await requireSafeWindowsUsbTarget(opts.driveRoot, opts.expectedDeviceFingerprint);
+  if (!PREPARATION_WRITES_ENABLED) {
+    throw new Error(
+      "A gravação permanece bloqueada nesta versão inicial. O manifesto confiável e o escritor transacional ainda estão em implementação.",
+    );
+  }
+
   const usbRoot = normalizeRoot(opts.driveRoot);
   if (!fs.existsSync(usbRoot)) {
     throw new Error("Selected drive is not available.");
@@ -429,16 +471,15 @@ export async function createBadAvatarUsb(
     if (formatRequiresElevation()) {
       const admin = await isRunningAsAdmin();
       if (!admin) {
-        const hint =
-          process.platform === "linux"
-            ? "Formatting on Linux requires root. Run GODsend with sudo or uncheck “Format USB”."
-            : "Formatting requires Administrator privileges. Uncheck “Format USB” or restart GODsend as Administrator.";
-        throw new Error(hint);
+        throw new Error(
+          "Formatting requires Administrator privileges. Uncheck “Format USB” or restart GODsend as Administrator.",
+        );
       }
     }
     await formatVolumeFat32(usbRoot, (p) =>
       onProgress({ status: p.status, percent: p.percent }),
     );
+    await requireSafeWindowsUsbTarget(usbRoot, opts.expectedDeviceFingerprint);
   } else {
     onProgress({ status: "Skipping format (per your settings)…", percent: 3 });
   }
@@ -448,6 +489,7 @@ export async function createBadAvatarUsb(
   const total = packages.length;
 
   for (let i = 0; i < packages.length; i++) {
+    await requireSafeWindowsUsbTarget(usbRoot, opts.expectedDeviceFingerprint);
     const pkg = packages[i];
     const tempFile = path.join(tempDir, pkg.fileName);
     const basePercent = 10 + Math.round((i / total) * 80);
