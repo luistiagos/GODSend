@@ -32,7 +32,7 @@ function IsoRow({ file, onRemove }: IsoRowProps) {
         <p className="text-[13px] text-foreground truncate" title={file.path}>{name}</p>
         {file.info && (
           <p className="text-[11px] text-muted-foreground">
-            {file.info.displayName || "Unknown"} — {file.info.titleId}
+            {file.info.displayName || "Desconhecido"} — {file.info.titleId}
           </p>
         )}
         {file.error && (
@@ -40,12 +40,12 @@ function IsoRow({ file, onRemove }: IsoRowProps) {
         )}
         {file.outputDir && (
           <p className="text-[11px] text-green-400/80 truncate" title={file.outputDir}>
-            Output: {file.outputDir}
+            Saída: {file.outputDir}
           </p>
         )}
       </div>
       {file.state !== "extracting" && (
-        <Button size="icon" className="shrink-0 h-6 w-6" title="Remove" onClick={() => onRemove(file.path)}>
+        <Button size="icon" className="shrink-0 h-6 w-6" title="Remover" aria-label="Remover" onClick={() => onRemove(file.path)}>
           <X className="h-3 w-3" />
         </Button>
       )}
@@ -107,12 +107,12 @@ export default function ISO2XEXPage({}: ISO2XEXPageProps) {
           ));
         } else {
           setFiles(prev => prev.map(f =>
-            f.path === file.path ? { ...f, state: "error", error: r.error || "Extraction failed" } : f
+            f.path === file.path ? { ...f, state: "error", error: r.error || "Falha na extração" } : f
           ));
         }
       } catch (err: any) {
         setFiles(prev => prev.map(f =>
-          f.path === file.path ? { ...f, state: "error", error: err.message || "Unknown error" } : f
+          f.path === file.path ? { ...f, state: "error", error: err.message || "Erro desconhecido" } : f
         ));
       }
     }
@@ -128,11 +128,11 @@ export default function ISO2XEXPage({}: ISO2XEXPageProps) {
       <div className="flex items-center gap-2 shrink-0">
         <Button size="sm" onClick={handleSelectISOs} disabled={busy}>
           <FileUp className="h-3.5 w-3.5 mr-1" />
-          Add ISOs
+          Adicionar ISOs
         </Button>
         <Button size="sm" onClick={handleSelectOutDir} disabled={busy}>
           <FolderOpen className="h-3.5 w-3.5 mr-1" />
-          Output Folder
+          Pasta de saída
         </Button>
         {outDir && (
           <span className="text-[11px] text-muted-foreground truncate min-w-0 flex-1" title={outDir}>
@@ -146,8 +146,8 @@ export default function ISO2XEXPage({}: ISO2XEXPageProps) {
         {files.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-1 text-muted-foreground">
             <Disc className="h-8 w-8 opacity-40" />
-            <p className="text-[13px]">No ISO files selected</p>
-            <p className="text-[11px]">Click "Add ISOs" to select Xbox 360 disc images</p>
+            <p className="text-[13px]">Nenhum arquivo ISO selecionado</p>
+            <p className="text-[11px]">Clique em "Adicionar ISOs" para escolher imagens de disco do Xbox 360</p>
           </div>
         ) : (
           <div className="pr-1">
@@ -166,10 +166,10 @@ export default function ISO2XEXPage({}: ISO2XEXPageProps) {
           onClick={handleExtract}
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-          {busy ? "Extracting..." : `Extract ${pending.length} ISO${pending.length !== 1 ? "s" : ""} to XEX`}
+          {busy ? "Extraindo..." : `Extrair ${pending.length} ISO${pending.length !== 1 ? "s" : ""} para XEX`}
         </Button>
         <span className="text-[11px] text-muted-foreground">
-          Output: Title Name - TitleID (loose files with default.xex)
+          Saída: Nome do título - TitleID (arquivos soltos com default.xex)
         </span>
       </footer>
     </div>
