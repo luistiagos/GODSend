@@ -2,6 +2,10 @@
 
 Atualizado em 2026-06-25.
 
+## Para quem vai usar
+
+- [Primeiros passos e solução de problemas](PRIMEIROS-PASSOS.md): guia leigo para preparar o pendrive/HD e resolver os erros mais comuns.
+
 ## Comece aqui
 
 - [Implementação atual e todas as pendências](IMPLEMENTACAO-E-PENDENCIAS.md): documento mestre e fonte de verdade do estado do projeto.
