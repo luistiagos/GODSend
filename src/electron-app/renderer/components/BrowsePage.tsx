@@ -22,13 +22,13 @@ const PLATFORMS = [
 const SOURCES = [
   { id: "minerva", label: "Minerva" },
   { id: "ia",      label: "Internet Archive" },
-  { id: "local",   label: "Local Library" },
+  { id: "local",   label: "Biblioteca local" },
 ];
 
 const METHODS   = [
   { id: "god",     label: "GOD",     desc: "ISO → Games on Demand" },
-  { id: "content", label: "Content (DLC/Multi-Disc)", desc: "Content folder (DLC tree)" },
-  { id: "xex",     label: "XEX",     desc: "Loose folder (default.xex)" },
+  { id: "content", label: "Conteúdo (DLC/Multidisco)", desc: "Pasta de conteúdo (árvore de DLC)" },
+  { id: "xex",     label: "XEX",     desc: "Pasta solta (default.xex)" },
 ];
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ function QueueDialog({
             </p>
             <p className="text-[10px] text-muted-foreground mt-1">
               {source === "local"
-                ? "Local Library"
+                ? "Biblioteca local"
                 : `${PLATFORMS.find((p) => p.id === platform)?.label ?? platform} · ${SOURCES.find((s) => s.id === source)?.label ?? source}`}
             </p>
           </div>
@@ -185,7 +185,7 @@ function QueueDialog({
         {!queued && (
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Destination drive
+              Unidade de destino
             </label>
             <div className="relative">
               <select
@@ -199,7 +199,7 @@ function QueueDialog({
               >
                 {defaultDrive && (
                   <option value={defaultDrive}>
-                    {defaultDrive} (default)
+                    {defaultDrive} (padrão)
                   </option>
                 )}
                 {drives.filter((d) => d !== defaultDrive).map((d) => (
@@ -210,7 +210,7 @@ function QueueDialog({
             </div>
             {usingDefault && (
               <p className="text-[9.5px] text-muted-foreground/60">
-                Using default from Settings → Default Xbox drive
+                Usando o padrão de Configurações → Unidade padrão do Xbox
               </p>
             )}
           </div>
@@ -220,7 +220,7 @@ function QueueDialog({
         {hasMethods && !queued && (
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Install method
+              Método de instalação
             </label>
             <div className="flex gap-1.5">
               {METHODS.map((m) => {
@@ -229,7 +229,7 @@ function QueueDialog({
                   <button
                     key={m.id}
                     onClick={() => setMethod(m.id)}
-                    title={m.desc + (recommended ? " · Recommended" : "")}
+                    title={m.desc + (recommended ? " · Recomendado" : "")}
                     className={cn(
                       "flex-1 py-1 text-[11px] rounded-md border transition-colors",
                       method === m.id
@@ -260,8 +260,8 @@ function QueueDialog({
               : "bg-red-500/10 text-red-400 border border-red-500/20"
           )}>
             {result.ok
-              ? `Queued! Status: ${result.status}`
-              : result.error || "Unknown error"}
+              ? `Na fila! Status: ${result.status}`
+              : result.error || "Erro desconhecido"}
           </p>
         )}
 
@@ -273,13 +273,13 @@ function QueueDialog({
             onClick={handleQueue}
           >
             {queuing
-              ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Queuing…</>
-              : <><Download className="h-3.5 w-3.5 mr-1.5" />Queue for Download</>
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Enfileirando…</>
+              : <><Download className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila</>
             }
           </Button>
         ) : (
           <Button variant="outline" className="w-full" onClick={onClose}>
-            Done
+            Concluído
           </Button>
         )}
       </div>
@@ -476,7 +476,7 @@ export default function BrowsePage({}: BrowsePageProps) {
         <CenteredOverlay>
           <Loader2 className="h-7 w-7 animate-spin text-primary" />
           <p className="text-[13px]">
-            {isLocal ? "Scanning Transfer folder…" : "Loading game list…"}
+            {isLocal ? "Lendo a pasta Transfer…" : "Carregando a lista de jogos…"}
           </p>
         </CenteredOverlay>
       )}
@@ -484,18 +484,18 @@ export default function BrowsePage({}: BrowsePageProps) {
       {status === "cache-building" && (
         <CenteredOverlay>
           <Loader2 className="h-7 w-7 animate-spin text-primary" />
-          <p className="text-[13px]">Building cache…</p>
+          <p className="text-[13px]">Montando o cache…</p>
           {cacheProgress && (
             <p className="text-[11px] text-muted-foreground/70">
-              {cacheProgress.loaded} / {cacheProgress.total} fetched
+              {cacheProgress.loaded} / {cacheProgress.total} obtidos
             </p>
           )}
           <p className="text-[11px] text-muted-foreground/60 max-w-[220px] text-center">
-            First load takes a moment. Go back and try again shortly.
+            A primeira carga leva um momento. Volte e tente de novo em instantes.
           </p>
           <Button size="sm" variant="outline" onClick={loadGames} className="mt-1">
             <RefreshCw className="h-3 w-3 mr-1.5" />
-            Retry
+            Tentar de novo
           </Button>
         </CenteredOverlay>
       )}
@@ -503,13 +503,13 @@ export default function BrowsePage({}: BrowsePageProps) {
       {status === "error" && (
         <CenteredOverlay>
           <WifiOff className="h-7 w-7 text-muted-foreground" />
-          <p className="text-[13px]">Could not reach the server.</p>
+          <p className="text-[13px]">Não foi possível acessar o servidor.</p>
           <p className="text-[11px] text-muted-foreground/60">
-            Make sure the GODsend backend is running.
+            Verifique se o serviço do GODsend está em execução.
           </p>
           <Button size="sm" onClick={loadGames}>
             <RefreshCw className="h-3 w-3 mr-1.5" />
-            Retry
+            Tentar de novo
           </Button>
         </CenteredOverlay>
       )}
@@ -519,24 +519,24 @@ export default function BrowsePage({}: BrowsePageProps) {
           {isLocal ? (
             <>
               <HardDrive className="h-7 w-7 text-muted-foreground" />
-              <p className="text-[13px]">No ISOs found in Transfer folder.</p>
+              <p className="text-[13px]">Nenhuma ISO encontrada na pasta Transfer.</p>
               <p className="text-[11px] text-muted-foreground/60 max-w-[260px] text-center">
-                Place Xbox 360 ISO files in your Transfer folder to see them here.
-                The folder path can be changed in Settings.
+                Coloque arquivos ISO do Xbox 360 na sua pasta Transfer para vê-los aqui.
+                O caminho da pasta pode ser alterado em Configurações.
               </p>
             </>
           ) : (
             <>
               <Gamepad2 className="h-7 w-7 text-muted-foreground" />
-              <p className="text-[13px]">No games found.</p>
+              <p className="text-[13px]">Nenhum jogo encontrado.</p>
               <p className="text-[11px] text-muted-foreground/60 max-w-[220px] text-center">
-                The list may still be building. Try again in a moment.
+                A lista ainda pode estar sendo montada. Tente de novo em instantes.
               </p>
             </>
           )}
           <Button size="sm" onClick={loadGames}>
             <RefreshCw className="h-3 w-3 mr-1.5" />
-            {isLocal ? "Rescan" : "Retry"}
+            {isLocal ? "Reescanear" : "Tentar de novo"}
           </Button>
         </CenteredOverlay>
       )}
@@ -550,7 +550,7 @@ export default function BrowsePage({}: BrowsePageProps) {
               ref={filterRef}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder={`Filter ${games.length} title${games.length === 1 ? "" : "s"}…`}
+              placeholder={`Filtrar ${games.length} título${games.length === 1 ? "" : "s"}…`}
               className={cn(
                 "w-full pl-8 pr-3 py-1.5 text-[12px] rounded-md",
                 "bg-muted border border-border text-foreground placeholder:text-muted-foreground",
@@ -560,6 +560,8 @@ export default function BrowsePage({}: BrowsePageProps) {
             {filter && (
               <button
                 onClick={() => setFilter("")}
+                title="Limpar filtro"
+                aria-label="Limpar filtro"
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
                 <X className="h-3 w-3" />
@@ -570,7 +572,7 @@ export default function BrowsePage({}: BrowsePageProps) {
           {/* Result count hint */}
           {filter && (
             <p className="text-[10px] text-muted-foreground/60 shrink-0 -mt-1 px-0.5">
-              {filtered.length} match{filtered.length !== 1 ? "es" : ""}
+              {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
             </p>
           )}
 
