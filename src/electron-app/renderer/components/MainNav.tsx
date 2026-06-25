@@ -69,6 +69,9 @@ export function ToolboxDropdown({
       <Button
         size={simpleMode ? "sm" : "icon"}
         title={simpleMode ? "Abrir outras funções" : "Mais opções"}
+        aria-label={simpleMode ? undefined : "Mais opções"}
+        aria-haspopup="menu"
+        aria-expanded={open}
         variant={active ? "primary" : "default"}
         onClick={() => setOpen(!open)}
       >
@@ -197,6 +200,7 @@ export default function MainNav({
       <Button
         size="icon"
         title="Reconectar FTP"
+        aria-label="Reconectar FTP"
         disabled={ftpChecking}
         onClick={onReconnect}
       >
@@ -209,6 +213,7 @@ export default function MainNav({
         <Button
           size="icon"
           title="Console"
+          aria-label="Console"
           variant={currentPage === "home" ? "primary" : "default"}
           onClick={onNavigateHome || onLibraryToggle}
         >
@@ -220,6 +225,7 @@ export default function MainNav({
         <Button
           size="icon"
           title={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
+          aria-label={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
           disabled={libraryLoading}
           variant={currentPage === "library" ? "primary" : "default"}
           onClick={onLibraryToggle}
@@ -234,6 +240,7 @@ export default function MainNav({
         <Button
           size="icon"
           title={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+          aria-label={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
           onClick={onNavigateQueue}
           className={cn("relative", currentPage === "queue" && activeBtnClass)}
         >
@@ -247,6 +254,7 @@ export default function MainNav({
       <Button
         size="icon"
         title="Procurar e baixar"
+        aria-label="Procurar e baixar"
         variant={currentPage === "browse" ? "primary" : "default"}
         onClick={onNavigateBrowse}
       >
@@ -264,6 +272,7 @@ export default function MainNav({
       <Button
         size="icon"
         title="Reiniciar serviço"
+        aria-label="Reiniciar serviço"
         onClick={() => window.godsendApi.restartProcess()}
       >
         <RefreshCw className="h-4 w-4" />
@@ -272,6 +281,7 @@ export default function MainNav({
       <Button
         size="icon"
         title="Configurações"
+        aria-label="Configurações"
         variant={currentPage === "settings" ? "primary" : "default"}
         onClick={onNavigateSettings}
       >

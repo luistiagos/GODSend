@@ -314,13 +314,23 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
 
       {(busy || status || error || done) && (
         <div className={`mt-3 rounded-lg border px-3 py-3 ${error ? "border-red-500/30 bg-red-500/10" : done ? "border-green-500/30 bg-green-500/10" : "border-border bg-muted/30"}`}>
-          <div className="h-2 overflow-hidden rounded-full bg-background">
+          <div
+            className="h-2 overflow-hidden rounded-full bg-background"
+            role="progressbar"
+            aria-label="Progresso da preparação"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.max(0, Math.min(100, Math.round(percent)))}
+          >
             <div
               className={`h-full transition-all duration-300 ${error ? "bg-red-500" : "bg-green-500"}`}
               style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
             />
           </div>
-          <p className={`mt-2 text-[11px] ${error ? "text-red-300" : done ? "text-green-300" : "text-muted-foreground"}`}>
+          <p
+            className={`mt-2 text-[11px] ${error ? "text-red-300" : done ? "text-green-300" : "text-muted-foreground"}`}
+            aria-live="polite"
+          >
             {error || status}
           </p>
           {done && !error && (
