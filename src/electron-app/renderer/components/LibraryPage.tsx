@@ -210,7 +210,7 @@ function DetailSection({ title, icon, defaultOpen = false, loading, loadingLabel
         {loading && (
           <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
             <Loader2 className="h-2.5 w-2.5 animate-spin" />
-            {loadingLabel || "Loading…"}
+            {loadingLabel || "Carregando…"}
           </span>
         )}
       </CollapsibleTrigger>
@@ -271,7 +271,7 @@ function AssetSlotCard({
           <button
             className="text-[8px] text-muted-foreground hover:text-foreground ml-1 shrink-0"
             onClick={onClearPending}
-            title="Discard pending change"
+            title="Descartar alteração pendente"
           >
             <X className="h-2.5 w-2.5" />
           </button>
@@ -307,7 +307,7 @@ function AssetSlotCard({
         {hasPending && (
           <div
             className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-primary flex items-center justify-center"
-            title="Pending — not yet saved"
+            title="Pendente — ainda não salvo"
           >
             <div className="w-1 h-1 rounded-full bg-primary-foreground" />
           </div>
@@ -317,16 +317,16 @@ function AssetSlotCard({
         <button
           className="flex-1 text-[8px] py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center justify-center gap-0.5"
           onClick={onSearch}
-          title="Search XboxUnity online"
+          title="Buscar na XboxUnity"
         >
-          <Search className="h-2 w-2" />Search
+          <Search className="h-2 w-2" />Buscar
         </button>
         <button
           className="flex-1 text-[8px] py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center justify-center gap-0.5"
           onClick={onUpload}
-          title="Upload a local image file"
+          title="Enviar arquivo de imagem"
         >
-          <Upload className="h-2 w-2" />File
+          <Upload className="h-2 w-2" />Arquivo
         </button>
       </div>
     </div>
@@ -392,12 +392,12 @@ function AssetSearchPanel({ game, targetSlot, onSelect, onClose }: AssetSearchPa
     <div className="rounded-md border border-border/80 bg-[#0d1117] p-2.5 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] font-semibold text-foreground truncate">
-          Search for: <span className="text-primary">{slotLabel}</span>
+          Buscar: <span className="text-primary">{slotLabel}</span>
         </p>
         <button
           className="text-muted-foreground hover:text-foreground shrink-0"
           onClick={onClose}
-          title="Close"
+          title="Fechar"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -410,29 +410,29 @@ function AssetSearchPanel({ game, targetSlot, onSelect, onClose }: AssetSearchPa
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Game title or TitleID…"
+          placeholder="Nome do jogo ou TitleID…"
         />
         <button
           className="text-[9px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 disabled:opacity-40 transition-colors"
           onClick={() => runSearch(query)}
           disabled={loading || !query.trim()}
         >
-          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Go"}
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Buscar"}
         </button>
       </div>
 
       {loading && (
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          {isCoverSearch ? "Searching XboxUnity…" : "Searching Xbox CDN catalog…"}
+          {isCoverSearch ? "Buscando na XboxUnity…" : "Buscando no catálogo Xbox CDN…"}
         </div>
       )}
 
       {searched && !loading && results.length === 0 && (
         <p className="text-[10px] text-muted-foreground">
-          No {slotLabel.toLowerCase()} results found.{" "}
-          {!isCoverSearch && "The Xbox CDN may not have assets for this title. "}
-          Try a different query or use <span className="text-muted-foreground/70">File</span> to upload a local image.
+          Nenhum resultado de {slotLabel.toLowerCase()} encontrado.{" "}
+          {!isCoverSearch && "O Xbox CDN pode não ter assets para este título. "}
+          Tente outra busca ou use <span className="text-muted-foreground/70">Arquivo</span> para enviar uma imagem local.
         </p>
       )}
 
@@ -453,12 +453,12 @@ function AssetSearchPanel({ game, targetSlot, onSelect, onClose }: AssetSearchPa
                     <img src={thumb} alt="" className="w-full h-full object-cover" draggable={false} />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-[7px] text-muted-foreground">
-                      No image
+                      Sem imagem
                     </div>
                   )}
                 </div>
                 <div className="px-0.5 py-0.5 flex gap-0.5 flex-wrap">
-                  {r.official && <span className="text-[6px] text-yellow-400">Official</span>}
+                  {r.official && <span className="text-[6px] text-yellow-400">Oficial</span>}
                   {r.rating != null && <span className="text-[6px] text-muted-foreground">★{r.rating}</span>}
                   {r.source === "xbox-cdn" && <span className="text-[6px] text-blue-400">Xbox CDN</span>}
                   {r.titleId && (
@@ -473,8 +473,8 @@ function AssetSearchPanel({ game, targetSlot, onSelect, onClose }: AssetSearchPa
 
       <p className="text-[8px] text-muted-foreground/50 leading-snug">
         {isCoverSearch
-          ? <>Covers from <span className="text-muted-foreground/70">XboxUnity</span> and <span className="text-muted-foreground/70">Xbox CDN</span>. Use <span className="text-muted-foreground/70">File</span> to upload a custom image.</>
-          : <>Results from <span className="text-muted-foreground/70">Xbox CDN catalog</span> for <span className="text-muted-foreground/70">{slotLabel.toLowerCase()}</span> assets. Use <span className="text-muted-foreground/70">File</span> to upload a custom image.</>
+          ? <>Capas de <span className="text-muted-foreground/70">XboxUnity</span> e <span className="text-muted-foreground/70">Xbox CDN</span>. Use <span className="text-muted-foreground/70">Arquivo</span> para enviar uma imagem personalizada.</>
+          : <>Resultados do <span className="text-muted-foreground/70">catálogo Xbox CDN</span> para assets de <span className="text-muted-foreground/70">{slotLabel.toLowerCase()}</span>. Use <span className="text-muted-foreground/70">Arquivo</span> para enviar uma imagem personalizada.</>
         }
       </p>
     </div>
@@ -589,7 +589,7 @@ function AssetEditorSection({ game, titleVisuals, rxeaSlots, rxeaLoading, onRefr
       });
 
       if (!r || !r.ok) {
-        errorMsg = `Upload failed for ${slotKey}: ${r?.error || "Unknown error"}`;
+        errorMsg = `Falha no envio de ${slotKey}: ${r?.error || "Erro desconhecido"}`;
         break;
       }
     }
@@ -599,7 +599,7 @@ function AssetEditorSection({ game, titleVisuals, rxeaSlots, rxeaLoading, onRefr
       setSaveMsg(errorMsg);
       setSaveMsgKind("error");
     } else {
-      setSaveMsg(`${Object.keys(pending).length} asset(s) saved as RXEA to console. Visible immediately after refresh.`);
+      setSaveMsg(`${Object.keys(pending).length} asset(s) salvos no console. Visíveis após atualizar.`);
       setSaveMsgKind("ok");
       setPending({});
       // Trigger a fresh FTP sync so the cached visuals update.
@@ -650,12 +650,12 @@ function AssetEditorSection({ game, titleVisuals, rxeaSlots, rxeaLoading, onRefr
       {/* Header row */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">
-          Aurora Assets
+          Imagens e Assets
         </p>
         <div className="flex items-center gap-1.5 shrink-0">
           {rxeaLoading && (
             <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />Decoding…
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />Decodificando…
             </span>
           )}
           {hasPending && (
@@ -668,7 +668,7 @@ function AssetEditorSection({ game, titleVisuals, rxeaSlots, rxeaLoading, onRefr
               {saving
                 ? <Loader2 className="h-3 w-3 animate-spin" />
                 : <Check className="h-3 w-3" />}
-              Save to Console ({Object.keys(pending).length})
+              Salvar no Console ({Object.keys(pending).length})
             </Button>
           )}
         </div>
@@ -689,9 +689,9 @@ function AssetEditorSection({ game, titleVisuals, rxeaSlots, rxeaLoading, onRefr
       {/* Main slots grid */}
       <div className="rounded-md border border-border/60 bg-muted/10 p-2.5">
         <p className="text-[9px] text-muted-foreground mb-2 leading-snug">
-          Images are RXEA-encoded and uploaded as{" "}
+          As imagens são codificadas em RXEA e enviadas como{" "}
           <span className="font-mono">.asset</span>{" "}
-          files to the game's Aurora data directory via FTP.
+          para o diretório do jogo no Aurora via FTP.
         </p>
         <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
           {MAIN_SLOTS.map(({ key, label, aspect }) => {
@@ -759,8 +759,8 @@ function AssetEditorSection({ game, titleVisuals, rxeaSlots, rxeaLoading, onRefr
         && !hasPending && (
         <div className="rounded-md border border-border/40 bg-muted/10 px-3 py-3 text-center">
           <p className="text-[11px] text-muted-foreground">
-            No artwork found on console or in cache. Run a library refresh, or upload
-            your own using Search / File above.
+            Nenhuma imagem encontrada no console ou no cache. Atualize a biblioteca ou
+            envie a sua usando Buscar / Arquivo acima.
           </p>
         </div>
       )}
@@ -929,7 +929,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
         setManifest({ dlcs, title_updates: mergeTUs(installedTus, candidateTus) });
         if (!dlcRes?.ok && dlcRes?.error) setError(dlcRes.error);
       })
-      .catch((err: any) => setError(err?.message || "Failed to load DLC"))
+      .catch((err: any) => setError(err?.message || "Falha ao carregar DLC"))
       .finally(() => setLoadingDlc(false));
 
     window.godsendApi
@@ -960,10 +960,10 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
       if (r?.ok) {
         loadContent();
       } else {
-        setQueueStatus(`Activate failed: ${r?.error || "Unknown error"}`);
+        setQueueStatus(`Falha ao ativar: ${r?.error || "Erro desconhecido"}`);
       }
     } catch (err: any) {
-      setQueueStatus(`Activate error: ${err.message}`);
+      setQueueStatus(`Erro ao ativar: ${err.message}`);
     } finally {
       setTogglingActive((prev) => ({ ...prev, [key]: false }));
     }
@@ -983,10 +983,10 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
       if (r?.ok) {
         loadContent();
       } else {
-        setQueueStatus(`Delete failed: ${r?.error || "Unknown error"}`);
+        setQueueStatus(`Falha ao excluir: ${r?.error || "Erro desconhecido"}`);
       }
     } catch (err: any) {
-      setQueueStatus(`Delete error: ${err.message}`);
+      setQueueStatus(`Erro ao excluir: ${err.message}`);
     } finally {
       setDeleting((prev) => ({ ...prev, [key]: false }));
     }
@@ -1007,10 +1007,10 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
         setShowMoveFor(null);
         loadContent();
       } else {
-        setQueueStatus(`Move failed: ${r?.error || "Unknown error"}`);
+        setQueueStatus(`Falha ao mover: ${r?.error || "Erro desconhecido"}`);
       }
     } catch (err: any) {
-      setQueueStatus(`Move error: ${err.message}`);
+      setQueueStatus(`Erro ao mover: ${err.message}`);
     } finally {
       setMoving((prev) => ({ ...prev, [key]: false }));
     }
@@ -1033,13 +1033,13 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
       };
       const r = await window.godsendApi.contentQueue(payload);
       if (r?.ok) {
-        setQueueStatus(`${item.display_name} queued for download.`);
+        setQueueStatus(`${item.display_name} adicionado à fila.`);
         setTimeout(() => setQueueStatus(null), 3000);
       } else {
-        setQueueStatus(`Queue failed: ${r?.error || "Unknown error"}`);
+        setQueueStatus(`Falha na fila: ${r?.error || "Erro desconhecido"}`);
       }
     } catch (err: any) {
-      setQueueStatus(`Queue error: ${err.message}`);
+      setQueueStatus(`Erro na fila: ${err.message}`);
     } finally {
       setQueuing((prev) => ({ ...prev, [key]: false }));
     }
@@ -1064,10 +1064,10 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
           const src = s.sources[0];
           await handleQueue(item, src.source);
         } else {
-          setQueueStatus(`No download sources found for ${item.display_name}`);
+          setQueueStatus(`Nenhuma fonte de download encontrada para ${item.display_name}`);
         }
       } catch (err: any) {
-        setQueueStatus(`Source lookup failed: ${err.message}`);
+        setQueueStatus(`Erro ao buscar fonte: ${err.message}`);
       } finally {
         setQueuing((prev) => ({ ...prev, [key]: false }));
       }
@@ -1080,13 +1080,13 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">
-          DLC & Title Updates
+          DLC & Atualizações de Título
         </p>
         <button
           className="text-muted-foreground hover:text-foreground shrink-0"
           onClick={loadContent}
           disabled={loading}
-          title="Refresh content list"
+          title="Atualizar lista de conteúdo"
         >
           <RotateCw className={cn("h-3 w-3", loading && "animate-spin")} />
         </button>
@@ -1099,7 +1099,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
       {queueStatus && (
         <p className={cn(
           "text-[10px] px-2 py-1 rounded",
-          queueStatus.startsWith("Queue failed") || queueStatus.startsWith("Queue error") || queueStatus.startsWith("No download sources")
+          queueStatus.startsWith("Falha na fila") || queueStatus.startsWith("Erro na fila") || queueStatus.startsWith("Nenhuma fonte") || queueStatus.startsWith("Erro ao buscar") || queueStatus.startsWith("Falha ao") || queueStatus.startsWith("Erro ao")
             ? "bg-destructive/20 text-destructive"
             : "bg-emerald-500/15 text-emerald-300"
         )}>
@@ -1110,7 +1110,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
       {!loading && !error && !hasContent && (
         <div className="rounded-md border border-border/40 bg-muted/10 px-3 py-3 text-center">
           <p className="text-[11px] text-muted-foreground">
-            No DLC or Title Updates found for this title.
+            Nenhum DLC ou Atualização de Título encontrado.
           </p>
         </div>
       )}
@@ -1120,11 +1120,11 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
         <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 space-y-2">
           <div className="flex items-center gap-1.5">
             <PackageOpen className="h-3 w-3 text-muted-foreground" />
-            <p className="text-[10px] font-semibold text-muted-foreground">Title Updates</p>
+            <p className="text-[10px] font-semibold text-muted-foreground">Atualizações de Título</p>
             {loadingTu && <Loader2 className="h-2.5 w-2.5 animate-spin text-muted-foreground" />}
           </div>
           {loadingTu && (!manifest || manifest.title_updates.length === 0) && (
-            <p className="text-[10px] text-muted-foreground">Checking XboxUnity…</p>
+            <p className="text-[10px] text-muted-foreground">Verificando na XboxUnity…</p>
           )}
           <div className="flex flex-col gap-1.5">
             {manifest.title_updates.map((tu) => {
@@ -1141,7 +1141,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                   <div className="flex flex-col min-w-0">
                     <span className="text-[11px] text-foreground truncate">{tu.display_name}</span>
                     <span className="text-[9px] text-muted-foreground font-mono">
-                      {tu.installed ? (tu.active ? "Active" : "Installed") : "Not installed"}
+                      {tu.installed ? (tu.active ? "Ativo" : "Instalado") : "Não instalado"}
                       {tu.size ? ` · ${(tu.size / 1048576).toFixed(1)} MB` : ""}
                       {tu.source ? ` · ${tu.source}` : ""}
                     </span>
@@ -1162,9 +1162,9 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                                   className="text-[9px] px-1.5 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
                                   onClick={() => handleToggleActive(tu, false)}
                                   disabled={isToggling || isDeleting || isMoving}
-                                  title="Click to deactivate"
+                                  title="Clique para desativar"
                                 >
-                                  {isToggling ? "…" : "Active"}
+                                  {isToggling ? "…" : "Ativo"}
                                 </button>
                               ) : (
                                 <button
@@ -1172,7 +1172,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                                   onClick={() => handleToggleActive(tu, true)}
                                   disabled={isToggling || isDeleting || isMoving}
                                 >
-                                  {isToggling ? "…" : "Make Active"}
+                                  {isToggling ? "…" : "Ativar"}
                                 </button>
                               );
                             })()}
@@ -1180,7 +1180,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                               className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40"
                               onClick={() => handleDelete(tu)}
                               disabled={isDeleting || isMoving}
-                              title="Delete"
+                              title="Excluir"
                             >
                               <Trash2 className="h-3 w-3" />
                             </button>
@@ -1194,7 +1194,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                                 }}
                                 disabled={isMoving}
                               >
-                                <option value="">To…</option>
+                                <option value="">Para…</option>
                                 {drives.filter((d) => d !== (defaultDrive || game.sourceDrive)).map((d) => (
                                   <option key={d} value={d}>{d}</option>
                                 ))}
@@ -1204,7 +1204,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                                 className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
                                 onClick={() => setShowMoveFor(key)}
                                 disabled={isDeleting || isMoving}
-                                title="Move"
+                                title="Mover"
                               >
                                 <ArrowRightLeft className="h-3 w-3" />
                               </button>
@@ -1218,7 +1218,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                             "text-[9px] px-1.5 py-0.5 rounded",
                             qs === "Error" ? "bg-destructive/20 text-destructive" : "bg-emerald-500/15 text-emerald-300"
                           )}>
-                            {qs === "Error" ? "Error" : "Downloaded"}
+                            {qs === "Error" ? "Erro" : "Baixado"}
                           </span>
                         );
                       }
@@ -1233,7 +1233,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                           ) : (
                             <Download className="h-2.5 w-2.5" />
                           )}
-                          {qs === "Queued" || qs === "Processing" ? "Downloading…" : "Queue"}
+                          {qs === "Queued" || qs === "Processing" ? "Baixando…" : "Baixar"}
                         </button>
                       );
                     })()}
@@ -1254,7 +1254,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
             {loadingDlc && <Loader2 className="h-2.5 w-2.5 animate-spin text-muted-foreground" />}
           </div>
           {loadingDlc && (!manifest || manifest.dlcs.length === 0) && (
-            <p className="text-[10px] text-muted-foreground">Scanning Xbox and Minerva/IA…</p>
+            <p className="text-[10px] text-muted-foreground">Verificando Xbox e Minerva/IA…</p>
           )}
           <div className="flex flex-col gap-1.5">
             {manifest.dlcs.map((dlc) => {
@@ -1271,7 +1271,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                   <div className="flex flex-col min-w-0">
                     <span className="text-[11px] text-foreground truncate">{dlc.display_name}</span>
                     <span className="text-[9px] text-muted-foreground font-mono">
-                      {dlc.installed ? "Installed" : "Not installed"}
+                      {dlc.installed ? "Instalado" : "Não instalado"}
                       {dlc.size ? ` · ${(dlc.size / 1048576).toFixed(1)} MB` : ""}
                       {dlc.source ? ` · ${dlc.source}` : ""}
                     </span>
@@ -1284,12 +1284,12 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                         const isMoving = moving[key];
                         return (
                           <div className="flex items-center gap-1">
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">Installed</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">Instalado</span>
                             <button
                               className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40"
                               onClick={() => handleDelete(dlc)}
                               disabled={isDeleting || isMoving}
-                              title="Delete"
+                              title="Excluir"
                             >
                               <Trash2 className="h-3 w-3" />
                             </button>
@@ -1303,7 +1303,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                                 }}
                                 disabled={isMoving}
                               >
-                                <option value="">To…</option>
+                                <option value="">Para…</option>
                                 {drives.filter((d) => d !== (defaultDrive || game.sourceDrive)).map((d) => (
                                   <option key={d} value={d}>{d}</option>
                                 ))}
@@ -1313,7 +1313,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                                 className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
                                 onClick={() => setShowMoveFor(key)}
                                 disabled={isDeleting || isMoving}
-                                title="Move"
+                                title="Mover"
                               >
                                 <ArrowRightLeft className="h-3 w-3" />
                               </button>
@@ -1327,7 +1327,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                             "text-[9px] px-1.5 py-0.5 rounded",
                             qs === "Error" ? "bg-destructive/20 text-destructive" : "bg-emerald-500/15 text-emerald-300"
                           )}>
-                            {qs === "Error" ? "Error" : "Downloaded"}
+                            {qs === "Error" ? "Erro" : "Baixado"}
                           </span>
                         );
                       }
@@ -1342,7 +1342,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                           ) : (
                             <Download className="h-2.5 w-2.5" />
                           )}
-                          {qs === "Queued" || qs === "Processing" ? "Downloading…" : "Queue"}
+                          {qs === "Queued" || qs === "Processing" ? "Baixando…" : "Baixar"}
                         </button>
                       );
                     })()}
@@ -1425,10 +1425,10 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
       } else if (r?.error) {
         setError(r.error);
       } else {
-        setError("Failed to discover save games.");
+        setError("Falha ao descobrir saves.");
       }
     } catch (err: any) {
-      setError(err?.message || "Unknown error");
+      setError(err?.message || "Erro desconhecido");
     } finally {
       setLoading(false);
     }
@@ -1449,7 +1449,7 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
         setError(r.error);
       }
     } catch (err: any) {
-      setError(err?.message || "Unknown error");
+      setError(err?.message || "Erro desconhecido");
     } finally {
       setSavesLoading(false);
     }
@@ -1465,15 +1465,15 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
         gameName: game.name,
       });
       if (r?.ok) {
-        setStatusMsg(`Save data for ${profileId} downloaded successfully.`);
+        setStatusMsg(`Dados de save de ${profileId} baixados com sucesso.`);
         setStatusKind("ok");
         setTimeout(() => setStatusMsg(null), 4000);
       } else {
-        setStatusMsg(r?.error || "Download failed.");
+        setStatusMsg(r?.error || "Falha no download.");
         setStatusKind("error");
       }
     } catch (err: any) {
-      setStatusMsg(err?.message || "Download error");
+      setStatusMsg(err?.message || "Erro no download");
       setStatusKind("error");
     } finally {
       setDownloading((prev) => ({ ...prev, [profileId]: false }));
@@ -1489,7 +1489,7 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
         profileId,
       });
       if (r?.ok) {
-        setStatusMsg(`Save data for ${profileId} deleted.`);
+        setStatusMsg(`Dados de save de ${profileId} excluídos.`);
         setStatusKind("ok");
         setProfiles((prev) => prev.filter((p) => p.profile_id !== profileId));
         if (expandedProfile === profileId) {
@@ -1498,11 +1498,11 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
         }
         setTimeout(() => setStatusMsg(null), 4000);
       } else {
-        setStatusMsg(r?.error || "Delete failed.");
+        setStatusMsg(r?.error || "Falha ao excluir.");
         setStatusKind("error");
       }
     } catch (err: any) {
-      setStatusMsg(err?.message || "Delete error");
+      setStatusMsg(err?.message || "Erro ao excluir");
       setStatusKind("error");
     } finally {
       setDeleting((prev) => ({ ...prev, [profileId]: false }));
@@ -1523,19 +1523,19 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
       if (r?.ok) {
         const res = r.result;
         setStatusMsg(
-          `Copied ${res.files_copied} file(s) to ${dst}` +
-          (res.resigned ? " (re-signed)" : " (raw copy)")
+          `${res.files_copied} arquivo(s) copiado(s) para ${dst}` +
+          (res.resigned ? " (reassinado)" : " (cópia simples)")
         );
         setStatusKind("ok");
         // Refresh profiles after copy
         loadProfiles();
         setTimeout(() => setStatusMsg(null), 4000);
       } else {
-        setStatusMsg(r?.error || "Copy failed.");
+        setStatusMsg(r?.error || "Falha ao copiar.");
         setStatusKind("error");
       }
     } catch (err: any) {
-      setStatusMsg(err?.message || "Copy error");
+      setStatusMsg(err?.message || "Erro ao copiar");
       setStatusKind("error");
     } finally {
       setCopying((prev) => ({ ...prev, [srcProfile]: false }));
@@ -1558,7 +1558,7 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
       {loading && (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Scanning Xbox for save data…
+          Verificando saves no Xbox…
         </div>
       )}
 
@@ -1569,10 +1569,10 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
       {!loading && !error && profiles.length === 0 && (
         <div className="rounded-md border border-border/40 bg-muted/10 px-3 py-3 text-center">
           <p className="text-[11px] text-muted-foreground">
-            No save games found on the Xbox for this title.
+            Nenhum save encontrado no Xbox para este título.
           </p>
           <p className="text-[9px] text-muted-foreground/60 mt-1">
-            Save data is stored per-profile at /Content/{'{ProfileID}'}/{game.titleId}/00000001/ on the console.
+            Os saves são armazenados por perfil em /Content/{'{ProfileID}'}/{game.titleId}/00000001/ no console.
           </p>
         </div>
       )}
@@ -1605,7 +1605,7 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
                     {editingLabel === profile.profile_id ? (
                       <input
                         className="text-[10px] bg-background border border-accent rounded px-1 py-0 w-24 outline-none"
-                        placeholder="Name…"
+                        placeholder="Nome…"
                         defaultValue={profileLabels[profile.profile_id] || ""}
                         onBlur={(e) => setEditingLabel(null)}
                         onKeyDown={async (e) => {
@@ -1626,14 +1626,14 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
                         <button
                           className="text-muted-foreground/50 hover:text-muted-foreground transition-colors shrink-0"
                           onClick={(e) => { e.stopPropagation(); setEditingLabel(profile.profile_id); }}
-                          title="Label this profile"
+                          title="Nomear este perfil"
                         >
                           <Pencil className="h-2.5 w-2.5" />
                         </button>
                       </>
                     )}
                     <span className="text-[9px] text-muted-foreground shrink-0">
-                      {profile.save_count} file{profile.save_count !== 1 ? "s" : ""}
+                      {profile.save_count} arquivo{profile.save_count !== 1 ? "s" : ""}
                     </span>
                   </button>
                   <div className="flex items-center gap-1 shrink-0">
@@ -1641,7 +1641,7 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
                       className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors flex items-center gap-1 disabled:opacity-50"
                       onClick={() => handleDownload(profile.profile_id)}
                       disabled={isDownloading || isDeleting}
-                      title="Download save to local backup"
+                      title="Baixar save para backup local"
                     >
                       {isDownloading ? (
                         <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -1654,7 +1654,7 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
                       className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 p-0.5"
                       onClick={() => handleDelete(profile.profile_id)}
                       disabled={isDeleting || isDownloading}
-                      title="Delete save from Xbox"
+                      title="Excluir save do Xbox"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -1662,9 +1662,9 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
                       className="text-[8px] bg-transparent border border-border/40 rounded px-1 py-0.5 text-muted-foreground max-w-[80px]"
                       value={copyTarget[profile.profile_id] || ""}
                       onChange={(e) => setCopyTarget((prev) => ({ ...prev, [profile.profile_id]: e.target.value }))}
-                      title="Target profile"
+                      title="Perfil de destino"
                     >
-                      <option value="">Copy to…</option>
+                      <option value="">Copiar para…</option>
                       {allConsoleProfiles.filter(p => p.profile_id !== profile.profile_id).map(p => (
                         <option key={p.profile_id} value={p.profile_id}>{displayNameForProfile(p)}</option>
                       ))}
@@ -1673,14 +1673,14 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
                       className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors flex items-center gap-1 disabled:opacity-50"
                       onClick={() => handleCopy(profile.profile_id)}
                       disabled={isCopying || isDeleting || isDownloading || !copyTarget[profile.profile_id]}
-                      title="Copy save to selected profile with re-signing"
+                      title="Copiar save para o perfil selecionado com reassinatura"
                     >
                       {isCopying ? (
                         <Loader2 className="h-2.5 w-2.5 animate-spin" />
                       ) : (
                         <Copy className="h-2.5 w-2.5" />
                       )}
-                      Copy
+                      Copiar
                     </button>
                   </div>
                 </div>
@@ -1691,10 +1691,10 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
                     {savesLoading ? (
                       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                         <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                        Listing save files…
+                        Listando arquivos de save…
                       </div>
                     ) : saves.length === 0 ? (
-                      <p className="text-[10px] text-muted-foreground">No save files found.</p>
+                      <p className="text-[10px] text-muted-foreground">Nenhum arquivo de save encontrado.</p>
                     ) : (
                       <div className="flex flex-col gap-1">
                         {saves.map((entry: any) => (
@@ -1928,7 +1928,7 @@ function GameDetail({
       if (errorJob) {
         setMoveJobId(errorJob.id);
         setMoveStatus("error");
-        setMoveError(errorJob.error || "Move failed.");
+        setMoveError(errorJob.error || "Falha ao mover.");
         return;
       }
       const doneJob = matchingJobs.find((j: any) => j.state === "Ready");
@@ -1936,7 +1936,7 @@ function GameDetail({
         setMoveJobId(doneJob.id);
         setMoveStatus("done");
         setMoveProgress(100);
-        setMoveMessage("Move completed successfully.");
+        setMoveMessage("Movimentação concluída.");
       }
     }).catch(() => {});
   }, [game.name]);
@@ -1968,17 +1968,17 @@ function GameDetail({
       const r = await window.godsendApi.moveGameToDrive({ game, targetDrive: moveTarget });
       if (r?.ok) {
         setMoveJobId(r.jobId ?? null);
-        setMoveMessage(r.message || "Move queued successfully.");
+        setMoveMessage(r.message || "Movimentação iniciada com sucesso.");
         // Don't set "done" yet — let the polling effect handle final state.
         // If no jobId was returned, fall back to the old "done" behaviour.
         if (!r.jobId) setMoveStatus("done");
       } else {
         setMoveStatus("error");
-        setMoveError(r?.error || "Failed to queue move.");
+        setMoveError(r?.error || "Falha ao iniciar movimentação.");
       }
     } catch (err: any) {
       setMoveStatus("error");
-      setMoveError(err.message || "Unknown error");
+      setMoveError(err.message || "Erro desconhecido");
     }
   }
 
@@ -1996,7 +1996,7 @@ function GameDetail({
         setMoveSpeed(job.speed || null);
         if (job.state === "Ready") {
           setMoveStatus("done");
-          setMoveMessage("Move completed successfully.");
+          setMoveMessage("Movimentação concluída.");
           setMoveProgress(100);
           setMoveDetail(null);
           setMoveSpeed(null);
@@ -2007,7 +2007,7 @@ function GameDetail({
           clearInterval(id);
         } else if (job.state === "Error") {
           setMoveStatus("error");
-          setMoveError(job.error || "Move failed.");
+          setMoveError(job.error || "Falha ao mover.");
           setMoveDetail(null);
           setMoveSpeed(null);
           clearInterval(id);
@@ -2028,7 +2028,7 @@ function GameDetail({
   return (
     <div className="flex flex-col h-full">
       <header className="flex items-center gap-2.5 shrink-0 pb-3 border-b border-border">
-        <Button size="icon" onClick={onBack} title="Back to library">
+        <Button size="icon" onClick={onBack} title="Voltar para a biblioteca">
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <Button
@@ -2036,7 +2036,7 @@ function GameDetail({
           variant="ghost"
           disabled={refreshBusy || typeof onRefresh !== "function"}
           onClick={() => onRefresh?.()}
-          title="Refresh library cache from Xbox"
+          title="Atualizar biblioteca do Xbox"
         >
           <RotateCw className={cn("h-4 w-4", refreshBusy && "animate-spin")} />
         </Button>
@@ -2084,19 +2084,19 @@ function GameDetail({
 
               {!isOnSource && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground self-start">
-                  Not on selected drive
+                  Não está no drive selecionado
                 </span>
               )}
 
               <div className="flex flex-col gap-1 mt-1">
-                <MetaRow label="Publisher"  value={game.publisher} />
-                <MetaRow label="Developer"  value={game.developer} />
-                <MetaRow label="Released"   value={game.releaseDate} />
+                <MetaRow label="Editora"    value={game.publisher} />
+                <MetaRow label="Desenvolv." value={game.developer} />
+                <MetaRow label="Lançamento" value={game.releaseDate} />
                 {game.discsInSet !== undefined && game.discsInSet > 1 && (
-                  <MetaRow label="Disc" value={`${game.discNum} of ${game.discsInSet}`} />
+                  <MetaRow label="Disco" value={`${game.discNum} de ${game.discsInSet}`} />
                 )}
                 <MetaRow
-                  label="Game path"
+                  label="Caminho"
                   value={
                     game.sourceDrive
                       ? `${game.sourceDrive}:${game.directory || ""}`
@@ -2105,35 +2105,35 @@ function GameDetail({
                 />
                 {pendingMoveDrive && (
                   <p className="text-[10px] text-amber-400 leading-snug -mt-0.5">
-                    Moved to {pendingMoveDrive}: — path will refresh after Aurora rescans content on the console.
+                    Movido para {pendingMoveDrive}: — o caminho será atualizado após o Aurora rever o conteúdo no console.
                   </p>
                 )}
                 <MetaRow
-                  label="Asset path"
+                  label="Assets"
                   value={game.gameDataDir ? `Aurora/Data/GameData/${game.gameDataDir}/` : undefined}
                 />
                 {game.timesPlayed !== undefined && game.timesPlayed > 0 && (
-                  <MetaRow label="Played" value={`${game.timesPlayed}×${game.lastPlayed ? ` · Last ${game.lastPlayed}` : ""}`} />
+                  <MetaRow label="Jogado" value={`${game.timesPlayed}×${game.lastPlayed ? ` · Última vez ${game.lastPlayed}` : ""}`} />
                 )}
               </div>
             </div>
           </div>
 
           {/* Library database fields */}
-          <DetailSection title="Library Database" icon={<Database className="h-3.5 w-3.5" />} defaultOpen={false}>
+          <DetailSection title="Banco de Dados" icon={<Database className="h-3.5 w-3.5" />} defaultOpen={false}>
             <div className="flex flex-col gap-1">
               <MetaRow label="Scan path ID" value={game.scanPathId != null ? String(game.scanPathId) : undefined} />
               <MetaRow label="Media ID"     value={game.mediaId    != null ? String(game.mediaId)    : undefined} />
-              <MetaRow label="File type"    value={game.fileType   != null ? String(game.fileType)   : undefined} />
-              <MetaRow label="Content type" value={game.contentType != null ? String(game.contentType) : undefined} />
-              <MetaRow label="Directory"    value={game.directory  || undefined} />
+              <MetaRow label="Tipo arquivo" value={game.fileType   != null ? String(game.fileType)   : undefined} />
+              <MetaRow label="Tipo conteúdo" value={game.contentType != null ? String(game.contentType) : undefined} />
+              <MetaRow label="Diretório"    value={game.directory  || undefined} />
             </div>
           </DetailSection>
 
           {game.description && (
             <div>
               <p className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                Description
+                Descrição
               </p>
               <p className="text-[11.5px] text-foreground/85 leading-relaxed whitespace-pre-line">
                 {game.description}
@@ -2143,10 +2143,10 @@ function GameDetail({
 
           {/* ── Asset editor ── */}
           <DetailSection
-            title="Aurora Assets"
+            title="Imagens e Assets"
             icon={<Image className="h-3.5 w-3.5" />}
             loading={rxeaLoading}
-            loadingLabel="Decoding…"
+            loadingLabel="Decodificando…"
             onOpen={() => loadSection("assets")}
           >
             <AssetEditorSection
@@ -2162,17 +2162,17 @@ function GameDetail({
           {/* ── Move to Drive ── */}
           {game.sourceDrive && game.directory && (
             <DetailSection
-              title="Move to Drive"
+              title="Mover para outro Drive"
               icon={<HardDrive className="h-3.5 w-3.5" />}
               loading={drivesLoading}
-              loadingLabel="Loading drives…"
+              loadingLabel="Carregando drives…"
               onOpen={() => loadSection("move")}
             >
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                   <HardDrive className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span className="text-[11px] text-muted-foreground">
-                    Currently on: <span className="text-foreground font-medium">{game.sourceDrive}</span>
+                    Atualmente em: <span className="text-foreground font-medium">{game.sourceDrive}</span>
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -2211,7 +2211,7 @@ function GameDetail({
                       })
                   )}
                   {drives.filter((d) => d.replace(/:$/, "") !== game.sourceDrive).length === 0 && !drivesLoading && (
-                    <span className="text-[11px] text-muted-foreground">No other drives found.</span>
+                    <span className="text-[11px] text-muted-foreground">Nenhum outro drive encontrado.</span>
                   )}
                 </div>
                 {!moveTarget && moveStatus === "moving" && (
@@ -2219,7 +2219,7 @@ function GameDetail({
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-3 w-3 animate-spin text-accent" />
                       <span className="text-[11px] text-foreground font-medium">
-                        {moveProgress > 0 ? `Moving… ${moveProgress}%` : "Moving…"}
+                        {moveProgress > 0 ? `Movendo… ${moveProgress}%` : "Movendo…"}
                         {moveSpeed ? ` — ${moveSpeed}` : ""}
                       </span>
                     </div>
@@ -2247,9 +2247,9 @@ function GameDetail({
                           <ArrowRightLeft className="h-3 w-3" />
                         )}
                         {moveStatus === "moving"
-                          ? (moveProgress > 0 ? `Moving… ${moveProgress}%` : "Moving…")
-                          : moveStatus === "done" ? "Done"
-                          : `Move to ${moveTarget.replace(/:$/, "")}`}
+                          ? (moveProgress > 0 ? `Movendo… ${moveProgress}%` : "Movendo…")
+                          : moveStatus === "done" ? "Concluído"
+                          : `Mover para ${moveTarget.replace(/:$/, "")}`}
                       </Button>
                       {moveStatus === "moving" && moveSpeed && (
                         <span className="text-[10px] text-muted-foreground font-mono">
@@ -2258,7 +2258,7 @@ function GameDetail({
                       )}
                       {moveStatus !== "moving" && moveStatus !== "done" && (
                         <span className="text-[10px] text-muted-foreground">
-                          This will queue an FTP transfer job.
+                          Isso criará um trabalho de transferência FTP.
                         </span>
                       )}
                     </div>
@@ -2282,7 +2282,7 @@ function GameDetail({
           {/* ── Content / DLC / Title Update section ── */}
           {game.titleId && (
             <DetailSection
-              title="DLC & Title Updates"
+              title="DLC & Atualizações de Título"
               icon={<Puzzle className="h-3.5 w-3.5" />}
               onOpen={() => loadSection("content")}
             >
@@ -2293,7 +2293,7 @@ function GameDetail({
           {/* ── Save Games section ── */}
           {game.titleId && (
             <DetailSection
-              title="Save Games"
+              title="Saves"
               icon={<Save className="h-3.5 w-3.5" />}
               onOpen={() => loadSection("saves")}
             >
@@ -2366,7 +2366,7 @@ function GameCard({ game, coverDataUrl, rxeaCover, isOnSource, onClick }: GameCa
         {!isOnSource && (
           <div className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 px-1 z-10 pointer-events-none rounded-b-lg">
             <p className="text-[8px] text-white/70 text-center truncate">
-              {game.sourceDrive || "Not found"}
+              {game.sourceDrive || "Não encontrado"}
             </p>
           </div>
         )}
@@ -2398,14 +2398,14 @@ function CenteredOverlay({ children }: { children: React.ReactNode }) {
 // ── Sort/filter helpers ───────────────────────────────────────────────────────
 
 const SORT_OPTIONS = [
-  { value: "name-asc",        label: "Name A–Z" },
-  { value: "name-desc",       label: "Name Z–A" },
-  { value: "rating-desc",     label: "Rating (high–low)" },
-  { value: "rating-asc",      label: "Rating (low–high)" },
-  { value: "last-played",     label: "Last played" },
-  { value: "most-played",     label: "Most played" },
+  { value: "name-asc",        label: "Nome A–Z" },
+  { value: "name-desc",       label: "Nome Z–A" },
+  { value: "rating-desc",     label: "Avaliação (maior–menor)" },
+  { value: "rating-asc",      label: "Avaliação (menor–maior)" },
+  { value: "last-played",     label: "Mais recente" },
+  { value: "most-played",     label: "Mais jogado" },
   { value: "drive",           label: "Drive" },
-  { value: "favorites-first", label: "Favorites first" },
+  { value: "favorites-first", label: "Favoritos primeiro" },
 ];
 
 function sortAndFilterGames(games: Game[], query: string, sortKey: string, filterKey: string): Game[] {
@@ -2565,7 +2565,7 @@ export default function LibraryPage({
     } catch { /* errors logged server-side */ }
     setDlCoversBusy(false);
     setDlCoversProgress(null);
-    setDlCoversToast("Refresh data in Aurora for changes to reflect");
+    setDlCoversToast("Atualize os dados no Aurora para as mudanças aparecerem");
     setTimeout(() => setDlCoversToast(null), 3000);
     setRxeaCovers({});
     onRefresh?.();
@@ -2626,16 +2626,16 @@ export default function LibraryPage({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5 min-w-0">
             <Gamepad2 className="h-[18px] w-[18px] text-primary shrink-0" />
-            <span className="text-[15px] font-semibold text-foreground">Xbox Library</span>
+            <span className="text-[15px] font-semibold text-foreground">Biblioteca Xbox</span>
             {status === "ready" && (
               <span className="text-[11px] text-muted-foreground truncate">
                 {filteredGames.length !== games.length
                   ? `${filteredGames.length} / ${games.length}`
                   : games.length}{" "}
-                game{(filteredGames.length !== games.length ? filteredGames.length : games.length) !== 1 ? "s" : ""}
+                jogo{(filteredGames.length !== games.length ? filteredGames.length : games.length) !== 1 ? "s" : ""}
                 {offSourceCount > 0 && (
                   <span className="text-muted-foreground/50">
-                    {" "}&middot;{" "}{offSourceCount} off-drive
+                    {" "}&middot;{" "}{offSourceCount} fora do drive
                   </span>
                 )}
                 {connectedTo && <span className="text-muted-foreground/50"> &middot; {connectedTo}</span>}
@@ -2646,7 +2646,7 @@ export default function LibraryPage({
             <Button
               size="icon"
               variant="ghost"
-              title="Refresh library cache from Xbox"
+              title="Atualizar biblioteca do Xbox"
               disabled={refreshBusy || dlCoversBusy || status !== "ready" || typeof onRefresh !== "function"}
               onClick={() => { setRxeaCovers({}); onRefresh?.(); }}
             >
@@ -2655,7 +2655,7 @@ export default function LibraryPage({
             <Button
               size="icon"
               variant="ghost"
-              title="Download covers for all games missing artwork"
+              title="Baixar capas para todos os jogos sem imagem"
               disabled={dlCoversBusy || refreshBusy || status !== "ready"}
               onClick={handleDownloadCovers}
             >
@@ -2688,7 +2688,7 @@ export default function LibraryPage({
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
               <Input
                 type="text"
-                placeholder="Search games..."
+                placeholder="Buscar jogos..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-7 pl-7 pr-7 text-[12px]"
@@ -2710,11 +2710,11 @@ export default function LibraryPage({
                 size="sm"
                 variant={sortKey !== "name-asc" ? "secondary" : "ghost"}
                 className="h-7 text-[11px] px-2 gap-1"
-                title="Sort by"
+                title="Ordenar por"
                 onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false); }}
               >
                 <ArrowUpDown className="h-3 w-3" />
-                <span className="hidden sm:inline">{SORT_OPTIONS.find((o) => o.value === sortKey)?.label || "Sort"}</span>
+                <span className="hidden sm:inline">{SORT_OPTIONS.find((o) => o.value === sortKey)?.label || "Ordenar"}</span>
               </Button>
               {showSortMenu && (
                 <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-border bg-popover shadow-lg py-1">
@@ -2740,21 +2740,21 @@ export default function LibraryPage({
                 size="sm"
                 variant={filterKey !== "all" ? "secondary" : "ghost"}
                 className="h-7 text-[11px] px-2 gap-1"
-                title="Filter"
+                title="Filtrar"
                 onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false); }}
               >
                 <Filter className="h-3 w-3" />
                 <span className="hidden sm:inline">
-                  {filterKey === "all" ? "Filter" : filterKey === "favorites" ? "Favorites" : filterKey === "on-source" ? "On-drive" : "Multi-disc"}
+                  {filterKey === "all" ? "Filtrar" : filterKey === "favorites" ? "Favoritos" : filterKey === "on-source" ? "No drive" : "Multi-disco"}
                 </span>
               </Button>
               {showFilterMenu && (
                 <div className="absolute right-0 top-full mt-1 z-50 min-w-[150px] rounded-md border border-border bg-popover shadow-lg py-1">
                   {[
-                    { value: "all",        label: "All games",   count: games.length },
-                    { value: "favorites",  label: "Favorites",   count: favCount },
-                    { value: "on-source",  label: "On-drive",    count: onSourceCount },
-                    { value: "multi-disc", label: "Multi-disc",  count: games.filter((g) => (g.discsInSet || 0) > 1).length },
+                    { value: "all",        label: "Todos os jogos", count: games.length },
+                    { value: "favorites",  label: "Favoritos",      count: favCount },
+                    { value: "on-source",  label: "No drive",       count: onSourceCount },
+                    { value: "multi-disc", label: "Multi-disco",    count: games.filter((g) => (g.discsInSet || 0) > 1).length },
                   ].map((opt) => (
                     <button
                       key={opt.value}
@@ -2804,32 +2804,32 @@ export default function LibraryPage({
       {status === "connecting" && (
         <CenteredOverlay>
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-[13px]">Loading Aurora library...</p>
+          <p className="text-[13px]">Carregando biblioteca do Aurora...</p>
         </CenteredOverlay>
       )}
 
       {status === "error" && (
         <CenteredOverlay>
           <WifiOff className="h-8 w-8 text-muted-foreground" />
-          <p className="text-[13px]">Could not load Aurora library.</p>
-          <Button size="sm" onClick={onToggle}>Back to console</Button>
+          <p className="text-[13px]">Não foi possível carregar a biblioteca do Aurora.</p>
+          <Button size="sm" onClick={onToggle}>Voltar ao console</Button>
         </CenteredOverlay>
       )}
 
       {status === "empty" && (
         <CenteredOverlay>
           <Gamepad2 className="h-8 w-8 text-muted-foreground" />
-          <p className="text-[13px]">No games found in Aurora's library.</p>
-          <Button size="sm" onClick={onToggle}>Back to console</Button>
+          <p className="text-[13px]">Nenhum jogo encontrado na biblioteca do Aurora.</p>
+          <Button size="sm" onClick={onToggle}>Voltar ao console</Button>
         </CenteredOverlay>
       )}
 
       {status === "ready" && games.length > 0 && filteredGames.length === 0 && (
         <CenteredOverlay>
           <Search className="h-8 w-8 text-muted-foreground" />
-          <p className="text-[13px]">No games match your search or filter.</p>
+          <p className="text-[13px]">Nenhum jogo corresponde à busca ou filtro.</p>
           <Button size="sm" onClick={() => { setSearchQuery(""); setFilterKey("all"); }}>
-            Clear filters
+            Limpar filtros
           </Button>
         </CenteredOverlay>
       )}
