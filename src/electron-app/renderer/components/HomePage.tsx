@@ -53,7 +53,7 @@ export default function HomePage({
   async function handleOpenLogs() {
     const r = await window.godsendApi.openLogsFolder();
     if (r && !r.ok && r.error) {
-      onAppendLine(`[ERROR] Could not open logs folder: ${r.error}`);
+      onAppendLine(`[ERROR] Não foi possível abrir a pasta de logs: ${r.error}`);
     }
   }
 
@@ -93,7 +93,7 @@ export default function HomePage({
           {logInfo?.currentLogFile ? `Log: ${logInfo.currentLogFile}` : ""}
         </span>
         <Button size="sm" className="shrink-0" onClick={handleOpenLogs}>
-          Open logs folder
+          Abrir pasta de logs
         </Button>
       </footer>
     </div>
