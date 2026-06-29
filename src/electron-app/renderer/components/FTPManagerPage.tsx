@@ -54,6 +54,16 @@ function stateColor(state: string) {
   return "text-muted-foreground";
 }
 
+// Traduz apenas a EXIBIÇÃO do estado; as comparações continuam usando os
+// valores originais do backend (stateColor, filtros e ícones).
+function stateLabel(state: string) {
+  if (state === "Ready")      return "Pronto";
+  if (state === "Error")      return "Erro";
+  if (state === "Processing") return "Processando";
+  if (state === "Queued")     return "Na fila";
+  return state;
+}
+
 interface UploadJobRowProps {
   job: UploadJob;
   onRemove: (id: number) => void;
@@ -72,7 +82,7 @@ function UploadJobRow({ job, onRemove }: UploadJobRowProps) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="text-[12px] text-foreground truncate">{job.name}</span>
-          <span className={cn("text-[10px] shrink-0", stateColor(job.state))}>{job.state}</span>
+          <span className={cn("text-[10px] shrink-0", stateColor(job.state))}>{stateLabel(job.state)}</span>
           {job.state === "Processing" && job.progress !== undefined && job.progress > 0 && (
             <span className="text-[10px] text-muted-foreground shrink-0">{job.progress}%</span>
           )}
@@ -88,7 +98,7 @@ function UploadJobRow({ job, onRemove }: UploadJobRowProps) {
         )}
       </div>
       {(job.state === "Ready" || job.state === "Error") && (
-        <Button size="icon" className="h-5 w-5 shrink-0" title="Remove" onClick={() => onRemove(job.id)}>
+        <Button size="icon" className="h-5 w-5 shrink-0" title="Remover" aria-label="Remover" onClick={() => onRemove(job.id)}>
           <X className="h-2.5 w-2.5" />
         </Button>
       )}
@@ -143,7 +153,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
       }));
       setCwd(r.cwd);
     } else {
-      setError(r.error || "Failed to list directory");
+      setError(r.error || "Falha ao listar a pasta");
       setEntries([]);
     }
     setLoading(false);
@@ -330,11 +340,11 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
       <header className="flex items-center gap-2.5 shrink-0">
         {activeUploads.length > 0 && (
           <span className="text-[11px] text-blue-400">
-            {activeUploads.length} transfer{activeUploads.length !== 1 ? "s" : ""} active
+            {activeUploads.length} transferência{activeUploads.length !== 1 ? "s" : ""} ativa{activeUploads.length !== 1 ? "s" : ""}
           </span>
         )}
         <div className="flex-1" />
-        <Button size="icon" title="Refresh" onClick={() => fetchDir(cwd)} disabled={loading}>
+        <Button size="icon" title="Atualizar" aria-label="Atualizar" onClick={() => fetchDir(cwd)} disabled={loading}>
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
         </Button>
       </header>
@@ -364,30 +374,30 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
       <div className="flex items-center gap-1.5 shrink-0">
         <Button size="sm" onClick={handleUploadFiles}>
           <Upload className="h-3 w-3 mr-1" />
-          Upload Files
+          Enviar arquivos
         </Button>
         <Button size="sm" onClick={handleUploadFolder}>
           <Folder className="h-3 w-3 mr-1" />
-          Upload Folder
+          Enviar pasta
         </Button>
         {showMkdir ? (
           <div className="flex items-center gap-1">
             <input
               type="text"
               className="h-7 px-2 text-[12px] bg-surface border border-border rounded-md text-foreground w-32 outline-none focus:border-primary"
-              placeholder="Folder name"
+              placeholder="Nome da pasta"
               value={mkdirName}
               onChange={e => setMkdirName(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") handleMkdir(); if (e.key === "Escape") setShowMkdir(false); }}
               autoFocus
             />
-            <Button size="sm" onClick={handleMkdir} disabled={!mkdirName.trim()}>Create</Button>
-            <Button size="sm" onClick={() => setShowMkdir(false)}>Cancel</Button>
+            <Button size="sm" onClick={handleMkdir} disabled={!mkdirName.trim()}>Criar</Button>
+            <Button size="sm" onClick={() => setShowMkdir(false)}>Cancelar</Button>
           </div>
         ) : (
           <Button size="sm" onClick={() => setShowMkdir(true)}>
             <FolderPlus className="h-3 w-3 mr-1" />
-            New Folder
+            Nova pasta
           </Button>
         )}
 
@@ -399,30 +409,30 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
           size="sm"
           onClick={handleCut}
           disabled={selected.size === 0}
-          title="Cut selected (Ctrl+X)"
+          title="Recortar selecionados (Ctrl+X)"
         >
           <Scissors className="h-3 w-3 mr-1" />
-          Cut
+          Recortar
         </Button>
         <Button
           size="sm"
           onClick={handleCopy}
           disabled={selected.size === 0}
-          title="Copy selected (Ctrl+C)"
+          title="Copiar selecionados (Ctrl+C)"
         >
           <Copy className="h-3 w-3 mr-1" />
-          Copy
+          Copiar
         </Button>
         <Button
           size="sm"
           onClick={handlePaste}
           disabled={!canPaste || pasting}
-          title="Paste here (Ctrl+V)"
+          title="Colar aqui (Ctrl+V)"
         >
           {pasting
             ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
             : <ClipboardPaste className="h-3 w-3 mr-1" />}
-          Paste
+          Colar
         </Button>
 
         {/* Clipboard dropdown */}
@@ -434,7 +444,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
               "h-7 px-1.5 gap-1",
               clipboard && "ring-1 ring-primary/50"
             )}
-            title="Clipboard contents"
+            title="Conteúdo da área de transferência"
             disabled={!clipboard}
             onClick={() => setShowClipboard(!showClipboard)}
           >
@@ -450,17 +460,17 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
             <div className="absolute right-0 top-full mt-1 z-50 min-w-[240px] max-w-[320px] rounded-md border border-border bg-popover shadow-lg">
               <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-border">
                 <span className="text-[11px] font-semibold text-foreground">
-                  {clipboard.mode === "cut" ? "Cut" : "Copied"} — {clipboard.items.length} item{clipboard.items.length !== 1 ? "s" : ""}
+                  {clipboard.mode === "cut" ? "Recortado" : "Copiado"} — {clipboard.items.length} {clipboard.items.length !== 1 ? "itens" : "item"}
                 </span>
                 <button
                   className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
                   onClick={clearClipboard}
                 >
-                  Clear
+                  Limpar
                 </button>
               </div>
               <div className="text-[10px] text-muted-foreground px-2.5 py-1 border-b border-border/50">
-                From: {clipboard.sourceDir}
+                De: {clipboard.sourceDir}
               </div>
               <div className="max-h-[200px] overflow-auto py-1">
                 {clipboard.items.map((item) => (
@@ -481,13 +491,13 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
           <>
             <div className="w-px h-5 bg-border mx-0.5" />
             <span className="text-[11px] text-muted-foreground">
-              {selected.size} selected
+              {selected.size} selecionado{selected.size !== 1 ? "s" : ""}
             </span>
             <Button size="sm" variant="ghost" className="h-7 text-[11px] px-1.5" onClick={selectAll}>
-              All
+              Todos
             </Button>
             <Button size="sm" variant="ghost" className="h-7 text-[11px] px-1.5" onClick={() => setSelected(new Set())}>
-              None
+              Nenhum
             </Button>
             <Button
               size="sm"
@@ -496,7 +506,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
               onClick={handleDeleteSelected}
             >
               <Trash2 className="h-3 w-3 mr-0.5" />
-              Delete
+              Excluir
             </Button>
           </>
         )}
@@ -562,7 +572,8 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
                     <Button
                       size="icon"
                       className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                      title="Delete"
+                      title="Excluir"
+                      aria-label="Excluir"
                       onClick={(e) => { e.stopPropagation(); handleDelete(entry); }}
                     >
                       <Trash2 className="h-2.5 w-2.5" />
@@ -572,7 +583,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
               })}
               {entries.length === 0 && !loading && (
                 <div className="flex items-center justify-center h-24 text-[12px] text-muted-foreground">
-                  Empty directory
+                  Pasta vazia
                 </div>
               )}
             </div>
@@ -582,14 +593,14 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
         {/* Upload queue panel — always visible */}
           <div className="w-[280px] shrink-0 border border-border rounded-lg overflow-auto">
             <div className="px-2 py-1.5 border-b border-border bg-surface">
-              <span className="text-[11px] font-semibold text-foreground">Transfers</span>
+              <span className="text-[11px] font-semibold text-foreground">Transferências</span>
               <span className="text-[10px] text-muted-foreground ml-1.5">{uploads.length}</span>
             </div>
             {uploads.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-24 gap-1">
-                <p className="text-[11px] text-muted-foreground">No active transfers.</p>
+                <p className="text-[11px] text-muted-foreground">Nenhuma transferência ativa.</p>
                 <p className="text-[9px] text-muted-foreground/60">
-                  Uploads will appear here.
+                  Os envios aparecem aqui.
                 </p>
               </div>
             ) : (
@@ -613,14 +624,14 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-[12px] text-foreground hover:bg-accent/60 transition-colors text-left"
                 onClick={() => { handleCut(); setCtxMenu(null); }}
               >
-                <Scissors className="h-3 w-3" /> Cut
+                <Scissors className="h-3 w-3" /> Recortar
                 <span className="ml-auto text-[10px] text-muted-foreground">Ctrl+X</span>
               </button>
               <button
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-[12px] text-foreground hover:bg-accent/60 transition-colors text-left"
                 onClick={() => { handleCopy(); setCtxMenu(null); }}
               >
-                <Copy className="h-3 w-3" /> Copy
+                <Copy className="h-3 w-3" /> Copiar
                 <span className="ml-auto text-[10px] text-muted-foreground">Ctrl+C</span>
               </button>
               <div className="my-1 border-t border-border/50" />
@@ -634,10 +645,10 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
             disabled={!canPaste}
             onClick={() => { handlePaste(); setCtxMenu(null); }}
           >
-            <ClipboardPaste className="h-3 w-3" /> Paste
+            <ClipboardPaste className="h-3 w-3" /> Colar
             {clipboard && (
               <span className="ml-1 text-[10px] text-muted-foreground">
-                ({clipboard.items.length} {clipboard.mode === "cut" ? "cut" : "copied"})
+                ({clipboard.items.length} {clipboard.mode === "cut" ? "recortados" : "copiados"})
               </span>
             )}
             <span className="ml-auto text-[10px] text-muted-foreground">Ctrl+V</span>
@@ -654,7 +665,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
                 }}
               >
                 <Trash2 className="h-3 w-3" />
-                Delete{selected.size > 1 ? ` (${selected.size})` : ""}
+                Excluir{selected.size > 1 ? ` (${selected.size})` : ""}
               </button>
             </>
           )}
@@ -665,7 +676,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-[12px] text-foreground hover:bg-accent/60 transition-colors text-left"
                 onClick={() => { selectAll(); setCtxMenu(null); }}
               >
-                Select All
+                Selecionar tudo
                 <span className="ml-auto text-[10px] text-muted-foreground">Ctrl+A</span>
               </button>
             </>
