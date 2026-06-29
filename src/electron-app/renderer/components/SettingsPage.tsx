@@ -98,7 +98,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
   const [dataStatusMsg, setDataStatusMsg]       = useState("");
 
   // Status messages
-  const [iaSessionStatus, setIaSessionStatus]           = useState("Not signed in.");
+  const [iaSessionStatus, setIaSessionStatus]           = useState("Não conectado.");
   const [cacheStatus, setCacheStatus]                   = useState("");
   const [xboxConnectionStatus, setXboxConnectionStatus] = useState("");
   const [ftpScriptsStatus, setFtpScriptsStatus]         = useState("");
@@ -197,10 +197,10 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
   function applyIAStatus(auth: any) {
     setIaSessionStatus(
       auth?.hasSession && auth.iaScreenname
-        ? `Signed in as ${auth.iaScreenname}.`
+        ? `Conectado como ${auth.iaScreenname}.`
         : auth?.hasSession
-        ? `Signed in (${auth.iaEmail || "session active"}).`
-        : "Not signed in."
+        ? `Conectado (${auth.iaEmail || "sessão ativa"}).`
+        : "Não conectado."
     );
   }
 
@@ -247,22 +247,22 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
 
   async function applyAppDataDir(target: string) {
     setAppDataSaving(true);
-    setAppDataStatus("Moving app data…");
+    setAppDataStatus("Movendo os dados do aplicativo…");
     try {
       const r: any = await window.godsendApi.setAppDataDir(target);
       if (!r?.ok) {
-        setAppDataStatus(`Failed: ${r?.error || "Unknown error"}`);
+        setAppDataStatus(`Falha: ${r?.error || "Erro desconhecido"}`);
         setAppDataSaving(false);
         return;
       }
       if (r.restarted) {
-        setAppDataStatus("App data moved — relaunching…");
+        setAppDataStatus("Dados movidos — reiniciando…");
       } else {
-        setAppDataStatus("App data path unchanged.");
+        setAppDataStatus("O caminho dos dados não mudou.");
         setAppDataSaving(false);
       }
     } catch (err: any) {
-      setAppDataStatus(`Failed: ${err.message || String(err)}`);
+      setAppDataStatus(`Falha: ${err.message || String(err)}`);
       setAppDataSaving(false);
     }
   }
@@ -315,23 +315,23 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
 
   async function handleBackupAllSaves() {
     setBackupAllBusy(true);
-    setBackupAllStatus("Backing up all profiles and saves… this may take a while.");
+    setBackupAllStatus("Fazendo backup de todos os perfis e saves… isso pode demorar.");
     try {
       const r: any = await window.godsendApi.savesBackupAll();
       if (r?.ok && r?.result) {
         const x = r.result;
         const errs = Array.isArray(x.errors) && x.errors.length > 0
-          ? ` (${x.errors.length} skipped — see backend log)` : "";
+          ? ` (${x.errors.length} ignorados — veja o log do backend)` : "";
         setBackupAllStatus(
-          `Done: ${x.profiles_backed_up}/${x.profiles_processed} profile packages, ` +
-          `${x.saves_backed_up} title saves, ${x.files_backed_up} files total${errs}.`
+          `Concluído: ${x.profiles_backed_up}/${x.profiles_processed} pacotes de perfil, ` +
+          `${x.saves_backed_up} saves de jogos, ${x.files_backed_up} arquivos no total${errs}.`
         );
         onAppendLine(`[INFO] Save backup-all: ${x.files_backed_up} files across ${x.profiles_processed} profiles.`);
       } else {
-        setBackupAllStatus(`Failed: ${r?.error || r?.message || "unknown error"}`);
+        setBackupAllStatus(`Falha: ${r?.error || r?.message || "erro desconhecido"}`);
       }
     } catch (err: any) {
-      setBackupAllStatus(`Failed: ${err?.message || String(err)}`);
+      setBackupAllStatus(`Falha: ${err?.message || String(err)}`);
     } finally {
       setBackupAllBusy(false);
     }
@@ -373,19 +373,19 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
 
   async function handleCacheRefresh() {
     setCacheLoading(true);
-    setCacheStatus("Requesting refresh...");
+    setCacheStatus("Solicitando atualização...");
     const r = await window.godsendApi.refreshCache("all");
     setCacheStatus(
       r.ok
-        ? "Refresh started — running in background. Check server log for progress."
-        : `Failed: ${r.error || "unknown error"}`
+        ? "Atualização iniciada — rodando em segundo plano. Veja o log do servidor para acompanhar."
+        : `Falha: ${r.error || "erro desconhecido"}`
     );
     setCacheLoading(false);
   }
 
   async function handleXboxSave() {
     setXboxSaveLoading(true);
-    setXboxConnectionStatus("Saving\u2026");
+    setXboxConnectionStatus("Salvando\u2026");
     try {
       await window.godsendApi.setXboxConnection({
         xboxIp:         xboxIp.trim(),
@@ -394,11 +394,11 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
         ftpScriptsPath: ftpScriptsPath.trim(),
       });
       setXboxConnectionStatus(
-        "Saved. Backend restarted so post-download FTP installs use these credentials."
+        "Salvo. Backend reiniciado \u2014 as pr\u00f3ximas instala\u00e7\u00f5es via FTP usar\u00e3o estas credenciais."
       );
       onAppendLine("[INFO] Xbox connection saved; backend restarted if running.");
     } catch (err: any) {
-      setXboxConnectionStatus(`Failed to save: ${err.message || "unknown error"}`);
+      setXboxConnectionStatus(`Falha ao salvar: ${err.message || "erro desconhecido"}`);
     } finally {
       setXboxSaveLoading(false);
     }
@@ -406,11 +406,11 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
 
   async function handleFtpUpload() {
     if (!xboxIp.trim()) {
-      setFtpScriptsStatus("Enter the Xbox IP address first.");
+      setFtpScriptsStatus("Informe o IP do Xbox primeiro.");
       return;
     }
     setFtpUploadLoading(true);
-    setFtpScriptsStatus("Starting\u2026");
+    setFtpScriptsStatus("Enviando\u2026");
     try {
       await window.godsendApi.setXboxConnection({
         xboxIp:         xboxIp.trim(),
@@ -427,11 +427,11 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
       });
       setFtpScriptsStatus(
         r.ok
-          ? `Aurora scripts uploaded successfully to ${r.remotePath || "(path unknown)"}.`
-          : `Failed: ${r.error || "unknown error"}`
+          ? `Scripts enviados com sucesso para ${r.remotePath || "(caminho desconhecido)"}.`
+          : `Falha: ${r.error || "erro desconhecido"}`
       );
     } catch (err: any) {
-      setFtpScriptsStatus(`Failed: ${err.message || "unknown error"}`);
+      setFtpScriptsStatus(`Falha: ${err.message || "erro desconhecido"}`);
     } finally {
       setFtpUploadLoading(false);
     }
@@ -439,7 +439,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
 
   async function handleFtpTest() {
     setFtpTestLoading(true);
-    setFtpDebugStatus("Testing connection...");
+    setFtpDebugStatus("Testando conexão...");
     setFtpDebugLog("");
     try {
       const r = await window.godsendApi.ftpTestConnection({
@@ -448,10 +448,10 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
         ftpPassword,
       });
       setFtpDebugStatus(
-        r.ok ? "Connection test passed." : `Test failed: ${r.error}`
+        r.ok ? "Conexão bem-sucedida." : `Falha no teste: ${r.error}`
       );
     } catch (err: any) {
-      setFtpDebugStatus(`Test failed: ${err.message || "unknown error"}`);
+      setFtpDebugStatus(`Falha no teste: ${err.message || "erro desconhecido"}`);
     } finally {
       setFtpTestLoading(false);
     }
@@ -459,25 +459,25 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
 
   async function handleFtpScan() {
     if (!ftpScanSubnet.trim()) {
-      setFtpDebugStatus("Enter a subnet first (e.g. 192.168.1).");
+      setFtpDebugStatus("Informe a sub-rede primeiro (ex: 192.168.1).");
       return;
     }
     setFtpScanLoading(true);
-    setFtpDebugStatus("Scanning...");
+    setFtpDebugStatus("Varrendo rede...");
     setFtpDebugLog("");
     try {
       const r = await window.godsendApi.ftpScanPorts(ftpScanSubnet.trim());
       if (r.ok) {
         setFtpDebugStatus(
           r.hosts.length
-            ? `Found ${r.hosts.length} FTP host(s): ${r.hosts.join(", ")}`
-            : "No FTP servers found on this subnet."
+            ? `Encontrado(s) ${r.hosts.length} host(s) FTP: ${r.hosts.join(", ")}`
+            : "Nenhum servidor FTP encontrado nesta sub-rede."
         );
       } else {
-        setFtpDebugStatus(`Scan failed: ${r.error}`);
+        setFtpDebugStatus(`Falha na varredura: ${r.error}`);
       }
     } catch (err: any) {
-      setFtpDebugStatus(`Scan failed: ${err.message || "unknown error"}`);
+      setFtpDebugStatus(`Falha na varredura: ${err.message || "erro desconhecido"}`);
     } finally {
       setFtpScanLoading(false);
     }
@@ -490,22 +490,22 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
   async function handleAria2Save() {
     await window.godsendApi.setAria2ListenPort(aria2ListenPort);
     await window.godsendApi.setAria2DhtPort(aria2DhtPort);
-    setAria2Status("Saved. Backend restarted if running.");
+    setAria2Status("Salvo. Backend reiniciado.");
   }
 
   async function handleFetchDrives() {
     setDriveLoading(true);
-    setDriveStatus("Connecting to Xbox via FTP...");
+    setDriveStatus("Conectando ao Xbox via FTP...");
     try {
       const r = await window.godsendApi.listXboxDrives();
       if (r.ok) {
         setDriveList(r.drives);
-        setDriveStatus(`Found ${r.drives.length} drive(s).`);
+        setDriveStatus(`Encontrado(s) ${r.drives.length} drive(s).`);
       } else {
-        setDriveStatus(`Failed: ${r.error || "unknown error"}`);
+        setDriveStatus(`Falha: ${r.error || "erro desconhecido"}`);
       }
     } catch (err: any) {
-      setDriveStatus(`Failed: ${err.message || "unknown error"}`);
+      setDriveStatus(`Falha: ${err.message || "erro desconhecido"}`);
     } finally {
       setDriveLoading(false);
     }
@@ -514,43 +514,43 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
   async function handleDriveSave() {
     const saved = await window.godsendApi.setDefaultXboxDrive(defaultDrive);
     setDefaultDrive(saved);
-    setDriveStatus(saved ? `Default drive set to ${saved}. Backend restarted.` : "Default drive cleared.");
+    setDriveStatus(saved ? `Drive padrão definido como ${saved}. Backend reiniciado.` : "Drive padrão removido.");
   }
 
   async function handleDriveClear() {
     const saved = await window.godsendApi.setDefaultXboxDrive("");
     setDefaultDrive(saved);
-    setDriveStatus("Default drive cleared — Aurora will prompt for drive on each download.");
+    setDriveStatus("Drive padrão removido — o Aurora vai solicitar o drive a cada download.");
   }
 
   async function handleCustomGodPathSave() {
     const saved = await window.godsendApi.setCustomGodPath(customGodPath);
     setCustomGodPathState(saved);
-    setCustomPathStatus(`Custom GOD path ${saved ? `set to ${saved}` : "cleared"}. Backend restarted.`);
+    setCustomPathStatus(`Caminho GOD personalizado ${saved ? `definido como ${saved}` : "removido"}. Backend reiniciado.`);
   }
 
   async function handleCustomGodPathClear() {
     const saved = await window.godsendApi.setCustomGodPath("");
     setCustomGodPathState(saved);
-    setCustomPathStatus("Custom GOD path cleared. Backend restarted.");
+    setCustomPathStatus("Caminho GOD personalizado removido. Backend reiniciado.");
   }
 
   async function handleCustomXexPathSave() {
     const saved = await window.godsendApi.setCustomXexPath(customXexPath);
     setCustomXexPathState(saved);
-    setCustomPathStatus(`Custom XEX path ${saved ? `set to ${saved}` : "cleared"}. Backend restarted.`);
+    setCustomPathStatus(`Caminho XEX personalizado ${saved ? `definido como ${saved}` : "removido"}. Backend reiniciado.`);
   }
 
   async function handleCustomXexPathClear() {
     const saved = await window.godsendApi.setCustomXexPath("");
     setCustomXexPathState(saved);
-    setCustomPathStatus("Custom XEX path cleared. Backend restarted.");
+    setCustomPathStatus("Caminho XEX personalizado removido. Backend reiniciado.");
   }
 
   // FTP inline directory picker helpers
   async function openFtpPicker(target: "god" | "xex") {
     if (!xboxIp.trim()) {
-      setCustomPathStatus("Enter Xbox IP first.");
+      setCustomPathStatus("Informe o IP do Xbox primeiro.");
       return;
     }
     setFtpPickerTarget(target);
@@ -562,7 +562,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
 
   async function ftpPickerLoad(remotePath: string) {
     setFtpPickerLoading(true);
-    setFtpPickerStatus("Loading...");
+    setFtpPickerStatus("Carregando...");
     try {
       const r = await window.godsendApi.toolsFtpList(remotePath);
       if (r.ok && r.entries) {
@@ -574,12 +574,12 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
         const parent = { name: "..", type: "directory", size: 0 };
         const isRoot = r.cwd === "/" || !r.cwd || r.cwd.match(/^\/?[A-Za-z0-9]+:?$/);
         setFtpPickerEntries(isRoot ? dirs : [parent, ...dirs]);
-        setFtpPickerStatus(`${dirs.length} folder(s)`);
+        setFtpPickerStatus(`${dirs.length} pasta(s)`);
       } else {
-        setFtpPickerStatus(`Error: ${r.error || "unknown"}`);
+        setFtpPickerStatus(`Erro: ${r.error || "desconhecido"}`);
       }
     } catch (err: any) {
-      setFtpPickerStatus(`Error: ${err.message || "unknown"}`);
+      setFtpPickerStatus(`Erro: ${err.message || "desconhecido"}`);
     } finally {
       setFtpPickerLoading(false);
     }
@@ -607,25 +607,25 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
     }
     setFtpPickerOpen(false);
     setFtpPickerTarget(null);
-    setCustomPathStatus(`Selected FTP path: ${raw}`);
+    setCustomPathStatus(`Caminho FTP selecionado: ${raw}`);
   }
 
   async function handleExportDb() {
     if (!xboxIp.trim()) {
-      setExportDbStatus("Enter the Xbox IP address first.");
+      setExportDbStatus("Informe o IP do Xbox primeiro.");
       return;
     }
     setExportDbLoading(true);
-    setExportDbStatus("Downloading content.db and settings.db from console…");
+    setExportDbStatus("Baixando content.db e settings.db do console…");
     try {
       const r = await window.godsendApi.exportAuroraDb();
       if (r.ok) {
-        setExportDbStatus(`Exported to:\n${(r.files || []).join("\n")}`);
+        setExportDbStatus(`Exportado para:\n${(r.files || []).join("\n")}`);
       } else {
-        setExportDbStatus(`Export failed: ${r.error || "unknown error"}`);
+        setExportDbStatus(`Falha na exportação: ${r.error || "erro desconhecido"}`);
       }
     } catch (err: any) {
-      setExportDbStatus(`Export failed: ${err.message || "unknown error"}`);
+      setExportDbStatus(`Falha na exportação: ${err.message || "erro desconhecido"}`);
     } finally {
       setExportDbLoading(false);
     }
@@ -639,10 +639,10 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
       if (r.ok) {
         setDataStatus(r);
         setDataStatusMsg(
-          `${r.active_jobs} active job(s), ${r.pending_ftp_jobs} pending FTP job(s), ${r.local_data_mb} MB local data`
+          `${r.active_jobs} tarefa(s) ativa(s), ${r.pending_ftp_jobs} aguardando FTP, ${r.local_data_mb} MB em dados locais`
         );
       } else {
-        setDataStatusMsg(`Failed: ${r.error || "unknown error"}`);
+        setDataStatusMsg(`Falha: ${r.error || "erro desconhecido"}`);
       }
     } finally {
       setDataCheckLoading(false);
@@ -652,17 +652,17 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
   async function handleDataClear() {
     const hasJobs = dataStatus && (dataStatus.active_jobs > 0 || dataStatus.pending_ftp_jobs > 0);
     const warn = hasJobs
-      ? `WARNING: There are ${dataStatus.active_jobs} active job(s) and ${dataStatus.pending_ftp_jobs} pending FTP job(s).\n\nClearing will cancel all of them.\n\nContinue?`
-      : "Clear all local data (Ready/ and Temp/ directories) and cancel pending FTP jobs?\n\nThis cannot be undone.";
+      ? `ATENÇÃO: Há ${dataStatus.active_jobs} tarefa(s) ativa(s) e ${dataStatus.pending_ftp_jobs} aguardando FTP.\n\nApagar cancelará todas elas.\n\nDeseja continuar?`
+      : "Apagar todos os dados locais (pastas Ready/ e Temp/) e cancelar envios FTP pendentes?\n\nEssa ação não pode ser desfeita.";
 
     if (!window.confirm(warn)) return;
 
     setDataClearLoading(true);
-    setDataStatusMsg("Clearing...");
+    setDataStatusMsg("Limpando...");
     try {
       const r = await window.godsendApi.clearLocalData();
       setDataStatus(null);
-      setDataStatusMsg(r.ok ? "Local data cleared." : `Failed: ${r.error || "unknown error"}`);
+      setDataStatusMsg(r.ok ? "Dados locais apagados." : `Falha: ${r.error || "erro desconhecido"}`);
     } finally {
       setDataClearLoading(false);
     }
@@ -681,98 +681,98 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
           <Section>
             <label className="flex items-center gap-2.5 text-[13px] cursor-pointer select-none">
               <Checkbox checked={startup} onCheckedChange={handleStartupChange} />
-              Launch GODsend at login
+              Abrir o GODsend ao iniciar o sistema
             </label>
           </Section>
 
           {/* ── App data directory ── */}
-          <Section title="App data directory">
+          <Section title="Pasta de dados do aplicativo">
             <div className="flex flex-wrap gap-2 items-center">
               <Input
                 type="text"
                 readOnly
                 className="flex-1 min-w-[180px]"
-                placeholder={`Default: ${defaultAppDataDir}`}
+                placeholder={`Padrão: ${defaultAppDataDir}`}
                 value={appDataDir}
               />
-              <Button onClick={handleAppDataBrowse} disabled={appDataSaving}>Browse&hellip;</Button>
-              <Button onClick={handleAppDataReset} disabled={appDataSaving}>Use default</Button>
+              <Button onClick={handleAppDataBrowse} disabled={appDataSaving}>Procurar&hellip;</Button>
+              <Button onClick={handleAppDataReset} disabled={appDataSaving}>Usar padrão</Button>
             </div>
             {appDataStatus && (
               <p className="text-[11px] text-muted-foreground mt-1">{appDataStatus}</p>
             )}
             <Hint>
-              Holds <strong>config.json</strong>, daily server logs, Aurora library
-              cache, and (by default) the <code className="mx-1">runtime/</code> folder.
-              This is <em>not</em> Windows <code className="mx-1">%TEMP%</code> — it is
-              GODsend&apos;s own application data. Changing this moves existing data and
-              relaunches the app. {appDataPortable
-                ? "Portable build — defaults to a folder next to the .exe."
-                : "Default is the OS application-data folder."}
+              Guarda o <strong>config.json</strong>, os logs diários do servidor, o cache
+              da biblioteca do Aurora e (por padrão) a pasta <code className="mx-1">runtime/</code>.
+              Isto <em>não</em> é o <code className="mx-1">%TEMP%</code> do Windows — são os
+              dados do próprio GODsend. Alterar move os dados existentes e
+              reinicia o aplicativo. {appDataPortable
+                ? "Versão portátil — o padrão é uma pasta ao lado do .exe."
+                : "O padrão é a pasta de dados de aplicativos do sistema."}
             </Hint>
           </Section>
 
           {/* ── Local storage path ── */}
-          <Section title="Local storage path">
+          <Section title="Pasta de armazenamento local">
             <div className="flex flex-wrap gap-2 items-center">
               <Input
                 type="text"
                 readOnly
                 className="flex-1 min-w-[180px]"
-                placeholder={`Default: ${defaultStoragePath}`}
+                placeholder={`Padrão: ${defaultStoragePath}`}
                 value={storagePath}
               />
-              <Button onClick={handleStorageBrowse}>Browse&hellip;</Button>
-              <Button onClick={handleStorageReset}>Use default</Button>
+              <Button onClick={handleStorageBrowse}>Procurar&hellip;</Button>
+              <Button onClick={handleStorageReset}>Usar padrão</Button>
             </div>
             <Hint>
-              Backend working root (<code className="mx-1">GODSEND_HOME</code>). Contains{" "}
-              <code className="mx-1">Temp/</code> (processing scratch space),{" "}
-              <code className="mx-1">Ready/</code> (finished installs awaiting FTP),{" "}
-              <code className="mx-1">Transfer/</code> (local ISO drop folder unless overridden
-              below), and <code className="mx-1">cache/</code> (Minerva / IA title lists).
-              Override to put large files on another drive without moving logs and settings.
+              Raiz de trabalho do backend (<code className="mx-1">GODSEND_HOME</code>). Contém{" "}
+              <code className="mx-1">Temp/</code> (área de trabalho do processamento),{" "}
+              <code className="mx-1">Ready/</code> (instalações prontas aguardando FTP),{" "}
+              <code className="mx-1">Transfer/</code> (pasta local de ISOs, salvo se alterada
+              abaixo) e <code className="mx-1">cache/</code> (listas de títulos Minerva / IA).
+              Altere para colocar arquivos grandes em outra unidade sem mover logs e configurações.
             </Hint>
           </Section>
 
           {/* ── Temporary directories ── */}
-          <Section title="Temporary directories">
-            <PathExplain title="Processing temp" path={backendTempPath}>
-              Active job scratch space under <code>Temp/</code>. Stores extracted archives,
-              ISO→GOD conversion folders, Minerva post-torrent staging (
-              <code>&lt;game&gt;_torrent</code>), FTP Manager copy/move buffers, and save-game
-              keyvault downloads. Cleared by <strong>Clear local data</strong> on the Home page.
-              Follows <strong>Local storage path</strong> — not configurable separately.
+          <Section title="Pastas temporárias">
+            <PathExplain title="Temp de processamento" path={backendTempPath}>
+              Área de trabalho das tarefas ativas em <code>Temp/</code>. Guarda arquivos extraídos,
+              pastas de conversão ISO→GOD, staging pós-torrent do Minerva (
+              <code>&lt;game&gt;_torrent</code>), buffers de cópia/movimentação do Gerenciador FTP e
+              downloads de keyvault de saves. Limpa com <strong>Limpar dados locais</strong> na tela inicial.
+              Segue a <strong>Pasta de armazenamento local</strong> — não é configurável à parte.
             </PathExplain>
 
             <div className="mt-4">
-              <p className="text-[12px] font-medium text-[#cad3dc] mb-2">Torrent download temp</p>
+              <p className="text-[12px] font-medium text-[#cad3dc] mb-2">Temp de download de torrent</p>
               <div className="flex flex-wrap gap-2 items-center">
                 <Input
                   type="text"
                   readOnly
                   className="flex-1 min-w-[180px]"
-                  placeholder={`Default: ${defaultTorrentTempPath}`}
+                  placeholder={`Padrão: ${defaultTorrentTempPath}`}
                   value={torrentTempPath}
                 />
-                <Button onClick={handleTorrentTempBrowse}>Browse&hellip;</Button>
-                <Button onClick={handleTorrentTempReset}>Use default</Button>
+                <Button onClick={handleTorrentTempBrowse}>Procurar&hellip;</Button>
+                <Button onClick={handleTorrentTempReset}>Usar padrão</Button>
               </div>
-              <PathExplain title="Effective path" path={torrentTempPath}>
-                Where <strong>aria2c</strong> writes Minerva torrent pieces while downloading (
-                <code>gd-dl-*</code> folders and short-lived <code>*.torrent</code> files).
-                Defaults to <code>Temp/torrent-dl</code> under your storage path so downloads stay
-                on the same drive as processing temp. Override to put active torrent
-                downloads on a specific disk — keep it on the <strong>same drive</strong> as
-                Local storage path when possible (cross-drive moves are slower). This setting
-                controls Minerva/aria2c staging; it is <em>not</em> the Windows{" "}
-                <code>%TEMP%</code> / <code>TMP</code> environment variable.
+              <PathExplain title="Caminho efetivo" path={torrentTempPath}>
+                Onde o <strong>aria2c</strong> grava os pedaços do torrent do Minerva durante o download (
+                pastas <code>gd-dl-*</code> e arquivos <code>*.torrent</code> temporários).
+                O padrão é <code>Temp/torrent-dl</code> sob a sua pasta de armazenamento, para os downloads ficarem
+                na mesma unidade do temp de processamento. Altere para colocar os downloads de torrent
+                em um disco específico — mantenha na <strong>mesma unidade</strong> da
+                Pasta de armazenamento local quando possível (mover entre unidades é mais lento). Esta opção
+                controla o staging do Minerva/aria2c; <em>não</em> é a variável de ambiente{" "}
+                <code>%TEMP%</code> / <code>TMP</code> do Windows.
               </PathExplain>
             </div>
           </Section>
 
           {/* ── Backend server port ── */}
-          <Section title="Backend server port">
+          <Section title="Porta do servidor (backend)">
             <div className="flex flex-wrap gap-2 items-center">
               <Input
                 type="number"
@@ -784,32 +784,32 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                 value={serverPort}
                 onChange={(e) => setServerPort(e.target.value)}
               />
-              <Button onClick={handlePortSave}>Save</Button>
-              <Button onClick={handlePortReset}>Use 8080</Button>
+              <Button onClick={handlePortSave}>Salvar</Button>
+              <Button onClick={handlePortReset}>Usar 8080</Button>
             </div>
             <Hint>
-              Used by the local backend and patched into Aurora scripts during FTP
-              upload. Changing this restarts the backend.
+              Usada pelo backend local e inserida nos scripts do Aurora durante o envio
+              por FTP. Alterar reinicia o backend.
             </Hint>
           </Section>
 
           {/* ── Xbox connection ── */}
-          <Section title="Xbox connection">
+          <Section title="Conexão com o Xbox">
             <div className="space-y-3">
               <div>
-                <Label htmlFor="xboxIp">Xbox IP address</Label>
+                <Label htmlFor="xboxIp">Endereço IP do Xbox</Label>
                 <Input
                   id="xboxIp"
                   type="text"
                   className="mt-1 max-w-[480px]"
                   spellCheck={false}
-                  placeholder="e.g. 192.168.1.100"
+                  placeholder="ex.: 192.168.1.100"
                   value={xboxIp}
                   onChange={(e) => setXboxIp(e.target.value)}
                 />
               </div>
               <div>
-                <Label htmlFor="ftpUser">FTP username</Label>
+                <Label htmlFor="ftpUser">Usuário do FTP</Label>
                 <Input
                   id="ftpUser"
                   type="text"
@@ -822,7 +822,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                 />
               </div>
               <div>
-                <Label htmlFor="ftpPassword">FTP password</Label>
+                <Label htmlFor="ftpPassword">Senha do FTP</Label>
                 <Input
                   id="ftpPassword"
                   type="password"
@@ -835,7 +835,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                 />
               </div>
               <div>
-                <Label htmlFor="ftpScriptsPath">Scripts destination path (on Xbox)</Label>
+                <Label htmlFor="ftpScriptsPath">Pasta de destino dos scripts (no Xbox)</Label>
                 <div className="flex flex-wrap gap-2 items-center mt-1">
                   <Input
                     id="ftpScriptsPath"
@@ -846,18 +846,18 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                     value={ftpScriptsPath}
                     onChange={(e) => setFtpScriptsPath(e.target.value)}
                   />
-                  <Button onClick={handleFtpScriptsPathReset}>Use default</Button>
+                  <Button onClick={handleFtpScriptsPathReset}>Usar padrão</Button>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button disabled={xboxSaveLoading} onClick={handleXboxSave}>
-                  Save connection
+                  Salvar conexão
                 </Button>
                 <Button disabled={ftpUploadLoading} onClick={handleFtpUpload}>
-                  FTP Aurora Scripts to Xbox
+                  Enviar scripts do Aurora por FTP
                 </Button>
                 <Button disabled={exportDbLoading} onClick={handleExportDb}>
-                  {exportDbLoading ? "Exporting DBs…" : "Export Aurora DBs"}
+                  {exportDbLoading ? "Exportando bancos…" : "Exportar bancos do Aurora"}
                 </Button>
               </div>
               {xboxConnectionStatus && (
@@ -872,17 +872,17 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
             </div>
 
             <Hint>
-              Click <strong>Save connection</strong> to persist the Xbox IP, FTP
-              credentials, and scripts path; the backend will restart so post-download
-              FTP installs use the same credentials. Enable FTP in Aurora (Settings
-              &rarr; Network &rarr; Enable FTP) before using{" "}
-              <strong>FTP Aurora Scripts to Xbox</strong>. Your PC IP and selected
-              backend port are patched directly into <code>state.lua</code>{" "}
-              automatically. The path must match the folder Aurora actually loads (copy
-              it from your FTP client). On USB that is often{" "}
-              <code>/Usb0/Apps/Aurora/User/Scripts/Utility/GODSend</code> &mdash; note{" "}
-              <code>Apps</code> and <code>Utility</code> (not <code>Utilities</code>).
-              On HDD it is often{" "}
+              Clique em <strong>Salvar conexão</strong> para guardar o IP do Xbox, as
+              credenciais de FTP e o caminho dos scripts; o backend será reiniciado para
+              que as instalações por FTP após o download usem as mesmas credenciais. Ative o FTP no Aurora (Settings
+              &rarr; Network &rarr; Enable FTP) antes de usar{" "}
+              <strong>Enviar scripts do Aurora por FTP</strong>. O IP do seu PC e a porta
+              do backend são inseridos automaticamente no <code>state.lua</code>. O
+              caminho precisa ser o mesmo que o Aurora realmente carrega (copie
+              do seu cliente FTP). No USB costuma ser{" "}
+              <code>/Usb0/Apps/Aurora/User/Scripts/Utility/GODSend</code> &mdash; atenção a{" "}
+              <code>Apps</code> e <code>Utility</code> (não <code>Utilities</code>).
+              No HDD costuma ser{" "}
               <code>/Hdd1/Aurora/User/Scripts/Utility/GODSend</code>.
             </Hint>
 
@@ -899,15 +899,15 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                     ftpDebugOpen && "rotate-90"
                   )}
                 />
-                FTP Debugging Tools
+                Ferramentas de diagnóstico de FTP
               </CollapsibleTrigger>
               <CollapsibleContent className="px-3 py-2.5 space-y-2">
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" disabled={ftpTestLoading} onClick={handleFtpTest}>
-                    Test Connection
+                    Testar conexão
                   </Button>
                   <Button size="sm" disabled={ftpScanLoading} onClick={handleFtpScan}>
-                    Scan Network Ports
+                    Varrer portas da rede
                   </Button>
                   <Button
                     size="sm"
@@ -916,7 +916,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                       setFtpDebugStatus("");
                     }}
                   >
-                    Clear Log
+                    Limpar log
                   </Button>
                 </div>
                 {ftpDebugStatus && (
@@ -924,7 +924,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                 )}
                 <div>
                   <Label htmlFor="ftpScanSubnet">
-                    Subnet to scan (e.g. 192.168.1)
+                    Sub-rede para varrer (ex.: 192.168.1)
                   </Label>
                   <div className="flex flex-wrap gap-2 items-center mt-1">
                     <Input
@@ -937,7 +937,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                       onChange={(e) => setFtpScanSubnet(e.target.value)}
                     />
                     <span className="text-[11px] text-muted-foreground">
-                      Port 21 on .1 &ndash; .254
+                      Porta 21 em .1 &ndash; .254
                     </span>
                   </div>
                 </div>
@@ -952,141 +952,141 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
           </Section>
 
           {/* ── Local Transfer folder ── */}
-          <Section title="Local Transfer folder (ISOs)">
+          <Section title="Pasta Transfer local (ISOs)">
             <div className="flex flex-wrap gap-2 items-center">
               <Input
                 type="text"
                 readOnly
                 className="flex-1 min-w-[180px]"
-                placeholder="Default: data folder / Transfer"
+                placeholder="Padrão: pasta de dados / Transfer"
                 value={transferPath}
               />
-              <Button onClick={handleTransferBrowse}>Browse&hellip;</Button>
-              <Button onClick={handleTransferReset}>Use default</Button>
+              <Button onClick={handleTransferBrowse}>Procurar&hellip;</Button>
+              <Button onClick={handleTransferReset}>Usar padrão</Button>
             </div>
             <Hint>
-              Changing this restarts the backend. The Xbox script uses this folder for
-              &ldquo;Local Library&rdquo;.
+              Alterar reinicia o backend. O script do Xbox usa esta pasta para a
+              &ldquo;Biblioteca local&rdquo;.
             </Hint>
           </Section>
 
           {/* ── Save backup folder ── */}
-          <Section title="Save Game Backup folder">
+          <Section title="Pasta de backup de saves">
             <div className="flex flex-wrap gap-2 items-center">
               <Input
                 type="text"
                 readOnly
                 className="flex-1 min-w-[180px]"
-                placeholder="Default: same as Transfer folder"
+                placeholder="Padrão: a mesma da pasta Transfer"
                 value={saveBackupPath}
               />
-              <Button onClick={handleSaveBackupBrowse}>Browse&hellip;</Button>
-              <Button onClick={handleSaveBackupReset}>Use default</Button>
+              <Button onClick={handleSaveBackupBrowse}>Procurar&hellip;</Button>
+              <Button onClick={handleSaveBackupReset}>Usar padrão</Button>
             </div>
             <Hint>
-              Downloaded save-game backups are stored here. Defaults to the Transfer
-              folder if not set. Layout:{" "}
+              Os backups de saves baixados ficam aqui. Se não definida, usa a pasta
+              Transfer. Estrutura:{" "}
               <code>Saves/&lt;gamertag&gt; (&lt;XUID&gt;)/&lt;game&gt; - &lt;titleID&gt;/</code>.
             </Hint>
 
             <div className="flex flex-wrap gap-2 items-center mt-2">
               <Button onClick={handleBackupAllSaves} disabled={backupAllBusy}>
-                {backupAllBusy ? "Backing up…" : "Back up all profiles and saves"}
+                {backupAllBusy ? "Salvando backup…" : "Fazer backup de todos os perfis e saves"}
               </Button>
             </div>
             {backupAllStatus && <Status className="mt-2">{backupAllStatus}</Status>}
             <Hint>
-              Pulls every profile package and every per-game save from the connected
-              Xbox into the folder above. Profiles with a resolvable gamertag are
-              grouped under their name; the rest fall back to the XUID.
+              Baixa todos os pacotes de perfil e todos os saves por jogo do Xbox
+              conectado para a pasta acima. Perfis com gamertag identificável são
+              agrupados pelo nome; os demais usam o XUID.
             </Hint>
           </Section>
 
           {/* ── Game cache ── */}
-          <Section title="Game cache">
+          <Section title="Cache de jogos">
             {cacheStatus && (
               <Status className="mb-2">{cacheStatus}</Status>
             )}
             <Button disabled={cacheLoading} onClick={handleCacheRefresh}>
-              Refresh all caches
+              Atualizar todos os caches
             </Button>
             <Hint>
-              Caches are loaded from disk on startup and never refreshed automatically.
-              Click to re-fetch all Internet Archive game lists and any ROM system
-              caches you have previously browsed.
+              Os caches são carregados do disco ao iniciar e nunca são atualizados
+              automaticamente. Clique para rebaixar todas as listas de jogos do Internet
+              Archive e os caches de sistemas de ROM que você já navegou.
             </Hint>
           </Section>
 
           {/* ── Internet Archive account ── */}
-          <Section title="Internet Archive account">
+          <Section title="Conta do Internet Archive">
             <div className="space-y-3">
               {iaSessionStatus && (
                 <Status className="mb-0">{iaSessionStatus}</Status>
               )}
               <div>
-                <Label htmlFor="iaEmail">Email</Label>
+                <Label htmlFor="iaEmail">E-mail</Label>
                 <Input
                   id="iaEmail"
                   type="email"
                   className="mt-1 max-w-[480px]"
                   spellCheck={false}
                   autoComplete="username"
-                  placeholder="Your archive.org email"
+                  placeholder="Seu e-mail do archive.org"
                   value={iaEmail}
                   onChange={(e) => setIaEmail(e.target.value)}
                 />
               </div>
               <div>
-                <Label htmlFor="iaPassword">Password</Label>
+                <Label htmlFor="iaPassword">Senha</Label>
                 <Input
                   id="iaPassword"
                   type="password"
                   className="mt-1 max-w-[480px]"
                   spellCheck={false}
                   autoComplete="current-password"
-                  placeholder="Not stored — only used to sign in"
+                  placeholder="Não é armazenada — usada só para entrar"
                   value={iaPassword}
                   onChange={(e) => setIaPassword(e.target.value)}
                 />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button disabled={iaLoginLoading} onClick={handleIALogin}>
-                  Log in &amp; restart backend
+                  Entrar &amp; reiniciar backend
                 </Button>
-                <Button onClick={handleIALogout}>Sign out</Button>
+                <Button onClick={handleIALogout}>Sair</Button>
               </div>
             </div>
             <Hint>
-              Uses archive.org&rsquo;s official login API. Session cookies are saved
-              locally; your password is never stored.
+              Usa a API de login oficial do archive.org. Os cookies de sessão são salvos
+              localmente; sua senha nunca é armazenada.
             </Hint>
           </Section>
 
           {/* ── ROM install path ── */}
-          <Section title="ROM install path (on Xbox)">
+          <Section title="Pasta de instalação de ROMs (no Xbox)">
             <div className="flex flex-wrap gap-2 items-center">
               <Input
                 type="text"
                 className="flex-1 min-w-[180px] max-w-[480px]"
-                placeholder={String.raw`Default: Emulators\RetroArch\roms`}
+                placeholder={String.raw`Padrão: Emulators\RetroArch\roms`}
                 value={romPath}
                 onChange={(e) => setRomPath(e.target.value)}
               />
-              <Button onClick={handleRomPathSave}>Save</Button>
-              <Button onClick={handleRomPathReset}>Use default</Button>
+              <Button onClick={handleRomPathSave}>Salvar</Button>
+              <Button onClick={handleRomPathReset}>Usar padrão</Button>
             </div>
             <Hint>
-              Drive-relative path for ROM installs. Each system gets a subfolder
-              (e.g.&nbsp;\NES\, \SNES\). Changing this restarts the backend.
+              Caminho relativo à unidade para instalar ROMs. Cada sistema recebe uma subpasta
+              (ex.:&nbsp;\NES\, \SNES\). Alterar reinicia o backend.
             </Hint>
           </Section>
 
           {/* ── Aria2 / Minerva download ports ── */}
-          <Section title="Aria2 / Minerva download ports">
+          <Section title="Portas de download do Aria2 / Minerva">
             <div className="space-y-3">
               <div className="flex flex-wrap gap-3 items-end">
                 <div>
-                  <Label htmlFor="aria2Listen">Listen port</Label>
+                  <Label htmlFor="aria2Listen">Porta de escuta</Label>
                   <Input
                     id="aria2Listen"
                     type="number"
@@ -1100,7 +1100,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="aria2Dht">DHT port</Label>
+                  <Label htmlFor="aria2Dht">Porta DHT</Label>
                   <Input
                     id="aria2Dht"
                     type="number"
@@ -1113,23 +1113,23 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                     onChange={(e) => setAria2DhtPort(e.target.value)}
                   />
                 </div>
-                <Button onClick={handleAria2Save}>Save</Button>
+                <Button onClick={handleAria2Save}>Salvar</Button>
               </div>
               {aria2Status && <Status>{aria2Status}</Status>}
             </div>
             <Hint>
-              Ports aria2 uses for BitTorrent traffic when downloading from Minerva
-              Archive. Leave blank for automatic selection. Set these if you need to
-              open specific firewall rules. Changing restarts the backend.
+              Portas que o aria2 usa para o tráfego BitTorrent ao baixar do Minerva
+              Archive. Deixe em branco para seleção automática. Defina-as se precisar
+              abrir regras específicas de firewall. Alterar reinicia o backend.
             </Hint>
           </Section>
 
           {/* ── Default Xbox drive ── */}
-          <Section title="Default Xbox drive">
+          <Section title="Unidade padrão do Xbox">
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2 items-center">
                 <Button disabled={driveLoading} onClick={handleFetchDrives}>
-                  {driveLoading ? "Fetching\u2026" : "Fetch drives from Xbox"}
+                  {driveLoading ? "Buscando\u2026" : "Buscar unidades do Xbox"}
                 </Button>
               </div>
               {driveList.length > 0 && (
@@ -1139,7 +1139,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                     value={defaultDrive}
                     onChange={(e) => setDefaultDrive(e.target.value)}
                   >
-                    <option value="">(none — prompt each time)</option>
+                    <option value="">(nenhuma — perguntar a cada vez)</option>
                     {driveList.map((d) => (
                       <option key={d} value={d}>{d}</option>
                     ))}
@@ -1151,64 +1151,64 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                   <Input
                     type="text"
                     className="w-[140px]"
-                    placeholder="e.g. Hdd1:"
+                    placeholder="ex.: Hdd1:"
                     value={defaultDrive}
                     onChange={(e) => setDefaultDrive(e.target.value)}
                   />
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
-                <Button onClick={handleDriveSave}>Save</Button>
-                <Button onClick={handleDriveClear}>Clear</Button>
+                <Button onClick={handleDriveSave}>Salvar</Button>
+                <Button onClick={handleDriveClear}>Limpar</Button>
               </div>
               {driveStatus && <Status>{driveStatus}</Status>}
             </div>
             <Hint>
-              When set, the Aurora script skips the drive picker on every download
-              and uses this drive automatically. Click{" "}
-              <strong>Fetch drives from Xbox</strong> to list available storage
-              devices from the console via FTP (Xbox IP must be configured). Click{" "}
-              <strong>Clear</strong> to reset — Aurora will prompt for a drive each
-              time.
+              Quando definida, o script do Aurora pula o seletor de unidade em todo download
+              e usa esta unidade automaticamente. Clique em{" "}
+              <strong>Buscar unidades do Xbox</strong> para listar os dispositivos de
+              armazenamento do console via FTP (o IP do Xbox precisa estar configurado). Clique em{" "}
+              <strong>Limpar</strong> para redefinir — o Aurora perguntará a unidade a cada
+              vez.
             </Hint>
           </Section>
 
           {/* ── Custom GOD / XEX install paths ── */}
-          <Section title="Custom GOD / XEX install paths">
+          <Section title="Pastas personalizadas de instalação GOD / XEX">
             <div className="space-y-4">
               {/* GOD path */}
               <div>
-                <Label htmlFor="customGodPath">GOD install folder (on Xbox)</Label>
+                <Label htmlFor="customGodPath">Pasta de instalação GOD (no Xbox)</Label>
                 <div className="flex flex-wrap gap-2 items-center mt-1">
                   <Input
                     id="customGodPath"
                     type="text"
                     className="flex-1 min-w-[180px] max-w-[480px]"
-                    placeholder="Default: GOD"
+                    placeholder="Padrão: GOD"
                     value={customGodPath}
                     onChange={(e) => setCustomGodPathState(e.target.value)}
                   />
-                  <Button onClick={() => openFtpPicker("god")}>Browse FTP&hellip;</Button>
-                  <Button onClick={handleCustomGodPathSave}>Save</Button>
-                  <Button onClick={handleCustomGodPathClear}>Use default</Button>
+                  <Button onClick={() => openFtpPicker("god")}>Procurar por FTP&hellip;</Button>
+                  <Button onClick={handleCustomGodPathSave}>Salvar</Button>
+                  <Button onClick={handleCustomGodPathClear}>Usar padrão</Button>
                 </div>
               </div>
 
               {/* XEX path */}
               <div>
-                <Label htmlFor="customXexPath">XEX install folder (on Xbox)</Label>
+                <Label htmlFor="customXexPath">Pasta de instalação XEX (no Xbox)</Label>
                 <div className="flex flex-wrap gap-2 items-center mt-1">
                   <Input
                     id="customXexPath"
                     type="text"
                     className="flex-1 min-w-[180px] max-w-[480px]"
-                    placeholder="Default: XEX"
+                    placeholder="Padrão: XEX"
                     value={customXexPath}
                     onChange={(e) => setCustomXexPathState(e.target.value)}
                   />
-                  <Button onClick={() => openFtpPicker("xex")}>Browse FTP&hellip;</Button>
-                  <Button onClick={handleCustomXexPathSave}>Save</Button>
-                  <Button onClick={handleCustomXexPathClear}>Use default</Button>
+                  <Button onClick={() => openFtpPicker("xex")}>Procurar por FTP&hellip;</Button>
+                  <Button onClick={handleCustomXexPathSave}>Salvar</Button>
+                  <Button onClick={handleCustomXexPathClear}>Usar padrão</Button>
                 </div>
               </div>
 
@@ -1219,20 +1219,20 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                 <div className="border border-[#1e242e] rounded-lg overflow-hidden bg-[#0d1117]">
                   <div className="px-3 py-2 text-[12px] font-semibold text-muted-foreground bg-muted flex items-center justify-between">
                     <span>
-                      Browse FTP — {ftpPickerTarget === "god" ? "GOD folder" : "XEX folder"}
+                      Procurar por FTP — {ftpPickerTarget === "god" ? "pasta GOD" : "pasta XEX"}
                     </span>
                     <Button size="sm" variant="ghost" onClick={() => setFtpPickerOpen(false)}>
-                      Close
+                      Fechar
                     </Button>
                   </div>
                   <div className="px-3 py-2 space-y-2">
                     <div className="text-[11px] text-muted-foreground font-mono">
-                      {ftpPickerLoading ? "Loading..." : ftpPickerPath}
+                      {ftpPickerLoading ? "Carregando..." : ftpPickerPath}
                     </div>
                     <div className="max-h-[200px] overflow-y-auto border border-[#1e242e] rounded">
                       {ftpPickerEntries.length === 0 && !ftpPickerLoading && (
                         <div className="px-3 py-2 text-[12px] text-muted-foreground">
-                          No directories found.
+                          Nenhuma pasta encontrada.
                         </div>
                       )}
                       {ftpPickerEntries.map((entry) => (
@@ -1249,7 +1249,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                       <span className="text-[11px] text-muted-foreground">{ftpPickerStatus}</span>
                       <div className="flex gap-2">
                         <Button size="sm" onClick={ftpPickerSelect}>
-                          Select this folder
+                          Selecionar esta pasta
                         </Button>
                       </div>
                     </div>
@@ -1258,23 +1258,23 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
               )}
             </div>
             <Hint>
-              When set, GOD and XEX installs go into these subfolders on the chosen
-              drive instead of the default <code>GOD</code> and <code>XEX</code> folders.
-              Leave blank to use defaults. Click <strong>Browse FTP</strong> to pick an
-              existing directory from the Xbox. The path is relative to the drive root
-              (e.g. <code>Games/GOD</code> or <code>MyXEX</code>).
+              Quando definidas, as instalações GOD e XEX vão para estas subpastas na unidade
+              escolhida, em vez das pastas padrão <code>GOD</code> e <code>XEX</code>.
+              Deixe em branco para usar o padrão. Clique em <strong>Procurar por FTP</strong> para escolher uma
+              pasta existente no Xbox. O caminho é relativo à raiz da unidade
+              (ex.: <code>Games/GOD</code> ou <code>MyXEX</code>).
             </Hint>
           </Section>
 
           {/* ── Local app data ── */}
-          <Section title="Local app data">
+          <Section title="Dados locais do aplicativo">
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2 items-center">
                 <Button disabled={dataCheckLoading} onClick={handleDataCheck}>
-                  {dataCheckLoading ? "Checking\u2026" : "Check status"}
+                  {dataCheckLoading ? "Verificando\u2026" : "Verificar status"}
                 </Button>
                 <Button disabled={dataClearLoading} onClick={handleDataClear}>
-                  {dataClearLoading ? "Clearing\u2026" : "Clear local data"}
+                  {dataClearLoading ? "Limpando\u2026" : "Limpar dados locais"}
                 </Button>
               </div>
               {dataStatusMsg && (
@@ -1284,11 +1284,11 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
               )}
             </div>
             <Hint>
-              Shows active jobs, pending FTP retries, and total local data size
-              (Ready/ and Temp/ directories). <strong>Clear local data</strong>{" "}
-              cancels all pending FTP jobs, removes downloaded/converted game files,
-              and resets the job queue. A confirmation prompt will warn if active or
-              pending jobs exist.
+              Mostra as tarefas ativas, as repetições de FTP pendentes e o tamanho total
+              dos dados locais (pastas Ready/ e Temp/). <strong>Limpar dados locais</strong>{" "}
+              cancela todas as tarefas de FTP pendentes, remove os arquivos de jogos
+              baixados/convertidos e zera a fila de tarefas. Uma confirmação avisará se
+              houver tarefas ativas ou pendentes.
             </Hint>
           </Section>
 
