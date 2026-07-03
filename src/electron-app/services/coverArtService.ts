@@ -37,6 +37,103 @@ export function cleanTitleForSearch(raw: string): string {
     .trim();
 }
 
+/** Generate a prioritized list of search queries for a game title. */
+export function generateSearchCandidates(gameName: string): string[] {
+  const candidates: string[] = [];
+
+  // 1. Initial clean
+  const clean = gameName
+    .replace(/\s*\(.*?\)/g, "") // remove parenthesized text
+    .replace(/\s*\[.*?\]/g, "") // remove bracketed text
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!clean) return [];
+
+  // Helper to add if not already present
+  const add = (q: string) => {
+    q = q.trim().replace(/\s+/g, " ");
+    if (q && !candidates.includes(q)) {
+      candidates.push(q);
+    }
+  };
+
+  // Add the base clean title
+  add(clean);
+
+  // 2. Perform common replacements
+  let replaced = clean;
+  
+  // A Era do Gelo -> Ice Age
+  if (/a era do gelo/i.test(replaced)) {
+    replaced = replaced.replace(/a era do gelo/gi, "Ice Age");
+  }
+  // AC -> Assassin's Creed
+  if (/^ac\b/i.test(replaced)) {
+    replaced = replaced.replace(/^ac\b/gi, "Assassin's Creed");
+  }
+  // ACDC -> AC/DC
+  if (/^acdc\b/i.test(replaced)) {
+    replaced = replaced.replace(/^acdc\b/gi, "AC/DC");
+  }
+  // Brasil -> Brazil
+  if (/brasil/i.test(replaced)) {
+    replaced = replaced.replace(/brasil/gi, "Brazil");
+  }
+  // 0 D Beat Drop -> 0D Beat Drop
+  if (/^0 d\b/i.test(replaced)) {
+    replaced = replaced.replace(/^0 d\b/gi, "0D");
+  }
+
+  add(replaced);
+
+  // 3. Strip trailing region suffixes
+  const stripRegions = (q: string) => {
+    return q.replace(/\b(AUS|USA|EUR|PAL|UK|JP|JPN|RF|Region Free|Asia|NTSC)\b$/gi, "").trim();
+  };
+
+  add(stripRegions(clean));
+  add(stripRegions(replaced));
+
+  // 4. Try stripping leading "007 "
+  const strip007 = (q: string) => {
+    if (/^007\s+/i.test(q)) {
+      return q.replace(/^007\s+/i, "").trim();
+    }
+    return q;
+  };
+  add(strip007(clean));
+  add(strip007(replaced));
+  add(stripRegions(strip007(clean)));
+  add(stripRegions(strip007(replaced)));
+
+  // 5. Strip common brand prefixes
+  const stripBrands = (q: string) => {
+    return q
+      .replace(/^(EA Sports|Tom Clancy's|Tom Clancys|Peter Jackson's|Sid Meier's|James Bond|James Bond 007|Disney's|Disneys|Disney|LEGO|Lego|Marvel's|Marvels|Marvel|Adidas)\s+/i, "")
+      .trim();
+  };
+  add(stripBrands(clean));
+  add(stripBrands(replaced));
+  add(stripRegions(stripBrands(clean)));
+  add(stripRegions(stripBrands(replaced)));
+
+  // 6. Truncations (first 3 words, first 2 words)
+  const currentLen = candidates.length;
+  for (let i = 0; i < currentLen; i++) {
+    const q = candidates[i];
+    const words = q.split(" ");
+    if (words.length > 3) {
+      add(words.slice(0, 3).join(" "));
+    }
+    if (words.length > 2) {
+      add(words.slice(0, 2).join(" "));
+    }
+  }
+
+  return candidates;
+}
+
 export async function fetchXboxUnityCoverWithMeta(searchTerm: string): Promise<{ buf: Buffer; titleId: string } | null> {
   const url     = `http://xboxunity.net/api/Covers/${encodeURIComponent(searchTerm)}`;
   const jsonBuf = await fetchHttpImage(url);

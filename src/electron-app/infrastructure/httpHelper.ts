@@ -23,7 +23,7 @@ export function fetchHttpImage(url: string, redirectCount = 0): Promise<Buffer |
     const mod = url.startsWith("https") ? https : http;
     const req = mod.get(
       url,
-      { headers: { "User-Agent": "Aurora/0.7b GODsend" }, timeout: 12000 } as any,
+      { headers: { "User-Agent": "GODsend-Xbox360-Cover-Fetcher/1.0 (contact: admin@godsend360.local; GitHub: https://github.com/luistiagos/GODSend)" }, timeout: 12000 } as any,
       (res) => {
         if (
           res.statusCode === 301 ||

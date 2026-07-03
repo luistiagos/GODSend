@@ -13,6 +13,7 @@ import { fetchHttpImage } from "../infrastructure/httpHelper";
 import {
   browseCoverCache,
   baseTitleForCover,
+  generateSearchCandidates,
   fetchXboxUnityCoverWithMeta,
   tryXboxCdnFromMicrosoftStoreSearch,
   fetchWikipediaCover,
@@ -101,15 +102,14 @@ export function register(ipcMain: IpcMain): void {
 
       if (browseCoverCache.has(base)) return browseCoverCache.get(base);
 
+      // Generate search queries
+      const candidates = generateSearchCandidates(gameName);
+
       let imgBuf: Buffer | null = null;
 
-      // ── 1. XboxUnity Covers API ─────────────────────────────────────────────
-      if (!imgBuf) {
-        let meta = await fetchXboxUnityCoverWithMeta(base);
-        if (!meta) {
-          const m = base.match(/^.+?\s+-\s+(.+)$/);
-          if (m) meta = await fetchXboxUnityCoverWithMeta(m[1].trim());
-        }
+      // ── 1. XboxUnity Covers API (looping through candidates) ─────────────────
+      for (const cand of candidates) {
+        let meta = await fetchXboxUnityCoverWithMeta(cand);
         if (meta) {
           imgBuf = meta.buf;
           if (meta.titleId) {
@@ -117,65 +117,26 @@ export function register(ipcMain: IpcMain): void {
             const xboxBuf = await fetchHttpImage(xboxUrl);
             if (xboxBuf && xboxBuf.length >= 100) imgBuf = xboxBuf;
           }
+          break;
         }
       }
 
-      // ── 2. Xbox.com catalog via TitleList ───────────────────────────────────
+      // ── 2. Microsoft Store suggestion → Title ID in product metadata → CDN (looping through candidates) ────
       if (!imgBuf) {
-        const tlBuf = await fetchHttpImage(
-          `http://xboxunity.net/Resources/Lib/TitleList.php?search=${encodeURIComponent(base)}`
-        );
-        if (tlBuf) {
-          try {
-            const tlJson = JSON.parse(tlBuf.toString("utf8"));
-            const tlTid  = tlJson?.Items?.[0]?.TitleID;
-            if (tlTid) {
-              const xboxBuf = await fetchHttpImage(
-                `http://catalog.xboxlive.com/Catalog/Product/CoverArt/${String(tlTid).toUpperCase()}/en-US/1`
-              );
-              if (xboxBuf && xboxBuf.length >= 100) imgBuf = xboxBuf;
-            }
-          } catch { /* ignore */ }
+        for (const cand of candidates) {
+          imgBuf = await tryXboxCdnFromMicrosoftStoreSearch(cand);
+          if (imgBuf) break;
         }
       }
 
+      // ── 3. Wikipedia REST API (looping through candidates) ───────────────────
       if (!imgBuf) {
-        const m = base.match(/^.+?\s+-\s+(.+)$/);
-        if (m) {
-          const tlBuf = await fetchHttpImage(
-            `http://xboxunity.net/Resources/Lib/TitleList.php?search=${encodeURIComponent(m[1].trim())}`
-          );
-          if (tlBuf) {
-            try {
-              const tlJson = JSON.parse(tlBuf.toString("utf8"));
-              const tlTid  = tlJson?.Items?.[0]?.TitleID;
-              if (tlTid) {
-                const xboxBuf = await fetchHttpImage(
-                  `http://catalog.xboxlive.com/Catalog/Product/CoverArt/${String(tlTid).toUpperCase()}/en-US/1`
-                );
-                if (xboxBuf && xboxBuf.length >= 100) imgBuf = xboxBuf;
-              }
-            } catch { /* ignore */ }
+        for (const cand of candidates) {
+          const wikiTitles = [`${cand} (video game)`, cand];
+          for (const title of wikiTitles) {
+            imgBuf = await fetchWikipediaCover(title);
+            if (imgBuf) break;
           }
-        }
-      }
-
-      // ── 3. Microsoft Store → Title ID in product metadata → CDN ────────────
-      if (!imgBuf) {
-        imgBuf = await tryXboxCdnFromMicrosoftStoreSearch(base);
-        if (!imgBuf) {
-          const sm = base.match(/^.+?\s+-\s+(.+)$/);
-          if (sm) imgBuf = await tryXboxCdnFromMicrosoftStoreSearch(sm[1].trim());
-        }
-      }
-
-      // ── 4. Wikipedia REST API ───────────────────────────────────────────────
-      if (!imgBuf) {
-        const wikiTitles = [`${base} (video game)`, base];
-        const m = base.match(/^.+?\s+-\s+(.+)$/);
-        if (m) wikiTitles.push(`${m[1].trim()} (video game)`, m[1].trim());
-        for (const title of wikiTitles) {
-          imgBuf = await fetchWikipediaCover(title);
           if (imgBuf) break;
         }
       }
