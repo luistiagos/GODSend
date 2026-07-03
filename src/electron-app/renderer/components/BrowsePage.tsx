@@ -20,6 +20,7 @@ const PLATFORMS = [
 ];
 
 const SOURCES = [
+  { id: "huggingface", label: "Hugging Face" },
   { id: "minerva", label: "Minerva" },
   { id: "ia",      label: "Internet Archive" },
   { id: "local",   label: "Biblioteca local" },
@@ -489,6 +490,13 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
   const filterRef = useRef<HTMLInputElement>(null);
 
   const isLocal = source === "local";
+  const isHF = source === "huggingface";
+
+  useEffect(() => {
+    if (isHF && platform !== "xbox360") {
+      setPlatform("xbox360");
+    }
+  }, [isHF, platform]);
 
   // Load local prepared drives (primary), plus default + FTP drives (secondary).
   const refreshDestinations = useCallback(() => {
@@ -583,8 +591,8 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
         </div>
       </header>
 
-      {/* ── Platform tabs (hidden for local library) ── */}
-      {!isLocal && (
+      {/* ── Platform tabs (hidden for local library and Hugging Face) ── */}
+      {!isLocal && !isHF && (
         <div className="flex gap-1 overflow-x-auto shrink-0 pb-0.5 no-scrollbar">
           {PLATFORMS.map((p) => (
             <PillBtn

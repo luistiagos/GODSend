@@ -52,6 +52,7 @@ func main() {
 	iaSvc := &cache.IAService{App: a}
 	minervaSvc := &cache.MinervaService{App: a}
 	romSvc := &cache.ROMService{App: a, IA: iaSvc}
+	hfSvc := &cache.HuggingFaceService{App: a, IA: iaSvc}
 	localSvc := &local.Service{App: a}
 	pipelineSvc := &pipeline.Service{
 		App:      a,
@@ -124,16 +125,24 @@ func main() {
 		}
 	}()
 
+	// HuggingFace cache (lazy — won't block startup)
+	go func() {
+		if iaSvc.LoadCacheFromDisk("hf_xbox360") {
+			a.Logf("HUGGINGFACE CACHE: Loaded xbox360 from disk")
+		}
+	}()
+
 	// ── HTTP routes ─────────────────────────────────────────────────
 	deps := &httpintf.Deps{
-		App:      a,
-		IA:       iaSvc,
-		Minerva:  minervaSvc,
-		ROM:      romSvc,
-		Local:    localSvc,
-		Pipeline: pipelineSvc,
-		FTP:      ftpSvc,
-		FTPMgr:   ftpMgr,
+		App:         a,
+		IA:          iaSvc,
+		Minerva:     minervaSvc,
+		ROM:         romSvc,
+		HuggingFace: hfSvc,
+		Local:       localSvc,
+		Pipeline:    pipelineSvc,
+		FTP:         ftpSvc,
+		FTPMgr:      ftpMgr,
 	}
 	mux := deps.NewRouter()
 

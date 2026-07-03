@@ -15,14 +15,15 @@ import (
 
 // Deps holds all dependencies needed by HTTP handlers.
 type Deps struct {
-	App      *app.App
-	IA       *cache.IAService
-	Minerva  *cache.MinervaService
-	ROM      *cache.ROMService
-	Local    *local.Service
-	Pipeline *pipeline.Service
-	FTP      *ftp.Service
-	FTPMgr   *ftp.Manager
+	App         *app.App
+	IA          *cache.IAService
+	Minerva     *cache.MinervaService
+	ROM         *cache.ROMService
+	HuggingFace *cache.HuggingFaceService
+	Local       *local.Service
+	Pipeline    *pipeline.Service
+	FTP         *ftp.Service
+	FTPMgr      *ftp.Manager
 }
 
 // jsonError writes a JSON error response.

@@ -116,6 +116,30 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
+	if source == "huggingface" {
+		d.App.IAGameCacheMu.RLock()
+		hfCached := d.App.IAGameCache["hf_"+platform]
+		d.App.IAGameCacheMu.RUnlock()
+
+		if len(hfCached) > 0 {
+			d.App.Logf("BROWSE: Serving %d HuggingFace games for %s", len(hfCached), platform)
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Write([]byte(strings.Join(hfCached, "|")))
+			return
+		}
+		go d.HuggingFace.Build(platform)
+		s := d.IA.GetBuildState("hf_" + platform)
+		loaded := atomic.LoadInt32(&s.Loaded)
+		total := atomic.LoadInt32(&s.Total)
+		if total == 0 {
+			total = 1
+		}
+		d.App.Logf("BROWSE: HuggingFace cache building for %s", platform)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "__IA_LOADING__:%d/%d", loaded, total)
+		return
+	}
+
 	// No source specified — merged fallback (backward compat).
 	if len(minervaCached) > 0 || len(iaCached) > 0 {
 		seen := make(map[string]bool, len(minervaCached)+len(iaCached))
@@ -219,6 +243,14 @@ func (d *Deps) handleCacheRefresh(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 		}
 		d.App.Logf("CACHE REFRESH: Minerva %s", p)
 		go d.Minerva.Build(p)
+		jsonSuccess(w, map[string]string{"status": "refreshing", "platform": platform})
+		return
+	}
+
+	if strings.HasPrefix(platform, "hf_") {
+		p := strings.TrimPrefix(platform, "hf_")
+		d.App.Logf("CACHE REFRESH: HuggingFace %s", p)
+		go d.HuggingFace.Build(p)
 		jsonSuccess(w, map[string]string{"status": "refreshing", "platform": platform})
 		return
 	}
@@ -420,6 +452,26 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if source == "minerva" {
 		d.App.LogStatus(gameName, "Error", "Not found in Minerva Archive")
 		jsonSuccess(w, map[string]string{"status": "minerva_unavailable", "message": "Game not found in Minerva Archive."})
+		return
+	}
+
+	// Hugging Face
+	if source == "huggingface" {
+		if d.Local.IsGameReadyLocally(gameName) {
+			d.App.LogStatus(gameName, "Ready", "Ready to Install")
+			jsonSuccess(w, map[string]string{"status": "already_ready"})
+			return
+		}
+		d.App.GameEntryMapMu.RLock()
+		entry, ok := d.App.GameEntryMap["hf_"+platform+"\x00"+strings.ToLower(gameName)]
+		d.App.GameEntryMapMu.RUnlock()
+		if !ok {
+			d.App.LogStatus(gameName, "Error", "Not found in Hugging Face catalog")
+			jsonSuccess(w, map[string]string{"status": "hf_unavailable", "message": "Game not found in Hugging Face catalog."})
+			return
+		}
+		launcher(func() { d.Pipeline.ProcessHuggingFaceGame(gameName, entry.FileName) })
+		jsonSuccess(w, map[string]string{"status": "triggered", "source": "huggingface"})
 		return
 	}
 
