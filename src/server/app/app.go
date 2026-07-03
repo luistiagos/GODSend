@@ -34,11 +34,14 @@ type App struct {
 	ROMRootPath      string // drive-relative path for ROM installs on Xbox
 
 	// ── IA auth & download settings ───────────────────────────────────
-	IACookieHeader        string
-	IAAuthorizationHeader string
-	IADownloadMaxParallel int
-	IAHTTPClient          *http.Client
-	EdgeEmuHTTPClient     *http.Client
+	IACookieHeader         string
+	IAAuthorizationHeader  string
+	IADownloadMaxParallel  int
+	IAHTTPClient           *http.Client
+	EdgeEmuHTTPClient      *http.Client
+	iaAutoLoginMu          sync.Mutex
+	iaAutoLoginLastAttempt time.Time
+	iaAutoLoginLastErr     error
 
 	// ── Shared buffers ────────────────────────────────────────────────
 	CopyBuffer []byte

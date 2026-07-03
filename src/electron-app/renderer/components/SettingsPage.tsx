@@ -1184,7 +1184,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                     id="customGodPath"
                     type="text"
                     className="flex-1 min-w-[180px] max-w-[480px]"
-                    placeholder="Padrão: GOD"
+                    placeholder="Padrão: Games"
                     value={customGodPath}
                     onChange={(e) => setCustomGodPathState(e.target.value)}
                   />
@@ -1202,7 +1202,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                     id="customXexPath"
                     type="text"
                     className="flex-1 min-w-[180px] max-w-[480px]"
-                    placeholder="Padrão: XEX"
+                    placeholder="Padrão: Games"
                     value={customXexPath}
                     onChange={(e) => setCustomXexPathState(e.target.value)}
                   />

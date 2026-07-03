@@ -104,8 +104,16 @@ func (s *Service) ProbeWorkingAria2c() (string, error) {
 		return "", false
 	}
 
-	bundled := filepath.Join(s.App.GodsendExeDir, name)
-	if _, err := os.Stat(bundled); err == nil {
+	// Packaged builds ship aria2c next to the backend binary; the dev tree keeps
+	// it in a "tools/" subdir (dist/tools/aria2c.exe). Probe both.
+	bundledCandidates := []string{
+		filepath.Join(s.App.GodsendExeDir, name),
+		filepath.Join(s.App.GodsendExeDir, "tools", name),
+	}
+	for _, bundled := range bundledCandidates {
+		if _, err := os.Stat(bundled); err != nil {
+			continue
+		}
 		if p, ok := try(bundled, "bundled aria2c"); ok {
 			return p, nil
 		}

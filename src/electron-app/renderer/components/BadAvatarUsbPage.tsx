@@ -83,7 +83,7 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
       if (!driveResult?.ok) {
         setDrives([]);
         setSelectedDrive("");
-        setLoadError("Não foi possível procurar dispositivos USB.");
+        setLoadError(driveResult?.error || "Não foi possível procurar dispositivos USB.");
       } else {
         const nextDrives = Array.isArray(driveResult.drives) ? driveResult.drives : [];
         setDrives(nextDrives);

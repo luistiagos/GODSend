@@ -62,11 +62,24 @@ func (s *Service) ProcessMinervaGame(gameName string, entry models.MinervaEntry,
 		os.Remove(archivePath)
 		defer os.RemoveAll(extDir)
 		xexFolder := helpers.FindXEXFolder(extDir)
-		if xexFolder == "" {
+		folderName := ""
+		if xexFolder != "" {
+			folderName = filepath.Base(xexFolder)
+		} else if isoInArchive := helpers.FindFileByExt(extDir, ".iso"); isoInArchive != "" {
+			isoXexDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_mxex")
+			os.RemoveAll(isoXexDir)
+			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
+			if err := utils.ExtractXEXFolderFromISO(isoInArchive, isoXexDir); err != nil {
+				s.App.LogStatus(gameName, "Error", fmt.Sprintf("XEX from ISO: %v", err))
+				return
+			}
+			defer os.RemoveAll(isoXexDir)
+			xexFolder = isoXexDir
+			folderName = safeName
+		} else {
 			s.App.LogStatus(gameName, "Error", "No default.xex found in Minerva archive")
 			return
 		}
-		folderName := filepath.Base(xexFolder)
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -85,6 +98,13 @@ func (s *Service) ProcessMinervaGame(gameName string, entry models.MinervaEntry,
 			} else {
 				os.RemoveAll(gameDir)
 				s.App.LogFTPComplete(gameName, "", xboxConn.IP)
+			}
+		} else if xboxConn != nil && xboxConn.Mode == "local" {
+			if err := s.InstallXEXLocal(xexFolder, folderName, xboxConn.LocalRoot, gameName); err != nil {
+				s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
+			} else {
+				os.RemoveAll(gameDir)
+				s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
 			}
 		} else {
 			partName := fmt.Sprintf("%s_Part1.7z", safeName)
@@ -218,6 +238,13 @@ func (s *Service) ProcessMinervaGenericGame(gameName string, entry models.Minerv
 			os.RemoveAll(gameDir)
 			s.App.LogFTPComplete(gameName, "", xboxConn.IP)
 		}
+	} else if xboxConn != nil && xboxConn.Mode == "local" {
+		if err := s.InstallXEXLocal(xexFolder, folderName, xboxConn.LocalRoot, gameName); err != nil {
+			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
+		} else {
+			os.RemoveAll(gameDir)
+			s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+		}
 	} else {
 		partName := fmt.Sprintf("%s_Part1.7z", safeName)
 		if err := utils.CreateZipFromDir(xexFolder, filepath.Join(gameDir, partName)); err != nil {
@@ -309,6 +336,13 @@ func (s *Service) ProcessMinervaDigital(gameName string, entry models.MinervaEnt
 		} else {
 			os.RemoveAll(gameDir)
 			s.App.LogFTPComplete(gameName, titleID, xboxConn.IP)
+		}
+	} else if xboxConn != nil && xboxConn.Mode == "local" {
+		if err := s.InstallContentFileLocal(contentFile, xboxConn.LocalRoot, gameName, titleID, typeDir); err != nil {
+			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
+		} else {
+			os.RemoveAll(gameDir)
+			s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
 		}
 	} else {
 		relPath := fmt.Sprintf("Content\\0000000000000000\\%s\\%s\\", titleID, typeDir)

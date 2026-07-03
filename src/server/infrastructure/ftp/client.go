@@ -367,8 +367,9 @@ func (s *Service) TransferGame(godDir string, conn *models.XboxConnection, gameN
 	folderID = helpers.SanitizeFilename(folderID)
 	drive := strings.TrimSuffix(conn.Drive, ":")
 
-	// Use custom GOD path if configured, otherwise default to "GOD"
-	godSubPath := "GOD"
+	// Use custom GOD path if configured, otherwise default to "Games" so every
+	// title (GOD and XEX) lands in the single folder Aurora scans by default.
+	godSubPath := "Games"
 	if s.App.CustomGodPath != "" {
 		godSubPath = strings.ReplaceAll(strings.Trim(s.App.CustomGodPath, "/\\"), "\\", "/")
 	}
@@ -467,8 +468,9 @@ func (s *Service) TransferXEX(xexFolder, folderName string, conn *models.XboxCon
 
 	drive := strings.TrimSuffix(conn.Drive, ":")
 
-	// Use custom XEX path if configured, otherwise default to "XEX"
-	xexSubPath := "XEX"
+	// Use custom XEX path if configured, otherwise default to "Games" so every
+	// title (GOD and XEX) lands in the single folder Aurora scans by default.
+	xexSubPath := "Games"
 	if s.App.CustomXexPath != "" {
 		xexSubPath = strings.ReplaceAll(strings.Trim(s.App.CustomXexPath, "/\\"), "\\", "/")
 	}

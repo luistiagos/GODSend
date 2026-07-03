@@ -72,6 +72,10 @@
     "yazl": "3.3.1"
   },
   "build": {
+    "electronFuses": {
+      "enableEmbeddedAsarIntegrityValidation": false,
+      "onlyLoadAppFromAsar": false
+    },
     "afterPack": "./scripts/after-pack-win-icon.js",
     "asarUnpack": [
       "**/node_modules/sql.js/dist/**"

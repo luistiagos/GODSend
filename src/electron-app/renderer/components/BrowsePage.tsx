@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Search, Loader2, WifiOff, Gamepad2, Download,
-  RefreshCw, ChevronDown, X, HardDrive,
+  RefreshCw, ChevronDown, X, HardDrive, Usb,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
@@ -101,6 +101,49 @@ function CoverArt({ dataUrl, name, size = 100 }: CoverArtProps) {
 
 // ── Queue dialog (modal overlay) ──────────────────────────────────────────────
 
+interface LocalDrive {
+  rootPath: string;       // e.g. "F:/"
+  label: string;          // volume label, e.g. "BADAVATAR"
+  freeBytes?: number;
+}
+
+// A unified destination shown in the queue dialog dropdown.
+interface Destination {
+  value: string;          // encoded key, unique per option
+  label: string;          // text shown to the user
+  kind: "local" | "ftp";
+  rootPath?: string;      // for local
+  drive?: string;         // for ftp (e.g. "Hdd1:")
+}
+
+// "F:/" → "F:"
+function driveLetterOf(rootPath: string): string {
+  const m = rootPath.match(/^([A-Za-z]):/);
+  return m ? `${m[1].toUpperCase()}:` : rootPath.replace(/[/\\]+$/, "");
+}
+
+// 12.3 GB livres
+function freeLabel(freeBytes?: number): string {
+  if (typeof freeBytes !== "number" || freeBytes <= 0) return "";
+  const gb = freeBytes / (1024 ** 3);
+  return gb >= 1 ? ` · ${gb.toFixed(1)} GB livres` : ` · ${Math.round(freeBytes / (1024 ** 2))} MB livres`;
+}
+
+function buildDestinations(localDrives: LocalDrive[], defaultDrive: string, ftpDrives: string[]): Destination[] {
+  const dests: Destination[] = [];
+  for (const d of localDrives) {
+    const letter = driveLetterOf(d.rootPath);
+    const name = (d.label ? `${letter} — ${d.label}` : `${letter} (pendrive)`) + freeLabel(d.freeBytes);
+    dests.push({ value: `local:${d.rootPath}`, label: name, kind: "local", rootPath: d.rootPath });
+  }
+  const ftp = [...ftpDrives];
+  if (defaultDrive && !ftp.includes(defaultDrive)) ftp.unshift(defaultDrive);
+  for (const d of ftp) {
+    dests.push({ value: `ftp:${d}`, label: `Console (FTP): ${d}`, kind: "ftp", drive: d });
+  }
+  return dests;
+}
+
 interface QueueDialogProps {
   game: string;
   platform: string;
@@ -109,6 +152,7 @@ interface QueueDialogProps {
   coverLoading?: boolean;
   defaultDrive: string;
   drives: string[];
+  localDrives: LocalDrive[];
   onClose: () => void;
   onQueue?: () => void;
 }
@@ -118,15 +162,24 @@ function QueueDialog({
   cover,
   defaultDrive,
   drives,
+  localDrives,
   onClose,
 }: QueueDialogProps) {
   const hasMethods = source === "local" || (PLATFORMS.find((p) => p.id === platform)?.methods ?? false);
-  const [drive,  setDrive]  = useState(defaultDrive || drives[0] || "Hdd1:");
+  const destinations = buildDestinations(localDrives, defaultDrive, drives);
+  const [destValue, setDestValue] = useState(destinations[0]?.value ?? "");
   const [method, setMethod] = useState("god");
   const [queuing, setQueuing]   = useState(false);
   const [result,  setResult]    = useState<any>(null);
   const [discRec, setDiscRec]   = useState<string | null>(null);
-  const usingDefault = defaultDrive && drive === defaultDrive;
+  const selectedDest = destinations.find((d) => d.value === destValue) ?? destinations[0];
+
+  // Keep a valid selection when destinations load/refresh.
+  useEffect(() => {
+    if (destinations.length > 0 && !destinations.some((d) => d.value === destValue)) {
+      setDestValue(destinations[0].value);
+    }
+  }, [destinations, destValue]);
 
   // Fetch disc-info recommendation for applicable platforms
   useEffect(() => {
@@ -137,14 +190,20 @@ function QueueDialog({
   }, [game, hasMethods]);
 
   async function handleQueue() {
+    if (!selectedDest) {
+      setResult({ ok: false, error: "Selecione um destino (pendrive preparado ou console via FTP)." });
+      return;
+    }
     setQueuing(true);
     setResult(null);
     const r = await window.godsendApi.browseQueueGame({
       game,
       platform,
       source,
-      drive,
       installType: hasMethods ? method : "god",
+      destinationType: selectedDest.kind,
+      drive: selectedDest.drive,
+      localRoot: selectedDest.rootPath,
     });
     setQueuing(false);
     setResult(r);
@@ -181,37 +240,53 @@ function QueueDialog({
           </div>
         </div>
 
-        {/* Drive selector */}
+        {/* Destination selector: local prepared drives first, console (FTP) second */}
         {!queued && (
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
               Unidade de destino
             </label>
-            <div className="relative">
-              <select
-                value={drive}
-                onChange={(e) => setDrive(e.target.value)}
-                className={cn(
-                  "w-full appearance-none bg-muted border border-border rounded-md",
-                  "px-2.5 pr-7 py-1.5 text-[12px] text-foreground focus:outline-none",
-                  "focus-visible:ring-1 focus-visible:ring-ring"
-                )}
-              >
-                {defaultDrive && (
-                  <option value={defaultDrive}>
-                    {defaultDrive} (padrão)
-                  </option>
-                )}
-                {drives.filter((d) => d !== defaultDrive).map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            </div>
-            {usingDefault && (
-              <p className="text-[9.5px] text-muted-foreground/60">
-                Usando o padrão de Configurações → Unidade padrão do Xbox
+            {destinations.length === 0 ? (
+              <p className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-md px-2.5 py-2 leading-relaxed">
+                Nenhum destino encontrado. Conecte um pendrive/HD preparado, ou
+                conecte o console em Configurações → Conexão do Xbox (FTP).
               </p>
+            ) : (
+              <>
+                <div className="relative">
+                  <select
+                    value={destValue}
+                    onChange={(e) => setDestValue(e.target.value)}
+                    className={cn(
+                      "w-full appearance-none bg-muted border border-border rounded-md",
+                      "px-2.5 pr-7 py-1.5 text-[12px] text-foreground focus:outline-none",
+                      "focus-visible:ring-1 focus-visible:ring-ring"
+                    )}
+                  >
+                    {destinations.some((d) => d.kind === "local") && (
+                      <optgroup label="Gravar no pendrive/HD (local)">
+                        {destinations.filter((d) => d.kind === "local").map((d) => (
+                          <option key={d.value} value={d.value}>{d.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {destinations.some((d) => d.kind === "ftp") && (
+                      <optgroup label="Enviar ao console (FTP)">
+                        {destinations.filter((d) => d.kind === "ftp").map((d) => (
+                          <option key={d.value} value={d.value}>{d.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                </div>
+                {selectedDest?.kind === "local" && (
+                  <p className="text-[9.5px] text-muted-foreground/70 flex items-center gap-1">
+                    <Usb className="h-3 w-3 shrink-0" />
+                    O jogo será gravado direto no dispositivo conectado.
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -347,14 +422,23 @@ export default function BrowsePage({}: BrowsePageProps) {
   const [selected,     setSelected]     = useState<string | null>(null);
   const [cover,        setCover]        = useState<string | null | undefined>(undefined);
   const [drives,       setDrives]       = useState<string[]>([]);
+  const [localDrives,  setLocalDrives]  = useState<LocalDrive[]>([]);
   const filterRef = useRef<HTMLInputElement>(null);
 
   const [localCovers, setLocalCovers] = useState<Record<string, string | null | undefined>>({});
 
   const isLocal = source === "local";
 
-  // Load default drive and FTP drive list once
-  useEffect(() => {
+  // Load local prepared drives (primary), plus default + FTP drives (secondary).
+  const refreshDestinations = useCallback(() => {
+    window.godsendApi.toolsBadAvatarListDrives().then((r: any) => {
+      const list = (r?.ok && Array.isArray(r.drives)) ? r.drives : [];
+      setLocalDrives(list.map((d: any) => ({
+        rootPath: String(d.rootPath || ""),
+        label: String(d.label || ""),
+        freeBytes: typeof d.freeBytes === "number" ? d.freeBytes : undefined,
+      })).filter((d: LocalDrive) => d.rootPath));
+    }).catch(() => setLocalDrives([]));
     window.godsendApi.getDefaultXboxDrive().then((d: string) => {
       if (d) setDefaultDrive(d);
     }).catch(() => {});
@@ -364,6 +448,12 @@ export default function BrowsePage({}: BrowsePageProps) {
       }
     }).catch(() => {});
   }, []);
+
+  useEffect(() => { refreshDestinations(); }, [refreshDestinations]);
+
+  // Re-scan destinations whenever the queue dialog opens (a pendrive may have
+  // just been prepared/plugged in).
+  useEffect(() => { if (selected) refreshDestinations(); }, [selected, refreshDestinations]);
 
   // Auto-load when platform or source changes
   useEffect(() => {
@@ -630,6 +720,7 @@ export default function BrowsePage({}: BrowsePageProps) {
           cover={cover}
           defaultDrive={defaultDrive}
           drives={drives}
+          localDrives={localDrives}
           onClose={closeDialog}
         />
       )}

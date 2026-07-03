@@ -7,6 +7,7 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { spawn } from "child_process";
 import { getBundledRoot, getRepoRoot } from "./fileSystem";
@@ -38,15 +39,39 @@ function runCommand(
   });
 }
 
-async function runElevatedPowerShell(script: string): Promise<{ code: number; stdout: string; stderr: string }> {
-  const encoded = Buffer.from(script, "utf16le").toString("base64");
-  const wrapper = [
-    `$p = Start-Process -FilePath 'powershell.exe'`,
-    `  -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand','${encoded}')`,
-    `  -Verb RunAs -WindowStyle Hidden -Wait -PassThru;`,
-    `exit $p.ExitCode`,
-  ].join(" ");
-  return runCommand("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", wrapper]);
+function readLogTail(logPath: string, limit = 1500): string {
+  try {
+    const data = fs.readFileSync(logPath, "utf8").trim();
+    const lines = data.split("\n").map((l) => l.trimEnd()).filter((l) => l);
+    const text = lines.join("\n");
+    return text.length > limit ? text.slice(-limit) : text;
+  } catch {
+    return "";
+  }
+}
+
+/** Runs a .ps1 file elevated (UAC). Returns exit code and whether UAC was cancelled. */
+async function runPs1Elevated(
+  ps1Path: string,
+): Promise<{ code: number; stdout: string; stderr: string; cancelled: boolean }> {
+  const escaped = ps1Path.replace(/'/g, "''");
+  const outerScript = (
+    `try { $p = Start-Process powershell -Verb RunAs -PassThru -Wait -WindowStyle Hidden ` +
+    `-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${escaped}'; ` +
+    `Write-Output $p.ExitCode } catch { Write-Output 'CANCELLED' }`
+  );
+  const result = await runCommand("powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-Command", outerScript,
+  ]);
+  const out = result.stdout.trim();
+  const cancelled = out.includes("CANCELLED");
+  let code = result.code;
+  if (!cancelled) {
+    for (const token of out.split(/\s+/)) {
+      if (/^-?\d+$/.test(token)) { code = parseInt(token, 10); break; }
+    }
+  }
+  return { ...result, code, cancelled };
 }
 
 function driveLetterFromRoot(driveRoot: string): string {
@@ -76,36 +101,88 @@ async function formatWindowsFat32(
 ): Promise<void> {
   const letter = driveLetterFromRoot(driveRoot);
   const exe = resolveFat32FormatExe();
+  const ts = Date.now();
+  const ps1Path = path.join(os.tmpdir(), `godsend_fat32_${ts}.ps1`);
+  const logPath = `${ps1Path}.log`;
 
   onProgress({ status: "Preparando dispositivo…", percent: 4 });
 
-  if (exe) {
-    onProgress({ status: "Formatting to FAT32 (large-volume tool)…", percent: 8 });
-    const escapedExe = exe.replace(/'/g, "''");
-    const result = await runElevatedPowerShell([
-      `$ErrorActionPreference = 'Stop';`,
-      `"Y" | & '${escapedExe}' '${letter}:';`,
-      `exit $LASTEXITCODE`,
-    ].join(" "));
-    if (result.code !== 0) {
-      const msg = (result.stderr || result.stdout).trim();
-      throw new Error(msg || "A formatação foi cancelada ou falhou. Feche outros programas usando o dispositivo e tente novamente.");
+  try {
+    if (exe) {
+      onProgress({ status: "Formatting to FAT32 (large-volume tool)…", percent: 8 });
+      const escapedExe = exe.replace(/'/g, "''");
+      const escapedLog = logPath.replace(/'/g, "''");
+      // diskpart clean+create operates at physical-disk level, bypassing Explorer's
+      // volume-level lock (ERROR_SHARING_VIOLATION / GetLastError()=32).
+      // After clean, fat32format.exe gets exclusive access to the fresh raw partition.
+      // Output is written to a log file because Start-Process -Verb RunAs cannot redirect I/O.
+      const innerScript =
+`$ErrorActionPreference = 'Continue'
+$log = '${escapedLog}'
+'=== fat32format ${letter}: ===' | Out-File -FilePath $log -Encoding utf8
+try {
+  $diskNo = (Get-Partition -DriveLetter '${letter}' -ErrorAction Stop).DiskNumber
+  "Disk number: $diskNo" | Out-File -FilePath $log -Append -Encoding utf8
+} catch {
+  ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
+  exit 1
+}
+$dp = @"
+select disk $diskNo
+attributes disk clear readonly
+clean
+create partition primary
+assign letter=${letter}
+exit
+"@
+($dp | diskpart 2>&1 | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 2
+$out = "Y" | & '${escapedExe}' '${letter}:' 2>&1
+$ec = $LASTEXITCODE
+$out | Out-File -FilePath $log -Append -Encoding utf8
+exit $ec`;
+      fs.writeFileSync(ps1Path, innerScript, "utf8");
+    } else {
+      onProgress({ status: "Formatting to FAT32…", percent: 8 });
+      const escapedLog = logPath.replace(/'/g, "''");
+      const escapedLabel = label.replace(/'/g, "''");
+      const innerScript = [
+        `$ErrorActionPreference = 'Continue'`,
+        `$log = '${escapedLog}'`,
+        `'=== Format-Volume FAT32 ${letter}: ===' | Out-File -FilePath $log -Encoding utf8`,
+        `try {`,
+        `  $v = Get-Volume -DriveLetter '${letter}' -ErrorAction Stop`,
+        `  $v | Format-Volume -FileSystem FAT32 -NewFileSystemLabel '${escapedLabel}' -Force -Confirm:$false -ErrorAction Stop | Out-Null`,
+        `  'OK' | Out-File -FilePath $log -Append -Encoding utf8`,
+        `  exit 0`,
+        `} catch {`,
+        `  ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8`,
+        `  exit 1`,
+        `}`,
+      ].join("\r\n");
+      fs.writeFileSync(ps1Path, innerScript, "utf8");
     }
-  } else {
-    onProgress({ status: "Formatting to FAT32…", percent: 8 });
-    const script = [
-      `$v = Get-Volume -DriveLetter '${letter}' -ErrorAction Stop;`,
-      `$v | Format-Volume -FileSystem FAT32 -NewFileSystemLabel '${label.replace(/'/g, "''")}' -Force -Confirm:$false;`,
-    ].join(" ");
-    const { code, stderr } = await runElevatedPowerShell(script);
+
+    const { code, cancelled } = await runPs1Elevated(ps1Path);
+    const detail = readLogTail(logPath);
+
+    if (cancelled) {
+      throw new Error("Formatação cancelada (a elevação de Administrador foi negada).");
+    }
     if (code !== 0) {
-      const err = stderr.trim() || "Format failed.";
-      if (/32\s*GB|34359738368/i.test(err)) {
+      if (!exe && /32\s*GB|34359738368/i.test(detail)) {
         throw new Error(
-          `${err} Run "node scripts/download-fat32format.js" and rebuild, or place fat32format.exe next to GODsend.`,
+          `${detail}\n\nRun "node scripts/download-fat32format.js" and rebuild, or place fat32format.exe next to GODsend.`,
         );
       }
-      throw new Error(err);
+      throw new Error(
+        detail || "A formatação falhou. Feche outros programas usando o dispositivo e tente novamente.",
+      );
+    }
+  } finally {
+    for (const p of [ps1Path, logPath]) {
+      try { fs.unlinkSync(p); } catch { /* best-effort cleanup */ }
     }
   }
 

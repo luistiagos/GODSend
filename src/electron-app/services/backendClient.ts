@@ -25,6 +25,7 @@ import {
   writeConfig,
   buildGodsendEnv,
 } from "./settingsService";
+import { normalizeIACookiePair } from "./iaCookie";
 
 const GODSEND_LISTEN_PORT_RE = /GODSEND_LISTEN_PORT=(\d+)/;
 const GODSEND_FTP_COMPLETE_PREFIX = "GODSEND_FTP_COMPLETE:";
@@ -284,21 +285,10 @@ export async function loginInternetArchive(email: string, password: string): Pro
     );
   }
 
-  const cookieAttrs = new Set([
-    "expires", "max-age", "path", "domain", "secure", "httponly", "samesite",
-  ]);
-  const extractCookieValue = (raw: string): string => {
-    if (!raw) return raw;
-    const firstSemi = raw.indexOf(";");
-    if (firstSemi === -1) return raw;
-    const rest = raw.slice(firstSemi + 1).trim().toLowerCase();
-    if (cookieAttrs.has(rest.split(/[=;]/)[0].trim())) {
-      return raw.slice(0, firstSemi).trim();
-    }
-    return raw;
-  };
-
-  const cookieHeader = `logged-in-user=${extractCookieValue(u)}; logged-in-sig=${extractCookieValue(sig)}`;
+  const cookieHeader = [
+    normalizeIACookiePair("logged-in-user", u),
+    normalizeIACookiePair("logged-in-sig", sig),
+  ].join("; ");
   const screenname   = (j.values && j.values.screenname) || "";
   return { cookieHeader, screenname, email: trimmed };
 }

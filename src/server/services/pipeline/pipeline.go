@@ -81,6 +81,13 @@ func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 			}
 			os.RemoveAll(gameDir)
 			s.App.LogFTPComplete(gameName, "", xboxConn.IP)
+		} else if xboxConn != nil && xboxConn.Mode == "local" {
+			if err := s.InstallXEXLocal(xexDir, folderName, xboxConn.LocalRoot, gameName); err != nil {
+				s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
+				return
+			}
+			os.RemoveAll(gameDir)
+			s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
 		} else {
 			partName := fmt.Sprintf("%s_Part1.7z", safeName)
 			if err := utils.CreateZipFromDir(xexDir, filepath.Join(gameDir, partName)); err != nil {
@@ -191,11 +198,24 @@ func (s *Service) ProcessGame(gameName, platform string) {
 		defer os.RemoveAll(extDir)
 
 		xexFolder := helpers.FindXEXFolder(extDir)
-		if xexFolder == "" {
+		folderName := ""
+		if xexFolder != "" {
+			folderName = filepath.Base(xexFolder)
+		} else if isoInArchive := helpers.FindFileByExt(extDir, ".iso"); isoInArchive != "" {
+			isoXexDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_xex")
+			os.RemoveAll(isoXexDir)
+			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
+			if err := utils.ExtractXEXFolderFromISO(isoInArchive, isoXexDir); err != nil {
+				s.App.LogStatus(gameName, "Error", fmt.Sprintf("XEX from ISO: %v", err))
+				return
+			}
+			defer os.RemoveAll(isoXexDir)
+			xexFolder = isoXexDir
+			folderName = safeName
+		} else {
 			s.App.LogStatus(gameName, "Error", "No default.xex in archive — XEX needs a loose folder rip. Use GOD or DLC for ISO-only Redump releases.")
 			return
 		}
-		folderName := filepath.Base(xexFolder)
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
@@ -215,6 +235,13 @@ func (s *Service) ProcessGame(gameName, platform string) {
 			} else {
 				os.RemoveAll(gameDir)
 				s.App.LogFTPComplete(gameName, "", xboxConn.IP)
+			}
+		} else if xboxConn != nil && xboxConn.Mode == "local" {
+			if err := s.InstallXEXLocal(xexFolder, folderName, xboxConn.LocalRoot, gameName); err != nil {
+				s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
+			} else {
+				os.RemoveAll(gameDir)
+				s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
 			}
 		} else {
 			partName := fmt.Sprintf("%s_Part1.7z", safeName)
@@ -295,6 +322,16 @@ func (s *Service) finalizeGOD(gameName, safeName, gameDir, godDir, titleID, medi
 		os.RemoveAll(godDir)
 		os.RemoveAll(gameDir)
 		s.App.LogFTPComplete(gameName, titleID, xboxConn.IP)
+	} else if xboxConn != nil && xboxConn.Mode == "local" {
+		s.App.LogStatus(gameName, "Processing", "Gravando no dispositivo...")
+		if err := s.InstallGameLocal(godDir, xboxConn.LocalRoot, gameName, titleID, resolvedName); err != nil {
+			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
+			os.RemoveAll(godDir)
+			return
+		}
+		os.RemoveAll(godDir)
+		os.RemoveAll(gameDir)
+		s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
 	} else {
 		s.App.LogStatus(gameName, "Processing", "Archiving for HTTP transfer...")
 		titleID, mediaID, err := helpers.BucketAndZip(s.App, godDir, gameDir, gameName, safeName)

@@ -38,9 +38,16 @@ type MinervaPlatformCache struct {
 }
 
 // XboxConnection holds Xbox console registration data.
+//
+// Mode selects the delivery target:
+//   - "ftp":   transfer to a live console over FTP (IP + Drive required)
+//   - "local": write directly to a mounted drive on this PC (LocalRoot required,
+//     e.g. a prepared BadAvatar pendrive at "F:\\")
+//   - "http":  package for the Aurora HTTP pull (default fallback)
 type XboxConnection struct {
 	IP        string `json:"ip"`
 	Drive     string `json:"drive"`
+	LocalRoot string `json:"local_root,omitempty"`
 	GameName  string `json:"game"`
 	Platform  string `json:"platform"`
 	Mode      string `json:"mode"`

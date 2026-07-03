@@ -39,19 +39,30 @@ export function register(ipcMain: IpcMain): void {
   });
 
   // ── Queue a game (register → trigger on Go backend) ───────────────────────
-  ipcMain.handle("browse:queue-game", async (_event, { game, platform, source, drive, installType }) => {
-    const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured. Check Settings → Xbox connection." };
+  // destinationType: "local" writes directly to a mounted drive on this PC
+  // (localRoot, e.g. a prepared pendrive); "ftp" (default) transfers to a console.
+  ipcMain.handle("browse:queue-game", async (_event, { game, platform, source, drive, installType, destinationType, localRoot }) => {
+    const isLocal = destinationType === "local";
+
+    let xboxIp = "";
+    if (isLocal) {
+      if (!localRoot) return { ok: false, error: "Selecione um pendrive/HD preparado como destino." };
+    } else {
+      xboxIp = getConfiguredXboxIP();
+      if (!xboxIp) return { ok: false, error: "No Xbox IP configured. Check Settings → Xbox connection." };
+    }
 
     const enc  = encodeURIComponent(game);
     const drv  = encodeURIComponent(drive || "Hdd1:");
     const inst = encodeURIComponent(installType || "god");
     const plat = encodeURIComponent(platform || "xbox360");
     const src  = source ? `&source=${encodeURIComponent(source)}` : "";
+    const mode = isLocal ? "local" : "ftp";
+    const localParam = isLocal ? `&local_root=${encodeURIComponent(localRoot)}` : "";
 
     try {
       const regData = await backendGet(
-        `/register?game=${enc}&ip=${encodeURIComponent(xboxIp)}&drive=${drv}&platform=${plat}&mode=ftp&install_type=${inst}`
+        `/register?game=${enc}&ip=${encodeURIComponent(xboxIp)}&drive=${drv}&platform=${plat}&mode=${mode}&install_type=${inst}${localParam}`
       );
       let reg: any;
       try { reg = JSON.parse(regData); } catch { reg = {}; }

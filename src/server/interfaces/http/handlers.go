@@ -249,21 +249,34 @@ func (d *Deps) handleRegister(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	gameName := local.NormalizeClientGameName(r.URL.Query().Get("game"))
 	xboxIP := r.URL.Query().Get("ip")
 	drive := r.URL.Query().Get("drive")
+	localRoot := r.URL.Query().Get("local_root")
 	platform := r.URL.Query().Get("platform")
 	mode := r.URL.Query().Get("mode")
-	if gameName == "" || xboxIP == "" {
-		jsonError(w, 400, "Missing game or ip parameter")
+	if mode == "" {
+		mode = "http"
+	}
+	if gameName == "" {
+		jsonError(w, 400, "Missing game parameter")
 		return
 	}
-	if net.ParseIP(xboxIP) == nil {
-		jsonError(w, 400, "Invalid IP address format")
-		return
+	if mode == "local" {
+		// Local writes target a mounted drive on this PC; no console IP needed.
+		if localRoot == "" {
+			jsonError(w, 400, "Missing local_root parameter for local mode")
+			return
+		}
+	} else {
+		if xboxIP == "" {
+			jsonError(w, 400, "Missing ip parameter")
+			return
+		}
+		if net.ParseIP(xboxIP) == nil {
+			jsonError(w, 400, "Invalid IP address format")
+			return
+		}
 	}
 	if drive == "" {
 		drive = "Hdd1:"
-	}
-	if mode == "" {
-		mode = "http"
 	}
 	if platform == "" {
 		platform = "xbox360"
@@ -277,11 +290,15 @@ func (d *Deps) handleRegister(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 	d.App.InstallTypeMap.Store(gameName, installType)
 	d.App.XboxConnections.Store(gameName, models.XboxConnection{
-		IP: xboxIP, Drive: drive, GameName: gameName,
+		IP: xboxIP, Drive: drive, LocalRoot: localRoot, GameName: gameName,
 		Platform: platform, Mode: mode, Timestamp: time.Now(),
 	})
-	d.App.Logf("REGISTER: Xbox %s for %s (mode=%s drive=%s install=%s)", xboxIP, gameName, mode, drive, installType)
-	jsonSuccess(w, map[string]string{"status": "registered", "mode": mode, "ip": xboxIP, "drive": drive})
+	if mode == "local" {
+		d.App.Logf("REGISTER: Local %s for %s (mode=local install=%s)", localRoot, gameName, installType)
+	} else {
+		d.App.Logf("REGISTER: Xbox %s for %s (mode=%s drive=%s install=%s)", xboxIP, gameName, mode, drive, installType)
+	}
+	jsonSuccess(w, map[string]string{"status": "registered", "mode": mode, "ip": xboxIP, "drive": drive, "local_root": localRoot})
 }
 
 func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {

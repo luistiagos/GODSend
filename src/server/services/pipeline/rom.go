@@ -106,6 +106,14 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 			os.RemoveAll(gameDir)
 			s.App.LogStatus(gameName, "Ready", "FTP Transfer Complete!")
 		}
+	} else if xboxConn != nil && xboxConn.Mode == "local" {
+		s.App.LogStatus(gameName, "Processing", "Gravando ROM no dispositivo...")
+		if err := s.InstallROMLocal(romFile, xboxConn.LocalRoot, xboxROMPath, gameName); err != nil {
+			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
+		} else {
+			os.RemoveAll(gameDir)
+			s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+		}
 	} else {
 		// HTTP mode: compress ROM to .7z and serve from Ready/
 		s.App.LogStatus(gameName, "Processing", "Archiving for HTTP transfer...")

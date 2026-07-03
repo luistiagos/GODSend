@@ -369,7 +369,9 @@ func (a *App) LoadIAAuthFromEnv() {
 	}
 
 	// Shared IA HTTP client: forwards auth headers across redirects.
+	jar := newIACookieJar()
 	a.IAHTTPClient = &http.Client{
+		Jar:     jar,
 		Timeout: 0,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
@@ -385,9 +387,12 @@ func (a *App) LoadIAAuthFromEnv() {
 			return nil
 		},
 	}
+	a.seedIACookieJar(a.IACookieHeader)
 
 	if a.IACookieHeader != "" {
 		a.Logf("[INFO] Internet Archive: Cookie header set (%d chars)", len(a.IACookieHeader))
+	} else if a.IAAuthorizationHeader == "" {
+		a.Logf("[INFO] Internet Archive: no stored session found; automatic shared-account login is enabled")
 	}
 	if a.IAAuthorizationHeader != "" {
 		a.Logf("[INFO] Internet Archive: Authorization header set (%d chars)", len(a.IAAuthorizationHeader))
@@ -397,13 +402,26 @@ func (a *App) LoadIAAuthFromEnv() {
 
 // ApplyArchiveOrgHeaders adds session/auth headers for archive.org HTTP requests.
 func (a *App) ApplyArchiveOrgHeaders(req *http.Request) {
-	if a.IACookieHeader != "" {
-		req.Header.Set("Cookie", a.IACookieHeader)
+	if req == nil {
+		return
 	}
+	_ = a.EnsureIAAuthSession()
 	if a.IAAuthorizationHeader != "" {
 		req.Header.Set("Authorization", a.IAAuthorizationHeader)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", archiveAcceptHeader)
+	}
+	if req.Header.Get("Accept-Language") == "" {
+		req.Header.Set("Accept-Language", archiveAcceptLanguage)
+	}
+	if req.Header.Get("Cache-Control") == "" {
+		req.Header.Set("Cache-Control", "no-cache")
+	}
+	if req.Header.Get("Pragma") == "" {
+		req.Header.Set("Pragma", "no-cache")
+	}
+	req.Header.Set("User-Agent", archiveUserAgent)
 }
 
 // CleanupEmptyReadyDirs removes any subdirectory under Ready/ that contains no files.

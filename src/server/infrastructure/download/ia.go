@@ -21,6 +21,15 @@ type Service struct {
 	App *app.App
 }
 
+// iaHTTPError turns an archive.org HTTP status into an actionable message.
+// 401/403 almost always mean the item is restricted to logged-in accounts.
+func iaHTTPError(status int, urlStr string) error {
+	if status == 401 || status == 403 {
+		return fmt.Errorf("HTTP %d — este item do Internet Archive exige conta logada. Em Configurações → Conta do Internet Archive, entre com seu login do archive.org e tente novamente", status)
+	}
+	return fmt.Errorf("HTTP %d from %s", status, urlStr)
+}
+
 // DownloadWithProgress downloads urlStr to dest. For Internet Archive URLs it uses a
 // Gopeed-style segment queue (fixed-size ranges, worker pool) when Range is supported.
 func (s *Service) DownloadWithProgress(urlStr, dest, name, ref string) error {
@@ -292,7 +301,7 @@ func (s *Service) iaDownloadSingleAttempt(urlStr, dest, name, ref string, isIA b
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, urlStr)
+		return iaHTTPError(resp.StatusCode, urlStr)
 	}
 	out, err := os.Create(dest)
 	if err != nil {
