@@ -36,6 +36,11 @@ function getLocalIPAddress(): string | null {
 
 export function register(ipcMain: IpcMain): void {
 
+  // ── Get local PC IP (for automatic subnet scanning) ────────────────────────
+  ipcMain.handle("xbox:get-local-ip", () => {
+    return getLocalIPAddress();
+  });
+
   // ── Ping (proxied to Go backend) ──────────────────────────────────────────
   ipcMain.handle("xbox:ping", async () => {
     const xboxIp = getConfiguredXboxIP();

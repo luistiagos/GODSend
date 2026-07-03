@@ -31,9 +31,9 @@ function Hint({ children }: { children: React.ReactNode }) {
 
 function PathExplain({ title, path, children }: { title: string; path: string; children: React.ReactNode }) {
   return (
-    <div className="mt-3 rounded border border-[#1e242e] bg-[#0d1117] px-3 py-2.5">
-      <p className="text-[12px] font-medium text-[#cad3dc]">{title}</p>
-      <p className="mt-1 font-mono text-[10px] text-[#8b9aab] break-all">{path || "—"}</p>
+    <div className="mt-3 rounded border border-border bg-muted/30 px-3 py-2.5">
+      <p className="text-[12px] font-medium text-foreground">{title}</p>
+      <p className="mt-1 font-mono text-[10px] text-muted-foreground break-all">{path || "—"}</p>
       <p className="mt-1.5 text-[11px] text-muted-foreground leading-[1.45]">{children}</p>
     </div>
   );
@@ -51,9 +51,15 @@ function Status({ children, className }: { children?: React.ReactNode; className
 
 interface SettingsPageProps {
   onAppendLine: (line: string) => void;
+  simpleMode?: boolean;
+  onSimpleModeChange?: (enabled: boolean) => void;
 }
 
-export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
+export default function SettingsPage({
+  onAppendLine,
+  simpleMode = true,
+  onSimpleModeChange,
+}: SettingsPageProps) {
   // Form state
   const [startup, setStartup]                   = useState(false);
   const [storagePath, setStoragePath]           = useState("");
@@ -677,6 +683,25 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
       <ScrollArea className="flex-1 min-h-0">
         <div className="flex flex-col pr-3">
 
+          {/* ── Modo de Operação ── */}
+          <Section title="Modo de Operação">
+            <label className="flex items-center gap-2.5 text-[13px] cursor-pointer select-none">
+              <Checkbox
+                checked={simpleMode}
+                onCheckedChange={async (checked) => {
+                  const val = checked === true;
+                  await window.godsendApi.setSimpleMode(val);
+                  if (onSimpleModeChange) onSimpleModeChange(val);
+                }}
+              />
+              Modo Simplificado (Recomendado para usuários leigos)
+            </label>
+            <Hint>
+              Oculta ferramentas técnicas complexas e automatiza conexões de rede para focar no essencial: preparar pendrives e baixar/instalar jogos. Desmarque para habilitar opções avançadas de desenvolvedor.
+            </Hint>
+          </Section>
+
+
           {/* ── Launch at login ── */}
           <Section>
             <label className="flex items-center gap-2.5 text-[13px] cursor-pointer select-none">
@@ -686,7 +711,9 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
           </Section>
 
           {/* ── App data directory ── */}
-          <Section title="Pasta de dados do aplicativo">
+          {!simpleMode && (
+            <>
+              <Section title="Pasta de dados do aplicativo">
             <div className="flex flex-wrap gap-2 items-center">
               <Input
                 type="text"
@@ -1216,7 +1243,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
 
               {/* Inline FTP directory picker modal */}
               {ftpPickerOpen && (
-                <div className="border border-[#1e242e] rounded-lg overflow-hidden bg-[#0d1117]">
+                <div className="border border-border rounded-lg overflow-hidden bg-surface">
                   <div className="px-3 py-2 text-[12px] font-semibold text-muted-foreground bg-muted flex items-center justify-between">
                     <span>
                       Procurar por FTP — {ftpPickerTarget === "god" ? "pasta GOD" : "pasta XEX"}
@@ -1229,7 +1256,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                     <div className="text-[11px] text-muted-foreground font-mono">
                       {ftpPickerLoading ? "Carregando..." : ftpPickerPath}
                     </div>
-                    <div className="max-h-[200px] overflow-y-auto border border-[#1e242e] rounded">
+                    <div className="max-h-[200px] overflow-y-auto border border-border rounded">
                       {ftpPickerEntries.length === 0 && !ftpPickerLoading && (
                         <div className="px-3 py-2 text-[12px] text-muted-foreground">
                           Nenhuma pasta encontrada.
@@ -1238,7 +1265,7 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
                       {ftpPickerEntries.map((entry) => (
                         <button
                           key={entry.name}
-                          className="w-full text-left px-3 py-1.5 text-[12px] text-[#c0c8d4] hover:bg-[#1e242e] transition-colors flex items-center gap-2"
+                          className="w-full text-left px-3 py-1.5 text-[12px] text-foreground hover:bg-muted transition-colors flex items-center gap-2"
                           onClick={() => ftpPickerNavigate(entry)}
                         >
                           <span>{entry.name === ".." ? "↑ .." : "📁 " + entry.name}</span>
@@ -1291,6 +1318,8 @@ export default function SettingsPage({ onAppendLine }: SettingsPageProps) {
               houver tarefas ativas ou pendentes.
             </Hint>
           </Section>
+            </>
+          )}
 
         </div>
       </ScrollArea>

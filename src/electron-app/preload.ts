@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("godsendApi", {
   getDefaultStoragePath:     () => ipcRenderer.invoke("config:get-default-storage-path"),
   setStoragePath:            (folder: string) => ipcRenderer.invoke("config:set-storage-path", folder),
   chooseStoragePath:         () => ipcRenderer.invoke("config:choose-storage-path"),
+  getSimpleMode:             () => ipcRenderer.invoke("config:get-simple-mode"),
+  setSimpleMode:             (enabled: boolean) => ipcRenderer.invoke("config:set-simple-mode", enabled),
   getTorrentTempPath:        () => ipcRenderer.invoke("config:get-torrent-temp-path"),
   getEffectiveTorrentTempPath: () => ipcRenderer.invoke("config:get-effective-torrent-temp-path"),
   getDefaultTorrentTempPath: () => ipcRenderer.invoke("config:get-default-torrent-temp-path"),
@@ -49,6 +51,7 @@ contextBridge.exposeInMainWorld("godsendApi", {
   ftpAuroraScripts:         (payload: any) => ipcRenderer.invoke("xbox:ftp-scripts", payload),
   ftpTestConnection:        (payload: any) => ipcRenderer.invoke("xbox:ftp-test", payload),
   ftpScanPorts:             (subnet: string) => ipcRenderer.invoke("xbox:ftp-scan", subnet),
+  getLocalIp:               () => ipcRenderer.invoke("xbox:get-local-ip"),
 
   pingXbox:                 () => ipcRenderer.invoke("xbox:ping"),
   listXboxGames:            () => ipcRenderer.invoke("xbox:list-games"),

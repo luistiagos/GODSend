@@ -38,6 +38,7 @@ import {
   getConfiguredCustomGodPath,
   getConfiguredCustomXexPath,
   getDefaultFtpScriptsPath,
+  getConfiguredSimpleMode,
   readConfig,
   writeConfig,
 } from "../services/settingsService";
@@ -66,6 +67,15 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("logs:get-info",    () => getLogInfo());
   ipcMain.handle("logs:open-folder", () => openLogsFolder());
+
+  // ── Simple Mode ─────────────────────────────────────────────────────────────
+  ipcMain.handle("config:get-simple-mode", () => getConfiguredSimpleMode());
+  ipcMain.handle("config:set-simple-mode", (_event, enabled) => {
+    const val = typeof enabled === "boolean" ? enabled : true;
+    writeConfig({ simpleMode: val });
+    appendAppEvent("CONFIG", `simpleMode set to ${val}`);
+    return val;
+  });
 
   // ── Storage path (GODSEND_HOME) ─────────────────────────────────────────────
   ipcMain.handle("config:get-storage-path", () => getConfiguredStoragePath());

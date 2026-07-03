@@ -25,6 +25,7 @@ export interface GodsendConfig {
   customXexPath?: string;
   aria2ListenPort?: string | number;
   aria2DhtPort?: string | number;
+  simpleMode?: boolean;
 }
 
 export function configFilePath(): string {
@@ -38,6 +39,12 @@ export function readConfig(): GodsendConfig {
     return {};
   }
 }
+
+export function getConfiguredSimpleMode(): boolean {
+  const v = readConfig().simpleMode;
+  return typeof v === "boolean" ? v : true;
+}
+
 
 export function writeConfig(partial: Partial<GodsendConfig>): GodsendConfig {
   const next = { ...readConfig(), ...partial };

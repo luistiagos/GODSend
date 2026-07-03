@@ -279,7 +279,7 @@ function AssetSlotCard({
       </div>
       <div
         className={cn(
-          "relative rounded-md border bg-[#0d1117] overflow-hidden flex items-center justify-center",
+          "relative rounded-md border bg-muted overflow-hidden flex items-center justify-center",
           hasPending ? "border-primary/50 ring-1 ring-primary/30" : "border-border",
           canClick ? "cursor-zoom-in hover:opacity-90 transition-opacity" : "cursor-default",
           aspect === "video"    && "aspect-video w-full",
@@ -389,7 +389,7 @@ function AssetSearchPanel({ game, targetSlot, onSelect, onClose }: AssetSearchPa
   const thumbWidth  = isWideSearch ? 120 : 68;
 
   return (
-    <div className="rounded-md border border-border/80 bg-[#0d1117] p-2.5 space-y-2">
+    <div className="rounded-md border border-border/80 bg-muted p-2.5 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] font-semibold text-foreground truncate">
           Buscar: <span className="text-primary">{slotLabel}</span>
@@ -443,7 +443,7 @@ function AssetSearchPanel({ game, targetSlot, onSelect, onClose }: AssetSearchPa
             return (
               <button
                 key={`${r.titleId || "r"}-${idx}`}
-                className="flex flex-col rounded border border-border hover:border-primary/60 bg-[#0d1117] overflow-hidden transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex flex-col rounded border border-border hover:border-primary/60 bg-muted overflow-hidden transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 style={{ width: thumbWidth }}
                 onClick={() => onSelect(r)}
                 title={[r.official && "Official", r.rating != null && `★${r.rating}`, r.assetType].filter(Boolean).join(" · ")}
@@ -1135,7 +1135,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                   key={key}
                   className={cn(
                     "flex items-center justify-between rounded border px-2 py-1.5",
-                    tu.installed ? "border-border/40 bg-background" : "border-border/60 bg-[#0d1117]"
+                    tu.installed ? "border-border/40 bg-background" : "border-border/60 bg-muted/40"
                   )}
                 >
                   <div className="flex flex-col min-w-0">
@@ -1265,7 +1265,7 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
                   key={key}
                   className={cn(
                     "flex items-center justify-between rounded border px-2 py-1.5",
-                    dlc.installed ? "border-border/40 bg-background" : "border-border/60 bg-[#0d1117]"
+                    dlc.installed ? "border-border/40 bg-background" : "border-border/60 bg-muted/40"
                   )}
                 >
                   <div className="flex flex-col min-w-0">
@@ -1729,7 +1729,7 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
 
 function DiscFace() {
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-[#07090d]">
+    <div className="absolute inset-0 flex items-center justify-center bg-muted">
       <div
         style={{
           width: "78%",

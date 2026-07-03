@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   RefreshCw, Settings, Gamepad2, Loader2, RotateCcw, ListOrdered,
-  Store, Wrench, Disc, FolderOpen, HardDrive, Terminal, Usb,
+  Store, Wrench, Disc, FolderOpen, HardDrive, Terminal, Usb, Home,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
@@ -151,6 +151,7 @@ export interface MainNavProps {
   onNavigateIso2Xex: () => void;
   onNavigateFtpManager: () => void;
   onNavigateBadAvatarUsb: () => void;
+  simpleMode?: boolean;
 }
 
 export default function MainNav({
@@ -169,6 +170,7 @@ export default function MainNav({
   onNavigateIso2Xex,
   onNavigateFtpManager,
   onNavigateBadAvatarUsb,
+  simpleMode = true,
 }: MainNavProps) {
   const ftpChecking  = ftpStatus === "checking";
   const showLibBtn   = libraryAvailable || libraryLoading;
@@ -177,7 +179,7 @@ export default function MainNav({
 
   const activeBtnClass = "ring-1 ring-accent ring-offset-1 ring-offset-background";
 
-  if (currentPage === "badavatarusb") {
+  if (currentPage === "badavatarusb" && !simpleMode) {
     return (
       <div className="flex items-center">
         <ToolboxDropdown
@@ -189,6 +191,74 @@ export default function MainNav({
           onSettings={onNavigateSettings}
           simpleMode
         />
+      </div>
+    );
+  }
+
+  if (simpleMode) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <FtpIndicator status={ftpStatus} />
+
+        <Button
+          size="icon"
+          title="Início"
+          aria-label="Início"
+          variant={currentPage === "home" ? "primary" : "default"}
+          onClick={onNavigateHome}
+        >
+          <Home className="h-4 w-4" />
+        </Button>
+
+        {showLibBtn && (
+          <Button
+            size="icon"
+            title={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
+            aria-label={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
+            disabled={libraryLoading}
+            variant={currentPage === "library" ? "primary" : "default"}
+            onClick={onLibraryToggle}
+          >
+            {libraryLoading
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Gamepad2 className="h-4 w-4" />}
+          </Button>
+        )}
+
+        {hasQueueJobs && (
+          <Button
+            size="icon"
+            title={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+            aria-label={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+            onClick={onNavigateQueue}
+            className={cn("relative", currentPage === "queue" && activeBtnClass)}
+          >
+            <ListOrdered className="h-4 w-4" />
+            <span className="absolute -top-1 -right-1 h-4 min-w-[16px] px-0.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center leading-none">
+              {queueJobs.length > 9 ? "9+" : queueJobs.length}
+            </span>
+          </Button>
+        )}
+
+        <Button
+          size="icon"
+          title="Procurar e baixar"
+          aria-label="Procurar e baixar"
+          variant={currentPage === "browse" ? "primary" : "default"}
+          onClick={onNavigateBrowse}
+        >
+          <Store className="h-4 w-4" />
+        </Button>
+
+        <Button
+          size="icon"
+          title="Configurações"
+          aria-label="Configurações"
+          variant={currentPage === "settings" ? "primary" : "default"}
+          onClick={onNavigateSettings}
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
       </div>
     );
   }

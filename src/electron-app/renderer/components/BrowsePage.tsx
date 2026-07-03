@@ -78,7 +78,7 @@ interface CoverArtProps {
 function CoverArt({ dataUrl, name, size = 100 }: CoverArtProps) {
   return (
     <div
-      className="relative shrink-0 rounded-lg overflow-hidden border border-border bg-[#0d1117]"
+      className="relative shrink-0 rounded-lg overflow-hidden border border-border bg-muted"
       style={{ width: size, aspectRatio: "3/4" }}
     >
       {dataUrl === undefined ? (
@@ -155,6 +155,7 @@ interface QueueDialogProps {
   localDrives: LocalDrive[];
   onClose: () => void;
   onQueue?: () => void;
+  simpleMode?: boolean;
 }
 
 function QueueDialog({
@@ -164,6 +165,7 @@ function QueueDialog({
   drives,
   localDrives,
   onClose,
+  simpleMode = true,
 }: QueueDialogProps) {
   const hasMethods = source === "local" || (PLATFORMS.find((p) => p.id === platform)?.methods ?? false);
   const destinations = buildDestinations(localDrives, defaultDrive, drives);
@@ -185,9 +187,15 @@ function QueueDialog({
   useEffect(() => {
     if (!hasMethods) return;
     window.godsendApi.browseGetDiscInfo(game).then((r: any) => {
-      if (r.ok && r.recommendation) setDiscRec(r.recommendation);
+      if (r.ok && r.recommendation) {
+        setDiscRec(r.recommendation);
+        // Auto-select recommended method in Simple Mode
+        if (simpleMode) {
+          setMethod(r.recommendation);
+        }
+      }
     }).catch(() => {});
-  }, [game, hasMethods]);
+  }, [game, hasMethods, simpleMode]);
 
   async function handleQueue() {
     if (!selectedDest) {
@@ -270,7 +278,7 @@ function QueueDialog({
                         ))}
                       </optgroup>
                     )}
-                    {destinations.some((d) => d.kind === "ftp") && (
+                    {destinations.some((d) => d.kind === "ftp") && !simpleMode && (
                       <optgroup label="Enviar ao console (FTP)">
                         {destinations.filter((d) => d.kind === "ftp").map((d) => (
                           <option key={d.value} value={d.value}>{d.label}</option>
@@ -292,7 +300,7 @@ function QueueDialog({
         )}
 
         {/* Install method (GOD / Content / XEX) — only for applicable platforms */}
-        {hasMethods && !queued && (
+        {hasMethods && !queued && !simpleMode && (
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
               Método de instalação
@@ -362,22 +370,76 @@ function QueueDialog({
   );
 }
 
+// ── Lazy loading Intersection Observer Hook ──────────────────────────────────
+
+function useIntersectionObserver<T extends HTMLElement>(): [React.RefObject<T | null>, boolean] {
+  const ref = useRef<T | null>(null);
+  const [isIntersecting, setIsIntersecting] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsIntersecting(true);
+          observer.unobserve(el);
+        }
+      },
+      { rootMargin: "100px" }
+    );
+
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  return [ref, isIntersecting];
+}
+
 // ── Local library game card ──────────────────────────────────────────────────
 
 interface LocalGameCardProps {
   name: string;
-  cover?: string | null;
   onClick: () => void;
 }
 
-function LocalGameCard({ name, cover, onClick }: LocalGameCardProps) {
+function LocalGameCard({ name, onClick }: LocalGameCardProps) {
+  const [cover, setCover] = useState<string | null | undefined>(undefined);
+  const [ref, isVisible] = useIntersectionObserver<HTMLButtonElement>();
+
+  useEffect(() => {
+    if (!isVisible) return undefined;
+
+    let active = true;
+    const timeoutId = setTimeout(() => {
+      window.godsendApi.browseFetchCover(name).then((r: any) => {
+        if (active) {
+          setCover(r.ok ? r.dataUrl : null);
+        }
+      }).catch(() => {
+        if (active) {
+          setCover(null);
+        }
+      });
+    }, 150); // 150ms debounce para evitar requests em rolagem rápida
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [name, isVisible]);
+
   return (
     <button
+      ref={ref}
       onClick={onClick}
       className="group flex flex-col gap-1 rounded-lg p-1.5 hover:bg-accent/40 active:bg-accent transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       <div
-        className="relative w-full rounded-lg overflow-hidden border border-border bg-[#0d1117]"
+        className="relative w-full rounded-lg overflow-hidden border border-border bg-muted"
         style={{ aspectRatio: "3/4" }}
       >
         {cover === undefined ? (
@@ -408,9 +470,10 @@ function LocalGameCard({ name, cover, onClick }: LocalGameCardProps) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface BrowsePageProps {
+  simpleMode?: boolean;
 }
 
-export default function BrowsePage({}: BrowsePageProps) {
+export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
   const [source,   setSource]   = useState("minerva");
   const [platform, setPlatform] = useState("xbox360");
   const [status,   setStatus]   = useState("idle");  // idle|loading|cache-building|ready|empty|error
@@ -424,8 +487,6 @@ export default function BrowsePage({}: BrowsePageProps) {
   const [drives,       setDrives]       = useState<string[]>([]);
   const [localDrives,  setLocalDrives]  = useState<LocalDrive[]>([]);
   const filterRef = useRef<HTMLInputElement>(null);
-
-  const [localCovers, setLocalCovers] = useState<Record<string, string | null | undefined>>({});
 
   const isLocal = source === "local";
 
@@ -465,7 +526,6 @@ export default function BrowsePage({}: BrowsePageProps) {
     setGames([]);
     setFilter("");
     setCacheProgress(null);
-    setLocalCovers({});
     const browsePayload = isLocal
       ? { platform: "local", source: "local" }
       : { platform, source };
@@ -483,36 +543,14 @@ export default function BrowsePage({}: BrowsePageProps) {
     setGames(list);
     setStatus(list.length === 0 ? "empty" : "ready");
     setTimeout(() => filterRef.current?.focus(), 50);
-
-    if (isLocal && list.length > 0) {
-      fetchLocalCovers(list);
-    }
-  }
-
-  function fetchLocalCovers(names: string[]) {
-    const initCovers: Record<string, string | null | undefined> = {};
-    for (const n of names) initCovers[n] = undefined;
-    setLocalCovers(initCovers);
-
-    for (const name of names) {
-      window.godsendApi.browseFetchCover(name).then((r: any) => {
-        setLocalCovers((prev) => ({ ...prev, [name]: r.ok ? r.dataUrl : null }));
-      }).catch(() => {
-        setLocalCovers((prev) => ({ ...prev, [name]: null }));
-      });
-    }
   }
 
   function openGame(name: string) {
     setSelected(name);
-    if (isLocal && localCovers[name] !== undefined) {
-      setCover(localCovers[name]);
-    } else {
-      setCover(undefined);
-      window.godsendApi.browseFetchCover(name).then((r: any) => {
-        setCover(r.ok ? r.dataUrl : null);
-      }).catch(() => setCover(null));
-    }
+    setCover(undefined);
+    window.godsendApi.browseFetchCover(name).then((r: any) => {
+      setCover(r.ok ? r.dataUrl : null);
+    }).catch(() => setCover(null));
   }
 
   function closeDialog() {
@@ -672,7 +710,7 @@ export default function BrowsePage({}: BrowsePageProps) {
               <p className="text-[12px] text-muted-foreground text-center py-8">
                 No matches for &ldquo;{filter}&rdquo;
               </p>
-            ) : isLocal ? (
+            ) : (
               <div
                 className="grid gap-2 pb-4 pr-1"
                 style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))" }}
@@ -681,29 +719,8 @@ export default function BrowsePage({}: BrowsePageProps) {
                   <LocalGameCard
                     key={name}
                     name={name}
-                    cover={localCovers[name]}
                     onClick={() => openGame(name)}
                   />
-                ))}
-              </div>
-            ) : (
-              <div className="pr-1 pb-2">
-                {filtered.map((name) => (
-                    <button
-                      key={name}
-                      onClick={() => openGame(name)}
-                      className={cn(
-                        "w-full text-left px-2 py-1.5 rounded-md group",
-                        "text-[12px] text-foreground/85 hover:text-foreground",
-                        "hover:bg-accent/50 active:bg-accent transition-colors",
-                        "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      )}
-                    >
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="truncate">{name}</span>
-                        <Download className="h-3 w-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground/60 transition-colors" />
-                      </span>
-                    </button>
                 ))}
               </div>
             )}
@@ -722,6 +739,7 @@ export default function BrowsePage({}: BrowsePageProps) {
           drives={drives}
           localDrives={localDrives}
           onClose={closeDialog}
+          simpleMode={simpleMode}
         />
       )}
     </div>

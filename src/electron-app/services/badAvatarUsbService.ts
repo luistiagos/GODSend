@@ -43,6 +43,7 @@ export interface UsbDriveInfo {
     codes: string[];
     reasons: string[];
   };
+  alreadyPrepared?: boolean;
 }
 
 export interface BadAvatarPackage {
@@ -334,12 +335,44 @@ function addLinuxMount(full: string, roots: UsbDriveInfo[], seen: Set<string>): 
   }
 }
 
+function checkExistingXboxFolders(driveRoot: string): boolean {
+  try {
+    const root = normalizeRoot(driveRoot);
+    const indicators = [
+      path.join(root, "Content", "0000000000000000"),
+      path.join(root, "Aurora"),
+      path.join(root, "Games"),
+      path.join(root, "FSD"),
+      path.join(root, "Freestyle"),
+      path.join(root, "default.xex"),
+      path.join(root, "launch.ini"),
+    ];
+    for (const item of indicators) {
+      if (fs.existsSync(item)) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 /** USB / external drives (any filesystem) suitable for BadAvatar setup. */
 export async function listFat32UsbDrives(): Promise<UsbDriveInfo[]> {
-  if (process.platform === "win32") return enumerateSafeWindowsUsbDevices();
-  if (process.platform === "darwin") return listDarwinUsbDrives();
-  if (process.platform === "linux") return listLinuxUsbDrives();
-  return [];
+  let drives: UsbDriveInfo[] = [];
+  if (process.platform === "win32") {
+    drives = await enumerateSafeWindowsUsbDevices();
+  } else if (process.platform === "darwin") {
+    drives = await listDarwinUsbDrives();
+  } else if (process.platform === "linux") {
+    drives = await listLinuxUsbDrives();
+  }
+
+  for (const drive of drives) {
+    drive.alreadyPrepared = checkExistingXboxFolders(drive.rootPath);
+  }
+  return drives;
 }
 
 function isValidZip(filePath: string): boolean {

@@ -26,6 +26,7 @@ interface UsbDrive {
     codes?: string[];
     reasons: string[];
   };
+  alreadyPrepared?: boolean;
 }
 
 // Mensagens curtas e acionáveis para o usuário leigo, mapeadas pelos códigos
@@ -249,6 +250,16 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
               </div>
             )}
 
+            {selectedDevice && selectedDevice.alreadyPrepared && (
+              <div className="mt-3 rounded-lg border border-green-500/35 bg-green-950/20 px-3 py-3 text-[12px] text-gray-200 flex items-center gap-2.5">
+                <Check className="h-4 w-4 shrink-0 text-green-400" />
+                <div>
+                  <span className="font-semibold block text-green-400">Dispositivo Xbox 360 detectado!</span>
+                  Já existe um desbloqueio ou pastas de jogos (Aurora, exploit ou Content) neste pendrive ou HD. Você pode pular a preparação e baixar/instalar os jogos diretamente.
+                </div>
+              </div>
+            )}
+
             {selectedDevice && !deviceAllowed && (
               <p className="mt-2 text-[11px] leading-relaxed text-red-300">
                 {blockReason(selectedDevice)}
@@ -322,10 +333,23 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
         </span>
       </label>
 
+      {selectedDevice && selectedDevice.alreadyPrepared && onBrowseGames && !busy && (
+        <div className="mt-4">
+          <Button
+            variant="primary"
+            className="h-11 w-full bg-blue-600 hover:bg-blue-500 text-sm flex items-center justify-center gap-2"
+            onClick={onBrowseGames}
+          >
+            <Gamepad2 className="h-4 w-4" />
+            Pular e ir para o catálogo de jogos
+          </Button>
+        </div>
+      )}
+
       <div className="mt-4">
         <Button
-          variant="primary"
-          className="h-11 w-full bg-green-600 text-sm hover:bg-green-500"
+          variant={selectedDevice?.alreadyPrepared ? "default" : "primary"}
+          className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
           disabled={!canPrepare}
           onClick={handlePrepare}
         >
@@ -335,7 +359,7 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
       </div>
 
       {(busy || status || error || done) && (
-        <div className={`mt-3 rounded-lg border px-3 py-3 ${error ? "border-red-500/30 bg-red-500/10" : done ? "border-green-500/30 bg-green-500/10" : "border-border bg-muted/30"}`}>
+        <div className={`mt-3 rounded-lg border px-3 py-3 ${error ? "border-red-500/30 bg-red-500/10" : done ? "border-green-500/40 bg-green-950/20" : "border-border bg-muted/30"}`}>
           <div
             className="h-2 overflow-hidden rounded-full bg-background"
             role="progressbar"
@@ -350,13 +374,13 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
             />
           </div>
           <p
-            className={`mt-2 text-[11px] ${error ? "text-red-300" : done ? "text-green-300" : "text-muted-foreground"}`}
+            className={`mt-2 text-[11px] ${error ? "text-red-300" : done ? "text-green-400" : "text-muted-foreground"}`}
             aria-live="polite"
           >
             {error || status}
           </p>
           {done && !error && (
-            <p className="mt-2 text-[11px] leading-relaxed text-green-200/80">
+            <p className="mt-2 text-[11px] leading-relaxed text-gray-200">
               Abra o BadAvatar pelo perfil no console. Isso não desbloqueia o Xbox de forma
               permanente — repita a ativação a cada vez que ligar e mantenha o console sem internet.
             </p>

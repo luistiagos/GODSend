@@ -23,7 +23,14 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 export default function App() {
-  const [page, setPage] = useState<PageId>("badavatarusb");
+  const [page, setPage] = useState<PageId>("home");
+  const [simpleMode, setSimpleMode] = useState(true);
+  // Forçar o tema escuro/grafite por padrão e limpar qualquer estado anterior
+  useEffect(() => {
+    localStorage.setItem("theme", "dark");
+    document.documentElement.classList.remove("light");
+    document.documentElement.classList.add("dark");
+  }, []);
 
   // ── Console output ────────────────────────────────────────────────────────
   const [outputLines, setOutputLines] = useState<string[]>([]);
@@ -91,6 +98,7 @@ export default function App() {
   useEffect(() => {
     window.godsendApi.getOutputBuffer().then((buf: string[]) => setOutputLines(buf));
     window.godsendApi.getLogsInfo().then((info: any) => setLogInfo(info));
+    window.godsendApi.getSimpleMode().then((enabled: boolean) => setSimpleMode(enabled));
 
     const cleanupOutput = window.godsendApi.onOutput((line: string) =>
       setOutputLines((prev) => [...prev, line])
@@ -258,6 +266,7 @@ export default function App() {
     onNavigateIso2Xex:    () => navigateTo("iso2xex"),
     onNavigateFtpManager: () => navigateTo("ftpmanager"),
     onNavigateBadAvatarUsb: () => navigateTo("badavatarusb"),
+    simpleMode,
   };
 
   // ── Routing ───────────────────────────────────────────────────────────────
@@ -305,6 +314,7 @@ export default function App() {
         libraryLoading={libraryLoading}
         onAppendLine={appendLine}
         queueJobs={queueJobs}
+        simpleMode={simpleMode}
       />
     );
   }
@@ -312,11 +322,17 @@ export default function App() {
   // ── Tool / utility pages (settings, queue, browse, tools) ─────────────────
   let pageContent: React.ReactNode = null;
   if (page === "settings") {
-    pageContent = <SettingsPage onAppendLine={appendLine} />;
+    pageContent = (
+      <SettingsPage
+        onAppendLine={appendLine}
+        simpleMode={simpleMode}
+        onSimpleModeChange={setSimpleMode}
+      />
+    );
   } else if (page === "queue") {
     pageContent = <QueuePage />;
   } else if (page === "browse") {
-    pageContent = <BrowsePage />;
+    pageContent = <BrowsePage simpleMode={simpleMode} />;
   } else if (page === "iso2god") {
     pageContent = <ISO2GODPage />;
   } else if (page === "iso2xex") {
