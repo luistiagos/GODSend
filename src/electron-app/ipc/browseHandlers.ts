@@ -7,7 +7,7 @@
 import http from "http";
 import { IpcMain } from "electron";
 
-import { getConfiguredXboxIP, getConfiguredServerPort } from "../services/settingsService";
+import { getConfiguredXboxIP, getConfiguredServerPort, getConfiguredProviderPriority } from "../services/settingsService";
 import { backendGet } from "../infrastructure/backendHttp";
 import { fetchHttpImage } from "../infrastructure/httpHelper";
 import {
@@ -23,9 +23,10 @@ export function register(ipcMain: IpcMain): void {
   // ── Get game list from Go backend ──────────────────────────────────────────
   ipcMain.handle("browse:get-games", async (_event, { platform, source }) => {
     try {
+      const priority = getConfiguredProviderPriority().join(",");
       const src  = source ? `&source=${encodeURIComponent(source)}` : "";
       const data = await backendGet(
-        `/browse?platform=${encodeURIComponent(platform)}${src}`
+        `/browse?platform=${encodeURIComponent(platform)}${src}&priority=${encodeURIComponent(priority)}`
       );
       if (data.startsWith("__IA_LOADING__")) {
         const m = data.match(/__IA_LOADING__:(\d+)\/(\d+)/);
@@ -68,8 +69,9 @@ export function register(ipcMain: IpcMain): void {
       try { reg = JSON.parse(regData); } catch { reg = {}; }
       if (reg.error) return { ok: false, error: `Register: ${reg.error}` };
 
+      const priority = getConfiguredProviderPriority().join(",");
       const trigData = await backendGet(
-        `/trigger?game=${enc}&platform=${plat}&install_type=${inst}${src}`
+        `/trigger?game=${enc}&platform=${plat}&install_type=${inst}${src}&priority=${encodeURIComponent(priority)}`
       );
       let trig: any;
       try { trig = JSON.parse(trigData); } catch { trig = {}; }

@@ -39,6 +39,7 @@ import {
   getConfiguredCustomXexPath,
   getDefaultFtpScriptsPath,
   getConfiguredSimpleMode,
+  getConfiguredProviderPriority,
   readConfig,
   writeConfig,
 } from "../services/settingsService";
@@ -461,4 +462,15 @@ export function register(ipcMain: IpcMain): void {
 
   // ── FTP scripts path default ────────────────────────────────────────────────
   ipcMain.handle("config:get-ftp-scripts-path-default", () => getDefaultFtpScriptsPath());
+
+  // ── Provider priority ───────────────────────────────────────────────────────
+  ipcMain.handle("config:get-provider-priority", () => getConfiguredProviderPriority());
+  ipcMain.handle("config:set-provider-priority", (_event, priority) => {
+    if (Array.isArray(priority)) {
+      writeConfig({ providerPriority: priority });
+      appendAppEvent("CONFIG", `providerPriority set to ${priority.join(",")}`);
+      return priority;
+    }
+    return getConfiguredProviderPriority();
+  });
 }

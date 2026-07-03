@@ -20,10 +20,8 @@ const PLATFORMS = [
 ];
 
 const SOURCES = [
-  { id: "huggingface", label: "Hugging Face" },
-  { id: "minerva", label: "Minerva" },
-  { id: "ia",      label: "Internet Archive" },
-  { id: "local",   label: "Biblioteca local" },
+  { id: "unified", label: "Catálogo Online" },
+  { id: "local",   label: "Biblioteca Local" },
 ];
 
 const METHODS   = [
@@ -475,7 +473,7 @@ interface BrowsePageProps {
 }
 
 export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
-  const [source,   setSource]   = useState("minerva");
+  const [source,   setSource]   = useState("unified");
   const [platform, setPlatform] = useState("xbox360");
   const [status,   setStatus]   = useState("idle");  // idle|loading|cache-building|ready|empty|error
   const [games,    setGames]    = useState<string[]>([]);
@@ -490,13 +488,6 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
   const filterRef = useRef<HTMLInputElement>(null);
 
   const isLocal = source === "local";
-  const isHF = source === "huggingface";
-
-  useEffect(() => {
-    if (isHF && platform !== "xbox360") {
-      setPlatform("xbox360");
-    }
-  }, [isHF, platform]);
 
   // Load local prepared drives (primary), plus default + FTP drives (secondary).
   const refreshDestinations = useCallback(() => {
@@ -591,8 +582,8 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
         </div>
       </header>
 
-      {/* ── Platform tabs (hidden for local library and Hugging Face) ── */}
-      {!isLocal && !isHF && (
+      {/* ── Platform tabs (hidden for local library) ── */}
+      {!isLocal && (
         <div className="flex gap-1 overflow-x-auto shrink-0 pb-0.5 no-scrollbar">
           {PLATFORMS.map((p) => (
             <PillBtn

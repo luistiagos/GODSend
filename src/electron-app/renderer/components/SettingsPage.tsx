@@ -85,6 +85,7 @@ export default function SettingsPage({
   const [iaPassword, setIaPassword]             = useState("");
   const [romPath, setRomPath]                   = useState("");
   const [ftpScanSubnet, setFtpScanSubnet]       = useState("");
+  const [providerPriority, setProviderPriority] = useState<string[]>(["huggingface", "ia", "minerva"]);
 
   // Aria2 port settings
   const [aria2ListenPort, setAria2ListenPort]   = useState("");
@@ -177,6 +178,11 @@ export default function SettingsPage({
       setDefaultDrive(await window.godsendApi.getDefaultXboxDrive());
       setCustomGodPathState(await window.godsendApi.getCustomGodPath());
       setCustomXexPathState(await window.godsendApi.getCustomXexPath());
+
+      const priority = await window.godsendApi.getProviderPriority();
+      if (priority && priority.length > 0) {
+        setProviderPriority(priority);
+      }
     }
     load();
 
@@ -462,6 +468,18 @@ export default function SettingsPage({
       setFtpTestLoading(false);
     }
   }
+
+  const handleMoveProvider = (index: number, direction: "up" | "down") => {
+    const nextList = [...providerPriority];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex >= 0 && targetIndex < nextList.length) {
+      const temp = nextList[index];
+      nextList[index] = nextList[targetIndex];
+      nextList[targetIndex] = temp;
+      setProviderPriority(nextList);
+      window.godsendApi.setProviderPriority(nextList);
+    }
+  };
 
   async function handleFtpScan() {
     if (!ftpScanSubnet.trim()) {
@@ -1086,6 +1104,47 @@ export default function SettingsPage({
             <Hint>
               Usa a API de login oficial do archive.org. Os cookies de sessão são salvos
               localmente; sua senha nunca é armazenada.
+            </Hint>
+          </Section>
+
+          {/* ── Provider Priority ── */}
+          <Section title="Prioridade das Fontes de Download (Catálogo Online)">
+            <div className="space-y-2 max-w-[480px]">
+              {providerPriority.map((p, index) => {
+                const labels: Record<string, string> = {
+                  huggingface: "Hugging Face (XEX Descompactado)",
+                  ia: "Internet Archive (GOD / ISO)",
+                  minerva: "Minerva Archive (Torrents rápidos)",
+                };
+                return (
+                  <div key={p} className="flex items-center justify-between p-2 rounded bg-surface border border-border">
+                    <span className="text-[12px] font-medium text-foreground">
+                      {index + 1}. {labels[p] || p}
+                    </span>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        className="h-7 w-7 p-0 flex items-center justify-center font-bold text-[12px]"
+                        disabled={index === 0}
+                        onClick={() => handleMoveProvider(index, "up")}
+                      >
+                        ▲
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 w-7 p-0 flex items-center justify-center font-bold text-[12px]"
+                        disabled={index === providerPriority.length - 1}
+                        onClick={() => handleMoveProvider(index, "down")}
+                      >
+                        ▼
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <Hint>
+              Selecione a ordem de preferência dos servidores. Se o download do primeiro falhar, o aplicativo automaticamente tentará o próximo da lista de forma sequencial.
             </Hint>
           </Section>
 

@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("godsendApi", {
   chooseStoragePath:         () => ipcRenderer.invoke("config:choose-storage-path"),
   getSimpleMode:             () => ipcRenderer.invoke("config:get-simple-mode"),
   setSimpleMode:             (enabled: boolean) => ipcRenderer.invoke("config:set-simple-mode", enabled),
+  getProviderPriority:       () => ipcRenderer.invoke("config:get-provider-priority"),
+  setProviderPriority:       (priority: string[]) => ipcRenderer.invoke("config:set-provider-priority", priority),
   getTorrentTempPath:        () => ipcRenderer.invoke("config:get-torrent-temp-path"),
   getEffectiveTorrentTempPath: () => ipcRenderer.invoke("config:get-effective-torrent-temp-path"),
   getDefaultTorrentTempPath: () => ipcRenderer.invoke("config:get-default-torrent-temp-path"),

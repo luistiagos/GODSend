@@ -111,11 +111,17 @@ func (s *Service) processContentInstallFromISO(gameName, safeName, isoPath strin
 // ==========================================
 
 func (s *Service) ProcessGenericGame(gameName string) {
+	if err := s.ProcessGenericGameWithErr(gameName); err != nil {
+		s.App.LogStatus(gameName, "Error", err.Error())
+	}
+}
+
+// ProcessGenericGameWithErr runs the generic game pipeline and returns any error.
+func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 	s.App.Logf("=== Generic Game: %s ===", gameName)
 	safeName := helpers.SanitizeFilename(gameName)
 	if safeName == "" {
-		s.App.LogStatus(gameName, "Error", "Invalid game name")
-		return
+		return fmt.Errorf("Invalid game name")
 	}
 	var xboxConn *models.XboxConnection
 	if c, ok := s.App.XboxConnections.Load(gameName); ok {
@@ -129,8 +135,7 @@ func (s *Service) ProcessGenericGame(gameName string) {
 	entry, err := s.IA.FindEntry(gameName, "games")
 	if err != nil {
 		s.App.Logf("ERROR [%s]: IA search failed: %v", gameName, err)
-		s.App.LogStatus(gameName, "Error", err.Error())
-		return
+		return fmt.Errorf("IA search failed: %w", err)
 	}
 	downloadURL := app.IADownloadBase + entry.CollectionID + "/" + url.PathEscape(entry.FileName)
 	s.App.Logf("IA Download: %s → %s", gameName, entry.FileName)
@@ -139,8 +144,7 @@ func (s *Service) ProcessGenericGame(gameName string) {
 	s.App.LogStatus(gameName, "Processing", "Downloading from Internet Archive...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, app.IADownloadBase); err != nil {
 		s.App.Logf("ERROR [%s]: IA download failed: %v", gameName, err)
-		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Download: %v", err))
-		return
+		return fmt.Errorf("Download failed: %w", err)
 	}
 	defer os.Remove(archivePath)
 
@@ -149,8 +153,7 @@ func (s *Service) ProcessGenericGame(gameName string) {
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
-		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Extract: %v", err))
-		return
+		return fmt.Errorf("Extract failed: %w", err)
 	}
 
 	installType := s.App.LookupInstallType(gameName)
@@ -167,15 +170,13 @@ func (s *Service) ProcessGenericGame(gameName string) {
 			os.RemoveAll(isoXexDir)
 			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
 			if err := utils.ExtractXEXFolderFromISO(isoPath, isoXexDir); err != nil {
-				s.App.LogStatus(gameName, "Error", fmt.Sprintf("XEX from ISO: %v", err))
-				return
+				return fmt.Errorf("XEX extraction from ISO failed: %w", err)
 			}
 			defer os.RemoveAll(isoXexDir)
 			xexFolder = isoXexDir
 			folderName = safeName
 		} else {
-			s.App.LogStatus(gameName, "Error", "XEX install needs a loose game folder in the archive. Try GOD (ISO) or DLC (Disc 2 content ISO).")
-			return
+			return fmt.Errorf("XEX install needs a loose game folder in the archive. Try GOD (ISO) or DLC (Disc 2 content ISO).")
 		}
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
@@ -199,31 +200,28 @@ func (s *Service) ProcessGenericGame(gameName string) {
 			}
 		} else if xboxConn != nil && xboxConn.Mode == "local" {
 			if err := s.InstallXEXLocal(xexFolder, folderName, xboxConn.LocalRoot, gameName); err != nil {
-				s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
-			} else {
-				os.RemoveAll(gameDir)
-				s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+				return fmt.Errorf("Gravação local: %w", err)
 			}
+			os.RemoveAll(gameDir)
+			s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
 		} else {
 			partName := fmt.Sprintf("%s_Part1.7z", safeName)
 			if err := utils.CreateZipFromDir(xexFolder, filepath.Join(gameDir, partName)); err != nil {
-				s.App.LogStatus(gameName, "Error", fmt.Sprintf("Archive XEX: %v", err))
-				return
+				return fmt.Errorf("Archive XEX: %w", err)
 			}
 			s.App.GamePartsMap.Store(gameName, []string{partName})
 			s.updateGameINI_XEX(gameDir, gameName, folderName, partName)
 			s.App.LogStatus(gameName, "Ready", "Ready to Install")
 		}
-		return
+		return nil
 	}
 
 	if installType == "content" {
 		if isoPath == "" {
-			s.App.LogStatus(gameName, "Error", "DLC/content install needs an ISO. Pick XEX if this release is a loose-folder rip.")
-			return
+			return fmt.Errorf("DLC/content install needs an ISO. Pick XEX if this release is a loose-folder rip.")
 		}
 		s.processContentInstallFromISO(gameName, safeName, isoPath, xboxConn)
-		return
+		return nil
 	}
 
 	// GOD (default): ISO → Games on Demand.
@@ -232,26 +230,23 @@ func (s *Service) ProcessGenericGame(gameName string) {
 		godDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_GOD")
 		os.MkdirAll(godDir, 0755)
 		if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
-			s.App.LogStatus(gameName, "Error", fmt.Sprintf("GOD convert: %v", err))
 			os.RemoveAll(godDir)
-			return
+			return fmt.Errorf("GOD convert: %w", err)
 		}
 		titleID, mediaID, err := helpers.DetectGodStructure(godDir)
 		if err != nil {
-			s.App.LogStatus(gameName, "Error", fmt.Sprintf("GOD detect: %v", err))
 			os.RemoveAll(godDir)
-			return
+			return fmt.Errorf("GOD detect: %w", err)
 		}
 		s.finalizeGOD(gameName, safeName, gameDir, godDir, titleID, mediaID, xboxConn)
-		return
+		return nil
 	}
 
 	if xexFolder != "" {
-		s.App.LogStatus(gameName, "Error", "No ISO in archive. Choose Install method: XEX for this folder layout, or use a Redump-style ISO release.")
-		return
+		return fmt.Errorf("No ISO in archive. Choose Install method: XEX for this folder layout, or use a Redump-style ISO release.")
 	}
-	s.App.LogStatus(gameName, "Error", "No ISO or XEX content found in archive")
 	s.App.Logf("=== Complete (Generic): %s ===", gameName)
+	return fmt.Errorf("No ISO or XEX content found in archive")
 }
 
 // ==========================================
@@ -259,11 +254,17 @@ func (s *Service) ProcessGenericGame(gameName string) {
 // ==========================================
 
 func (s *Service) ProcessDigital(gameName, platform string) {
+	if err := s.ProcessDigitalWithErr(gameName, platform); err != nil {
+		s.App.LogStatus(gameName, "Error", err.Error())
+	}
+}
+
+// ProcessDigitalWithErr processes XBLA/DLC content and returns any error.
+func (s *Service) ProcessDigitalWithErr(gameName, platform string) error {
 	s.App.Logf("=== Digital: %s (%s) ===", gameName, platform)
 	safeName := helpers.SanitizeFilename(gameName)
 	if safeName == "" {
-		s.App.LogStatus(gameName, "Error", "Invalid game name")
-		return
+		return fmt.Errorf("Invalid game name")
 	}
 	var xboxConn *models.XboxConnection
 	if c, ok := s.App.XboxConnections.Load(gameName); ok {
@@ -276,15 +277,13 @@ func (s *Service) ProcessDigital(gameName, platform string) {
 	s.App.LogStatus(gameName, "Processing", "Searching Internet Archive...")
 	entry, err := s.IA.FindEntry(gameName, platform)
 	if err != nil {
-		s.App.LogStatus(gameName, "Error", err.Error())
-		return
+		return fmt.Errorf("IA search failed: %w", err)
 	}
 	downloadURL := app.IADownloadBase + entry.CollectionID + "/" + url.PathEscape(entry.FileName)
 
 	archivePath := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_digi"+filepath.Ext(entry.FileName))
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, app.IADownloadBase); err != nil {
-		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Download: %v", err))
-		return
+		return fmt.Errorf("Download failed: %w", err)
 	}
 	defer os.Remove(archivePath)
 
@@ -293,8 +292,7 @@ func (s *Service) ProcessDigital(gameName, platform string) {
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
-		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Extract: %v", err))
-		return
+		return fmt.Errorf("Extract failed: %w", err)
 	}
 
 	var contentFile, titleID, typeDir string
@@ -317,8 +315,7 @@ func (s *Service) ProcessDigital(gameName, platform string) {
 	})
 
 	if contentFile == "" {
-		s.App.LogStatus(gameName, "Error", "No valid Xbox content found in archive")
-		return
+		return fmt.Errorf("No valid Xbox content found in archive")
 	}
 	s.App.Logf("Digital: TitleID=%s Type=%s", titleID, typeDir)
 	finalName := filepath.Base(contentFile)
@@ -328,34 +325,31 @@ func (s *Service) ProcessDigital(gameName, platform string) {
 		base := fmt.Sprintf("/%s/Content/0000000000000000/%s/%s", drive, titleID, typeDir)
 		fc, err := s.FTP.ConnectWithRetry(xboxConn.IP)
 		if err != nil {
-			s.App.LogStatus(gameName, "Error", fmt.Sprintf("FTP: %v", err))
-			return
+			return fmt.Errorf("FTP connect failed: %w", err)
 		}
 		defer s.FTP.QuitConn(fc)
 		ftp.MkdirAll(fc, base)
 		info, _ := os.Stat(contentFile)
 		var xfer int64
 		if err := s.FTP.UploadFile(fc, contentFile, base+"/"+finalName, gameName, &xfer, info.Size(), 1, 1, time.Now(), new(float64)); err != nil {
-			s.App.LogStatus(gameName, "Error", fmt.Sprintf("FTP upload: %v", err))
-		} else {
-			os.RemoveAll(gameDir)
-			s.App.LogFTPComplete(gameName, titleID, xboxConn.IP)
+			return fmt.Errorf("FTP upload failed: %w", err)
 		}
+		os.RemoveAll(gameDir)
+		s.App.LogFTPComplete(gameName, titleID, xboxConn.IP)
 	} else if xboxConn != nil && xboxConn.Mode == "local" {
 		if err := s.InstallContentFileLocal(contentFile, xboxConn.LocalRoot, gameName, titleID, typeDir); err != nil {
-			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
-		} else {
-			os.RemoveAll(gameDir)
-			s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+			return fmt.Errorf("Gravação local: %w", err)
 		}
+		os.RemoveAll(gameDir)
+		s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
 	} else {
 		relPath := fmt.Sprintf("Content\\0000000000000000\\%s\\%s\\", titleID, typeDir)
 		if err := helpers.CopyFileBuffered(contentFile, filepath.Join(gameDir, finalName)); err != nil {
-			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Copy: %v", err))
-		} else {
-			s.updateGameINI_Raw(gameDir, gameName, finalName, relPath, "")
-			s.App.LogStatus(gameName, "Ready", "Ready to Install")
+			return fmt.Errorf("Copy failed: %w", err)
 		}
+		s.updateGameINI_Raw(gameDir, gameName, finalName, relPath, "")
+		s.App.LogStatus(gameName, "Ready", "Ready to Install")
 	}
 	s.App.Logf("=== Complete (Digital): %s ===", gameName)
+	return nil
 }

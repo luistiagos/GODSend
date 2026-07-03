@@ -26,6 +26,7 @@ export interface GodsendConfig {
   aria2ListenPort?: string | number;
   aria2DhtPort?: string | number;
   simpleMode?: boolean;
+  providerPriority?: string[];
 }
 
 export function configFilePath(): string {
@@ -43,6 +44,16 @@ export function readConfig(): GodsendConfig {
 export function getConfiguredSimpleMode(): boolean {
   const v = readConfig().simpleMode;
   return typeof v === "boolean" ? v : true;
+}
+
+export function getConfiguredProviderPriority(): string[] {
+  const v = readConfig().providerPriority;
+  if (Array.isArray(v) && v.length > 0) {
+    const allowed = ["huggingface", "ia", "minerva"];
+    const filtered = v.filter(x => allowed.includes(x));
+    if (filtered.length > 0) return filtered;
+  }
+  return ["huggingface", "ia", "minerva"];
 }
 
 

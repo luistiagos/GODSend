@@ -16,11 +16,17 @@ import (
 
 // ProcessHuggingFaceGame downloads and processes an XEX game folder from HuggingFace.
 func (s *Service) ProcessHuggingFaceGame(gameName string, downloadURL string) {
+	if err := s.ProcessHuggingFaceGameWithErr(gameName, downloadURL); err != nil {
+		s.App.LogStatus(gameName, "Error", err.Error())
+	}
+}
+
+// ProcessHuggingFaceGameWithErr downloads and processes an XEX game folder, returning any error.
+func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL string) error {
 	s.App.Logf("=== HuggingFace: %s ===", gameName)
 	safeName := helpers.SanitizeFilename(gameName)
 	if safeName == "" {
-		s.App.LogStatus(gameName, "Error", "Invalid game name")
-		return
+		return fmt.Errorf("Invalid game name")
 	}
 	var xboxConn *models.XboxConnection
 	if c, ok := s.App.XboxConnections.Load(gameName); ok {
@@ -34,8 +40,7 @@ func (s *Service) ProcessHuggingFaceGame(gameName string, downloadURL string) {
 	s.App.LogStatus(gameName, "Processing", "Downloading from HuggingFace...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, "huggingface.co"); err != nil {
 		s.App.Logf("ERROR [%s]: HuggingFace download failed: %v", gameName, err)
-		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Download: %v", err))
-		return
+		return fmt.Errorf("HuggingFace download failed: %w", err)
 	}
 	defer os.Remove(archivePath)
 
@@ -44,8 +49,7 @@ func (s *Service) ProcessHuggingFaceGame(gameName string, downloadURL string) {
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
-		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Extract: %v", err))
-		return
+		return fmt.Errorf("Extract failed: %w", err)
 	}
 
 	xexFolder := helpers.FindXEXFolder(extDir)
@@ -79,20 +83,19 @@ func (s *Service) ProcessHuggingFaceGame(gameName string, downloadURL string) {
 		}
 	} else if xboxConn != nil && xboxConn.Mode == "local" {
 		if err := s.InstallXEXLocal(xexFolder, folderName, xboxConn.LocalRoot, gameName); err != nil {
-			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
-		} else {
-			os.RemoveAll(gameDir)
-			s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+			return fmt.Errorf("Gravação local: %w", err)
 		}
+		os.RemoveAll(gameDir)
+		s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
 	} else {
 		partName := fmt.Sprintf("%s_Part1.7z", safeName)
 		if err := utils.CreateZipFromDir(xexFolder, filepath.Join(gameDir, partName)); err != nil {
-			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Archive XEX: %v", err))
-			return
+			return fmt.Errorf("Archive XEX: %w", err)
 		}
 		s.App.GamePartsMap.Store(gameName, []string{partName})
 		s.updateGameINI_XEX(gameDir, gameName, folderName, partName)
 		s.App.LogStatus(gameName, "Ready", "Ready to Install")
 	}
 	s.App.Logf("=== Complete (HuggingFace XEX): %s ===", gameName)
+	return nil
 }

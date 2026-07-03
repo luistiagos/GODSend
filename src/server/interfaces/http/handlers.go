@@ -140,43 +140,115 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
-	// No source specified — merged fallback (backward compat).
-	if len(minervaCached) > 0 || len(iaCached) > 0 {
-		seen := make(map[string]bool, len(minervaCached)+len(iaCached))
-		merged := make([]string, 0, len(minervaCached)+len(iaCached))
-		for _, g := range minervaCached {
-			key := strings.ToLower(helpers.DecodeMinervaName(g))
-			if !seen[key] {
-				seen[key] = true
-				merged = append(merged, helpers.DecodeMinervaName(g))
+	// No source specified or unified requested — merge according to priority.
+	if source == "" || source == "unified" {
+		priorityParam := r.URL.Query().Get("priority")
+		var providers []string
+		if priorityParam != "" {
+			providers = strings.Split(priorityParam, ",")
+		} else {
+			providers = []string{"huggingface", "ia", "minerva"}
+		}
+
+		seen := make(map[string]bool)
+		var merged []string
+
+		for _, p := range providers {
+			p = strings.TrimSpace(strings.ToLower(p))
+			switch p {
+			case "huggingface":
+				if platform == "xbox360" {
+					d.App.IAGameCacheMu.RLock()
+					hfCached := d.App.IAGameCache["hf_"+platform]
+					d.App.IAGameCacheMu.RUnlock()
+					if len(hfCached) == 0 {
+						go d.HuggingFace.Build(platform)
+					}
+					for _, g := range hfCached {
+						key := strings.ToLower(g)
+						if !seen[key] {
+							seen[key] = true
+							merged = append(merged, g)
+						}
+					}
+				}
+			case "ia", "internet_archive", "internetarchive":
+				d.App.IAGameCacheMu.RLock()
+				iaCached := d.App.IAGameCache[platform]
+				d.App.IAGameCacheMu.RUnlock()
+				if len(iaCached) == 0 {
+					go d.IA.Build(platform)
+				}
+				for _, g := range iaCached {
+					key := strings.ToLower(g)
+					if !seen[key] {
+						seen[key] = true
+						merged = append(merged, g)
+					}
+				}
+			case "minerva":
+				d.App.MinervaGameCacheMu.RLock()
+				minervaCached := d.App.MinervaGameCache[platform]
+				d.App.MinervaGameCacheMu.RUnlock()
+				if len(minervaCached) == 0 {
+					go d.Minerva.Build(platform)
+				}
+				for _, g := range minervaCached {
+					decodedName := helpers.DecodeMinervaName(g)
+					key := strings.ToLower(decodedName)
+					if !seen[key] {
+						seen[key] = true
+						merged = append(merged, decodedName)
+					}
+				}
 			}
 		}
-		for _, g := range iaCached {
-			key := strings.ToLower(g)
-			if !seen[key] {
-				seen[key] = true
-				merged = append(merged, g)
+
+		if len(merged) > 0 {
+			d.App.Logf("BROWSE UNIFIED: Serving %d merged games for %s", len(merged), platform)
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Write([]byte(strings.Join(merged, "|")))
+			return
+		}
+
+		// Nothing ready yet — trigger build for the first provider and return loading state.
+		first := "ia"
+		if len(providers) > 0 {
+			first = strings.TrimSpace(strings.ToLower(providers[0]))
+		}
+
+		var loaded, total int32
+		if first == "huggingface" {
+			go d.HuggingFace.Build(platform)
+			s := d.IA.GetBuildState("hf_" + platform)
+			loaded = atomic.LoadInt32(&s.Loaded)
+			total = atomic.LoadInt32(&s.Total)
+			if total == 0 {
+				total = 1
+			}
+		} else if first == "minerva" {
+			go d.Minerva.Build(platform)
+			s := d.Minerva.GetBuildState(platform)
+			loaded = atomic.LoadInt32(&s.Loaded)
+			total = atomic.LoadInt32(&s.Total)
+			if total == 0 {
+				total = 1
+			}
+		} else {
+			go d.IA.Build(platform)
+			s := d.IA.GetBuildState(platform)
+			loaded = atomic.LoadInt32(&s.Loaded)
+			total = atomic.LoadInt32(&s.Total)
+			if total == 0 {
+				total = int32(len(app.IACollections[platform]))
 			}
 		}
-		d.App.Logf("BROWSE: Serving %d merged games for %s (%d Minerva, %d IA)", len(merged), platform, len(minervaCached), len(iaCached))
+
+		d.App.Logf("BROWSE UNIFIED: Cache building for %s (primary: %s) %d/%d", platform, first, loaded, total)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write([]byte(strings.Join(merged, "|")))
+		fmt.Fprintf(w, "__IA_LOADING__:%d/%d", loaded, total)
 		return
 	}
-
-	// Nothing ready yet — trigger both builds and return a loading marker.
-	go d.IA.Build(platform)
-	go d.Minerva.Build(platform)
-
-	s := d.IA.GetBuildState(platform)
-	loaded := atomic.LoadInt32(&s.Loaded)
-	total := atomic.LoadInt32(&s.Total)
-	if total == 0 {
-		total = int32(len(app.IACollections[platform]))
-	}
-	d.App.Logf("BROWSE: %s cache building %d/%d", platform, loaded, total)
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "__IA_LOADING__:%d/%d", loaded, total)
 }
 
 func (d *Deps) handleCacheStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -420,6 +492,26 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		}
 		launcher(func() { d.Pipeline.ProcessROM(gameName, sysid) })
 		jsonSuccess(w, map[string]string{"status": "triggered", "source": "edgeemu"})
+		return
+	}
+
+	// Unified / Fallback
+	if source == "" || source == "unified" {
+		if d.Local.IsGameReadyLocally(gameName) {
+			d.App.LogStatus(gameName, "Ready", "Ready to Install")
+			jsonSuccess(w, map[string]string{"status": "already_ready"})
+			return
+		}
+		priorityParam := r.URL.Query().Get("priority")
+		var providers []string
+		if priorityParam != "" {
+			providers = strings.Split(priorityParam, ",")
+		} else {
+			providers = []string{"huggingface", "ia", "minerva"}
+		}
+
+		launcher(func() { d.Pipeline.ProcessGameWithFallback(gameName, platform, providers) })
+		jsonSuccess(w, map[string]string{"status": "triggered", "source": "unified"})
 		return
 	}
 
