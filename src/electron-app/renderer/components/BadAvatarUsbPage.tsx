@@ -206,7 +206,7 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
               onClick={() => setIsRghOnly(false)}
               disabled={loading || busy}
             >
-              Xbox Bloqueado (BadAvatar Softmod)
+              Xbox Bloqueado ou LT (BadAvatar Softmod)
             </button>
             <button
               type="button"
