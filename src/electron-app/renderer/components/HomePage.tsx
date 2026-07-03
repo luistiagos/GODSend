@@ -59,6 +59,7 @@ export default function HomePage({
   const [manualIp, setManualIp] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
   const [isManualInputVisible, setIsManualInputVisible] = useState(false);
+  const [backAction, setBackAction] = useState<(() => void) | null>(null);
 
   useEffect(() => {
     if (outputRef.current) {
@@ -329,15 +330,25 @@ export default function HomePage({
       <div className="flex-1 card-surface p-5 min-h-[350px] flex flex-col justify-between">
         {targetMode === "usb" ? (
           /* USB Mode: Embed BadAvatarUsbPage */
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col min-h-0">
             <div className="border-b border-border/40 pb-3 mb-4 flex items-center justify-between">
               <span className="text-[13px] font-semibold text-foreground flex items-center gap-1.5">
                 <HardDrive className="h-4 w-4 text-[#22c55e]" />
                 Preparação de Dispositivo USB
               </span>
+              {backAction && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="rounded-full px-3.5 h-7 text-[12px] font-medium"
+                  onClick={backAction}
+                >
+                  Voltar
+                </Button>
+              )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <BadAvatarUsbPage onBrowseGames={onNavigateBrowse} />
+              <BadAvatarUsbPage onBrowseGames={onNavigateBrowse} onBackActionChange={setBackAction} />
             </div>
           </div>
         ) : (
