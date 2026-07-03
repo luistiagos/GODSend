@@ -219,6 +219,27 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
           </div>
         </div>
 
+        {/* ── Helper Details to Identify Xbox 360 Unlock ── */}
+        <details className="mb-5 rounded-lg border border-border/40 bg-muted/20 px-3.5 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground hover:text-green-400 select-none">
+            Como saber qual é o desbloqueio do meu Xbox?
+          </summary>
+          <div className="mt-2.5 space-y-2 text-muted-foreground">
+            <div>
+              <span className="font-semibold text-foreground block">1. Como identificar o RGH:</span>
+              Ligue o Xbox 360 pressionando o botão de <span className="font-medium text-foreground">Ejetar Bandeja (Eject)</span>. Se o videogame ligar em uma tela azul com textos brancos escrita <span className="font-medium text-foreground">XeLL Reloaded</span>, seu console é RGH.
+            </div>
+            <div>
+              <span className="font-semibold text-foreground block">2. Como identificar o LT / LT+ 3.0:</span>
+              Se o console liga diretamente na tela oficial do Xbox 360, mas consegue rodar jogos piratas gravados em discos de DVD normais, ele possui desbloqueio LT.
+            </div>
+            <div>
+              <span className="font-semibold text-foreground block">3. Console Travado / Bloqueado:</span>
+              Se o console liga na tela oficial do Xbox 360 e só aceita discos de jogos originais, ele é Travado.
+            </div>
+          </div>
+        </details>
+
         <div className="mb-3 flex items-center gap-2">
           <Usb className="h-4 w-4 text-green-400" />
           <h2 className="text-[13px] font-semibold text-foreground">Dispositivo conectado</h2>
