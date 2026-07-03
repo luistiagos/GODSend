@@ -98,6 +98,56 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 	})
 }
 
+// detectExistingGamesDir scans the root for folders that look like JTAG/RGH game directories.
+// Returns the relative folder name (e.g. "Games", "jogos", "Xbox360") or "" if none found.
+func detectExistingGamesDir(root string) string {
+	// 1. Common names check (fast case)
+	commonNames := []string{"Games", "games", "Jogos", "jogos", "Xbox360", "xbox360", "Xbox 360", "xbox 360", "RGH", "rgh"}
+	for _, name := range commonNames {
+		p := filepath.Join(root, name)
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			return name
+		}
+	}
+
+	// 2. Scan first-level directories for game indicators
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		nameLower := strings.ToLower(entry.Name())
+		if nameLower == "content" || nameLower == "aurora" || nameLower == "fsd" || nameLower == "freestyle" || nameLower == "badupdatepayload" || nameLower == "apps" {
+			continue
+		}
+
+		dirPath := filepath.Join(root, entry.Name())
+		subEntries, err := os.ReadDir(dirPath)
+		if err != nil {
+			continue
+		}
+		for _, sub := range subEntries {
+			if !sub.IsDir() {
+				continue
+			}
+			if len(sub.Name()) == 8 && helpers.IsHexString(sub.Name()) {
+				return entry.Name()
+			}
+			subDirPath := filepath.Join(dirPath, sub.Name())
+			if _, err := os.Stat(filepath.Join(subDirPath, "default.xex")); err == nil {
+				return entry.Name()
+			}
+			if _, err := os.Stat(filepath.Join(subDirPath, "00007000")); err == nil {
+				return entry.Name()
+			}
+		}
+	}
+	return ""
+}
+
 // InstallGameLocal writes a GOD game to <root>/<godSubPath>/<name> - <titleID>/,
 // mirroring FTP TransferGame.
 func (s *Service) InstallGameLocal(godDir, root, gameName, titleID, resolvedName string) error {
@@ -110,6 +160,8 @@ func (s *Service) InstallGameLocal(godDir, root, gameName, titleID, resolvedName
 	godSub := "Games"
 	if s.App.CustomGodPath != "" {
 		godSub = s.App.CustomGodPath
+	} else if detected := detectExistingGamesDir(root); detected != "" {
+		godSub = detected
 	}
 	base := filepath.Join(joinSub(root, godSub), fmt.Sprintf("%s - %s", folderID, titleID))
 
@@ -133,6 +185,8 @@ func (s *Service) InstallXEXLocal(xexFolder, folderName, root, gameName string) 
 	xexSub := "Games"
 	if s.App.CustomXexPath != "" {
 		xexSub = s.App.CustomXexPath
+	} else if detected := detectExistingGamesDir(root); detected != "" {
+		xexSub = detected
 	}
 	base := filepath.Join(joinSub(root, xexSub), folderName)
 	return s.copyTreeLocal(xexFolder, base, root, gameName, "XEX")
