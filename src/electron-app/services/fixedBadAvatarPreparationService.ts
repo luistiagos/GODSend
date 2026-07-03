@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { app } from "electron";
 import fs, { promises as fsPromises } from "fs";
 import path from "path";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
@@ -40,6 +41,7 @@ export interface FixedPreparationRequest {
   expectedDeviceFingerprint: string;
   formatDrive: boolean;
   requirementsAccepted: boolean;
+  isRghOnly?: boolean;
 }
 
 export interface FixedPreparationProgress {
@@ -213,7 +215,7 @@ export async function prepareFixedBadAvatarDevice(
   onProgress: (progress: FixedPreparationProgress) => void,
 ): Promise<FixedPreparationResult> {
   if (process.platform !== "win32") throw new Error("A preparação está disponível somente no Windows.");
-  if (!request?.requirementsAccepted) {
+  if (!request?.isRghOnly && !request?.requirementsAccepted) {
     throw new Error("Confirme os requisitos do Xbox 360 antes de preparar o dispositivo.");
   }
   if (!request?.driveRoot || !/^[a-f0-9]{64}$/i.test(request?.expectedDeviceFingerprint || "")) {
@@ -244,17 +246,49 @@ export async function prepareFixedBadAvatarDevice(
     throw new Error(`Os arquivos incorporados da versão ${manifest.release} não correspondem ao catálogo.`);
   }
 
+  let entries = manifest.files.map((file) => ({
+    sourcePath: path.join(sourceRoot, ...file.path.split("/")),
+    relativePath: file.path,
+    sizeBytes: file.sizeBytes,
+    sha256: file.sha256,
+  }));
+
+  if (request.isRghOnly) {
+    // Keep only Aurora dashboard files
+    entries = entries.filter((e) => e.relativePath.startsWith("Aurora/"));
+
+    // Dynamically generate a clean launch.ini pointing directly to Usb:\Aurora\default.xex
+    const tempLaunchDir = path.join(app.getPath("temp"), "godsend-rgh-temp");
+    await fsPromises.mkdir(tempLaunchDir, { recursive: true });
+    const tempLaunchPath = path.join(tempLaunchDir, "launch.ini");
+    const launchContents = [
+      "[Paths]",
+      "Default = Usb:\\Aurora\\default.xex",
+      "",
+      "[Settings]",
+      "noupdater = true",
+      "liveblock = true",
+      "livestrong = false",
+      "",
+    ].join("\r\n");
+    await fsPromises.writeFile(tempLaunchPath, launchContents, "utf8");
+
+    const launchStat = await fsPromises.stat(tempLaunchPath);
+    const launchSha = createHash("sha256").update(launchContents).digest("hex");
+    entries.push({
+      sourcePath: tempLaunchPath,
+      relativePath: "launch.ini",
+      sizeBytes: launchStat.size,
+      sha256: launchSha,
+    });
+  }
+
   const plan = await buildTransactionalWritePlan({
     sourceRoot,
     deviceFingerprint: request.expectedDeviceFingerprint,
     manifestId: manifest.manifestId,
     manifestRelease: manifest.release,
-    entries: manifest.files.map((file) => ({
-      sourcePath: path.join(sourceRoot, ...file.path.split("/")),
-      relativePath: file.path,
-      sizeBytes: file.sizeBytes,
-      sha256: file.sha256,
-    })),
+    entries,
   }, new Date(manifest.createdAt), deterministicTransactionId(manifest.bundleSha256, request.expectedDeviceFingerprint));
 
   onProgress({ status: "Verificando espaço disponível…", percent: 20 });

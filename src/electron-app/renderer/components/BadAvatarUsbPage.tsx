@@ -69,6 +69,7 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
   const [formatAvailable, setFormatAvailable] = useState(false);
   const [formatDrive, setFormatDrive] = useState(false);
   const [requirementsAccepted, setRequirementsAccepted] = useState(false);
+  const [isRghOnly, setIsRghOnly] = useState(false);
   const [preparationEnabled, setPreparationEnabled] = useState(false);
   const [preparationBlockers, setPreparationBlockers] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -136,7 +137,7 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
   );
   const deviceAllowed = selectedDevice?.safety?.allowed === true;
   const canPrepare = Boolean(
-    preparationEnabled && deviceAllowed && requirementsAccepted && !loading && !busy,
+    preparationEnabled && deviceAllowed && (isRghOnly || requirementsAccepted) && !loading && !busy,
   );
 
   const deviceName = selectedDevice
@@ -164,6 +165,7 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
         expectedDeviceFingerprint: selectedDevice.fingerprint,
         formatDrive,
         requirementsAccepted,
+        isRghOnly,
       });
       if (!response?.ok) throw new Error(response?.error || "Não foi possível preparar o dispositivo.");
       setDone(true);
@@ -187,12 +189,36 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
           Prepare seu pendrive ou HD
         </h1>
         <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
-          Conecte o dispositivo, escolha abaixo e clique em preparar. O BadAvatar e o Aurora
-          serão instalados e configurados automaticamente.
+          {isRghOnly
+            ? "Conecte seu dispositivo, escolha abaixo e clique em preparar. A Dash Aurora e o arquivo de boot launch.ini serão instalados."
+            : "Conecte seu dispositivo, escolha abaixo e clique em preparar. O BadAvatar e o Aurora serão instalados e configurados automaticamente."}
         </p>
       </header>
 
       <section className="card-surface p-4 sm:p-5">
+        {/* ── Install Mode Selector ── */}
+        <div className="mb-5 pb-4 border-b border-border/60">
+          <span className="text-[12px] font-semibold text-foreground block mb-2">Modo de Instalação</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              className={`h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors ${!isRghOnly ? "border-green-500 bg-green-950/20 text-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted/30"}`}
+              onClick={() => setIsRghOnly(false)}
+              disabled={loading || busy}
+            >
+              Xbox Bloqueado (BadAvatar Softmod)
+            </button>
+            <button
+              type="button"
+              className={`h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors ${isRghOnly ? "border-green-500 bg-green-950/20 text-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted/30"}`}
+              onClick={() => setIsRghOnly(true)}
+              disabled={loading || busy}
+            >
+              Xbox Desbloqueado RGH (Aurora + Boot launch.ini)
+            </button>
+          </div>
+        </div>
+
         <div className="mb-3 flex items-center gap-2">
           <Usb className="h-4 w-4 text-green-400" />
           <h2 className="text-[13px] font-semibold text-foreground">Dispositivo conectado</h2>
@@ -275,9 +301,13 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
             <Check className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-[13px] font-semibold text-foreground">BadAvatar + Aurora</div>
+            <div className="text-[13px] font-semibold text-foreground">
+              {isRghOnly ? "Aurora + launch.ini" : "BadAvatar + Aurora"}
+            </div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Já incluídos. Você não precisa escolher pacotes nem configurar pastas.
+              {isRghOnly
+                ? "Os arquivos essenciais de boot serão copiados de forma limpa e otimizada."
+                : "Já incluídos. Você não precisa escolher pacotes nem configurar pastas."}
             </p>
           </div>
         </div>
@@ -301,37 +331,48 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
         </label>
       </section>
 
-      <details className="mt-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
-        <summary className="cursor-pointer font-medium text-foreground">
-          Como funciona e o que esperar
-        </summary>
-        <ul className="mt-2 list-disc space-y-1.5 pl-5">
-          <li>
-            O BadAvatar é <span className="font-medium text-foreground">temporário</span>: sempre que
-            o Xbox liga ou reinicia, é preciso abrir o perfil de novo para ativá-lo.
-          </li>
-          <li>Pode não funcionar logo de primeira — às vezes leva algumas tentativas.</li>
-          <li>
-            Preparar o pendrive <span className="font-medium text-foreground">não modifica nada de
-            forma permanente</span> no console. A memória interna (NAND) não é tocada.
-          </li>
-          <li>Mantenha o Xbox sem internet (Wi-Fi e cabo de rede desconectados) durante o uso.</li>
-          <li>Nunca entre na Xbox Live usando o perfil do exploit.</li>
-        </ul>
-      </details>
+      {!isRghOnly && (
+        <>
+          <details className="mt-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground">
+              Como funciona e o que esperar
+            </summary>
+            <ul className="mt-2 list-disc space-y-1.5 pl-5">
+              <li>
+                O BadAvatar é <span className="font-medium text-foreground">temporário</span>: sempre que
+                o Xbox liga ou reinicia, é preciso abrir o perfil de novo para ativá-lo.
+              </li>
+              <li>Pode não funcionar logo de primeira — às vezes leva algumas tentativas.</li>
+              <li>
+                Preparar o pendrive <span className="font-medium text-foreground">não modifica nada de
+                forma permanente</span> no console. A memória interna (NAND) não é tocada.
+              </li>
+              <li>Mantenha o Xbox sem internet (Wi-Fi e cabo de rede desconectados) durante o uso.</li>
+              <li>Nunca entre na Xbox Live usando o perfil do exploit.</li>
+            </ul>
+          </details>
 
-      <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
-        <Checkbox
-          checked={requirementsAccepted}
-          disabled={loading || busy}
-          onCheckedChange={(value) => setRequirementsAccepted(value === true)}
-          className="mt-0.5"
-        />
-        <span>
-          Meu Xbox 360 está no dashboard 17559, com os dados de Avatar instalados e ficará
-          desconectado da rede durante o uso do BadAvatar.
-        </span>
-      </label>
+          <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+            <Checkbox
+              checked={requirementsAccepted}
+              disabled={loading || busy}
+              onCheckedChange={(value) => setRequirementsAccepted(value === true)}
+              className="mt-0.5"
+            />
+            <span>
+              Meu Xbox 360 está no dashboard 17559, com os dados de Avatar instalados e ficará
+              desconectado da rede durante o uso do BadAvatar.
+            </span>
+          </label>
+        </>
+      )}
+
+      {isRghOnly && (
+        <div className="mt-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground block mb-1">Como funciona o Boot RGH</span>
+          Ao plugar este pendrive/HD no Xbox 360 com RGH, o painel Aurora carregará automaticamente no boot usando o arquivo <code className="bg-muted px-1 py-0.5 rounded">launch.ini</code> configurado. Os jogos baixados aparecerão na tela na hora.
+        </div>
+      )}
 
       {selectedDevice && selectedDevice.alreadyPrepared && onBrowseGames && !busy && (
         <div className="mt-4">
@@ -381,8 +422,9 @@ export default function BadAvatarUsbPage({ onBrowseGames }: BadAvatarUsbPageProp
           </p>
           {done && !error && (
             <p className="mt-2 text-[11px] leading-relaxed text-gray-200">
-              Abra o BadAvatar pelo perfil no console. Isso não desbloqueia o Xbox de forma
-              permanente — repita a ativação a cada vez que ligar e mantenha o console sem internet.
+              {isRghOnly
+                ? "Concluído! Insira o pendrive/HD no seu Xbox 360 RGH e ligue o videogame para carregar a Aurora automaticamente."
+                : "Abra o BadAvatar pelo perfil no console. Isso não desbloqueia o Xbox de forma permanente — repita a ativação a cada vez que ligar e mantenha o console sem internet."}
             </p>
           )}
           {done && onBrowseGames && (
