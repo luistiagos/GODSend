@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Search, Loader2, WifiOff, Gamepad2, Download,
   RefreshCw, ChevronDown, X, HardDrive, Usb,
@@ -369,6 +369,117 @@ function QueueDialog({
   );
 }
 
+// ── Helpers & Version Selection dialog ────────────────────────────────────────
+
+function getBaseTitle(raw: string): string {
+  return raw
+    .replace(/\s*\(.*?\)/g, "")
+    .replace(/\s*\[.*?\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getComparisonKey(baseTitle: string): string {
+  let key = baseTitle.toLowerCase();
+  
+  // Replacements for localized/different spellings
+  key = key.replace(/\bbrasil\b/g, "brazil");
+  key = key.replace(/\ba era do gelo\b/g, "ice age");
+  key = key.replace(/\bac\b/g, "assassin's creed");
+  key = key.replace(/\bacdc\b/g, "ac/dc");
+  
+  // Roman numerals to Arabic numbers
+  key = key.replace(/\bxv\b/g, "15");
+  key = key.replace(/\bxiv\b/g, "14");
+  key = key.replace(/\bxiii\b/g, "13");
+  key = key.replace(/\bxii\b/g, "12");
+  key = key.replace(/\bxi\b/g, "11");
+  key = key.replace(/\bx\b/g, "10");
+  key = key.replace(/\bix\b/g, "9");
+  key = key.replace(/\bviii\b/g, "8");
+  key = key.replace(/\bvii\b/g, "7");
+  key = key.replace(/\bvi\b/g, "6");
+  key = key.replace(/\biv\b/g, "4");
+  key = key.replace(/\biii\b/g, "3");
+  key = key.replace(/\bii\b/g, "2");
+  key = key.replace(/\bv\b/g, "5"); // after iv, vi, vii, viii, xv, xiv, xiii, xii, xi, ix since they contain v
+
+  // Strip trailing region suffixes from comparison key (e.g. "Game Name Asia" or "Game Name Asia RF")
+  let prevKey = "";
+  while (key !== prevKey) {
+    prevKey = key;
+    key = key.replace(/\b(aus|usa|eur|pal|uk|jp|jpn|rf|regionfree|region\s+free|asia|ntsc|kor|chn|eng|spa|ger|fra|ita|rus|por|free)$/g, "").trim();
+  }
+
+  // Remove all non-alphanumeric characters for robust comparison
+  return key.replace(/[^a-z0-9]/g, "");
+}
+
+interface VersionSelectDialogProps {
+  baseTitle: string;
+  versions: string[];
+  onClose: () => void;
+  onSelect: (version: string) => void;
+}
+
+function VersionSelectDialog({ baseTitle, versions, onClose, onSelect }: VersionSelectDialogProps) {
+  const [cover, setCover] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    window.godsendApi.browseFetchCover(baseTitle).then((r: any) => {
+      setCover(r.ok ? r.dataUrl : null);
+    }).catch(() => setCover(null));
+  }, [baseTitle]);
+
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
+    >
+      <div className="relative bg-background border border-border rounded-xl p-4 w-full max-w-[360px] flex flex-col gap-3 shadow-2xl max-h-[90%]">
+        
+        {/* Close */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 p-1 rounded text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+
+        {/* Header: Cover + baseTitle */}
+        <div className="flex gap-3 items-start pr-6 border-b border-border/50 pb-3">
+          <CoverArt dataUrl={cover} name={baseTitle} size={80} />
+          <div className="flex-1 min-w-0 pt-0.5">
+            <p className="text-[13px] font-semibold text-foreground leading-snug break-words">
+              {baseTitle}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Várias versões disponíveis. Escolha uma para baixar:
+            </p>
+          </div>
+        </div>
+
+        {/* Scrollable List of Versions */}
+        <ScrollArea className="flex-1 overflow-y-auto max-h-[250px] pr-1">
+          <div className="flex flex-col gap-1.5 py-1">
+            {versions.map((version) => (
+              <button
+                key={version}
+                onClick={() => onSelect(version)}
+                className={cn(
+                  "w-full text-left p-2.5 rounded-lg border border-border bg-muted/30 hover:bg-accent/40 active:bg-accent hover:border-accent transition-all",
+                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring text-[11px] font-medium leading-relaxed break-words text-foreground/90 hover:text-foreground"
+                )}
+              >
+                {version}
+              </button>
+            ))}
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
+  );
+}
+
 // ── Lazy loading Intersection Observer Hook ──────────────────────────────────
 
 function useIntersectionObserver<T extends HTMLElement>(): [React.RefObject<T | null>, boolean] {
@@ -557,9 +668,48 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
     setCover(undefined);
   }
 
-  const filtered = filter.trim()
-    ? games.filter((g) => g.toLowerCase().includes(filter.toLowerCase()))
-    : games;
+  const [versionSelectGame, setVersionSelectGame] = useState<{ baseTitle: string; versions: string[] } | null>(null);
+
+  const groupedGames = useMemo(() => {
+    const map = new Map<string, { displayTitle: string; versions: string[] }>();
+    for (const g of games) {
+      const base = getBaseTitle(g);
+      const key = getComparisonKey(base);
+      const existing = map.get(key);
+      if (existing) {
+        if (!existing.versions.includes(g)) {
+          existing.versions.push(g);
+        }
+      } else {
+        map.set(key, { displayTitle: base, versions: [g] });
+      }
+    }
+    return map;
+  }, [games]);
+
+  const uniqueBaseTitles = useMemo(() => {
+    const items = Array.from(groupedGames.values());
+    return items.sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
+  }, [groupedGames]);
+
+  const filteredBaseTitles = useMemo(() => {
+    if (!filter.trim()) {
+      return uniqueBaseTitles;
+    }
+    const f = filter.toLowerCase();
+    return uniqueBaseTitles.filter((item) => {
+      if (item.displayTitle.toLowerCase().includes(f)) return true;
+      return item.versions.some((v) => v.toLowerCase().includes(f));
+    });
+  }, [uniqueBaseTitles, filter]);
+
+  function handleGameClick(item: { displayTitle: string; versions: string[] }) {
+    if (item.versions.length === 1) {
+      openGame(item.versions[0]);
+    } else if (item.versions.length > 1) {
+      setVersionSelectGame({ baseTitle: item.displayTitle, versions: item.versions });
+    }
+  }
 
   const effectivePlatform = isLocal ? "local" : platform;
 
@@ -677,7 +827,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
               ref={filterRef}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder={`Filtrar ${games.length} título${games.length === 1 ? "" : "s"}…`}
+              placeholder={`Filtrar ${uniqueBaseTitles.length} título${uniqueBaseTitles.length === 1 ? "" : "s"}…`}
               className={cn(
                 "w-full pl-8 pr-3 py-1.5 text-[12px] rounded-md",
                 "bg-muted border border-border text-foreground placeholder:text-muted-foreground",
@@ -699,13 +849,13 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
           {/* Result count hint */}
           {filter && (
             <p className="text-[10px] text-muted-foreground/60 shrink-0 -mt-1 px-0.5">
-              {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
+              {filteredBaseTitles.length} resultado{filteredBaseTitles.length !== 1 ? "s" : ""}
             </p>
           )}
 
           {/* Game grid (local library) or text list (store) */}
           <ScrollArea className="flex-1 min-h-0">
-            {filtered.length === 0 ? (
+            {filteredBaseTitles.length === 0 ? (
               <p className="text-[12px] text-muted-foreground text-center py-8">
                 No matches for &ldquo;{filter}&rdquo;
               </p>
@@ -714,17 +864,30 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
                 className="grid gap-2 pb-4 pr-1"
                 style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))" }}
               >
-                {filtered.map((name) => (
+                {filteredBaseTitles.map((item) => (
                   <LocalGameCard
-                    key={name}
-                    name={name}
-                    onClick={() => openGame(name)}
+                    key={item.displayTitle}
+                    name={item.displayTitle}
+                    onClick={() => handleGameClick(item)}
                   />
                 ))}
               </div>
             )}
           </ScrollArea>
         </>
+      )}
+
+      {/* ── Version Selection Modal ── */}
+      {versionSelectGame && (
+        <VersionSelectDialog
+          baseTitle={versionSelectGame.baseTitle}
+          versions={versionSelectGame.versions}
+          onClose={() => setVersionSelectGame(null)}
+          onSelect={(versionName) => {
+            setVersionSelectGame(null);
+            openGame(versionName);
+          }}
+        />
       )}
 
       {/* ── Queue dialog overlay ── */}
