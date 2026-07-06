@@ -30,7 +30,7 @@ async function main() {
       hasFixedPreparation: typeof window.godsendApi?.toolsBadAvatarPrepare === "function",
       hasLegacyWriter: typeof window.godsendApi?.toolsBadAvatarCreate === "function",
     }));
-    assert.equal(state.title, "GODsend");
+    assert.equal(state.title, "Xbox 360 Companion");
     assert.equal(state.hasApi, true, "sandboxed preload must expose godsendApi");
     assert.equal(state.nodeRequireType, "undefined", "renderer must not expose require");
     assert.equal(state.processType, "undefined", "renderer must not expose process");

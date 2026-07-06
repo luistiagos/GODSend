@@ -275,7 +275,7 @@ export default function HomePage({
       {/* Welcome Banner */}
       <header className="text-center mb-2">
         <h1 className="text-2xl font-bold tracking-tight text-foreground font-display">
-          Bem-vindo ao GODsend-360
+          Bem-vindo ao Xbox 360 Companion
         </h1>
         <p className="text-[13px] text-muted-foreground mt-1 max-w-lg mx-auto leading-relaxed">
           Prepare seus jogos de Xbox 360 no computador e envie de forma extremamente simples

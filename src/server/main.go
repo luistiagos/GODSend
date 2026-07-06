@@ -66,7 +66,7 @@ func main() {
 
 	// ── Banner ──────────────────────────────────────────────────────
 	fmt.Println("╔══════════════════════════════════════════╗")
-	fmt.Println("║    GODSend Backend Server v2.12.24        ║")
+	fmt.Println("║    Xbox 360 Companion Server v2.12.25    ║")
 	fmt.Println("║  ISO + XEX + XBLA + DLC + ROMs (EdgeEmu) ║")
 	fmt.Println("╚══════════════════════════════════════════╝")
 	fmt.Printf("[INFO] Copy Buffer: %d MB | Serve Buffer: %d KB | FTP Buffer: %d MB\n",

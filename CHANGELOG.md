@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to GODsend-360 are documented here.
+All notable changes to Xbox 360 Companion are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -8,6 +8,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ---
 
 ## [Unreleased]
+
+## [2.12.25] — 2026-07-06
+
+### Changed
+- **Rebranding** — Renamed the application to **Xbox 360 Companion** across the codebase (including Electron build configurations, tray window HTML title, home page, main Go server banner, and Aurora Lua script title).
 
 ## [2.12.24] — 2026-06-18
 

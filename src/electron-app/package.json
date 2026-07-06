@@ -1,7 +1,7 @@
 {
-  "name": "godsend-electron",
-  "version": "2.12.24",
-  "description": "Full Electron UI for configuring, monitoring, and managing GODsend-360",
+  "name": "xbox-360-companion-electron",
+  "version": "2.12.25",
+  "description": "Full Electron UI for configuring, monitoring, and managing Xbox 360 Companion",
   "main": "main.js",
   "scripts": {
     "renderer:build": "vite build",
@@ -81,8 +81,8 @@
       "**/node_modules/sql.js/dist/**"
     ],
     "appId": "com.abbu.godsend",
-    "productName": "GODsend",
-    "executableName": "GODsend",
+    "productName": "Xbox 360 Companion",
+    "executableName": "Xbox360Companion",
     "directories": {
       "output": "../../dist"
     },
@@ -126,7 +126,7 @@
       }
     ],
     "portable": {
-      "artifactName": "godsend-Portable-${version}.${ext}",
+      "artifactName": "xbox-360-companion-Portable-${version}.${ext}",
       "unpackDirName": false
     },
     "win": {
@@ -165,7 +165,7 @@
       ]
     },
     "dmg": {
-      "artifactName": "godsend-${version}-${arch}.${ext}"
+      "artifactName": "xbox-360-companion-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": [
@@ -181,7 +181,7 @@
       ]
     },
     "appImage": {
-      "artifactName": "godsend-${version}-${arch}.${ext}"
+      "artifactName": "xbox-360-companion-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -189,11 +189,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
-      "shortcutName": "GODsend",
-      "uninstallDisplayName": "GODsend",
+      "shortcutName": "Xbox 360 Companion",
+      "uninstallDisplayName": "Xbox 360 Companion",
       "installerIcon": "assets/tray.ico",
       "include": "build/installer.nsh",
-      "artifactName": "godsend-Setup-${version}.${ext}"
+      "artifactName": "xbox-360-companion-Setup-${version}.${ext}"
     }
   }
 }
