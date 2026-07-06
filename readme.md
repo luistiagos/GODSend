@@ -44,7 +44,7 @@ Download the build for your platform:
 | Platform | GoFile | file.kiwi backup |
 |---|---|---|
 | **Windows (x64, installer — tray app + backend)** | [`godsend-Setup-2.12.24.exe`](https://gofile.io/d/37IXmG) | [`godsend-Setup-2.12.24.exe`](https://file.kiwi/7c60592b#rqB5pynFvj09UP-iES_prg) |
-| **Windows (x64, portable — no install needed)** | [`godsend-Portable-2.12.24.exe`](https://gofile.io/d/Y01yL6) | [`godsend-Portable-2.12.24.exe`](https://file.kiwi/4c046303#xNe21tqArH4hiWeD5hNY-A) |
+| **Windows (x64, portable — no install needed)** | [`godsend-Portable-2.12.24.exe`](https://gofile.io/d/pnHMrf) | [`godsend-Portable-2.12.24.exe`](https://file.kiwi/bb5fbb75#AlchyU1d0FCQGSGoOIRzMQ) |
 | **macOS (Apple Silicon)** | [`godsend-2.12.24-arm64.dmg`](https://gofile.io/d/x3Ig2y) | [`godsend-2.12.24-arm64.dmg`](https://file.kiwi/39bfadea#xDm2KTFizR2KTdqYtzk02g) |
 | **macOS (Intel)** | [`godsend-2.12.24-x64.dmg`](https://gofile.io/d/o5UeTH) | [`godsend-2.12.24-x64.dmg`](https://file.kiwi/9b476035#8bCXdyItt8yLauNew6Lr7g) |
 | **Linux (x64 / amd64)** | [`godsend-2.12.24-x86_64.AppImage`](https://gofile.io/d/dq3TW6) | [`godsend-2.12.24-x86_64.AppImage`](https://file.kiwi/f33d9e80#t2xnWyVG7D4l_Yx3sRiYyA) |

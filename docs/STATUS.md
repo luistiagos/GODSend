@@ -65,7 +65,7 @@ Validação local refeita em 2026-06-25: `npm run test:safety`, `npm run test:el
 
 Instalador NSIS x64 validado: `dist/godsend-Setup-2.12.24.exe`, 470,41 MB, SHA-256 `843454202fa8b3592926be4648a9bc6fcfdf5ff322e715b9811592e36444b0d2`.
 
-Executável portátil x64 validado: `dist/godsend-Portable-2.12.24.exe`, 501,88 MB, SHA-256 `2499dcb7d643d0b728bfc696830c89155aca743f32dd08157a7847fa38ecd910`. O build usa compressão 7-Zip nível 1 para não esgotar a memória virtual ao incluir o pacote fixo.
+Executável portátil x64 validado: `dist/godsend-Portable-2.12.24.exe`, 502,02 MB, SHA-256 `b8782ce41be9552cd32c5673a907a2818e2a4157ebcf47c4a43089b5e2932a38`. O build usa compressão 7-Zip nível 1 para não esgotar a memória virtual ao incluir o pacote fixo.
 
 ## Dependências
 
