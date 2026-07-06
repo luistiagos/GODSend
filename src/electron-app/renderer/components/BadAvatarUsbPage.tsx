@@ -70,7 +70,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
   const [formatAvailable, setFormatAvailable] = useState(false);
   const [formatDrive, setFormatDrive] = useState(false);
   const [requirementsAccepted, setRequirementsAccepted] = useState(false);
-  const [isRghOnly, setIsRghOnly] = useState(false);
+  const [isRghOnly, setIsRghOnly] = useState<boolean | null>(null);
   const [preparationEnabled, setPreparationEnabled] = useState(false);
   const [preparationBlockers, setPreparationBlockers] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -181,7 +181,11 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
   );
   const deviceAllowed = selectedDevice?.safety?.allowed === true;
   const canPrepare = Boolean(
-    preparationEnabled && deviceAllowed && (isRghOnly || requirementsAccepted) && !loading && !busy,
+    preparationEnabled &&
+      deviceAllowed &&
+      (isRghOnly === true || (isRghOnly === false && requirementsAccepted)) &&
+      !loading &&
+      !busy,
   );
 
   const deviceName = selectedDevice
@@ -209,7 +213,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
         expectedDeviceFingerprint: selectedDevice.fingerprint,
         formatDrive,
         requirementsAccepted,
-        isRghOnly,
+        isRghOnly: isRghOnly === true,
       });
       if (!response?.ok) throw new Error(response?.error || "Não foi possível preparar o dispositivo.");
       setDone(true);
@@ -309,7 +313,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
               <button
                 type="button"
-                className={`h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer ${!isRghOnly
+                className={`h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer ${isRghOnly === false
                   ? "border-green-500 bg-green-950/20 text-foreground"
                   : "border-border bg-background text-muted-foreground hover:bg-muted/30"
                   }`}
@@ -320,7 +324,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
               </button>
               <button
                 type="button"
-                className={`h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer ${isRghOnly
+                className={`h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer ${isRghOnly === true
                   ? "border-green-500 bg-green-950/20 text-foreground"
                   : "border-border bg-background text-muted-foreground hover:bg-muted/30"
                   }`}
@@ -355,6 +359,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
               variant="primary"
               className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
               onClick={() => setStep("preparation")}
+              disabled={isRghOnly === null}
             >
               Avançar
             </Button>

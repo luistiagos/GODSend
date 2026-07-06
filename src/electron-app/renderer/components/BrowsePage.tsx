@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Search, Loader2, WifiOff, Gamepad2, Download,
   RefreshCw, ChevronDown, X, HardDrive, Usb,
+  Wifi, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "../lib/utils";
 
@@ -137,6 +139,9 @@ function buildDestinations(localDrives: LocalDrive[], defaultDrive: string, ftpD
   }
   const ftp = [...ftpDrives];
   if (defaultDrive && !ftp.includes(defaultDrive)) ftp.unshift(defaultDrive);
+  if (ftp.length === 0) {
+    ftp.push("Hdd1:");
+  }
   for (const d of ftp) {
     dests.push({ value: `ftp:${d}`, label: `Console (FTP): ${d}`, kind: "ftp", drive: d });
   }
@@ -155,6 +160,7 @@ interface QueueDialogProps {
   onClose: () => void;
   onQueue?: () => void;
   simpleMode?: boolean;
+  onXboxConfigured?: () => void;
 }
 
 function QueueDialog({
@@ -165,6 +171,7 @@ function QueueDialog({
   localDrives,
   onClose,
   simpleMode = true,
+  onXboxConfigured,
 }: QueueDialogProps) {
   const hasMethods = source === "local" || (PLATFORMS.find((p) => p.id === platform)?.methods ?? false);
   const destinations = buildDestinations(localDrives, defaultDrive, drives);
@@ -175,12 +182,33 @@ function QueueDialog({
   const [discRec, setDiscRec]   = useState<string | null>(null);
   const selectedDest = destinations.find((d) => d.value === destValue) ?? destinations[0];
 
+  const [destType, setDestType] = useState<"local" | "ftp">("local");
+  const [showDiscovery, setShowDiscovery] = useState(false);
+
   // Keep a valid selection when destinations load/refresh.
   useEffect(() => {
-    if (destinations.length > 0 && !destinations.some((d) => d.value === destValue)) {
-      setDestValue(destinations[0].value);
+    const matching = destinations.filter((d) => d.kind === destType);
+    if (matching.length > 0) {
+      if (!matching.some((d) => d.value === destValue)) {
+        setDestValue(matching[0].value);
+      }
+    } else if (destType === "ftp") {
+      setDestValue("ftp:Hdd1:");
     }
-  }, [destinations, destValue]);
+  }, [destinations, destValue, destType]);
+
+  async function handleSelectFtp() {
+    try {
+      const conn = await window.godsendApi.getXboxConnection();
+      if (!conn || !conn.xboxIp) {
+        setShowDiscovery(true);
+      } else {
+        setDestType("ftp");
+      }
+    } catch (err) {
+      setShowDiscovery(true);
+    }
+  }
 
   // Fetch disc-info recommendation for applicable platforms
   useEffect(() => {
@@ -247,19 +275,72 @@ function QueueDialog({
           </div>
         </div>
 
-        {/* Destination selector: local prepared drives first, console (FTP) second */}
+        {/* Destination selector: Type toggle (USB vs FTP) */}
         {!queued && (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2">
             <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Unidade de destino
+              Destino do jogo
             </label>
-            {destinations.length === 0 ? (
-              <p className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-md px-2.5 py-2 leading-relaxed">
-                Nenhum destino encontrado. Conecte um pendrive/HD preparado, ou
-                conecte o console em Configurações → Conexão do Xbox (FTP).
-              </p>
+            <div className="flex gap-2 bg-muted/35 p-0.5 rounded-lg border border-border/40">
+              <button
+                type="button"
+                onClick={() => setDestType("local")}
+                className={cn(
+                  "flex-1 py-1 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
+                  destType === "local"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Usb className="h-3.5 w-3.5" />
+                Pendrive (USB)
+              </button>
+              <button
+                type="button"
+                onClick={handleSelectFtp}
+                className={cn(
+                  "flex-1 py-1 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
+                  destType === "ftp"
+                    ? "bg-green-600 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Wifi className="h-3.5 w-3.5" />
+                Enviar via FTP
+              </button>
+            </div>
+
+            {destType === "local" ? (
+              localDrives.length === 0 ? (
+                <p className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-md px-2.5 py-2 leading-relaxed">
+                  Nenhum pendrive ou HD local encontrado. Conecte um dispositivo preparado no seu computador.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <div className="relative">
+                    <select
+                      value={destValue}
+                      onChange={(e) => setDestValue(e.target.value)}
+                      className={cn(
+                        "w-full appearance-none bg-muted border border-border rounded-md",
+                        "px-2.5 pr-7 py-1.5 text-[12px] text-foreground focus:outline-none",
+                        "focus-visible:ring-1 focus-visible:ring-ring"
+                      )}
+                    >
+                      {destinations.filter((d) => d.kind === "local").map((d) => (
+                        <option key={d.value} value={d.value}>{d.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  </div>
+                  <p className="text-[9.5px] text-muted-foreground/70 flex items-center gap-1">
+                    <Usb className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    O jogo será gravado direto no dispositivo USB conectado.
+                  </p>
+                </div>
+              )
             ) : (
-              <>
+              <div className="flex flex-col gap-1.5">
                 <div className="relative">
                   <select
                     value={destValue}
@@ -270,30 +351,17 @@ function QueueDialog({
                       "focus-visible:ring-1 focus-visible:ring-ring"
                     )}
                   >
-                    {destinations.some((d) => d.kind === "local") && (
-                      <optgroup label="Gravar no pendrive/HD (local)">
-                        {destinations.filter((d) => d.kind === "local").map((d) => (
-                          <option key={d.value} value={d.value}>{d.label}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {destinations.some((d) => d.kind === "ftp") && !simpleMode && (
-                      <optgroup label="Enviar ao console (FTP)">
-                        {destinations.filter((d) => d.kind === "ftp").map((d) => (
-                          <option key={d.value} value={d.value}>{d.label}</option>
-                        ))}
-                      </optgroup>
-                    )}
+                    {destinations.filter((d) => d.kind === "ftp").map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                 </div>
-                {selectedDest?.kind === "local" && (
-                  <p className="text-[9.5px] text-muted-foreground/70 flex items-center gap-1">
-                    <Usb className="h-3 w-3 shrink-0" />
-                    O jogo será gravado direto no dispositivo conectado.
-                  </p>
-                )}
-              </>
+                <p className="text-[9.5px] text-muted-foreground/70 flex items-center gap-1">
+                  <Wifi className="h-3 w-3 shrink-0 text-green-400" />
+                  O jogo será enviado para o Xbox 360 através da rede local.
+                </p>
+              </div>
             )}
           </div>
         )}
@@ -363,6 +431,241 @@ function QueueDialog({
           <Button variant="outline" className="w-full" onClick={onClose}>
             Concluído
           </Button>
+        )}
+      </div>
+
+      {showDiscovery && (
+        <XboxDiscoveryModal
+          onClose={() => setShowDiscovery(false)}
+          onSuccess={(detectedIp) => {
+            setTimeout(() => {
+              setShowDiscovery(false);
+              setDestType("ftp");
+              if (onXboxConfigured) {
+                onXboxConfigured();
+              }
+            }, 1500);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Xbox Discovery Modal Component ───────────────────────────────────────────
+interface XboxDiscoveryModalProps {
+  onClose: () => void;
+  onSuccess: (detectedIp: string) => void;
+}
+
+function XboxDiscoveryModal({ onClose, onSuccess }: XboxDiscoveryModalProps) {
+  const [scanState, setScanState] = useState<"idle" | "checking" | "scanning" | "connecting" | "success" | "not-found" | "error">("idle");
+  const [statusMsg, setStatusMsg] = useState("");
+  const [manualIp, setManualIp] = useState("");
+  const [isManualInputVisible, setIsManualInputVisible] = useState(false);
+
+  const handleAutoDiscovery = async () => {
+    setScanState("checking");
+    setStatusMsg("Obtendo endereço de IP do seu computador...");
+    
+    try {
+      const localIp = await window.godsendApi.getLocalIp();
+      if (!localIp || localIp === "127.0.0.1") {
+        setScanState("not-found");
+        setStatusMsg("Não foi possível detectar a rede local. Verifique sua conexão.");
+        return;
+      }
+      
+      const ipParts = localIp.split(".");
+      if (ipParts.length !== 4) {
+        setScanState("not-found");
+        setStatusMsg("Subrede inválida detectada.");
+        return;
+      }
+      
+      const subnet = ipParts.slice(0, 3).join(".");
+      setScanState("scanning");
+      setStatusMsg(`Procurando Xbox 360 na sua subrede (${subnet}.X)...`);
+      
+      const scanRes = await window.godsendApi.ftpScanPorts(subnet);
+      if (!scanRes.ok || !scanRes.hosts || scanRes.hosts.length === 0) {
+        setScanState("not-found");
+        setStatusMsg("Nenhum console Xbox 360 foi encontrado na rede local.");
+        return;
+      }
+      
+      const detectedIp = scanRes.hosts[0];
+      setScanState("connecting");
+      setStatusMsg(`Configurando conexão e enviando scripts para ${detectedIp}...`);
+      
+      const testRes = await window.godsendApi.ftpTestConnection({
+        xboxIp: detectedIp,
+        ftpUser: "xboxftp",
+        ftpPassword: "xboxftp",
+      });
+      
+      if (!testRes.ok) {
+        setScanState("not-found");
+        setStatusMsg(`Xbox encontrado no IP ${detectedIp}, mas o FTP recusou as credenciais padrão.`);
+        return;
+      }
+      
+      await window.godsendApi.setXboxConnection({
+        xboxIp: detectedIp,
+        ftpUser: "xboxftp",
+        ftpPassword: "xboxftp",
+        ftpScriptsPath: "/Hdd1/Aurora/User/Scripts/Utility/GODSend",
+      });
+      
+      const uploadRes = await window.godsendApi.ftpAuroraScripts({
+        xboxIp: detectedIp,
+        ftpUser: "xboxftp",
+        ftpPassword: "xboxftp",
+        ftpScriptsPath: "/Hdd1/Aurora/User/Scripts/Utility/GODSend",
+      });
+      
+      if (uploadRes.ok) {
+        setScanState("success");
+        setStatusMsg(`Conectado com sucesso ao Xbox 360 (${detectedIp})!`);
+        onSuccess(detectedIp);
+      } else {
+        setScanState("not-found");
+        setStatusMsg(`Conectado ao IP ${detectedIp}, mas falhou ao enviar os scripts do Aurora.`);
+      }
+    } catch (err: any) {
+      setScanState("error");
+      setStatusMsg(`Erro durante a busca: ${err.message || String(err)}`);
+    }
+  };
+
+  const handleManualConnect = async () => {
+    if (!manualIp.trim()) return;
+    setScanState("connecting");
+    setStatusMsg(`Tentando conectar ao IP ${manualIp}...`);
+    
+    try {
+      const testRes = await window.godsendApi.ftpTestConnection({
+        xboxIp: manualIp.trim(),
+        ftpUser: "xboxftp",
+        ftpPassword: "xboxftp",
+      });
+      
+      if (!testRes.ok) {
+        setScanState("error");
+        setStatusMsg(`Falha na conexão FTP para ${manualIp}. Verifique o IP e certifique-se de que a Aurora está aberta.`);
+        return;
+      }
+      
+      await window.godsendApi.setXboxConnection({
+        xboxIp: manualIp.trim(),
+        ftpUser: "xboxftp",
+        ftpPassword: "xboxftp",
+        ftpScriptsPath: "/Hdd1/Aurora/User/Scripts/Utility/GODSend",
+      });
+      
+      const uploadRes = await window.godsendApi.ftpAuroraScripts({
+        xboxIp: manualIp.trim(),
+        ftpUser: "xboxftp",
+        ftpPassword: "xboxftp",
+        ftpScriptsPath: "/Hdd1/Aurora/User/Scripts/Utility/GODSend",
+      });
+      
+      if (uploadRes.ok) {
+        setScanState("success");
+        setStatusMsg(`Conectado com sucesso ao Xbox 360 (${manualIp.trim()})!`);
+        onSuccess(manualIp.trim());
+      } else {
+        setScanState("error");
+        setStatusMsg(`Conexão estabelecida, mas falhou ao enviar os scripts do Aurora.`);
+      }
+    } catch (err: any) {
+      setScanState("error");
+      setStatusMsg(`Erro ao conectar: ${err.message || String(err)}`);
+    }
+  };
+
+  useEffect(() => {
+    handleAutoDiscovery();
+  }, []);
+
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(6px)" }}
+    >
+      <div className="relative bg-background border border-border rounded-xl p-5 w-full max-w-[340px] flex flex-col gap-4 shadow-2xl">
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 p-1 rounded text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        <div className="border-b border-border/40 pb-2 flex items-center gap-1.5">
+          <Wifi className="h-4 w-4 text-[#22c55e]" />
+          <span className="text-[13px] font-semibold text-foreground">
+            Conexão Automática de Rede
+          </span>
+        </div>
+
+        <div className="flex flex-col items-center justify-center py-4 text-center">
+          {(scanState === "checking" || scanState === "scanning" || scanState === "connecting") && (
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="h-8 w-8 text-[#22c55e] animate-spin" />
+              <p className="text-[12.5px] text-foreground font-medium">{statusMsg}</p>
+              <p className="text-[10.5px] text-muted-foreground max-w-xs">
+                Certifique-se de que o Xbox está ligado na mesma rede Wi-Fi e com a tela do Aurora aberta.
+              </p>
+            </div>
+          )}
+
+          {scanState === "success" && (
+            <div className="flex flex-col items-center gap-3">
+              <CheckCircle2 className="h-8 w-8 text-green-400" />
+              <p className="text-[12.5px] text-green-400 font-semibold">{statusMsg}</p>
+              <p className="text-[10.5px] text-muted-foreground max-w-xs leading-relaxed">
+                Conexão de rede testada e scripts do Aurora configurados. Continuando o envio...
+              </p>
+            </div>
+          )}
+
+          {(scanState === "not-found" || scanState === "error") && (
+            <div className="flex flex-col items-center gap-3 w-full">
+              <AlertTriangle className="h-8 w-8 text-yellow-500" />
+              <p className="text-[12.5px] text-yellow-500 font-medium">{statusMsg}</p>
+              <p className="text-[10.5px] text-muted-foreground leading-relaxed">
+                Não conseguimos encontrar o videogame automaticamente. Verifique se o Xbox está ligado e com a Aurora aberta.
+              </p>
+              <div className="flex gap-2 mt-2">
+                <Button onClick={handleAutoDiscovery} variant="outline" size="sm" className="h-8 text-[11px]">
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Tentar Novamente
+                </Button>
+                <Button onClick={() => setIsManualInputVisible(!isManualInputVisible)} variant="ghost" size="sm" className="h-8 text-[11px]">
+                  Digitar IP
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {(isManualInputVisible || scanState === "error" || scanState === "not-found") && (
+          <div className="border-t border-border/30 pt-3 w-full">
+            <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+              Endereço de IP do Xbox
+            </label>
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                placeholder="Ex: 192.168.1.50"
+                value={manualIp}
+                onChange={(e) => setManualIp(e.target.value)}
+                className="text-[12px] h-8"
+              />
+              <Button onClick={handleManualConnect} disabled={!manualIp.trim() || scanState === "connecting"} size="sm" className="h-8 text-[11px]">
+                Conectar
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -902,6 +1205,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
           localDrives={localDrives}
           onClose={closeDialog}
           simpleMode={simpleMode}
+          onXboxConfigured={refreshDestinations}
         />
       )}
     </div>
