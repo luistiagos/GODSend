@@ -12,9 +12,9 @@ High-level data flow:
 - Go backend ⇄ **FTP** ⇄ Xbox content drives (via Aurora's FTP server; GOD/XEX/DLC layout)
 - Electron app ⇄ **child process & IPC** ⇄ Go backend and local config
 
-External behaviour, HTTP routes, and Lua-facing protocols are **stable contracts** – refactors must preserve them unless explicitly requested otherwise.
-
 **Aurora Lua host (agents):** When editing `aurora-scripts/`, read [`docs/reference/aurora.md`](docs/reference/aurora.md) for supported APIs, path rules (relative vs absolute), known limits (Zip extraction, large downloads), and patterns that avoid crashes on-console.
+
+**Technical Reference for LLMs:** For a deep-dive, function-by-function technical breakdown of every system, directory, entry point, data flow, and technical quirk/gotcha, refer to [docs/agents/llm_functionality_guide.md](file:///e:/projects/Downloader-XBOX360-XEX-HDD-Games/docs/agents/llm_functionality_guide.md).
 
 ---
 

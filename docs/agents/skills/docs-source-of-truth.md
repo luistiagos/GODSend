@@ -41,6 +41,7 @@ When adding new skills:
 - `docs/agents/skills/shim-electron.md` — Electron agent conventions
 - `docs/agents/skills/shim-go-backend.md` — Go backend agent conventions
 - `docs/agents/skills/shim-aurora-scripts.md` — Aurora Lua agent conventions
+- `docs/agents/llm_functionality_guide.md` — **LLM functionality guide** containing detailed technical references of codebase systems, entry points, flows, and edge cases.
 
 ## Quick Commands
 | Task | Command |
