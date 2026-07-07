@@ -27,6 +27,8 @@ export interface GodsendConfig {
   aria2DhtPort?: string | number;
   simpleMode?: boolean;
   providerPriority?: string[];
+  errorReporting?: boolean;
+  errorReportingEndpoint?: string;
 }
 
 export function configFilePath(): string {
@@ -211,5 +213,21 @@ export function buildGodsendEnv(writableRoot: string): NodeJS.ProcessEnv {
   if (customGodPath) env.GODSEND_CUSTOM_GOD_PATH = customGodPath;
   const customXexPath = getConfiguredCustomXexPath();
   if (customXexPath) env.GODSEND_CUSTOM_XEX_PATH = customXexPath;
+
+  const errorReporting = getConfiguredErrorReporting();
+  env.GODSEND_ERROR_REPORTING = errorReporting ? "1" : "0";
+  const errorReportingEndpoint = getConfiguredErrorReportingEndpoint();
+  if (errorReportingEndpoint) env.GODSEND_ERROR_REPORTING_ENDPOINT = errorReportingEndpoint;
+
   return env;
+}
+
+export function getConfiguredErrorReporting(): boolean {
+  const v = readConfig().errorReporting;
+  return typeof v === "boolean" ? v : true;
+}
+
+export function getConfiguredErrorReportingEndpoint(): string {
+  const v = readConfig().errorReportingEndpoint;
+  return typeof v === "string" ? v.trim() : "";
 }

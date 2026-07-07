@@ -3,6 +3,7 @@ import { pathToFileURL } from "url";
 import fs from "fs";
 
 import { appendAppEvent, getLogInfo } from "../infrastructure/serverLog";
+import { reportError } from "../infrastructure/telemetry";
 
 // Catch otherwise-fatal errors in the main process, log them to the daily
 // log file, and show the user where to find it. Without this the user just
@@ -23,6 +24,21 @@ function installCrashLogging(): void {
 
   process.on("uncaughtException", (err) => {
     log("uncaughtException", err);
+    
+    // Report unhandled exception in main process
+    const stack = err && typeof err === "object" && "stack" in (err as any)
+      ? String((err as any).stack)
+      : String(err);
+    reportError(
+      "electron-main",
+      "bootstrap.ts",
+      "uncaughtException",
+      err instanceof Error ? err.message : String(err),
+      "",
+      [stack],
+      true
+    );
+
     try {
       const logFile = getLogInfo().currentLogFile;
       dialog.showErrorBox(
@@ -38,6 +54,20 @@ function installCrashLogging(): void {
 
   process.on("unhandledRejection", (reason) => {
     log("unhandledRejection", reason);
+    
+    // Report unhandled rejection in main process
+    const stack = reason && typeof reason === "object" && "stack" in (reason as any)
+      ? String((reason as any).stack)
+      : String(reason);
+    reportError(
+      "electron-main",
+      "bootstrap.ts",
+      "unhandledRejection",
+      reason instanceof Error ? reason.message : String(reason),
+      "",
+      [stack],
+      false
+    );
   });
 }
 
@@ -77,6 +107,22 @@ function registerIpcHandlers(): void {
       startGodsend();
     }
     return true;
+  });
+  ipcMain.handle("telemetry:report", (_event, payload) => {
+    try {
+      reportError(
+        payload.component,
+        payload.file,
+        payload.method,
+        payload.message,
+        payload.pageUrl,
+        payload.logs,
+        payload.terminal
+      );
+      return true;
+    } catch {
+      return false;
+    }
   });
 
   configHandlers.register(ipcMain);

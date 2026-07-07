@@ -283,8 +283,7 @@ export default function HomePage({
         </p>
       </header>
 
-      {/* Mode Selector Cards — Temporarily hidden in Simple Mode */}
-      {/*
+      {/* Mode Selector Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <button
           onClick={() => setTargetMode("usb")}
@@ -299,8 +298,11 @@ export default function HomePage({
               <Usb className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-semibold text-[14px]">Gravar em um Pendrive ou HD</h2>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Ideal para rodar jogos diretamente do USB ou para consoles sem internet.</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-semibold text-[14px]">Gravar em um Pendrive ou HD</h2>
+                <span className="text-[9px] bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20 px-1.5 py-0.5 rounded font-medium">Bloqueado / LT / RGH</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">Ideal para rodar jogos diretamente do USB, consoles bloqueados/LT ou RGH sem rede.</p>
             </div>
           </div>
         </button>
@@ -318,13 +320,15 @@ export default function HomePage({
               <Wifi className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-semibold text-[14px]">Enviar direto para o Xbox (Rede)</h2>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Transfira os jogos do seu computador direto para o videogame por cabo ou Wi-Fi.</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-semibold text-[14px]">Enviar direto para o Xbox (Rede)</h2>
+                <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-medium">Apenas RGH + Aurora</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">Transfira os jogos do computador direto para o videogame. Requer console RGH com Aurora.</p>
             </div>
           </div>
         </button>
       </div>
-      */}
 
       {/* Main Mode View */}
       <div className="flex-1 card-surface p-5 min-h-[350px] flex flex-col justify-between">
@@ -366,6 +370,14 @@ export default function HomePage({
                     Xbox Ativo
                   </span>
                 )}
+              </div>
+
+              <div className="flex items-start gap-2.5 rounded-lg bg-amber-500/5 border border-amber-500/25 px-3.5 py-2.5 text-[11px] text-amber-300/90 mb-4 text-left leading-normal">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold block text-amber-200">Requisito para o Modo Rede:</span>
+                  Esta opção é exclusiva para consoles <strong>Desbloqueados (RGH)</strong> com a dashboard <strong>Aurora</strong> aberta e ativa. Consoles originais (Bloqueados) ou com LT não suportam conexão FTP e devem usar a opção <strong>Gravar em um Pendrive ou HD</strong> acima.
+                </div>
               </div>
 
               {/* Status and auto-detect UI */}

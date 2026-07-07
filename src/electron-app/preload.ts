@@ -171,4 +171,13 @@ contextBridge.exposeInMainWorld("godsendApi", {
     ipcRenderer.on("godsend-output", handler);
     return () => ipcRenderer.removeListener("godsend-output", handler);
   },
+  reportError: (
+    component: string,
+    file: string,
+    method: string,
+    message: string,
+    pageUrl?: string,
+    logs?: string[],
+    terminal?: boolean
+  ) => ipcRenderer.invoke("telemetry:report", { component, file, method, message, pageUrl, logs, terminal }),
 });

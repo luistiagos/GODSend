@@ -12,6 +12,7 @@ import (
 	"godsend/app"
 	"godsend/infrastructure/download"
 	"godsend/infrastructure/ftp"
+	"godsend/infrastructure/telemetry"
 	"godsend/infrastructure/torrent"
 	httpintf "godsend/interfaces/http"
 	"godsend/models"
@@ -24,8 +25,13 @@ func main() {
 	a := app.NewApp()
 	if err := a.SetupPaths(); err != nil {
 		fmt.Printf("[FATAL] Setup failed: %v\n", err)
+		// We fallback to standard endpoint since paths are not set up yet
+		telemetry.Initialize(true, "")
+		telemetry.Report("backend", "main.go", "main", fmt.Sprintf("SetupPaths failed: %v", err), "", nil, true)
 		os.Exit(1)
 	}
+
+	telemetry.Initialize(a.TelemetryEnabled, a.TelemetryEndpoint)
 
 	a.CopyBuffer = make([]byte, app.CopyBufferSize)
 	a.LoadIAAuthFromEnv()
@@ -168,6 +174,7 @@ func main() {
 	listener, chosenPort, err := a.ListenOnAvailablePortAt(listenHost, requestedPort)
 	if err != nil {
 		fmt.Printf("[FATAL] %v\n", err)
+		telemetry.Report("backend", "main.go", "main", fmt.Sprintf("Listen failed on host %s port %d: %v", listenHost, requestedPort, err), "", nil, true)
 		os.Exit(1)
 	}
 	if chosenPort != requestedPort {
@@ -199,6 +206,7 @@ func main() {
 	a.Logf("Starting server on port %s... Server started. Please start the script on the xbox", a.ServerPort)
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Printf("[FATAL] %v\n", err)
+		telemetry.Report("backend", "main.go", "main", fmt.Sprintf("Serve failed: %v", err), "", nil, true)
 		os.Exit(1)
 	}
 }

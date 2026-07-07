@@ -338,6 +338,15 @@ func (a *App) SetupPaths() error {
 	a.Aria2ListenPort = strings.TrimSpace(os.Getenv("GODSEND_ARIA2_LISTEN_PORT"))
 	a.Aria2DhtPort = strings.TrimSpace(os.Getenv("GODSEND_ARIA2_DHT_PORT"))
 
+	a.TelemetryEnabled = true
+	if v := strings.TrimSpace(os.Getenv("GODSEND_ERROR_REPORTING")); v != "" {
+		a.TelemetryEnabled = v == "1" || strings.ToLower(v) == "true" || strings.ToLower(v) == "yes"
+	}
+	a.TelemetryEndpoint = "https://digitalstoregames.pythonanywhere.com/logErr"
+	if v := strings.TrimSpace(os.Getenv("GODSEND_ERROR_REPORTING_ENDPOINT")); v != "" {
+		a.TelemetryEndpoint = v
+	}
+
 	a.CleanupEmptyReadyDirs()
 	return nil
 }

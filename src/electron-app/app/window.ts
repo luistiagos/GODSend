@@ -44,7 +44,7 @@ export function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width:           900,
     height:          600,
-    show:            true,
+    show:            false,
     autoHideMenuBar: true,
     icon:            windowIconPath || undefined,
     webPreferences: {
@@ -59,6 +59,9 @@ export function createMainWindow(): void {
       devTools:         process.env.NODE_ENV === "development",
     },
   });
+
+  mainWindow.maximize();
+  mainWindow.show();
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, targetUrl) => {

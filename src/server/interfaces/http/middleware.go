@@ -3,11 +3,13 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	stdhttp "net/http"
 	"runtime"
 
 	"godsend/app"
 	"godsend/infrastructure/ftp"
+	"godsend/infrastructure/telemetry"
 	"godsend/services/cache"
 	"godsend/services/local"
 	"godsend/services/pipeline"
@@ -48,6 +50,10 @@ func RecoverMiddleware(a *app.App, next stdhttp.HandlerFunc) stdhttp.HandlerFunc
 				buf := make([]byte, 4096)
 				n := runtime.Stack(buf, false)
 				a.Logf("STACK: %s", string(buf[:n]))
+				
+				// Report http-server panic to telemetry
+				telemetry.Report("http-server", "middleware.go", "RecoverMiddleware", fmt.Sprintf("Panic: %v", err), r.URL.Path, []string{string(buf[:n])}, false)
+				
 				jsonError(w, 500, "Internal server error")
 			}
 		}()
