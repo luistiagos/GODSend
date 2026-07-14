@@ -51,3 +51,4 @@ graphify-out/
 .gofile-io-token
 r2-config.json
 .env
+build.properties

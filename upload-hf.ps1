@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Upload the latest portable build to HuggingFace datasets under XBOX360Companion/.
-    Token lido do .env (HF_TOKEN) ou da variavel de ambiente HF_TOKEN.
+    Token lido do build.properties (HF_TOKEN) ou da variavel de ambiente HF_TOKEN.
 #>
 param(
     [string]$PortablePath = "",
@@ -10,8 +10,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Load .env
-$envFile = Join-Path $PSScriptRoot ".env"
+# Load build.properties
+$envFile = Join-Path $PSScriptRoot "build.properties"
 if (Test-Path -LiteralPath $envFile) {
     Get-Content -LiteralPath $envFile -Encoding UTF8 | ForEach-Object {
         if ($_ -match '^\s*([^#=]+)=(.*)\s*$') {
@@ -32,7 +32,7 @@ if (-not $HfToken) {
 }
 
 if (-not $HfToken) {
-    throw "HF_TOKEN nao definido. Crie um .env ou defina a variavel de ambiente HF_TOKEN."
+    throw "HF_TOKEN nao definido. Crie um build.properties ou defina a variavel de ambiente HF_TOKEN."
 }
 
 if (-not $PortablePath) {

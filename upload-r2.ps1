@@ -2,7 +2,7 @@
 .SYNOPSIS
     Uploads the portable build to Cloudflare R2 as xboxcompanion.exe (distribution version).
     Only keeps one version — always overwrites the remote file.
-    Credentials lidos do .env (R2_*) ou r2-config.json.
+    Credentials lidos do build.properties (R2_*) ou r2-config.json.
 #>
 [CmdletBinding()]
 param(
@@ -13,8 +13,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Load .env
-$envFile = Join-Path $PSScriptRoot ".env"
+# Load build.properties
+$envFile = Join-Path $PSScriptRoot "build.properties"
 if (Test-Path -LiteralPath $envFile) {
     Get-Content -LiteralPath $envFile -Encoding UTF8 | ForEach-Object {
         if ($_ -match '^\s*([^#=]+)=(.*)\s*$') {
@@ -35,7 +35,7 @@ if (-not (Test-Path -LiteralPath $LocalPath)) {
     throw "Portable build not found: $LocalPath`nRun 'npm run build:electron:win:portable' first."
 }
 
-# Try .env first, fall back to r2-config.json
+# Try build.properties first, fall back to r2-config.json
 if ($Script:R2_ACCESS_KEY_ID -and $Script:R2_SECRET_ACCESS_KEY -and $Script:R2_ENDPOINT -and $Script:R2_BUCKET) {
     $cfg = [PSCustomObject]@{
         accessKeyId     = $Script:R2_ACCESS_KEY_ID
@@ -49,7 +49,7 @@ if ($Script:R2_ACCESS_KEY_ID -and $Script:R2_SECRET_ACCESS_KEY -and $Script:R2_E
         $Config = Join-Path $PSScriptRoot "r2-config.json"
     }
     if (-not (Test-Path -LiteralPath $Config)) {
-        throw "Credenciais R2 nao encontradas. Defina R2_* no .env (veja .env.example) ou crie r2-config.json."
+        throw "Credenciais R2 nao encontradas. Defina R2_* no build.properties (veja build.properties.example) ou crie r2-config.json."
     }
     $cfg = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 | ConvertFrom-Json
 }

@@ -194,7 +194,7 @@ Build-script map (run from repo root):
 | `upload-hf.ps1` | Upload portable to HuggingFace `XBOX360Companion/` folder only | `huggingface_hub` |
 | `upload-r2.ps1` | Upload portable as `xboxcompanion.exe` to R2 only | `rclone` |
 
-Credentials are read from `.env` (gitignored; see `.env.example` for the template) or from `r2-config.json` (gitignored; see `r2-config.example.json`). The `.env` file supports `HF_TOKEN`, `HF_REPO`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, and `R2_PUBLIC_URL`.
+Credentials are read from `build.properties` (gitignored; see `build.properties.example` for the template) or from `r2-config.json` (gitignored; see `r2-config.example.json`). The `build.properties` file supports `HF_TOKEN`, `HF_REPO`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, and `R2_PUBLIC_URL`.
 
 ### Release assets (GoFile + file.kiwi upload + README links)
 
