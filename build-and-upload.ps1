@@ -13,7 +13,7 @@
        - Repo: luisluis123/versions (dataset)
        - Pasta: XBOX360Companion/
        - Arquivo: xbox-360-companion-Portable-<VERSION>.exe
-       - Token: lido do .env (HF_TOKEN)
+       - Token: lido do build.properties (HF_TOKEN)
        - URL: https://huggingface.co/datasets/luisluis123/versions/tree/main/XBOX360Companion/
 
     3. UPLOAD PARA R2 (distribuicao - sempre sobrescreve)
@@ -54,7 +54,7 @@
     - Node.js 18+ com npm
     - rclone (winget install Rclone.Rclone) - necessario so para R2
     - huggingface_hub (pip install huggingface_hub) - necessario so para HF
-    - Arquivo .env na raiz (veja .env.example) com os tokens
+    - Arquivo build.properties na raiz (veja build.properties.example) com os tokens
 #>
 
 [CmdletBinding()]
@@ -71,9 +71,9 @@ $ErrorActionPreference = "Stop"
 $VERSION = "2.12.26"
 $PROJECT_ROOT = "E:\projects\GODSend"
 $DIST_DIR = Join-Path $PROJECT_ROOT "dist"
-$ENV_FILE = Join-Path $PROJECT_ROOT ".env"
+$ENV_FILE = Join-Path $PROJECT_ROOT "build.properties"
 
-# Load .env
+# Load build.properties
 if (Test-Path -LiteralPath $ENV_FILE) {
     Get-Content -LiteralPath $ENV_FILE -Encoding UTF8 | ForEach-Object {
         if ($_ -match '^\s*([^#=]+)=(.*)\s*$') {
@@ -156,7 +156,7 @@ if (-not $SkipHF) {
     Print-Step "PASSO 2/3: Upload para HuggingFace"
 
     if (-not $HF_TOKEN) {
-        throw "HF_TOKEN nao definido. Crie um arquivo .env na raiz (veja .env.example) ou defina a variavel de ambiente HF_TOKEN."
+        throw "HF_TOKEN nao definido. Crie um arquivo build.properties na raiz (veja build.properties.example) ou defina a variavel de ambiente HF_TOKEN."
     }
 
     Write-Host "Repositorio: $HF_REPO ($HF_REPO_TYPE)" -ForegroundColor Yellow
@@ -191,7 +191,7 @@ if (-not $SkipHF) {
 if (-not $SkipR2) {
     Print-Step "PASSO 3/3: Upload para R2 (distribuicao)"
 
-    # Try .env first, fall back to r2-config.json
+    # Try build.properties first, fall back to r2-config.json
     if ($Script:R2_ACCESS_KEY_ID -and $Script:R2_SECRET_ACCESS_KEY -and $Script:R2_ENDPOINT -and $Script:R2_BUCKET) {
         $cfg = [PSCustomObject]@{
             accessKeyId     = $Script:R2_ACCESS_KEY_ID
@@ -203,7 +203,7 @@ if (-not $SkipR2) {
     } elseif (Test-Path -LiteralPath $R2_CONFIG) {
         $cfg = Get-Content -LiteralPath $R2_CONFIG -Raw -Encoding UTF8 | ConvertFrom-Json
     } else {
-        throw "Credenciais R2 nao encontradas. Defina R2_* no .env (veja .env.example) ou crie r2-config.json."
+        throw "Credenciais R2 nao encontradas. Defina R2_* no build.properties (veja build.properties.example) ou crie r2-config.json."
     }
 
     foreach ($field in @('accessKeyId', 'secretAccessKey', 'endpoint', 'bucket')) {
