@@ -117,8 +117,10 @@ function firstExistingFile(candidates: string[]): string | null {
 function deterministicTransactionId(
   bundleHash: string,
   fingerprint: string,
+  scope = "",
 ): `${string}-${string}-${string}-${string}-${string}` {
-  const hex = createHash("sha256").update(`${bundleHash}:${fingerprint}`, "utf8").digest("hex");
+  const seed = scope ? `${bundleHash}:${fingerprint}:${scope}` : `${bundleHash}:${fingerprint}`;
+  const hex = createHash("sha256").update(seed, "utf8").digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
@@ -235,10 +237,16 @@ export async function prepareFixedBadAvatarDevice(
   }
 
   const { assetsRoot, index } = loadPackageIndex();
-  const sourceRoot = firstExistingDirectory(payloadCandidates(assetsRoot, index));
+  let sourceRoot = firstExistingDirectory(payloadCandidates(assetsRoot, index));
   if (!sourceRoot) throw new Error(`A versão ${index.release} não foi encontrada no aplicativo.`);
   const manifest = loadManifest(assetsRoot, index);
   onProgress({ status: `Verificando o pacote ${manifest.release}…`, percent: 14 });
+  const transactionScope = request.isRghOnly ? "rgh-only" : "";
+  const transactionId = deterministicTransactionId(
+    manifest.bundleSha256,
+    request.expectedDeviceFingerprint,
+    transactionScope,
+  );
 
   const actualPaths = (await listPayloadFiles(sourceRoot)).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
   const expectedPaths = manifest.files.map((file) => file.path).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
@@ -253,71 +261,94 @@ export async function prepareFixedBadAvatarDevice(
     sha256: file.sha256,
   }));
 
-  if (request.isRghOnly) {
-    // Keep only Aurora dashboard files
-    entries = entries.filter((e) => e.relativePath.startsWith("Aurora/"));
+  let tempStagingDir: string | null = null;
 
-    // Dynamically generate a clean launch.ini pointing directly to Usb:\Aurora\default.xex
-    const tempLaunchDir = path.join(app.getPath("temp"), "godsend-rgh-temp");
-    await fsPromises.mkdir(tempLaunchDir, { recursive: true });
-    const tempLaunchPath = path.join(tempLaunchDir, "launch.ini");
-    const launchContents = [
-      "[Paths]",
-      "Default = Usb:\\Aurora\\default.xex",
-      "",
-      "[Settings]",
-      "noupdater = true",
-      "liveblock = true",
-      "livestrong = false",
-      "",
-    ].join("\r\n");
-    await fsPromises.writeFile(tempLaunchPath, launchContents, "utf8");
+  try {
+    if (request.isRghOnly) {
+      // Keep only Aurora dashboard files
+      entries = entries.filter((e) => e.relativePath.startsWith("Aurora/"));
 
-    const launchStat = await fsPromises.stat(tempLaunchPath);
-    const launchSha = createHash("sha256").update(launchContents).digest("hex");
-    entries.push({
-      sourcePath: tempLaunchPath,
-      relativePath: "launch.ini",
-      sizeBytes: launchStat.size,
-      sha256: launchSha,
+      // Create a temporary staging directory where we will reconstruct the filtered package
+      // and write the dynamic launch.ini, making it a single trusted staging folder.
+      tempStagingDir = path.join(app.getPath("temp"), `godsend-rgh-staging-${transactionId}`);
+      await fsPromises.mkdir(tempStagingDir, { recursive: true });
+
+      // Copy all Aurora files to the staging directory
+      for (const entry of entries) {
+        const destPath = path.join(tempStagingDir, ...entry.relativePath.split("/"));
+        await fsPromises.mkdir(path.dirname(destPath), { recursive: true });
+        await fsPromises.copyFile(entry.sourcePath, destPath);
+        // Point the entry sourcePath to the staged copy
+        entry.sourcePath = destPath;
+      }
+
+      // Dynamically generate a clean launch.ini pointing directly to Usb:\Aurora\default.xex inside the staging folder
+      const tempLaunchPath = path.join(tempStagingDir, "launch.ini");
+      const launchContents = [
+        "[Paths]",
+        "Default = Usb:\\Aurora\\default.xex",
+        "",
+        "[Settings]",
+        "noupdater = true",
+        "liveblock = true",
+        "livestrong = false",
+        "",
+      ].join("\r\n");
+      await fsPromises.writeFile(tempLaunchPath, launchContents, "utf8");
+
+      const launchStat = await fsPromises.stat(tempLaunchPath);
+      const launchSha = createHash("sha256").update(launchContents).digest("hex");
+      entries.push({
+        sourcePath: tempLaunchPath,
+        relativePath: "launch.ini",
+        sizeBytes: launchStat.size,
+        sha256: launchSha,
+      });
+
+      // Update sourceRoot to our temporary staging directory
+      sourceRoot = tempStagingDir;
+    }
+
+    const plan = await buildTransactionalWritePlan({
+      sourceRoot,
+      deviceFingerprint: request.expectedDeviceFingerprint,
+      manifestId: manifest.manifestId,
+      manifestRelease: manifest.release,
+      entries,
+    }, new Date(manifest.createdAt), transactionId);
+
+    onProgress({ status: "Verificando espaço disponível…", percent: 20 });
+    device = await requireSafeWindowsUsbTarget(request.driveRoot, request.expectedDeviceFingerprint);
+    const capacity = await assessWriteCapacity(plan, request.driveRoot, {
+      fileSystem: device.fileSystem,
+      totalBytes: device.partitionSizeBytes || device.sizeBytes,
+      freeBytes: device.freeBytes,
+      allocationUnitBytes: device.allocationUnitBytes,
     });
+    if (!capacity.allowed) throw new Error(capacity.blockers[0] || "O dispositivo não possui espaço suficiente.");
+
+    const result = await executeTransactionalWriteToDevice(plan, request.driveRoot, {
+      revalidateTarget: async () => {
+        await requireSafeWindowsUsbTarget(request.driveRoot, request.expectedDeviceFingerprint);
+      },
+      onProgress: (progress) => onProgress({
+        status: progress.status,
+        percent: 24 + Math.floor(progress.percent * 0.76),
+        detail: `${Math.min(progress.completedFiles + 1, progress.totalFiles)}/${progress.totalFiles}`,
+      }),
+    });
+
+    return {
+      release: manifest.release,
+      fileCount: plan.entries.length,
+      totalBytes: plan.totalBytes,
+      writtenFiles: result.writtenFiles,
+      reusedFiles: result.reusedFiles,
+      resumed: result.resumed,
+    };
+  } finally {
+    if (tempStagingDir) {
+      await fsPromises.rm(tempStagingDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
-
-  const plan = await buildTransactionalWritePlan({
-    sourceRoot,
-    deviceFingerprint: request.expectedDeviceFingerprint,
-    manifestId: manifest.manifestId,
-    manifestRelease: manifest.release,
-    entries,
-  }, new Date(manifest.createdAt), deterministicTransactionId(manifest.bundleSha256, request.expectedDeviceFingerprint));
-
-  onProgress({ status: "Verificando espaço disponível…", percent: 20 });
-  device = await requireSafeWindowsUsbTarget(request.driveRoot, request.expectedDeviceFingerprint);
-  const capacity = await assessWriteCapacity(plan, request.driveRoot, {
-    fileSystem: device.fileSystem,
-    totalBytes: device.partitionSizeBytes || device.sizeBytes,
-    freeBytes: device.freeBytes,
-    allocationUnitBytes: device.allocationUnitBytes,
-  });
-  if (!capacity.allowed) throw new Error(capacity.blockers[0] || "O dispositivo não possui espaço suficiente.");
-
-  const result = await executeTransactionalWriteToDevice(plan, request.driveRoot, {
-    revalidateTarget: async () => {
-      await requireSafeWindowsUsbTarget(request.driveRoot, request.expectedDeviceFingerprint);
-    },
-    onProgress: (progress) => onProgress({
-      status: progress.status,
-      percent: 24 + Math.floor(progress.percent * 0.76),
-      detail: `${Math.min(progress.completedFiles + 1, progress.totalFiles)}/${progress.totalFiles}`,
-    }),
-  });
-
-  return {
-    release: manifest.release,
-    fileCount: manifest.fileCount,
-    totalBytes: manifest.totalBytes,
-    writtenFiles: result.writtenFiles,
-    reusedFiles: result.reusedFiles,
-    resumed: result.resumed,
-  };
 }
