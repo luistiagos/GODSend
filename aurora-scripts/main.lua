@@ -1,6 +1,6 @@
 scriptTitle       = "Xbox 360 Companion"
 scriptAuthor      = "Nesquin/david12549 & ghosty99"
-scriptVersion     = "2.12.25"
+scriptVersion     = "2.12.26"
 scriptDescription = "Browse and install Xbox 360, Original, Digital (XBLA/DLC), and Retro ROMs via Minerva Archive, Internet Archive, or EdgeEmu!"
 scriptIcon        = "icon\\icon.xur"
 scriptPermissions = { "http", "filesystem" }

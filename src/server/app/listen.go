@@ -11,15 +11,16 @@ import (
 	"syscall"
 )
 
-// IsTCPAddrInUse returns true if the error indicates the address is already bound.
+// IsTCPAddrInUse returns true if the error indicates the address is already bound or restricted.
 func IsTCPAddrInUse(err error) bool {
-	var opErr *net.OpError
-	if errors.As(err, &opErr) && opErr.Err != nil {
-		if errno, ok := opErr.Err.(syscall.Errno); ok {
-			if errno == syscall.EADDRINUSE {
-				return true
-			}
-			if runtime.GOOS == "windows" && int(errno) == 10048 { // WSAEADDRINUSE
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		if errno == syscall.EADDRINUSE {
+			return true
+		}
+		if runtime.GOOS == "windows" {
+			// WSAEADDRINUSE (10048) or WSAEACCES (10013)
+			if int(errno) == 10048 || int(errno) == 10013 {
 				return true
 			}
 		}
@@ -27,7 +28,9 @@ func IsTCPAddrInUse(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "address already in use") ||
 		strings.Contains(msg, "only one usage of each socket address") ||
-		strings.Contains(msg, "wsaeaddrinuse")
+		strings.Contains(msg, "wsaeaddrinuse") ||
+		strings.Contains(msg, "permissões de acesso") ||
+		strings.Contains(msg, "utilização de cada endereço")
 }
 
 // ListenOnAvailablePort binds to loopback by default. Network exposure must be

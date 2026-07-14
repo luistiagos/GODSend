@@ -9,6 +9,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.26] — 2026-07-14
+
+### Fixed
+- **RGH BadAvatar device preparation path validation** — Fixed a bug where preparing an RGH-only USB device failed with the error `entries[219].sourcePath está fora do staging confiável.`. When filtering the payload to keep only the Aurora dashboard files and generating a custom `launch.ini`, the temporary `launch.ini` file was written directly to the system temp directory, which resides outside the trusted BadAvatar package folder (the source root). This violated the transactional write plan safety verification. To resolve this, all filtered Aurora files and the generated `launch.ini` are now staged together inside a temporary staging folder within the system temp directory, and that folder is used as the single trusted source root.
+- **Staging folder cleanup** — Added cleanup logic to delete the temporary staging folder after the USB device preparation process finishes (or fails).
+
 ## [2.12.25] — 2026-07-06
 
 ### Changed
