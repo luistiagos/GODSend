@@ -186,6 +186,16 @@ Build-script map (run from repo root):
 
 > The Electron Windows build needs `dist/godsend.exe` + `dist/tools/*.exe` present first, so run `build:server` before `build:electron:win:*`. On a non-Windows host the `rcedit` icon-embed step is skipped (it needs `wine64` on `PATH`); this is cosmetic and the installer/exe still carry their icons.
 
+#### Upload scripts (HuggingFace + R2 distribution)
+
+| Script | Purpose | Dependencies |
+|---|---|---|
+| `build-and-upload.ps1` | Build portable + upload to HuggingFace (versioned) + upload to R2 as `xboxcompanion.exe` (unversioned) | PowerShell 5.1+, Node.js, `rclone`, `huggingface_hub` |
+| `upload-hf.ps1` | Upload portable to HuggingFace `XBOX360Companion/` folder only | `huggingface_hub` |
+| `upload-r2.ps1` | Upload portable as `xboxcompanion.exe` to R2 only | `rclone` |
+
+Credentials are read from `.env` (gitignored; see `.env.example` for the template) or from `r2-config.json` (gitignored; see `r2-config.example.json`). The `.env` file supports `HF_TOKEN`, `HF_REPO`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, and `R2_PUBLIC_URL`.
+
 ### Release assets (GoFile + file.kiwi upload + README links)
 
 **Do NOT create git tags or GitHub releases.** All build assets are uploaded to **GoFile.io** (primary) and **file.kiwi** (backup mirror) and linked directly from `README.md` — the download table has one column per host.

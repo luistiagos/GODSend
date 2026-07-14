@@ -49,3 +49,5 @@ src/electron-app/out/
 graphify-out/
 .gitlab-token
 .gofile-io-token
+r2-config.json
+.env

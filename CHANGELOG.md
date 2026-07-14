@@ -9,6 +9,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Unified build+upload script** — `build-and-upload.ps1` builds the portable and uploads to HuggingFace (versioned) + R2 (unversioned `xboxcompanion.exe`). Credentials stored in `.env` (gitignored); see `.env.example`.
+
 ## [2.12.26] — 2026-07-14
 
 ### Fixed
