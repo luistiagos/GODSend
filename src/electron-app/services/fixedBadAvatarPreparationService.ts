@@ -10,6 +10,7 @@ import { assessWriteCapacity } from "../infrastructure/writeCapacityPolicy";
 import { requireSafeWindowsUsbTarget } from "../infrastructure/windowsUsbDeviceService";
 
 const PACKAGE_INDEX_FILE_NAME = "badavatar-package.json";
+const DEVICE_REVALIDATION_INTERVAL_MS = 10_000;
 
 interface FixedPayloadPackageIndex {
   schemaVersion: 1;
@@ -212,6 +213,34 @@ async function waitForSameDevice(root: string, fingerprint: string) {
   throw lastError || new Error("O dispositivo não voltou a ficar disponível após a formatação.");
 }
 
+function createThrottledUsbTargetRevalidator(root: string, fingerprint: string): () => Promise<void> {
+  let lastFullValidationAt = 0;
+  let pendingFullValidation: Promise<void> | null = null;
+
+  return async () => {
+    try {
+      await fsPromises.access(root);
+    } catch {
+      lastFullValidationAt = 0;
+      throw new Error("O dispositivo USB não está acessível. Reconecte o pendrive e tente novamente.");
+    }
+
+    const now = Date.now();
+    if (now - lastFullValidationAt < DEVICE_REVALIDATION_INTERVAL_MS) return;
+
+    if (!pendingFullValidation) {
+      pendingFullValidation = requireSafeWindowsUsbTarget(root, fingerprint)
+        .then(() => {
+          lastFullValidationAt = Date.now();
+        })
+        .finally(() => {
+          pendingFullValidation = null;
+        });
+    }
+    await pendingFullValidation;
+  };
+}
+
 export async function prepareFixedBadAvatarDevice(
   request: FixedPreparationRequest,
   onProgress: (progress: FixedPreparationProgress) => void,
@@ -327,10 +356,14 @@ export async function prepareFixedBadAvatarDevice(
     });
     if (!capacity.allowed) throw new Error(capacity.blockers[0] || "O dispositivo não possui espaço suficiente.");
 
+    const revalidateTarget = createThrottledUsbTargetRevalidator(
+      request.driveRoot,
+      request.expectedDeviceFingerprint,
+    );
+    await revalidateTarget();
+
     const result = await executeTransactionalWriteToDevice(plan, request.driveRoot, {
-      revalidateTarget: async () => {
-        await requireSafeWindowsUsbTarget(request.driveRoot, request.expectedDeviceFingerprint);
-      },
+      revalidateTarget,
       onProgress: (progress) => onProgress({
         status: progress.status,
         percent: 24 + Math.floor(progress.percent * 0.76),

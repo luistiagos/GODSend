@@ -271,9 +271,9 @@ export default function HomePage({
   const isXboxConnected = ftpStatus === "connected";
 
   return (
-    <div className="flex flex-col h-full gap-5 max-w-4xl mx-auto px-4 py-5">
+    <div className="flex h-screen flex-col gap-5 overflow-y-auto px-4 py-5">
       {/* Welcome Banner */}
-      <header className="text-center mb-2">
+      <header className="mx-auto mb-2 w-full max-w-4xl text-center">
         <h1 className="text-2xl font-bold tracking-tight text-foreground font-display">
           Bem-vindo ao Xbox 360 Companion
         </h1>
@@ -284,7 +284,7 @@ export default function HomePage({
       </header>
 
       {/* Mode Selector Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="mx-auto grid w-full max-w-4xl grid-cols-1 gap-4 md:grid-cols-2">
         <button
           onClick={() => setTargetMode("usb")}
           className={`flex flex-col text-left p-5 rounded-xl border transition-all ${
@@ -331,10 +331,10 @@ export default function HomePage({
       </div>
 
       {/* Main Mode View */}
-      <div className="flex-1 card-surface p-5 min-h-[350px] flex flex-col justify-between">
+      <div className="card-surface mx-auto flex min-h-[350px] w-full max-w-4xl flex-col justify-between p-5">
         {targetMode === "usb" ? (
           /* USB Mode: Embed BadAvatarUsbPage */
-          <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex flex-col">
             <div className="border-b border-border/40 pb-3 mb-4 flex items-center justify-between">
               <span className="text-[13px] font-semibold text-foreground flex items-center gap-1.5">
                 <HardDrive className="h-4 w-4 text-[#22c55e]" />
@@ -351,7 +351,7 @@ export default function HomePage({
                 </Button>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div>
               <BadAvatarUsbPage onBrowseGames={onNavigateBrowse} onBackActionChange={setBackAction} />
             </div>
           </div>

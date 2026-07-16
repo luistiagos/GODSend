@@ -10,7 +10,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
-- **Unified build+upload script** — `build-and-upload.ps1` builds the portable and uploads to HuggingFace (versioned) + R2 (unversioned `xboxcompanion.exe`). Credentials stored in `.env` (gitignored); see `.env.example`.
+- **Unified build+upload script** — `build-and-upload.ps1` builds the portable and uploads to HuggingFace (versioned) + R2 (unversioned `xboxcompanion.exe`). Credentials stored in `build.properties` (gitignored); see `build.properties.example`.
+
+### Fixed
+- **BadAvatar USB preparation no longer spends hours re-enumerating Windows drives** — the transactional writer was revalidating the USB identity through PowerShell at many file-operation checkpoints, causing hundreds or thousands of slow `Get-Disk`/CIM passes during a 643-file payload write. Preparation now performs a full identity check periodically while using a lightweight root-access check between those intervals, and the initial USB listing timeout is more tolerant of slow Windows disk enumeration.
+- **Simple-mode USB preparation scrolls at the page level** — the embedded preparation flow no longer creates its own vertical scrollbar inside the main card; the simple-mode window handles vertical scrolling so users do not have to discover a hidden inner scroll region.
 
 ## [2.12.26] — 2026-07-14
 

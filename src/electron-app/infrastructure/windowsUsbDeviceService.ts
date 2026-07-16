@@ -9,6 +9,8 @@ import {
   type SafeUsbDevice,
 } from "./deviceSafetyPolicy";
 
+const USB_ENUMERATION_TIMEOUT_MS = 45_000;
+
 function runPowerShell(script: string): Promise<string> {
   return new Promise((resolve, reject) => {
     // Write script to a temp file so PowerShell uses -File instead of -Command.
@@ -49,9 +51,14 @@ function runPowerShell(script: string): Promise<string> {
       child.kill();
       finish(() => {
         cleanup();
-        reject(new Error("O Windows demorou demais para listar os dispositivos USB."));
+        reject(
+          new Error(
+            "O Windows demorou demais para listar os dispositivos USB. " +
+              "Remova e conecte o pendrive novamente, aguarde alguns segundos e tente atualizar a lista.",
+          ),
+        );
       });
-    }, 10_000);
+    }, USB_ENUMERATION_TIMEOUT_MS);
     child.stdout.on("data", (data) => { stdout += data.toString(); });
     child.stderr.on("data", (data) => { stderr += data.toString(); });
     child.on("error", (error) => finish(() => { cleanup(); reject(error); }));
