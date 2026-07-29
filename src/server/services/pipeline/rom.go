@@ -53,7 +53,7 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 	s.App.Logf("ROM Download: %s → %s", gameName, downloadURL)
 
 	// Download the ZIP using parallel range requests
-	zipPath := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_rom.zip")
+	zipPath := filepath.Join(s.App.TempDir, safeName+"_rom.zip")
 	s.App.LogStatus(gameName, "Processing", "Downloading from EdgeEmu...")
 	if err := s.Download.DownloadEdgeEmuWithProgress(downloadURL, zipPath, gameName); err != nil {
 		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Download: %v", err))
@@ -64,7 +64,7 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 
 	// Extract ZIP
 	s.App.LogStatus(gameName, "Processing", "Extracting ROM...")
-	extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_rom_ext")
+	extDir := filepath.Join(s.App.TempDir, safeName+"_rom_ext")
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(zipPath, extDir); err != nil {

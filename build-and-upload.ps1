@@ -6,6 +6,7 @@
     Passo a passo completo:
 
     1. BUILD
+       - Executa npm run build:server na raiz do projeto
        - Executa npm run build:electron:win:portable na raiz do projeto
        - Gera dist/xbox-360-companion-Portable-<VERSION>.exe
 
@@ -68,8 +69,17 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ─── CONFIG ──────────────────────────────────────────
-$VERSION = "2.12.26"
-$PROJECT_ROOT = "E:\projects\GODSend"
+$PROJECT_ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
+$PACKAGE_JSON = Join-Path $PROJECT_ROOT "package.json"
+if (-not (Test-Path -LiteralPath $PACKAGE_JSON)) {
+    throw "package.json nao encontrado em: $PACKAGE_JSON"
+}
+
+$VERSION = (Get-Content -LiteralPath $PACKAGE_JSON -Raw -Encoding UTF8 | ConvertFrom-Json).version
+if (-not $VERSION) {
+    throw "Nao foi possivel ler a versao em: $PACKAGE_JSON"
+}
+
 $DIST_DIR = Join-Path $PROJECT_ROOT "dist"
 $ENV_FILE = Join-Path $PROJECT_ROOT "build.properties"
 
@@ -120,12 +130,18 @@ function Find-Rclone {
 if (-not $SkipBuild) {
     Print-Step "PASSO 1/3: Build do Portable ($VERSION)"
 
-    Write-Host "Executando npm run build:electron:win:portable..." -ForegroundColor Yellow
+    Write-Host "Executando npm run build:server..." -ForegroundColor Yellow
     Push-Location -LiteralPath $PROJECT_ROOT
     try {
+        npm run build:server 2>&1
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
+            throw "npm build:server falhou com exit code $LASTEXITCODE"
+        }
+
+        Write-Host "Executando npm run build:electron:win:portable..." -ForegroundColor Yellow
         npm run build:electron:win:portable 2>&1
         if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
-            throw "npm build falhou com exit code $LASTEXITCODE"
+            throw "npm build:electron:win:portable falhou com exit code $LASTEXITCODE"
         }
     } finally {
         Pop-Location

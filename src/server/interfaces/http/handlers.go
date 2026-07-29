@@ -781,11 +781,16 @@ func (d *Deps) handleDataClear(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			}
 		}(job)
 	}
-	// Clear Ready/ and Temp/ directories
+	// Clear Ready/ and Temp/ directories. TempDir/TorrentTempDir may live on
+	// another drive (auto-selected roomiest volume), so clear them explicitly.
 	os.RemoveAll(filepath.Join(d.App.ToolsDir, "Ready"))
 	os.RemoveAll(filepath.Join(d.App.ToolsDir, "Temp"))
+	os.RemoveAll(d.App.TempDir)
+	os.RemoveAll(d.App.TorrentTempDir)
 	os.MkdirAll(filepath.Join(d.App.ToolsDir, "Ready"), 0755)
 	os.MkdirAll(filepath.Join(d.App.ToolsDir, "Temp"), 0755)
+	os.MkdirAll(d.App.TempDir, 0755)
+	os.MkdirAll(d.App.TorrentTempDir, 0755)
 
 	jsonSuccess(w, map[string]string{"status": "cleared"})
 }
@@ -796,6 +801,8 @@ func (d *Deps) handleServerConfig(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 		"default_drive":    d.App.DefaultXboxDrive,
 		"custom_god_path":  d.App.CustomGodPath,
 		"custom_xex_path":  d.App.CustomXexPath,
+		"temp_dir":         d.App.TempDir,        // resolved processing scratch (may be auto-relocated)
+		"torrent_temp_dir": d.App.TorrentTempDir, // resolved aria2c download staging
 	})
 }
 

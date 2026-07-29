@@ -42,7 +42,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
 	os.MkdirAll(gameDir, 0755)
 
-	torrentDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_torrent")
+	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
 	os.MkdirAll(torrentDir, 0755)
 	defer os.RemoveAll(torrentDir)
 	s.App.Logf("Minerva Torrent: %s → %s", gameName, entry.FileName)
@@ -56,7 +56,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 	installType := s.App.LookupInstallType(gameName)
 
 	if installType == "xex" {
-		extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_mext")
+		extDir := filepath.Join(s.App.TempDir, safeName+"_mext")
 		os.RemoveAll(extDir)
 		s.App.LogStatus(gameName, "Processing", "Extracting archive for XEX...")
 		if err := utils.ExtractArchive(archivePath, extDir); err != nil {
@@ -70,7 +70,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 		if xexFolder != "" {
 			folderName = filepath.Base(xexFolder)
 		} else if isoInArchive := helpers.FindFileByExt(extDir, ".iso"); isoInArchive != "" {
-			isoXexDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_mxex")
+			isoXexDir := filepath.Join(s.App.TempDir, safeName+"_mxex")
 			os.RemoveAll(isoXexDir)
 			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
 			if err := utils.ExtractXEXFolderFromISO(isoInArchive, isoXexDir); err != nil {
@@ -121,7 +121,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting ISO...")
-	isoPath, err := utils.ExtractISO(archivePath, safeName, filepath.Join(s.App.ToolsDir, "Temp"))
+	isoPath, err := utils.ExtractISO(archivePath, safeName, filepath.Join(s.App.TempDir))
 	os.Remove(archivePath)
 	if err != nil {
 		return fmt.Errorf("Extract failed: %w", err)
@@ -134,7 +134,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Converting to GOD...")
-	godDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_MGOD")
+	godDir := filepath.Join(s.App.TempDir, safeName+"_MGOD")
 	os.MkdirAll(godDir, 0755)
 	if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
 		os.Remove(isoPath)
@@ -175,7 +175,7 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
 	os.MkdirAll(gameDir, 0755)
 
-	torrentDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_torrent")
+	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
 	os.MkdirAll(torrentDir, 0755)
 	defer os.RemoveAll(torrentDir)
 	s.App.LogStatus(gameName, "Processing", "Starting Minerva torrent download...")
@@ -185,7 +185,7 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting archive...")
-	extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_mgext")
+	extDir := filepath.Join(s.App.TempDir, safeName+"_mgext")
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
@@ -196,7 +196,7 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 	isoPath := helpers.FindFileByExt(extDir, ".iso")
 	if isoPath != "" {
 		s.App.LogStatus(gameName, "Processing", "Converting to GOD...")
-		godDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_MGGOD")
+		godDir := filepath.Join(s.App.TempDir, safeName+"_MGGOD")
 		os.MkdirAll(godDir, 0755)
 		if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
 			os.RemoveAll(godDir)
@@ -278,7 +278,7 @@ func (s *Service) ProcessMinervaDigitalWithErr(gameName string, entry models.Min
 	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
 	os.MkdirAll(gameDir, 0755)
 
-	torrentDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_torrent")
+	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
 	os.MkdirAll(torrentDir, 0755)
 	defer os.RemoveAll(torrentDir)
 	s.App.LogStatus(gameName, "Processing", "Starting Minerva torrent download...")
@@ -288,7 +288,7 @@ func (s *Service) ProcessMinervaDigitalWithErr(gameName string, entry models.Min
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting...")
-	extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_mdext")
+	extDir := filepath.Join(s.App.TempDir, safeName+"_mdext")
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {

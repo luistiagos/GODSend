@@ -8,6 +8,8 @@ import http from "http";
 import path from "path";
 import fs from "fs";
 
+import { backendGet } from "../infrastructure/backendHttp";
+
 import {
   getDefaultAppDataDir,
   setAppDataDirOverride,
@@ -18,7 +20,6 @@ import {
   getConfiguredStoragePath,
   getConfiguredTorrentTempPath,
   getDefaultTorrentTempPath,
-  getEffectiveTorrentTempPath,
   getConfiguredTransferFolder,
   getConfiguredSaveBackupFolder,
   getDefaultTransferFolder,
@@ -108,9 +109,26 @@ export function register(ipcMain: IpcMain): void {
   // ── Torrent download temp (GODSEND_TORRENT_TEMP) ───────────────────────────
   ipcMain.handle("config:get-torrent-temp-path", () => getConfiguredTorrentTempPath());
 
-  ipcMain.handle("config:get-effective-torrent-temp-path", () => {
+  // Read a path the backend actually resolved (reported at /config), or "" if
+  // the backend is unreachable. Lets the UI show the auto-selected drive instead
+  // of the stale computed default. Never throws — falls back to the computed path.
+  const backendResolvedPath = async (key: string): Promise<string> => {
+    try {
+      const cfg = JSON.parse(await backendGet("/config"));
+      const v = cfg?.[key];
+      return typeof v === "string" ? v : "";
+    } catch {
+      return "";
+    }
+  };
+
+  ipcMain.handle("config:get-effective-torrent-temp-path", async () => {
     const writableRoot = getWritableRuntimeRoot();
-    return getEffectiveTorrentTempPath(writableRoot);
+    // A user override is authoritative; otherwise the backend auto-selects the
+    // roomiest drive, so report the path it actually resolved.
+    const custom = getConfiguredTorrentTempPath();
+    if (custom) return path.resolve(custom);
+    return (await backendResolvedPath("torrent_temp_dir")) || getDefaultTorrentTempPath(writableRoot);
   });
 
   ipcMain.handle("config:get-default-torrent-temp-path", () => {
@@ -118,8 +136,9 @@ export function register(ipcMain: IpcMain): void {
     return getDefaultTorrentTempPath(writableRoot);
   });
 
-  ipcMain.handle("config:get-effective-backend-temp-path", () => {
-    return path.join(getWritableRuntimeRoot(), "Temp");
+  ipcMain.handle("config:get-effective-backend-temp-path", async () => {
+    // The backend may relocate its processing temp to the roomiest drive.
+    return (await backendResolvedPath("temp_dir")) || path.join(getWritableRuntimeRoot(), "Temp");
   });
 
   ipcMain.handle("config:set-torrent-temp-path", (_event, folder) => {

@@ -50,7 +50,7 @@ func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 
 	installType := s.App.LookupInstallType(gameName)
 	if installType == "xex" {
-		xexDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_xex")
+		xexDir := filepath.Join(s.App.TempDir, safeName+"_xex")
 		os.RemoveAll(xexDir)
 		s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
 		if err := utils.ExtractXEXFolderFromISO(isoPath, xexDir); err != nil {
@@ -120,7 +120,7 @@ func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 	os.MkdirAll(gameDir, 0755)
 
 	s.App.LogStatus(gameName, "Processing", "Converting ISO to GOD...")
-	godDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_GOD")
+	godDir := filepath.Join(s.App.TempDir, safeName+"_GOD")
 	os.MkdirAll(godDir, 0755)
 	if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
 		s.App.LogStatus(gameName, "Error", fmt.Sprintf("GOD convert: %v", err))
@@ -179,7 +179,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	downloadURL := app.IADownloadBase + entry.CollectionID + "/" + url.PathEscape(entry.FileName)
 	s.App.Logf("IA Download: %s → %s", gameName, entry.FileName)
 
-	archivePath := filepath.Join(s.App.ToolsDir, "Temp", safeName+filepath.Ext(entry.FileName))
+	archivePath := filepath.Join(s.App.TempDir, safeName+filepath.Ext(entry.FileName))
 	s.App.LogStatus(gameName, "Processing", "Downloading from Internet Archive...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, app.IADownloadBase); err != nil {
 		s.App.Logf("ERROR [%s]: IA download failed: %v", gameName, err)
@@ -189,7 +189,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	installType := s.App.LookupInstallType(gameName)
 
 	if installType == "xex" {
-		extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_ext")
+		extDir := filepath.Join(s.App.TempDir, safeName+"_ext")
 		os.RemoveAll(extDir)
 		s.App.LogStatus(gameName, "Processing", "Extracting archive for XEX...")
 		if err := utils.ExtractArchive(archivePath, extDir); err != nil {
@@ -205,7 +205,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		if xexFolder != "" {
 			folderName = filepath.Base(xexFolder)
 		} else if isoInArchive := helpers.FindFileByExt(extDir, ".iso"); isoInArchive != "" {
-			isoXexDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_xex")
+			isoXexDir := filepath.Join(s.App.TempDir, safeName+"_xex")
 			os.RemoveAll(isoXexDir)
 			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
 			if err := utils.ExtractXEXFolderFromISO(isoInArchive, isoXexDir); err != nil {
@@ -257,7 +257,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting ISO...")
-	isoPath, err := utils.ExtractISO(archivePath, safeName, filepath.Join(s.App.ToolsDir, "Temp"))
+	isoPath, err := utils.ExtractISO(archivePath, safeName, filepath.Join(s.App.TempDir))
 	os.Remove(archivePath)
 	if err != nil {
 		s.App.Logf("ERROR [%s]: Extract failed: %v", gameName, err)
@@ -271,7 +271,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Converting to GOD...")
-	godDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_GOD")
+	godDir := filepath.Join(s.App.TempDir, safeName+"_GOD")
 	os.MkdirAll(godDir, 0755)
 	if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
 		s.App.Logf("ERROR [%s]: iso2god failed: %v", gameName, err)

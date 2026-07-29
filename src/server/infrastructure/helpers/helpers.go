@@ -136,7 +136,7 @@ func BucketAndZip(a *app.App, src, dest, gameName, safeName string) (string, str
 	if err != nil {
 		return "", "", err
 	}
-	staging := filepath.Join(a.ToolsDir, "Temp", safeName+"_staging")
+	staging := filepath.Join(a.TempDir, safeName+"_staging")
 	os.RemoveAll(staging)
 	os.MkdirAll(staging, 0755)
 	var parts []string

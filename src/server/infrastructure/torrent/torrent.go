@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -192,6 +193,80 @@ func torrentBasenameMatches(torrentBase, entryFileName string) bool {
 	return false
 }
 
+// aria2cExitMessages maps aria2c's documented exit codes to human-readable
+// causes so failures surface a real reason instead of a bare "exit status N".
+// See the aria2 manual "EXIT STATUS" section.
+var aria2cExitMessages = map[int]string{
+	2:  "timed out",
+	3:  "a resource was not found",
+	4:  "too many resources not found",
+	5:  "download was too slow and aborted",
+	6:  "network problem",
+	7:  "unfinished downloads remained",
+	8:  "server did not support resume",
+	9:  "not enough disk space available",
+	11: "aria2c was already downloading the same file",
+	12: "aria2c was already downloading the same torrent",
+	13: "file already existed",
+	16: "could not create or truncate the file",
+	17: "file I/O error",
+	18: "could not create the download directory",
+	19: "name resolution failed",
+	22: "bad or unexpected HTTP response header",
+	24: "HTTP authorization failed",
+	25: "could not parse the .torrent file",
+	26: "the .torrent file was corrupted or incomplete",
+}
+
+// describeAria2cExit turns aria2c's process exit error into a human-readable
+// string, e.g. "not enough disk space available (exit 9)". Non-exit errors
+// (failed to start, killed by signal) fall through to the raw error text.
+func describeAria2cExit(err error) string {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		code := ee.ExitCode()
+		if msg, ok := aria2cExitMessages[code]; ok {
+			return fmt.Sprintf("%s (exit %d)", msg, code)
+		}
+		return fmt.Sprintf("exit status %d", code)
+	}
+	return err.Error()
+}
+
+// stagingSpaceMargin is headroom kept free on the download staging volume, on
+// top of the selected file size, for BitTorrent piece boundaries and metadata.
+const stagingSpaceMargin = 512 * 1024 * 1024 // 512 MB
+
+// freeSpaceQuery reduces a directory path to the value FreeSpaceBytes expects:
+// the volume root on Windows (e.g. "F:\") so the check works even before the
+// directory is created, or the path itself elsewhere.
+func freeSpaceQuery(dir string) string {
+	if vol := filepath.VolumeName(dir); vol != "" {
+		return vol + string(filepath.Separator)
+	}
+	return dir
+}
+
+// aria2cSummaryNoise reports whether a line belongs to aria2c's periodic
+// "*** Download Progress Summary ***" block (header, separators, FILE: lines,
+// compact progress readouts). These repeat every few seconds and would flood
+// the diagnostic tail, burying the actual error line, so we exclude them.
+func aria2cSummaryNoise(line string) bool {
+	switch {
+	case strings.HasPrefix(line, "*** Download Progress Summary"):
+		return true
+	case strings.HasPrefix(line, "FILE:"):
+		return true
+	case strings.HasPrefix(line, "[#"): // compact progress readout
+		return true
+	case line != "" && strings.Trim(line, "=") == "": // separator rule
+		return true
+	case line != "" && strings.Trim(line, "-") == "": // separator rule
+		return true
+	}
+	return false
+}
+
 // DownloadViaTorrent uses aria2c to download a single file from the Minerva collection torrent.
 // It fetches the .torrent from Minerva's URL, finds the target file's 1-based index, then
 // shells out to aria2c with --select-file so only that file is downloaded.
@@ -242,6 +317,22 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 	if err := os.MkdirAll(s.App.TorrentTempDir, 0755); err != nil {
 		return "", fmt.Errorf("create torrent temp dir: %w", err)
 	}
+
+	// Fail fast when the staging volume can't hold the file. Otherwise aria2c
+	// downloads for many minutes and dies with the opaque "exit 9" (disk full)
+	// on a drive the UI never shows — the destination's free space is unrelated,
+	// because the download stages here, not on the destination.
+	if free, ferr := helpers.FreeSpaceBytes(freeSpaceQuery(s.App.TorrentTempDir)); ferr == nil {
+		if uint64(fileSize)+stagingSpaceMargin > free {
+			return "", fmt.Errorf(
+				"espaço insuficiente no disco de download (%s): %q precisa de ~%.1f GB, mas há só %.1f GB livres. Aponte o \"torrent download temp\" (Settings → Temporary directories, ou GODSEND_TORRENT_TEMP) para um disco com espaço",
+				freeSpaceQuery(s.App.TorrentTempDir), entry.FileName,
+				float64(fileSize)/1073741824, float64(free)/1073741824)
+		}
+	} else {
+		s.App.Logf("TORRENT [%s]: não foi possível medir espaço livre em %s: %v (seguindo)", gameName, s.App.TorrentTempDir, ferr)
+	}
+
 	tf, err := os.CreateTemp(s.App.TorrentTempDir, "godsend-*.torrent")
 	if err != nil {
 		return "", fmt.Errorf("create temp torrent: %w", err)
@@ -348,8 +439,12 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 				s.App.LogStatus(gameName, "Processing", msg)
 				continue
 			}
-			// Keep non-progress lines for post-mortem
-			appendTail(line)
+			// Log every line, but keep only genuine warnings/errors in the
+			// tail — aria2c's periodic summary block would otherwise bury the
+			// real error message that explains the failure.
+			if !aria2cSummaryNoise(line) {
+				appendTail(line)
+			}
 			s.App.Logf("TORRENT [%s]: aria2c: %s", gameName, line)
 		}
 	}()
@@ -363,7 +458,7 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		if tail == "" {
 			tail = "(no output captured)"
 		}
-		return "", fmt.Errorf("aria2c: %w — last output: %s", waitErr, tail)
+		return "", fmt.Errorf("aria2c: %s — last output: %s", describeAria2cExit(waitErr), tail)
 	}
 
 	// Walk the short temp dir to find the downloaded file.

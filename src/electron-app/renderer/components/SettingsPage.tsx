@@ -787,7 +787,9 @@ export default function SettingsPage({
               pastas de conversão ISO→GOD, staging pós-torrent do Minerva (
               <code>&lt;game&gt;_torrent</code>), buffers de cópia/movimentação do Gerenciador FTP e
               downloads de keyvault de saves. Limpa com <strong>Limpar dados locais</strong> na tela inicial.
-              Segue a <strong>Pasta de armazenamento local</strong> — não é configurável à parte.
+              No Windows, o processamento por jogo (download/extração/GOD) é movido automaticamente para o
+              disco fixo NTFS/exFAT com mais espaço livre — evitando encher o disco do app. O caminho acima é
+              o que o backend está realmente usando.
             </PathExplain>
 
             <div className="mt-4">

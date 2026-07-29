@@ -46,7 +46,7 @@ func (s *Service) processContentInstallFromISO(gameName, safeName, isoPath strin
 	s.App.Logf("Content install: TitleID=%s disc=%d/%d", titleID, info.DiscNumber, info.DiscCount)
 
 	s.App.LogStatus(gameName, "Processing", "Extracting content files from ISO...")
-	contentDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_content")
+	contentDir := filepath.Join(s.App.TempDir, safeName+"_content")
 	os.RemoveAll(contentDir)
 	os.MkdirAll(contentDir, 0755)
 	if err := utils.ExtractXDVDFSContentToDir(isoPath, contentDir, info); err != nil {
@@ -140,7 +140,7 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 	downloadURL := app.IADownloadBase + entry.CollectionID + "/" + url.PathEscape(entry.FileName)
 	s.App.Logf("IA Download: %s → %s", gameName, entry.FileName)
 
-	archivePath := filepath.Join(s.App.ToolsDir, "Temp", safeName+filepath.Ext(entry.FileName))
+	archivePath := filepath.Join(s.App.TempDir, safeName+filepath.Ext(entry.FileName))
 	s.App.LogStatus(gameName, "Processing", "Downloading from Internet Archive...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, app.IADownloadBase); err != nil {
 		s.App.Logf("ERROR [%s]: IA download failed: %v", gameName, err)
@@ -149,7 +149,7 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 	defer os.Remove(archivePath)
 
 	s.App.LogStatus(gameName, "Processing", "Extracting archive...")
-	extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_ext")
+	extDir := filepath.Join(s.App.TempDir, safeName+"_ext")
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
@@ -166,7 +166,7 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 		if xexFolder != "" {
 			folderName = filepath.Base(xexFolder)
 		} else if isoPath != "" {
-			isoXexDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_xex")
+			isoXexDir := filepath.Join(s.App.TempDir, safeName+"_xex")
 			os.RemoveAll(isoXexDir)
 			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
 			if err := utils.ExtractXEXFolderFromISO(isoPath, isoXexDir); err != nil {
@@ -227,7 +227,7 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 	// GOD (default): ISO → Games on Demand.
 	if isoPath != "" {
 		s.App.LogStatus(gameName, "Processing", "ISO detected, converting to GOD...")
-		godDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_GOD")
+		godDir := filepath.Join(s.App.TempDir, safeName+"_GOD")
 		os.MkdirAll(godDir, 0755)
 		if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
 			os.RemoveAll(godDir)
@@ -281,14 +281,14 @@ func (s *Service) ProcessDigitalWithErr(gameName, platform string) error {
 	}
 	downloadURL := app.IADownloadBase + entry.CollectionID + "/" + url.PathEscape(entry.FileName)
 
-	archivePath := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_digi"+filepath.Ext(entry.FileName))
+	archivePath := filepath.Join(s.App.TempDir, safeName+"_digi"+filepath.Ext(entry.FileName))
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, app.IADownloadBase); err != nil {
 		return fmt.Errorf("Download failed: %w", err)
 	}
 	defer os.Remove(archivePath)
 
 	s.App.LogStatus(gameName, "Processing", "Extracting...")
-	extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_ext")
+	extDir := filepath.Join(s.App.TempDir, safeName+"_ext")
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {

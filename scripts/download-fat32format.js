@@ -72,6 +72,14 @@ function extractExeFromZip(buf) {
 
 async function main() {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
+
+  // Already present (e.g. checked out from a previous build or placed manually) —
+  // skip the network fetch so an offline/unreachable-mirror build still succeeds.
+  if (fs.existsSync(OUT) && fs.statSync(OUT).size >= 10000) {
+    console.log(`  skip (exists): ${path.basename(OUT)}`);
+    return;
+  }
+
   let lastErr;
 
   for (const url of EXE_URLS) {

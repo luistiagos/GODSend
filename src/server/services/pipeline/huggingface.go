@@ -36,7 +36,7 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
 	os.MkdirAll(gameDir, 0755)
 
-	archivePath := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_hf.7z")
+	archivePath := filepath.Join(s.App.TempDir, safeName+"_hf.7z")
 	s.App.LogStatus(gameName, "Processing", "Downloading from HuggingFace...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, "huggingface.co"); err != nil {
 		s.App.Logf("ERROR [%s]: HuggingFace download failed: %v", gameName, err)
@@ -45,7 +45,7 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	defer os.Remove(archivePath)
 
 	s.App.LogStatus(gameName, "Processing", "Extracting HuggingFace archive...")
-	extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_hf_ext")
+	extDir := filepath.Join(s.App.TempDir, safeName+"_hf_ext")
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {

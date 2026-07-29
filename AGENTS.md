@@ -191,6 +191,7 @@ Build-script map (run from repo root):
 | Script | Purpose | Dependencies |
 |---|---|---|
 | `build-and-upload.ps1` | Build portable + upload to HuggingFace (versioned) + upload to R2 as `xboxcompanion.exe` (unversioned) | PowerShell 5.1+, Node.js, `rclone`, `huggingface_hub` |
+| `build-portable-local.ps1` | Build the Windows portable executable locally without uploading | PowerShell 5.1+, Node.js |
 | `upload-hf.ps1` | Upload portable to HuggingFace `XBOX360Companion/` folder only | `huggingface_hub` |
 | `upload-r2.ps1` | Upload portable as `xboxcompanion.exe` to R2 only | `rclone` |
 

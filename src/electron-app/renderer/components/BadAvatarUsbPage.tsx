@@ -53,6 +53,10 @@ function blockReason(device?: UsbDrive): string {
 interface BadAvatarUsbPageProps {
   onBrowseGames?: () => void;
   onBackActionChange?: (action: (() => void) | null) => void;
+  initialIsRghOnly?: boolean | null;
+  startAtPreparation?: boolean;
+  onBackToPrevious?: () => void;
+  embedded?: boolean;
 }
 
 function formatBytes(bytes?: number): string {
@@ -62,7 +66,14 @@ function formatBytes(bytes?: number): string {
   return `${Math.round(bytes / (1024 ** 2))} MB`;
 }
 
-export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: BadAvatarUsbPageProps) {
+export default function BadAvatarUsbPage({
+  onBrowseGames,
+  onBackActionChange,
+  initialIsRghOnly = null,
+  startAtPreparation = false,
+  onBackToPrevious,
+  embedded = false,
+}: BadAvatarUsbPageProps) {
   const [drives, setDrives] = useState<UsbDrive[]>([]);
   const [selectedDrive, setSelectedDrive] = useState("");
   const [loading, setLoading] = useState(false);
@@ -82,6 +93,12 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
   // Wizard state: "detect" | "unlock-selection" | "preparation"
   const [step, setStep] = useState<"detect" | "unlock-selection" | "preparation" | null>(null);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+  useEffect(() => {
+    if (initialIsRghOnly !== null) {
+      setIsRghOnly(initialIsRghOnly);
+    }
+  }, [initialIsRghOnly]);
 
   const refreshDrives = useCallback(async () => {
     setLoading(true);
@@ -134,13 +151,15 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
   useEffect(() => {
     if (hasLoadedOnce && step === null) {
       const hasPrepared = drives.some((d) => d.alreadyPrepared);
-      if (hasPrepared) {
+      if (startAtPreparation && initialIsRghOnly !== null) {
+        setStep("preparation");
+      } else if (hasPrepared) {
         setStep("detect");
       } else {
         setStep("unlock-selection");
       }
     }
-  }, [hasLoadedOnce, drives, step]);
+  }, [hasLoadedOnce, drives, step, startAtPreparation, initialIsRghOnly]);
 
   // Redirect to unlock-selection if the prepared device is disconnected
   useEffect(() => {
@@ -156,9 +175,11 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
     const hasPrepared = drives.some((d) => d.alreadyPrepared);
 
     if (step === "preparation") {
-      onBackActionChange(() => () => setStep("unlock-selection"));
+      onBackActionChange(() => onBackToPrevious || (() => setStep("unlock-selection")));
     } else if (step === "unlock-selection" && hasPrepared) {
       onBackActionChange(() => () => setStep("detect"));
+    } else if (step === "detect" && onBackToPrevious) {
+      onBackActionChange(() => onBackToPrevious);
     } else {
       onBackActionChange(null);
     }
@@ -166,7 +187,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
     return () => {
       onBackActionChange(null);
     };
-  }, [step, drives, onBackActionChange]);
+  }, [step, drives, onBackActionChange, onBackToPrevious]);
 
   useEffect(() => window.godsendApi.onBadAvatarPrepareProgress(
     (progress: { status?: string; percent?: number; detail?: string }) => {
@@ -371,15 +392,22 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
 
   // Step 3: Preparation Page
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
-      <div className="animate-fade-in flex flex-col gap-4">
-        <header className="mb-5 text-center relative">
+    <main className={embedded ? "mx-auto w-full max-w-3xl" : "mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7"}>
+      <section className={embedded ? "w-full" : "card-surface overflow-hidden p-4 sm:p-5 md:p-6"}>
+        <div className="animate-fade-in flex flex-col gap-4 sm:gap-5">
+        <header className="text-center relative">
           {!onBackActionChange && (
             <Button
               variant="ghost"
               size="sm"
               className="absolute left-0 top-1 text-muted-foreground hover:text-foreground text-[12px] flex items-center gap-1.5 p-0"
-              onClick={() => setStep("unlock-selection")}
+              onClick={() => {
+                if (onBackToPrevious) {
+                  onBackToPrevious();
+                  return;
+                }
+                setStep("unlock-selection");
+              }}
             >
               &larr; Voltar
             </Button>
@@ -397,7 +425,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
           </p>
         </header>
 
-        <section className="card-surface p-4 sm:p-5">
+        <section className="rounded-xl border border-border/50 bg-background/10 p-4 sm:p-5">
           <div className="mb-3 flex items-center gap-2">
             <Usb className="h-4 w-4 text-green-400" />
             <h2 className="text-[13px] font-semibold text-foreground">Dispositivo conectado</h2>
@@ -474,8 +502,8 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
           )}
         </section>
 
-        <section className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="card-surface flex items-start gap-3 p-4">
+        <section className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-border/50 bg-background/10 flex items-start gap-3 p-4">
             <div className="mt-0.5 rounded-lg bg-green-500/10 p-2 text-green-400">
               <Check className="h-4 w-4" />
             </div>
@@ -491,7 +519,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
             </div>
           </div>
 
-          <label className={`card-surface flex items-start gap-3 p-4 ${!formatAvailable ? "opacity-60" : "cursor-pointer"}`}>
+          <label className={`rounded-xl border border-border/50 bg-background/10 flex items-start gap-3 p-4 ${!formatAvailable ? "opacity-60" : "cursor-pointer"}`}>
             <Checkbox
               checked={formatDrive}
               disabled={!formatAvailable || loading || busy}
@@ -512,7 +540,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
 
         {!isRghOnly && (
           <>
-            <details className="mt-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+            <details className="rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
               <summary className="cursor-pointer font-medium text-foreground">
                 Como funciona e o que esperar
               </summary>
@@ -531,7 +559,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
               </ul>
             </details>
 
-            <details className="mt-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+            <details className="rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
               <summary className="cursor-pointer font-medium text-foreground">
                 Como verificar a versão do sistema (dashboard) do meu Xbox 360?
               </summary>
@@ -551,7 +579,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
               </div>
             </details>
 
-            <details className="mt-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+            <details className="rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
               <summary className="cursor-pointer font-medium text-foreground">
                 Como corrigir os avatares cinzas (instalar dados de avatar/Kinect)?
               </summary>
@@ -577,7 +605,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
               </div>
             </details>
 
-            <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
               <Checkbox
                 checked={requirementsAccepted}
                 disabled={loading || busy}
@@ -593,13 +621,13 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
         )}
 
         {isRghOnly && (
-          <div className="mt-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+          <div className="rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
             <span className="font-medium text-foreground block mb-1">Como funciona o Boot RGH</span>
             Ao plugar este pendrive/HD no Xbox 360 com RGH, o painel Aurora carregará automaticamente no boot usando o arquivo <code className="bg-muted px-1 py-0.5 rounded">launch.ini</code> configurado. Os jogos baixados aparecerão na tela na hora.
           </div>
         )}
 
-        <div className="mt-4">
+        <div>
           <Button
             variant={selectedDevice?.alreadyPrepared ? "default" : "primary"}
             className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
@@ -612,7 +640,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
         </div>
 
         {(busy || status || error || done) && (
-          <div className={`mt-3 rounded-lg border px-3 py-3 ${error ? "border-red-500/30 bg-red-500/10" : done ? "border-green-500/40 bg-green-950/20" : "border-border bg-muted/30"}`}>
+          <div className={`rounded-lg border px-3 py-3 ${error ? "border-red-500/30 bg-red-500/10" : done ? "border-green-500/40 bg-green-950/20" : "border-border bg-muted/30"}`}>
             <div
               className="h-2 overflow-hidden rounded-full bg-background"
               role="progressbar"
@@ -649,7 +677,7 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
         )}
 
         {!preparationEnabled && (
-          <div className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2.5 text-center text-[11px] text-amber-300">
+          <div className="rounded-lg bg-amber-500/10 px-3 py-2.5 text-center text-[11px] text-amber-300">
             A preparação automática ainda não está disponível nesta versão.
             {preparationBlockers.length > 0 && (
               <details className="mt-1 text-left text-muted-foreground">
@@ -661,7 +689,8 @@ export default function BadAvatarUsbPage({ onBrowseGames, onBackActionChange }: 
             )}
           </div>
         )}
-      </div>
+        </div>
+      </section>
     </main>
   );
 }

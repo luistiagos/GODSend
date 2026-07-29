@@ -46,7 +46,7 @@ The backend reads all its settings from environment variables — no config file
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GODSEND_HOME` | Recommended | Root directory for `Transfer/`, `Ready/`, `Temp/`, `cache/`. Defaults to the binary's directory. |
-| `GODSEND_TORRENT_TEMP` | No | aria2c Minerva torrent staging (default `$GODSEND_HOME/Temp/torrent-dl`). |
+| `GODSEND_TORRENT_TEMP` | No | aria2c Minerva torrent staging. When unset, Windows auto-selects the roomiest fixed NTFS/exFAT drive (`<drive>\godsend-temp\torrent-dl`); otherwise falls back to `$GODSEND_HOME/Temp/torrent-dl`. |
 | `GODSEND_TRANSFER` | No | Override the Transfer folder independently (defaults to `$GODSEND_HOME/Transfer`). |
 | `GODSEND_PORT` | No | HTTP listen port (default `8080`). |
 | `GODSEND_IA_COOKIE` | For IA | `logged-in-user=…; logged-in-sig=…` session cookie from archive.org. |

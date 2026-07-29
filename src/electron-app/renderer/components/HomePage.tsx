@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Usb, Wifi, Search, Loader2, CheckCircle2, AlertTriangle, Terminal,
-  ArrowRight, Settings, Play, HardDrive, RefreshCw
+  ArrowRight, Settings, Play, HardDrive, RefreshCw, Gamepad2, ArrowLeft
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -53,7 +53,9 @@ export default function HomePage({
   const outputRef = useRef<HTMLPreElement>(null);
   
   // Simple Mode state
-  const [targetMode, setTargetMode] = useState<"usb" | "network">("usb");
+  const [wizardStep, setWizardStep] = useState<"checking-prepared" | "prepared-detected" | "unlock" | "method" | "usb" | "network">("checking-prepared");
+  const [preparedDeviceDetected, setPreparedDeviceDetected] = useState(false);
+  const [selectedUnlockMode, setSelectedUnlockMode] = useState<boolean | null>(null);
   const [scanState, setScanState] = useState<"idle" | "checking" | "scanning" | "connecting" | "success" | "not-found" | "error">("idle");
   const [xboxIp, setXboxIp] = useState("");
   const [manualIp, setManualIp] = useState("");
@@ -79,12 +81,40 @@ export default function HomePage({
     }
   }, [simpleMode]);
 
+  useEffect(() => {
+    if (!simpleMode) return undefined;
+
+    let cancelled = false;
+    window.godsendApi.toolsBadAvatarListDrives()
+      .then((result: any) => {
+        if (cancelled) return;
+        const hasPrepared = result?.ok === true &&
+          Array.isArray(result.drives) &&
+          result.drives.some((drive: any) => drive?.alreadyPrepared === true);
+
+        setPreparedDeviceDetected(hasPrepared);
+        setWizardStep((current) => (
+          current === "checking-prepared"
+            ? (hasPrepared ? "prepared-detected" : "unlock")
+            : current
+        ));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setWizardStep((current) => current === "checking-prepared" ? "unlock" : current);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [simpleMode]);
+
   // Auto-scan when switching to network mode
   useEffect(() => {
-    if (targetMode === "network" && scanState === "idle" && !xboxIp) {
+    if (wizardStep === "network" && scanState === "idle" && !xboxIp) {
       handleAutoDiscovery();
     }
-  }, [targetMode]);
+  }, [wizardStep]);
 
   const handleAutoDiscovery = async () => {
     setScanState("checking");
@@ -221,6 +251,11 @@ export default function HomePage({
     }
   }
 
+  const goToMethod = useCallback(() => {
+    setBackAction(null);
+    setWizardStep("method");
+  }, []);
+
   // ── Render Advanced Mode (Legacy terminal logs) ───────────────────────────
   if (!simpleMode) {
     return (
@@ -269,6 +304,7 @@ export default function HomePage({
 
   // ── Render Simple Mode (Friendly Dashboard) ──────────────────────────────
   const isXboxConnected = ftpStatus === "connected";
+  const unlockModeLabel = selectedUnlockMode ? "Xbox Desbloqueado RGH" : "Xbox Bloqueado ou LT";
 
   return (
     <div className="flex h-screen flex-col gap-5 overflow-y-auto px-4 py-5">
@@ -283,56 +319,209 @@ export default function HomePage({
         </p>
       </header>
 
-      {/* Mode Selector Cards */}
-      <div className="mx-auto grid w-full max-w-4xl grid-cols-1 gap-4 md:grid-cols-2">
-        <button
-          onClick={() => setTargetMode("usb")}
-          className={`flex flex-col text-left p-5 rounded-xl border transition-all ${
-            targetMode === "usb"
-              ? "bg-[#22c55e]/5 border-[#22c55e] shadow-lg shadow-[#22c55e]/5 ring-1 ring-[#22c55e]/35"
-              : "bg-surface/50 border-border hover:bg-surface hover:border-muted-foreground/30"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-lg ${targetMode === "usb" ? "bg-[#22c55e]/10 text-[#22c55e]" : "bg-muted text-muted-foreground"}`}>
-              <Usb className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="font-semibold text-[14px]">Gravar em um Pendrive ou HD</h2>
-                <span className="text-[9px] bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20 px-1.5 py-0.5 rounded font-medium">Bloqueado / LT / RGH</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">Ideal para rodar jogos diretamente do USB, consoles bloqueados/LT ou RGH sem rede.</p>
-            </div>
-          </div>
-        </button>
-
-        <button
-          onClick={() => setTargetMode("network")}
-          className={`flex flex-col text-left p-5 rounded-xl border transition-all ${
-            targetMode === "network"
-              ? "bg-[#22c55e]/5 border-[#22c55e] shadow-lg shadow-[#22c55e]/5 ring-1 ring-[#22c55e]/35"
-              : "bg-surface/50 border-border hover:bg-surface hover:border-muted-foreground/30"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-lg ${targetMode === "network" ? "bg-[#22c55e]/10 text-[#22c55e]" : "bg-muted text-muted-foreground"}`}>
-              <Wifi className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="font-semibold text-[14px]">Enviar direto para o Xbox (Rede)</h2>
-                <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-medium">Apenas RGH + Aurora</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">Transfira os jogos do computador direto para o videogame. Requer console RGH com Aurora.</p>
-            </div>
-          </div>
-        </button>
-      </div>
-
       {/* Main Mode View */}
-      <div className="card-surface mx-auto flex min-h-[350px] w-full max-w-4xl flex-col justify-between p-5">
-        {targetMode === "usb" ? (
+      <div className={wizardStep === "usb"
+        ? "mx-auto w-full max-w-4xl"
+        : "card-surface mx-auto flex min-h-[350px] w-full max-w-4xl flex-col justify-between p-5"}
+      >
+        {wizardStep === "checking-prepared" ? (
+          <div className="mx-auto flex h-[300px] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-5 text-muted-foreground sm:px-7">
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
+            <p className="text-[13px]">Verificando se já existe um pendrive ou HD preparado...</p>
+          </div>
+        ) : wizardStep === "prepared-detected" ? (
+          <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
+            <div className="animate-fade-in flex flex-col gap-4">
+              <header className="mb-5 text-center">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-green-500/10 text-green-400">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <h1 className="font-display text-xl font-bold text-foreground">
+                  Pendrive Xbox 360 detectado!
+                </h1>
+                <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+                  Encontramos um pendrive ou HD que já está preparado. Você pode pular o assistente e ir direto ao catálogo para incluir jogos nele.
+                </p>
+              </header>
+
+              <section className="card-surface p-5 flex flex-col gap-3">
+                <Button
+                  variant="primary"
+                  className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
+                  onClick={onNavigateBrowse}
+                >
+                  <Gamepad2 className="h-4 w-4" />
+                  Ir para o catálogo de jogos
+                </Button>
+
+                <Button
+                  variant="default"
+                  className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
+                  onClick={() => {
+                    setSelectedUnlockMode(null);
+                    setWizardStep("unlock");
+                  }}
+                >
+                  <HardDrive className="h-4 w-4" />
+                  Preparar outro pendrive/HD
+                </Button>
+              </section>
+            </div>
+          </div>
+        ) : wizardStep === "unlock" ? (
+          <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
+            <div className="animate-fade-in flex flex-col gap-4">
+              <header className="mb-5 text-center relative">
+                {preparedDeviceDetected && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute left-0 top-1 text-muted-foreground hover:text-foreground text-[12px] flex items-center gap-1.5 p-0"
+                    onClick={() => setWizardStep("prepared-detected")}
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    Voltar
+                  </Button>
+                )}
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-green-500/10 text-green-400">
+                  <Gamepad2 className="h-6 w-6" />
+                </div>
+                <h1 className="font-display text-xl font-bold text-foreground">
+                  Modo de Instalação
+                </h1>
+                <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+                  Primeiro selecione o tipo de desbloqueio do seu console Xbox 360.
+                </p>
+              </header>
+
+              <section className="card-surface p-4 sm:p-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
+                  <button
+                    type="button"
+                    className={`h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer ${selectedUnlockMode === false
+                      ? "border-green-500 bg-green-950/20 text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted/30"
+                      }`}
+                    onClick={() => setSelectedUnlockMode(false)}
+                  >
+                    Xbox Bloqueado ou LT
+                  </button>
+                  <button
+                    type="button"
+                    className={`h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer ${selectedUnlockMode === true
+                      ? "border-green-500 bg-green-950/20 text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted/30"
+                      }`}
+                    onClick={() => setSelectedUnlockMode(true)}
+                  >
+                    Xbox Desbloqueado RGH
+                  </button>
+                </div>
+
+                <details className="mb-5 rounded-lg border border-border/40 bg-muted/20 px-3.5 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
+                  <summary className="cursor-pointer font-medium text-foreground hover:text-green-400 select-none">
+                    Como saber qual é o desbloqueio do meu Xbox?
+                  </summary>
+                  <div className="mt-2.5 space-y-2 text-muted-foreground">
+                    <div>
+                      <span className="font-semibold text-foreground block">1. Como identificar o RGH:</span>
+                      Ligue o Xbox 360 pressionando o botão de <span className="font-medium text-foreground">Ejetar Bandeja (Eject)</span>. Se o videogame ligar em uma tela azul com textos brancos escrita <span className="font-medium text-foreground">XeLL Reloaded</span>, seu console é RGH.
+                    </div>
+                    <div>
+                      <span className="font-semibold text-foreground block">2. Como identificar o LT / LT+ 3.0:</span>
+                      Se o console liga diretamente na tela oficial do Xbox 360, mas consegue rodar jogos piratas gravados em discos de DVD normais, ele possui desbloqueio LT.
+                    </div>
+                    <div>
+                      <span className="font-semibold text-foreground block">3. Console Travado / Bloqueado:</span>
+                      Se o console liga na tela oficial do Xbox 360 e só aceita discos de jogos originais, ele é Travado.
+                    </div>
+                  </div>
+                </details>
+
+                <Button
+                  variant="primary"
+                  className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
+                  onClick={() => setWizardStep("method")}
+                  disabled={selectedUnlockMode === null}
+                >
+                  Avançar
+                </Button>
+              </section>
+            </div>
+          </div>
+        ) : wizardStep === "method" ? (
+          <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
+            <div className="animate-fade-in flex flex-col gap-4">
+              <div className="border-b border-border/40 pb-3 mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-semibold text-foreground flex items-center gap-1.5">
+                  <HardDrive className="h-4 w-4 text-[#22c55e]" />
+                  Método de envio
+                </span>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="rounded-full px-3.5 h-7 text-[12px] font-medium"
+                  onClick={() => setWizardStep("unlock")}
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Voltar
+                </Button>
+              </div>
+
+              <header className="mb-1 text-center">
+                <h1 className="font-display text-xl font-bold text-foreground">
+                  Como deseja enviar os jogos?
+                </h1>
+                <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+                  Desbloqueio escolhido: <span className="font-medium text-foreground">{unlockModeLabel}</span>.
+                </p>
+              </header>
+
+              <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <button
+                  onClick={() => setWizardStep("usb")}
+                  className="flex min-h-[124px] flex-col text-left p-5 rounded-xl border transition-all bg-surface/50 border-border hover:bg-surface hover:border-[#22c55e]/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#22c55e]/60"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-lg bg-[#22c55e]/10 text-[#22c55e]">
+                      <Usb className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="font-semibold text-[14px]">Gravar em um Pendrive ou HD</h2>
+                        <span className="text-[9px] bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20 px-1.5 py-0.5 rounded font-medium">Bloqueado / LT / RGH</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1">Ideal para rodar jogos diretamente do USB, consoles bloqueados/LT ou RGH sem rede.</p>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => selectedUnlockMode === true && setWizardStep("network")}
+                  disabled={selectedUnlockMode !== true}
+                  className={`flex min-h-[124px] flex-col text-left p-5 rounded-xl border transition-all ${
+                    selectedUnlockMode === true
+                      ? "bg-surface/50 border-border hover:bg-surface hover:border-[#22c55e]/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#22c55e]/60"
+                      : "bg-muted/20 border-border opacity-60 cursor-not-allowed"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2.5 rounded-lg ${selectedUnlockMode === true ? "bg-[#22c55e]/10 text-[#22c55e]" : "bg-muted text-muted-foreground"}`}>
+                      <Wifi className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="font-semibold text-[14px]">Enviar direto para o Xbox (Rede)</h2>
+                        <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-medium">Apenas RGH + Aurora</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1">Transfira os jogos do computador direto para o videogame. Requer console RGH com Aurora.</p>
+                    </div>
+                  </div>
+                </button>
+              </section>
+            </div>
+          </div>
+        ) : wizardStep === "usb" ? (
           /* USB Mode: Embed BadAvatarUsbPage */
           <div className="flex flex-col">
             <div className="border-b border-border/40 pb-3 mb-4 flex items-center justify-between">
@@ -340,19 +529,23 @@ export default function HomePage({
                 <HardDrive className="h-4 w-4 text-[#22c55e]" />
                 Preparação de Dispositivo USB
               </span>
-              {backAction && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="rounded-full px-3.5 h-7 text-[12px] font-medium"
-                  onClick={backAction}
-                >
-                  Voltar
-                </Button>
-              )}
+              <Button
+                variant="default"
+                size="sm"
+                className="rounded-full px-3.5 h-7 text-[12px] font-medium"
+                onClick={backAction || goToMethod}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Voltar
+              </Button>
             </div>
             <div>
-              <BadAvatarUsbPage onBrowseGames={onNavigateBrowse} onBackActionChange={setBackAction} />
+              <BadAvatarUsbPage
+                onBrowseGames={onNavigateBrowse}
+                initialIsRghOnly={selectedUnlockMode}
+                startAtPreparation
+                onBackToPrevious={goToMethod}
+              />
             </div>
           </div>
         ) : (
@@ -364,19 +557,30 @@ export default function HomePage({
                   <Wifi className="h-4 w-4 text-[#22c55e]" />
                   Conexão Automática de Rede
                 </span>
-                {isXboxConnected && (
-                  <span className="text-[11px] text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Xbox Ativo
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {isXboxConnected && (
+                    <span className="text-[11px] text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Xbox Ativo
+                    </span>
+                  )}
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="rounded-full px-3.5 h-7 text-[12px] font-medium"
+                    onClick={goToMethod}
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    Voltar
+                  </Button>
+                </div>
               </div>
 
               <div className="flex items-start gap-2.5 rounded-lg bg-amber-500/5 border border-amber-500/25 px-3.5 py-2.5 text-[11px] text-amber-300/90 mb-4 text-left leading-normal">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-semibold block text-amber-200">Requisito para o Modo Rede:</span>
-                  Esta opção é exclusiva para consoles <strong>Desbloqueados (RGH)</strong> com a dashboard <strong>Aurora</strong> aberta e ativa. Consoles originais (Bloqueados) ou com LT não suportam conexão FTP e devem usar a opção <strong>Gravar em um Pendrive ou HD</strong> acima.
+                  Esta opção é exclusiva para consoles <strong>Desbloqueados (RGH)</strong> com a dashboard <strong>Aurora</strong> aberta e ativa. Consoles originais (Bloqueados) ou com LT não suportam conexão FTP; volte e escolha <strong>Gravar em um Pendrive ou HD</strong>.
                 </div>
               </div>
 

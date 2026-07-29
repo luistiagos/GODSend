@@ -271,7 +271,24 @@ func (a *App) SetupPaths() error {
 			return err
 		}
 	}
-	a.TorrentTempDir = filepath.Join(a.ToolsDir, "Temp", "torrent-dl")
+	// Per-game processing scratch (download → extract → GOD) and the aria2c
+	// download staging default to ToolsDir/Temp.
+	a.TempDir = filepath.Join(a.ToolsDir, "Temp")
+	a.TorrentTempDir = filepath.Join(a.TempDir, "torrent-dl")
+
+	// When a *different* fixed NTFS/exFAT drive has more free space than the app
+	// drive, move the whole per-game working set there so multi-GB downloads and
+	// extraction/GOD conversion don't fill a cramped app/system partition.
+	// Removable and FAT32 volumes are skipped (see bestFixedVolume).
+	if best := bestFixedVolume(); best != "" &&
+		!strings.EqualFold(filepath.VolumeName(best), filepath.VolumeName(a.ToolsDir)) {
+		base := filepath.Join(best, "godsend-temp")
+		a.TempDir = filepath.Join(base, "proc")
+		a.TorrentTempDir = filepath.Join(base, "torrent-dl")
+		a.Logf("[INFO] Processing/torrent temp auto-selected roomiest drive: %s", base)
+	}
+
+	// An explicit GODSEND_TORRENT_TEMP still wins for the download staging.
 	if v := strings.TrimSpace(os.Getenv("GODSEND_TORRENT_TEMP")); v != "" {
 		abs, err := filepath.Abs(v)
 		if err != nil {
@@ -279,6 +296,10 @@ func (a *App) SetupPaths() error {
 		}
 		a.TorrentTempDir = abs
 		a.Logf("[INFO] Torrent download temp (GODSEND_TORRENT_TEMP): %s", a.TorrentTempDir)
+	}
+
+	if err := os.MkdirAll(a.TempDir, 0755); err != nil {
+		return fmt.Errorf("processing temp dir: %w", err)
 	}
 	if err := os.MkdirAll(a.TorrentTempDir, 0755); err != nil {
 		return fmt.Errorf("torrent temp dir: %w", err)

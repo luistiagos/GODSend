@@ -16,7 +16,7 @@ The backend listens on port `8080` by default (configurable via Electron `Backen
 | GET | `/disc-info` | Probe a local ISO in the Transfer folder for disc compatibility metadata (used by the multi-disc install picker) |
 | GET | `/data/status` | Returns `active_jobs`, `pending_ftp_jobs`, `local_data_mb` — used by Electron clear-data UI |
 | GET | `/data/clear` | Cancels all jobs and pending FTP transfers, wipes `Ready/` and `Temp/` |
-| GET | `/config` | Returns server-side config readable by Lua (currently `default_drive`) |
+| GET | `/config` | Returns server-side config (`default_drive`, `custom_god_path`, `custom_xex_path`, and the resolved `temp_dir` / `torrent_temp_dir` the backend is actually using) |
 | GET | `/content/discover?titleId=<id>` | Combined DLC discovery: scans installed DLC on the Xbox plus Minerva / Internet Archive candidates for the title |
 | GET | `/content/tu?titleId=<id>` | List Title Updates from XboxUnity for the title; merges with installed TUs |
 | GET | `/content/installed?titleId=<id>` | List only the DLC / TU already installed on the Xbox for the title |
@@ -62,8 +62,8 @@ The backend creates these under its working directory (or `GODSEND_HOME` if set)
 |--------|---------|
 | `Transfer/` | Drop ISOs here for local-library installs (used instead of downloading from IA) |
 | `Ready/` | Staging area for GOD/archive files pending FTP transfer; also used by `pending_ftp/` job tracking |
-| `Temp/` | Working directory for in-progress conversions (extract, ISO→GOD, FTP staging, save keyvault pulls) |
-| `Temp/torrent-dl/` | Default aria2c Minerva torrent download staging (`gd-dl-*` folders); override with `GODSEND_TORRENT_TEMP` |
+| `Temp/` | Working directory for FTP staging and save keyvault pulls. Per-game download/extract/ISO→GOD scratch also defaults here, but on Windows auto-relocates to the roomiest fixed NTFS/exFAT drive's `godsend-temp\proc` (see `GODSEND_TORRENT_TEMP`) |
+| `Temp/torrent-dl/` | Fallback aria2c torrent download staging (`gd-dl-*` folders); on Windows the default is the roomiest fixed NTFS/exFAT drive's `godsend-temp\torrent-dl`. Override with `GODSEND_TORRENT_TEMP` |
 | `cache/` | Cached Internet Archive game metadata (avoids re-fetching on each launch) |
 | `Saves/` | Local backup of Xbox profiles and save files; layout `<gamertag> (<XUID>)/<gameName> - <titleID>/<files>`, profile STFS at `<gamertag> (<XUID>)/Profile/<XUID>` |
 
@@ -72,7 +72,7 @@ The backend creates these under its working directory (or `GODSEND_HOME` if set)
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GODSEND_HOME` | binary directory | Root path for Transfer/Ready/Temp/cache |
-| `GODSEND_TORRENT_TEMP` | `$GODSEND_HOME/Temp/torrent-dl` | aria2c Minerva torrent download staging (`.torrent` scratch + `gd-dl-*` folders) |
+| `GODSEND_TORRENT_TEMP` | roomiest fixed NTFS/exFAT drive (Windows), else `$GODSEND_HOME/Temp/torrent-dl` | aria2c Minerva torrent download staging (`.torrent` scratch + `gd-dl-*` folders) |
 | `GODSEND_TRANSFER` | `$GODSEND_HOME/Transfer` | Override Transfer folder path independently |
 | `GODSEND_IA_COOKIE` | — | `logged-in-user=…; logged-in-sig=…` session cookie for IA auth |
 | `GODSEND_IA_AUTHORIZATION` | — | Bearer token as an alternative to cookie auth |

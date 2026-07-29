@@ -1088,7 +1088,7 @@ func (s *Service) queueViaTorrent(req models.ContentQueueRequest, xboxConn *mode
 		return fmt.Errorf("missing file_name for minerva source")
 	}
 
-	torrentDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_dlctorrent")
+	torrentDir := filepath.Join(s.App.TempDir, safeName+"_dlctorrent")
 	os.MkdirAll(torrentDir, 0755)
 	defer os.RemoveAll(torrentDir)
 
@@ -1101,7 +1101,7 @@ func (s *Service) queueViaTorrent(req models.ContentQueueRequest, xboxConn *mode
 	}
 
 	s.App.LogStatus(queueKey, "Processing", "Extracting…")
-	extDir := filepath.Join(s.App.ToolsDir, "Temp", safeName+"_dlcext")
+	extDir := filepath.Join(s.App.TempDir, safeName+"_dlcext")
 	os.RemoveAll(extDir)
 	defer os.RemoveAll(extDir)
 	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
