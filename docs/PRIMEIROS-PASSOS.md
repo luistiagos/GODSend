@@ -26,8 +26,7 @@ No **Xbox 360** que vai receber o pendrive:
 2. Os **dados de Avatar** precisam estar instalados.
 3. O console deve ficar **sem internet** durante o uso: desconecte o **Wi-Fi** e
    o **cabo de rede**.
-4. **Nunca entre na Xbox Live com o perfil do exploit.** Use esse perfil apenas
-   para ativar o BadAvatar.
+4. **Nunca tente logar ou entrar na Xbox Live com o perfil do exploit.** Ele possui uma senha/PIN proposital e serve apenas para disparar o exploit na tela de perfis.
 
 No **computador** você vai precisar de:
 
@@ -50,10 +49,12 @@ No **computador** você vai precisar de:
 
 ## No Xbox 360
 
-1. Conecte o pendrive/HD preparado.
-2. Abra o **perfil do exploit** para ativar o BadAvatar.
-3. Com o exploit ativo, o **Aurora** abre e encontra os jogos do dispositivo.
-4. Lembre: ao desligar ou reiniciar, é preciso **ativar de novo** pelo perfil.
+1. Conecte o pendrive/HD preparado e certifique-se de que o console está totalmente offline.
+2. Acesse a **Tela de Escolha de Perfis** (se o console fez login automático em sua conta pessoal, saia dela primeiro).
+3. Permaneça na tela de perfis sem fazer login. O console tentará renderizar o avatar do perfil do exploit (que possui um PIN/senha para evitar que você logue nele).
+4. O exploit disparará sozinho após alguns segundos (a tela piscará e abrirá a Aurora).
+5. Dentro da **Aurora**, faça login no seu perfil pessoal para jogar e ter acesso aos seus saves.
+6. Lembre: ao desligar ou reiniciar, é preciso **ativar de novo** repetindo estes passos.
 
 ## Solução de problemas
 
@@ -81,8 +82,7 @@ FAT32 pelo próprio Windows antes de preparar.
 ### Preparei, mas o exploit não ativa no console
 - Confirme o **dashboard 17559** e os **dados de Avatar**.
 - Confirme que o console está **sem internet**.
-- Tente ativar pelo perfil **mais de uma vez** — o exploit nem sempre funciona
-  de primeira.
+- Se o exploit não disparar, volte para a tela de escolha de perfis e aguarde novamente — o exploit pode demorar um pouco ou falhar de primeira, necessitando de nova tentativa de renderização da tela.
 
 ### "Pronto" apareceu — o console já está desbloqueado?
 Não. **"Pronto"** quer dizer que o pendrive está preparado para uma tentativa no

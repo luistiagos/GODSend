@@ -36,10 +36,12 @@ Use esta função para preparar o dispositivo que vai guardar os seus jogos e ca
   2. Ligue o videogame. Ele carregará a interface **Aurora** automaticamente!
 * **Se o seu console é Bloqueado ou LT (Exploit BadAvatar)**:
   1. Certifique-se de que o cabo de rede está desconectado e o Wi-Fi desativado (o console deve ficar **totalmente offline**).
-  2. Plugue o pendrive na porta USB e ligue o videogame.
-  3. Na tela de perfis do Xbox oficial, selecione o perfil do exploit que foi criado no pendrive.
-  4. Siga as instruções na tela para acionar a ativação temporária do avatar e carregar o menu **Aurora**.
-  * *Observação:* Como este desbloqueio é temporário, você precisará entrar no perfil do exploit toda vez que ligar o videogame para activar a Aurora.
+  2. Se o seu console possui **Login Automático** ativado para o seu perfil pessoal, faça Logout/Sair dele para voltar à tela de escolha de perfis do Xbox oficial.
+  3. Na tela de escolha de perfis, localize o perfil do exploit vindo do pendrive (ele possui uma senha/PIN de segurança proposital para evitar que você tente fazer login nele).
+  4. **Não tente entrar ou fazer login no perfil do exploit**. Apenas permaneça parado na tela de escolha de perfis enquanto o console lê o dispositivo e carrega o avatar modificado dele.
+  5. Após alguns segundos (geralmente entre 30s e 2 minutos), a tela piscará e o console carregará o menu **Aurora** automaticamente.
+  6. Uma vez dentro da Aurora, você pode entrar (Sign In) no seu perfil pessoal para carregar seus jogos e salvar o progresso.
+  * *Observação:* Como este desbloqueio é temporário, você precisará deixar o console na tela de escolha de perfis toda vez que ligar o videogame para activar a Aurora.
 
 ---
 
