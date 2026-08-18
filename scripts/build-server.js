@@ -19,14 +19,32 @@ run(process.execPath, [path.join(__dirname, "download-fat32format.js")], { cwd: 
 
 fs.mkdirSync(dist, { recursive: true });
 
-console.log("\n[build-server] windows/amd64 → dist/godsend.exe");
-run("go", ["build", "-o", path.join(dist, "godsend.exe"), "."], {
-  cwd: serverDir,
-  shell: false,
-  env: { ...process.env, GOOS: "windows", GOARCH: "amd64", CGO_ENABLED: "0" },
-});
+const argv = process.argv.slice(2);
+const buildX64 = argv.length === 0 || argv.includes("x64") || argv.includes("amd64") || argv.includes("--x64") || argv.includes("all");
+const buildIa32 = argv.length === 0 || argv.includes("ia32") || argv.includes("386") || argv.includes("--ia32") || argv.includes("all");
 
-run(process.execPath, [path.join(__dirname, "verify-go-binaries.js"), "windows"], {
+if (buildX64) {
+  console.log("\n[build-server] windows/amd64 → dist/godsend-windows-x64.exe (and dist/godsend.exe)");
+  const x64Out = path.join(dist, "godsend-windows-x64.exe");
+  run("go", ["build", "-o", x64Out, "."], {
+    cwd: serverDir,
+    shell: false,
+    env: { ...process.env, GOOS: "windows", GOARCH: "amd64", CGO_ENABLED: "0" },
+  });
+  fs.copyFileSync(x64Out, path.join(dist, "godsend.exe"));
+}
+
+if (buildIa32) {
+  console.log("\n[build-server] windows/386 → dist/godsend-windows-ia32.exe");
+  const ia32Out = path.join(dist, "godsend-windows-ia32.exe");
+  run("go", ["build", "-o", ia32Out, "."], {
+    cwd: serverDir,
+    shell: false,
+    env: { ...process.env, GOOS: "windows", GOARCH: "386", CGO_ENABLED: "0" },
+  });
+}
+
+run(process.execPath, [path.join(__dirname, "verify-go-binaries.js"), "windows-all"], {
   cwd: root,
   env: process.env,
 });

@@ -12,7 +12,8 @@ npm run build
 `npm install` pulls in Electron app dependencies (`postinstall` runs `npm install` under `src/electron-app`). `npm run build` cross-compiles Go for Windows, Linux, and macOS (`dist/godsend.exe`, `dist/godsend-linux-x64`, `dist/godsend-linux-arm64`, `dist/godsend-darwin-*`, plus `dist/godsend-mac`), then builds the **Electron installer for the machine you run on**: **NSIS** on Windows, **AppImage** on Linux, and on **macOS** an AppImage plus **arm64 and x64 DMGs**. AppImage is omitted on Windows (electron-builder needs symlink privileges there). Use `npm run build:win` for Windows-only (faster). All artifacts land under the root `dist/` folder.
 
 Backend only (all platforms): `npm run build:server:all`.
-- Windows: `go build -C src/server -o ../../dist/godsend.exe .`
+- Windows x64: `npm run build:server:win:x64`
+- Windows ia32 (32-bit): `npm run build:server:win:ia32`
 - Linux amd64 (`x64`): `npm run build:server:linux:amd64`
 - Linux arm64: `npm run build:server:linux:arm64`
 

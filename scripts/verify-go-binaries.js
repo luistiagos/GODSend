@@ -35,27 +35,36 @@ const { spawn, spawnSync } = require("child_process");
 const DIST = path.resolve(__dirname, "..", "dist");
 
 /**
- * Each target maps to { file: relative path in dist/, magic: expected first-N bytes, format: human-readable }.
+ * Each target maps to { file: relative path in dist/, magic: expected first-N bytes, format: human-readable, peArch?: { machine: number, optMagic: number } }.
  * - Windows PE/PE32+ files start with `MZ` (0x4D 0x5A).
  * - Mach-O 64-bit little-endian: 0xCF 0xFA 0xED 0xFE (Intel) or 0xCF 0xFA 0xED 0xFE (ARM64, same magic).
  *   We check the 64-bit magic only; arch is encoded later in the header.
  * - ELF: 0x7F 0x45 0x4C 0x46 ("\x7fELF").
  */
 const TARGETS = {
-  "windows":       { file: "godsend.exe",            magic: [0x4D, 0x5A],                   format: "Windows PE32+ (MZ)" },
-  "windows-amd64": { file: "godsend.exe",            magic: [0x4D, 0x5A],                   format: "Windows PE32+ (MZ)" },
-  "darwin-amd64":  { file: "godsend-darwin-amd64",   magic: [0xCF, 0xFA, 0xED, 0xFE],       format: "Mach-O 64-bit" },
-  "darwin-arm64":  { file: "godsend-darwin-arm64",   magic: [0xCF, 0xFA, 0xED, 0xFE],       format: "Mach-O 64-bit" },
-  "darwin":        { file: "godsend-mac",            magic: [0xCF, 0xFA, 0xED, 0xFE],       format: "Mach-O 64-bit" },
-  "linux-amd64":   { file: "godsend-linux-x64",      magic: [0x7F, 0x45, 0x4C, 0x46],       format: "ELF" },
-  "linux-arm64":   { file: "godsend-linux-arm64",    magic: [0x7F, 0x45, 0x4C, 0x46],       format: "ELF" },
-  "linux":         null, // expanded to both at runtime
+  "windows":              { file: "godsend.exe",                 magic: [0x4D, 0x5A], format: "Windows PE32+ (MZ)", peArch: { machine: 0x8664, optMagic: 0x020B } },
+  "windows-amd64":        { file: "godsend-windows-x64.exe",     magic: [0x4D, 0x5A], format: "Windows PE32+ (x64)", peArch: { machine: 0x8664, optMagic: 0x020B } },
+  "windows-x64":          { file: "godsend-windows-x64.exe",     magic: [0x4D, 0x5A], format: "Windows PE32+ (x64)", peArch: { machine: 0x8664, optMagic: 0x020B } },
+  "windows-386":          { file: "godsend-windows-ia32.exe",    magic: [0x4D, 0x5A], format: "Windows PE32 (ia32/386)", peArch: { machine: 0x014c, optMagic: 0x010B } },
+  "windows-ia32":         { file: "godsend-windows-ia32.exe",    magic: [0x4D, 0x5A], format: "Windows PE32 (ia32/386)", peArch: { machine: 0x014c, optMagic: 0x010B } },
+  "darwin-amd64":         { file: "godsend-darwin-amd64",        magic: [0xCF, 0xFA, 0xED, 0xFE], format: "Mach-O 64-bit" },
+  "darwin-arm64":         { file: "godsend-darwin-arm64",        magic: [0xCF, 0xFA, 0xED, 0xFE], format: "Mach-O 64-bit" },
+  "darwin":               { file: "godsend-mac",                 magic: [0xCF, 0xFA, 0xED, 0xFE], format: "Mach-O 64-bit" },
+  "linux-amd64":          { file: "godsend-linux-x64",           magic: [0x7F, 0x45, 0x4C, 0x46], format: "ELF" },
+  "linux-arm64":          { file: "godsend-linux-arm64",         magic: [0x7F, 0x45, 0x4C, 0x46], format: "ELF" },
+  "linux":                null, // expanded to both at runtime
 };
 
-const ALL_KEYS = ["windows", "darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"];
+const ALL_KEYS = ["windows", "windows-amd64", "windows-ia32", "darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"];
 
 function expand(arg) {
   if (arg === "all") return ALL_KEYS;
+  if (arg === "windows-all" || arg === "windows") {
+    const list = ["windows"];
+    if (fs.existsSync(path.join(DIST, "godsend-windows-x64.exe"))) list.push("windows-x64");
+    if (fs.existsSync(path.join(DIST, "godsend-windows-ia32.exe"))) list.push("windows-ia32");
+    return list;
+  }
   if (arg === "linux") return ["linux-amd64", "linux-arm64"];
   if (arg === "darwin") return ["darwin-amd64", "darwin-arm64"];
   if (TARGETS[arg]) return [arg];
@@ -76,15 +85,15 @@ function checkOne(key) {
     return false;
   }
   const fd = fs.openSync(full, "r");
-  const buf = Buffer.alloc(spec.magic.length);
+  const buf = Buffer.alloc(Math.max(spec.magic.length, 512));
   try {
-    fs.readSync(fd, buf, 0, spec.magic.length, 0);
+    fs.readSync(fd, buf, 0, buf.length, 0);
   } finally {
     fs.closeSync(fd);
   }
   const ok = spec.magic.every((b, i) => buf[i] === b);
   if (!ok) {
-    const found = [...buf].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+    const found = [...buf.slice(0, spec.magic.length)].map((b) => b.toString(16).padStart(2, "0")).join(" ");
     const expected = spec.magic.map((b) => b.toString(16).padStart(2, "0")).join(" ");
     console.error(`[verify] ✗ ${spec.file} has wrong magic bytes for ${spec.format}:`);
     console.error(`         expected:  ${expected}`);
@@ -93,6 +102,22 @@ function checkOne(key) {
     console.error(`         Re-run with explicit GOOS/GOARCH (see scripts/build-go-all.js).`);
     return false;
   }
+
+  // If this target specifies PE architecture checks (PE32 vs PE32+)
+  if (spec.peArch) {
+    const peOff = buf.readUInt32LE(0x3C);
+    if (peOff + 28 <= buf.length) {
+      const machine = buf.readUInt16LE(peOff + 4);
+      const optMagic = buf.readUInt16LE(peOff + 24);
+      if (machine !== spec.peArch.machine || optMagic !== spec.peArch.optMagic) {
+        console.error(`[verify] ✗ ${spec.file} PE architecture mismatch for ${spec.format}:`);
+        console.error(`         expected machine=0x${spec.peArch.machine.toString(16)} optMagic=0x${spec.peArch.optMagic.toString(16)}`);
+        console.error(`         found    machine=0x${machine.toString(16)} optMagic=0x${optMagic.toString(16)}`);
+        return false;
+      }
+    }
+  }
+
   console.log(`[verify] ✓ ${spec.file} (${(stat.size / 1024 / 1024).toFixed(1)} MB) — ${spec.format}`);
   return true;
 }

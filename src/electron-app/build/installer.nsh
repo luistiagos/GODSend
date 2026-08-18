@@ -1,6 +1,11 @@
 !macro preInit
-  SetRegView 64
-  StrCpy $INSTDIR "$PROGRAMFILES64\GODsend"
+  ${if} ${RunningX64}
+    SetRegView 64
+    StrCpy $INSTDIR "$PROGRAMFILES64\GODsend"
+  ${else}
+    SetRegView 32
+    StrCpy $INSTDIR "$PROGRAMFILES\GODsend"
+  ${endIf}
   WriteRegExpandStr HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation "$INSTDIR"
   WriteRegExpandStr HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation "$INSTDIR"
 !macroend

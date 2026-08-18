@@ -21,8 +21,11 @@ On Linux / macOS, make the binary executable after downloading: `chmod +x godsen
 **Option B — Build from source** (requires **Go 1.21+**):
 
 ```bash
-# Windows
-go build -C src/server -o ../../dist/godsend.exe .
+# Windows (x64)
+GOOS=windows GOARCH=amd64 go build -C src/server -o ../../dist/godsend-windows-x64.exe .
+
+# Windows (ia32 / 32-bit)
+GOOS=windows GOARCH=386 go build -C src/server -o ../../dist/godsend-windows-ia32.exe .
 
 # Linux amd64
 GOOS=linux GOARCH=amd64 go build -C src/server -o ../../dist/godsend-linux-x64 .

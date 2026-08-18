@@ -136,10 +136,12 @@ O backend disponibiliza uma API REST na porta `8080` (ou `GODSEND_PORT`):
 Todos os builds são executados a partir do diretório raiz utilizando os scripts do `package.json`:
 
 ```bash
-# Compilar o backend em Go para a plataforma local (dist/godsend.exe no Windows)
+# Compilar o backend em Go para a plataforma local (dist/godsend.exe, x64 e ia32 no Windows)
 npm run build:server
+npm run build:server:win:x64
+npm run build:server:win:ia32
 
-# Compilar o backend em Go para todas as plataformas (Windows, macOS Intel/ARM, Linux x64/ARM64)
+# Compilar o backend em Go para todas as plataformas (Windows x64/ia32, macOS Intel/ARM, Linux x64/ARM64)
 npm run build:server:all
 
 # Compilar o backend em Go para Android (dist/godsend-android-arm64)
@@ -147,9 +149,11 @@ npm run build:server:android
 
 # Compilar o aplicativo Electron completo para Windows (NSIS Installer)
 npm run build:electron:win:x64
+npm run build:electron:win:ia32
 
 # Compilar a versão portátil para Windows (.exe único)
-npm run build:electron:win:portable
+npm run build:electron:win:portable:x64
+npm run build:electron:win:portable:ia32
 
 # Compilar para macOS (DMG para Intel e Apple Silicon)
 npm run build:electron:mac

@@ -33,7 +33,8 @@ fs.mkdirSync(dist, { recursive: true });
 }
 
 const targets = [
-  ["windows", "amd64", "godsend.exe"],
+  ["windows", "amd64", "godsend-windows-x64.exe"],
+  ["windows", "386", "godsend-windows-ia32.exe"],
   ["linux", "amd64", "godsend-linux-x64"],
   ["linux", "arm64", "godsend-linux-arm64"],
   ["darwin", "amd64", "godsend-darwin-amd64"],
@@ -54,6 +55,9 @@ for (const [goos, goarch, name] of targets) {
     process.exit(r.status ?? 1);
   }
 }
+
+// Keep dist/godsend.exe as a copy of windows-x64 for default dev usage
+fs.copyFileSync(path.join(dist, "godsend-windows-x64.exe"), path.join(dist, "godsend.exe"));
 
 const arm64 = path.join(dist, "godsend-darwin-arm64");
 const macDefault = path.join(dist, "godsend-mac");

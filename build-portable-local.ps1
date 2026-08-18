@@ -28,6 +28,8 @@
 
 [CmdletBinding()]
 param(
+    [ValidateSet("x64", "ia32", "all")]
+    [string]$Arch = "x64",
     [switch]$SkipBackend,
     [switch]$Clean,
     [switch]$DryRun
@@ -48,7 +50,11 @@ if (-not $VERSION) {
     throw "Nao foi possivel ler a versao em: $PACKAGE_JSON"
 }
 
-$PORTABLE_FILENAME = "xbox-360-companion-Portable-$VERSION.exe"
+$PORTABLE_FILENAME = if ($Arch -eq "ia32") {
+    "xbox-360-companion-Portable-$VERSION-ia32.exe"
+} else {
+    "xbox-360-companion-Portable-$VERSION.exe"
+}
 $PORTABLE_PATH = Join-Path $DIST_DIR $PORTABLE_FILENAME
 
 function Get-NpmCommand {
@@ -96,10 +102,17 @@ if ($Clean -and (Test-Path -LiteralPath $DIST_DIR)) {
 }
 
 if (-not $SkipBackend) {
-    Invoke-Step "Build do backend Windows e ferramentas" @("run", "build:server")
+    if ($Arch -eq "all") {
+        Invoke-Step "Build do backend Windows e ferramentas (all)" @("run", "build:server:win:all")
+    } elseif ($Arch -eq "ia32") {
+        Invoke-Step "Build do backend Windows e ferramentas (ia32)" @("run", "build:server:win:ia32")
+    } else {
+        Invoke-Step "Build do backend Windows e ferramentas (x64)" @("run", "build:server:win:x64")
+    }
 }
 
-Invoke-Step "Build do executavel portable" @("run", "build:electron:win:portable")
+$portableScript = if ($Arch -eq "all") { "build:electron:win:portable:all" } elseif ($Arch -eq "ia32") { "build:electron:win:portable:ia32" } else { "build:electron:win:portable:x64" }
+Invoke-Step "Build do executavel portable ($Arch)" @("run", $portableScript)
 
 if ($DryRun) {
     Write-Host ""

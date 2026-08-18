@@ -9,6 +9,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.40] - 2026-08-18
+
+### Added
+- **Full Windows 32-bit (ia32 / x86) Support**:
+  - Added Go backend cross-compilation target for Windows 32-bit (`GOARCH=386` -> `dist/godsend-windows-ia32.exe`).
+  - Automated dual downloading of `aria2c.exe` for both 64-bit (`dist/tools/aria2c-x64.exe`) and 32-bit (`dist/tools/aria2c-ia32.exe`).
+  - Enhanced binary verifier (`scripts/verify-go-binaries.js`) with COFF Machine header validation (`IMAGE_FILE_MACHINE_I386` vs `IMAGE_FILE_MACHINE_AMD64`) and PE32 / PE32+ magic bytes check.
+  - Configured `electron-builder` with dynamic `${arch}` extraFiles interpolation and multi-architecture packaging scripts:
+    - `build:electron:win:ia32` (NSIS installer 32-bit)
+    - `build:electron:win:portable:ia32` (Portable executable 32-bit)
+    - `build:electron:win:x64` (NSIS installer 64-bit)
+    - `build:electron:win:portable:x64` (Portable executable 64-bit)
+    - `build:win:all` (Complete build pipeline for all Windows architectures)
+  - Updated NSIS installer script (`installer.nsh`) with conditional 32-bit / 64-bit registry and `$PROGRAMFILES` / `$PROGRAMFILES64` path selection.
+  - Added `-Arch` parameter to `build-portable-local.ps1` (`x64`, `ia32`, `all`).
+
 ## [2.12.39] - 2026-08-17
 
 ### Added

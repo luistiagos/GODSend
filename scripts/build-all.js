@@ -83,18 +83,20 @@ console.log(`\n[build-all] node ${path.relative(root, syncIcon)}`);
   const platform = process.platform;
   if (platform === "win32") {
     console.log(
-      "\n[build-all] Windows host: building NSIS only. Run `npm run build` on Linux or macOS to produce the AppImage, or enable Windows Developer Mode if you need AppImage locally."
+      "\n[build-all] Windows host: building NSIS and Portable (x64 and ia32). Run `npm run build` on Linux or macOS to produce the AppImage, or enable Windows Developer Mode if you need AppImage locally."
     );
     cleanWindowsPackagingArtifacts();
-    npmRun("build:nsis");
-    npmRun("build:portable");
+    npmRun("build:nsis:x64");
+    npmRun("build:nsis:ia32");
+    npmRun("build:portable:all");
   } else if (platform === "linux") {
     npmRun("build:linux");
   } else if (platform === "darwin") {
     npmRun("build:linux");
     cleanWindowsPackagingArtifacts();
     npmRun("build:nsis:x64");
-    npmRun("build:portable");
+    npmRun("build:nsis:ia32");
+    npmRun("build:portable:all");
   } else {
     console.warn(`\n[build-all] Unsupported platform "${platform}" — no Electron target defined.`);
   }

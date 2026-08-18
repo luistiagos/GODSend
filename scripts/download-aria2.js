@@ -169,13 +169,12 @@ async function downloadHomebrew(repo, digest, binaryName, destPath) {
   console.log(`  written ${(binary.length / 1024).toFixed(0)} KB → ${destPath}`);
 }
 
-/** Get aria2c.exe from the official GitHub release zip. */
-async function downloadWindowsZip(destPath) {
-  if (fs.existsSync(destPath)) {
+/** Get aria2c.exe from the official GitHub release zip for a given URL. */
+async function downloadWindowsZip(url, destPath) {
+  if (fs.existsSync(destPath) && fs.statSync(destPath).size > 1000000) {
     console.log(`  skip (exists): ${path.basename(destPath)}`);
     return;
   }
-  const url = `https://github.com/aria2/aria2/releases/download/release-${ARIA2_VERSION}/aria2-${ARIA2_VERSION}-win-64bit-build1.zip`;
   console.log(`  downloading Windows aria2c from ${url}...`);
   const buf = await get(url, { "User-Agent": "godsend-build/1" });
   console.log(`  downloaded ${(buf.length / 1024 / 1024).toFixed(1)} MB, extracting aria2c.exe...`);
@@ -242,10 +241,22 @@ async function main() {
 
   console.log(`\nDownloading aria2 ${ARIA2_VERSION} binaries → dist/tools/\n`);
 
-  console.log("[1/2] Windows x64:");
-  await downloadWindowsZip(path.join(DIST_TOOLS, "aria2c.exe"));
+  console.log("[1/3] Windows x64:");
+  const win64Url = `https://github.com/aria2/aria2/releases/download/release-${ARIA2_VERSION}/aria2-${ARIA2_VERSION}-win-64bit-build1.zip`;
+  const aria2c64 = path.join(DIST_TOOLS, "aria2c-x64.exe");
+  await downloadWindowsZip(win64Url, aria2c64);
+  // Keep aria2c.exe as a copy for dev fallback / backwards compatibility
+  const aria2cDefault = path.join(DIST_TOOLS, "aria2c.exe");
+  if (fs.existsSync(aria2c64) && (!fs.existsSync(aria2cDefault) || fs.statSync(aria2cDefault).size !== fs.statSync(aria2c64).size)) {
+    fs.copyFileSync(aria2c64, aria2cDefault);
+  }
 
-  console.log("[2/2] Linux x64:");
+  console.log("[2/3] Windows ia32 (32-bit):");
+  const win32Url = `https://github.com/aria2/aria2/releases/download/release-${ARIA2_VERSION}/aria2-${ARIA2_VERSION}-win-32bit-build1.zip`;
+  const aria2c32 = path.join(DIST_TOOLS, "aria2c-ia32.exe");
+  await downloadWindowsZip(win32Url, aria2c32);
+
+  console.log("[3/3] Linux x64:");
   await downloadHomebrew(
     HOMEBREW_REPO,
     BOTTLES["linux-amd64"],

@@ -31,13 +31,16 @@ export function getBundledResourcesRoot(): string {
 export function getGodsendExePath(): string {
   const isWin   = process.platform === "win32";
   const isArm64 = process.arch === "arm64";
+  const isIa32  = process.arch === "ia32";
   if (app.isPackaged) {
     const name = isWin ? "godsend-backend.exe" : "godsend-backend";
     return path.join(path.dirname(process.execPath), name);
   }
   const repo = getRepoRoot();
   const devCandidates = isWin
-    ? ["dist/godsend.exe"]
+    ? isIa32
+      ? ["dist/godsend-windows-ia32.exe", "dist/godsend.exe", "dist/godsend-windows-x64.exe"]
+      : ["dist/godsend-windows-x64.exe", "dist/godsend.exe", "dist/godsend-windows-ia32.exe"]
     : process.platform === "darwin"
     ? ["dist/godsend-mac"]
     : isArm64
