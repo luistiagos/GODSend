@@ -54,20 +54,33 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 
 	// Download the ZIP using parallel range requests
 	zipPath := filepath.Join(s.App.TempDir, safeName+"_rom.zip")
+	if xboxConn != nil && xboxConn.Mode == "local" {
+		zipPath = filepath.Join(gameDir, ".source_rom.zip")
+	}
 	s.App.LogStatus(gameName, "Processing", "Downloading from EdgeEmu...")
-	if err := s.Download.DownloadEdgeEmuWithProgress(downloadURL, zipPath, gameName); err != nil {
-		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Download: %v", err))
-		os.Remove(zipPath)
+	var downloadErr error
+	if xboxConn != nil && xboxConn.Mode == "local" {
+		downloadErr = s.Download.DownloadWithProgress(downloadURL, zipPath, gameName, "edgeemu.net")
+	} else {
+		downloadErr = s.Download.DownloadEdgeEmuWithProgress(downloadURL, zipPath, gameName)
+	}
+	if downloadErr != nil {
+		downloadErr = classifyLocalStorageFailure(xboxConn, "download-http", downloadErr)
+		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Download: %v", downloadErr))
+		if xboxConn == nil || xboxConn.Mode != "local" {
+			os.Remove(zipPath)
+		}
 		return
 	}
-	defer os.Remove(zipPath)
+	if xboxConn == nil || xboxConn.Mode != "local" {
+		defer os.Remove(zipPath)
+	}
 
 	// Extract ZIP
 	s.App.LogStatus(gameName, "Processing", "Extracting ROM...")
 	extDir := filepath.Join(s.App.TempDir, safeName+"_rom_ext")
-	os.RemoveAll(extDir)
-	defer os.RemoveAll(extDir)
-	if err := utils.ExtractArchive(zipPath, extDir); err != nil {
+	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
+	if err := s.extractArchiveResilient(gameName, zipPath, extDir); err != nil {
 		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Extract: %v", err))
 		return
 	}
@@ -127,6 +140,7 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 		s.App.LogStatus(gameName, "Ready", "Ready to Install")
 	}
 	s.App.Logf("=== Complete (ROM): %s ===", gameName)
+	s.cleanupCompletedLocalScratch(gameName)
 }
 
 // findROMFiles walks a directory and returns all non-metadata files (the actual ROMs).

@@ -2,6 +2,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -42,7 +43,18 @@ const (
 	IASegmentSize        = 4 * 1024 * 1024  // bytes per queued range job
 	IAParallelMaxDefault = 16               // default concurrent range GETs
 	IAParallelMaxCap     = 32               // upper bound for env-tuned parallelism
+
+	// Download speed monitoring & fallback thresholds
+	MinDownloadSpeedThreshold = 1024 * 1024      // 1.0 MB/s (1048576 B/s)
+	LowSpeedGracePeriod       = 15 * time.Second // Grace period before enforcing speed limit
+	LowSpeedSustainedDuration = 10 * time.Second // Duration speed must remain under threshold
 )
+
+// ErrDownloadTooSlow is returned when download speed stays under MinDownloadSpeedThreshold.
+var ErrDownloadTooSlow = fmt.Errorf("download muito lento (abaixo de 1.0 MB/s), alternando para o próximo provedor")
+
+// ErrJobCancelled is returned when the user removes a running queue item.
+var ErrJobCancelled = fmt.Errorf("tarefa cancelada pelo usuario")
 
 // ClampIAParallel clamps an IA parallel download count to valid range.
 func ClampIAParallel(c int) int {
@@ -159,7 +171,7 @@ var MinervaTagFilters = map[string][]string{
 // shape of MinervaPlatformCache changes or the filtering rules change in a
 // way that invalidates older caches — on-disk caches with a different schema
 // are rejected at load time and a rebuild is triggered.
-const MinervaCacheSchema = 2
+const MinervaCacheSchema = 3
 
 // MinervaTorrentURLs: the collection-level .torrent file for each platform.
 var MinervaTorrentURLs = map[string]string{
@@ -172,8 +184,9 @@ var MinervaTorrentURLs = map[string]string{
 	"games":   "https://minerva-archive.org/assets/Minerva_Myrient_v0.3/Minerva_Myrient%20-%20No-Intro%20-%20Non-Redump%20-%20Microsoft%20-%20Xbox%20360.torrent",
 }
 
-// MinervaHrefRe extracts the value of href="/rom?name=…" from Minerva browse pages.
-var MinervaHrefRe = regexp.MustCompile(`href="(/rom\?name=[^"]+)"`)
+// MinervaROMAnchorRe accepts both the legacy name-based links and the current
+// id-based links while capturing the filename rendered by the browse page.
+var MinervaROMAnchorRe = regexp.MustCompile(`(?is)<a[^>]+href="(/rom\?(?:name|id)=[^"]+)"[^>]*>([^<]+)</a>`)
 
 // ── ROM Systems (EdgeEmu) ─────────────────────────────────────────────
 
@@ -247,6 +260,105 @@ var ROMSystems = map[string]models.ROMSystem{
 
 // ── Setup helpers (methods on App) ────────────────────────────────────
 
+const scratchOwnerFile = ".godsend-owner.pid"
+
+func scratchDirSize(dir string) int64 {
+	var total int64
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// cleanupStaleScratchDir removes processing data left by a backend that is no
+// longer running. A live owner marker protects another local backend instance.
+func protectedScratchPaths(toolsDir string) []string {
+	type pendingJob struct {
+		SourceDir string `json:"source_dir"`
+	}
+	entries, err := os.ReadDir(filepath.Join(toolsDir, "pending_ftp"))
+	if err != nil {
+		return nil
+	}
+	var protected []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(toolsDir, "pending_ftp", entry.Name()))
+		if readErr != nil {
+			continue
+		}
+		var job pendingJob
+		if json.Unmarshal(data, &job) == nil && job.SourceDir != "" {
+			if abs, absErr := filepath.Abs(job.SourceDir); absErr == nil {
+				protected = append(protected, filepath.Clean(abs))
+			}
+		}
+	}
+	return protected
+}
+
+func containsProtectedScratch(candidate string, protected []string) bool {
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+	candidateAbs = filepath.Clean(candidateAbs)
+	for _, path := range protected {
+		if strings.EqualFold(candidateAbs, path) {
+			return true
+		}
+		rel, relErr := filepath.Rel(candidateAbs, path)
+		if relErr == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) cleanupStaleScratchDir(dir string, protected []string) {
+	ownerPath := filepath.Join(dir, scratchOwnerFile)
+	if data, err := os.ReadFile(ownerPath); err == nil {
+		if pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data))); parseErr == nil && processIsRunning(pid) {
+			a.Logf("[INFO] Scratch directory is owned by active process %d; preserving %s", pid, dir)
+			return
+		}
+	}
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return
+	}
+	var reclaimed int64
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if containsProtectedScratch(path, protected) {
+			a.Logf("[INFO] Preserving scratch required by pending FTP: %s", path)
+			continue
+		}
+		reclaimed += scratchDirSize(path)
+		if removeErr := os.RemoveAll(path); removeErr != nil {
+			a.Logf("[WARN] Could not clean stale scratch entry %s: %v", path, removeErr)
+		}
+	}
+	if reclaimed > 0 {
+		a.Logf("[INFO] Removed %.2f GB of stale processing data from %s", float64(reclaimed)/1073741824, dir)
+	}
+}
+
+func markScratchOwner(dir string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, scratchOwnerFile), []byte(strconv.Itoa(os.Getpid())), 0644)
+}
+
 // SetupPaths resolves filesystem paths and environment config into App fields.
 func (a *App) SetupPaths() error {
 	ex, err := os.Executable()
@@ -273,6 +385,16 @@ func (a *App) SetupPaths() error {
 	}
 	// Per-game processing scratch (download → extract → GOD) and the aria2c
 	// download staging default to ToolsDir/Temp.
+	// Clear scratch left by an interrupted run before comparing free space.
+	// Otherwise a preallocated partial archive can make the roomiest drive look
+	// full and send the next run to a smaller system partition.
+	protectedScratch := protectedScratchPaths(a.ToolsDir)
+	a.cleanupStaleScratchDir(filepath.Join(a.ToolsDir, "Temp"), protectedScratch)
+	for _, volume := range fixedLargeFileVolumes() {
+		a.cleanupStaleScratchDir(filepath.Join(volume.root, "godsend-temp", "proc"), protectedScratch)
+		a.cleanupStaleScratchDir(filepath.Join(volume.root, "godsend-temp", "torrent-dl"), protectedScratch)
+	}
+
 	a.TempDir = filepath.Join(a.ToolsDir, "Temp")
 	a.TorrentTempDir = filepath.Join(a.TempDir, "torrent-dl")
 
@@ -295,13 +417,14 @@ func (a *App) SetupPaths() error {
 			return fmt.Errorf("GODSEND_TORRENT_TEMP: %w", err)
 		}
 		a.TorrentTempDir = abs
+		a.cleanupStaleScratchDir(a.TorrentTempDir, protectedScratch)
 		a.Logf("[INFO] Torrent download temp (GODSEND_TORRENT_TEMP): %s", a.TorrentTempDir)
 	}
 
-	if err := os.MkdirAll(a.TempDir, 0755); err != nil {
+	if err := markScratchOwner(a.TempDir); err != nil {
 		return fmt.Errorf("processing temp dir: %w", err)
 	}
-	if err := os.MkdirAll(a.TorrentTempDir, 0755); err != nil {
+	if err := markScratchOwner(a.TorrentTempDir); err != nil {
 		return fmt.Errorf("torrent temp dir: %w", err)
 	}
 	// ROM install path (drive-relative, no drive letter, no trailing slash)

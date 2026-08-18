@@ -9,6 +9,9 @@ import (
 func (d *Deps) NewRouter() *stdhttp.ServeMux {
 	mux := stdhttp.NewServeMux()
 
+	// Root dashboard endpoint
+	mux.HandleFunc("/", d.wrap(d.handleRoot))
+
 	// RXEA asset endpoints
 	mux.HandleFunc("/rxea/decode", d.wrap(d.handleRXEADecode))
 	mux.HandleFunc("/rxea/encode", d.wrap(d.handleRXEAEncode))
@@ -51,12 +54,14 @@ func (d *Deps) NewRouter() *stdhttp.ServeMux {
 	// Server config
 	mux.HandleFunc("/config", d.wrap(d.handleServerConfig))
 
-	// Toolbox endpoints (ISO conversion)
+	// Toolbox endpoints (ISO conversion & drives)
 	mux.HandleFunc("/tools/probe-iso", d.wrap(d.handleToolsProbeISO))
 	mux.HandleFunc("/tools/iso2god", d.wrap(d.handleToolsISO2GOD))
 	mux.HandleFunc("/tools/iso2xex", d.wrap(d.handleToolsISO2XEX))
+	mux.HandleFunc("/tools/storage-drives", d.wrap(d.handleToolsStorageDrives))
 
 	// FTP Manager — synchronous utility operations
+	mux.HandleFunc("/ftp/discover", d.wrap(d.handleFTPDiscover))
 	mux.HandleFunc("/ftp/ping", d.wrap(d.handleFTPPing))
 	mux.HandleFunc("/ftp/list", d.wrap(d.handleFTPList))
 	mux.HandleFunc("/ftp/mkdir", d.wrap(d.handleFTPMkdir))

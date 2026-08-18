@@ -1,6 +1,6 @@
 {
   "name": "xbox-360-companion",
-  "version": "2.12.27",
+  "version": "2.12.39",
   "private": true,
   "description": "Xbox 360 Companion — Go backend + Electron desktop app",
   "scripts": {
@@ -13,6 +13,7 @@
     "build:server:linux:x64": "mkdir -p dist && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -C src/server -o ../../dist/godsend-linux-x64 . && node scripts/verify-go-binaries.js linux-amd64",
     "build:server:linux:amd64": "npm run build:server:linux:x64",
     "build:server:linux:arm64": "mkdir -p dist && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -C src/server -o ../../dist/godsend-linux-arm64 . && node scripts/verify-go-binaries.js linux-arm64",
+    "build:server:android": "node scripts/build-android.js",
     "build:electron": "npm run build:win --prefix src/electron-app",
     "build:electron:win:x64": "npm run build:nsis:x64 --prefix src/electron-app",
     "build:electron:win:portable": "npm run build:portable --prefix src/electron-app",

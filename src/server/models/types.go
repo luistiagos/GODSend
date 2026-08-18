@@ -25,8 +25,9 @@ type BuildState struct {
 
 // MinervaEntry links a display name to its Minerva download path.
 type MinervaEntry struct {
-	FileName  string `json:"filename"`   // e.g. "007 - Blood Stone (USA, Europe).zip"
-	PathParam string `json:"path_param"` // URL-encoded path for /rom?name= query param
+	FileName  string `json:"filename"`           // e.g. "007 - Blood Stone (USA, Europe).zip"
+	PathParam string `json:"path_param"`         // Query string from the current /rom?id= or legacy /rom?name= link
+	Platform  string `json:"platform,omitempty"` // platform key: "xbox360", "xbox", "digital", "xbla", "dlc", "xblig", "games"
 }
 
 // MinervaPlatformCache is persisted to disk per Minerva platform.
@@ -45,13 +46,14 @@ type MinervaPlatformCache struct {
 //     e.g. a prepared BadAvatar pendrive at "F:\\")
 //   - "http":  package for the Aurora HTTP pull (default fallback)
 type XboxConnection struct {
-	IP        string `json:"ip"`
-	Drive     string `json:"drive"`
-	LocalRoot string `json:"local_root,omitempty"`
-	GameName  string `json:"game"`
-	Platform  string `json:"platform"`
-	Mode      string `json:"mode"`
-	Timestamp time.Time
+	IP            string `json:"ip"`
+	Drive         string `json:"drive"`
+	LocalRoot     string `json:"local_root,omitempty"`
+	LocalDeviceID string `json:"local_device_id,omitempty"`
+	GameName      string `json:"game"`
+	Platform      string `json:"platform"`
+	Mode          string `json:"mode"`
+	Timestamp     time.Time
 }
 
 // GameStatus represents the current state/message for a queued game.

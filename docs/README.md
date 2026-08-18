@@ -26,6 +26,7 @@ Atualizado em 2026-06-25.
 ## Base GODSend-360
 
 - [Recursos herdados](features.md)
+- [Atualização automática e manual in-app](ATUALIZACAO-AUTOMATICA.md)
 - [Compilação](building.md)
 - [Referência da API](api-reference.md)
 - [Configuração headless](headless-setup.md)

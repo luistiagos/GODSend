@@ -7,6 +7,11 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import BadAvatarUsbPage from "./BadAvatarUsbPage";
 import MainNav from "./MainNav";
+import {
+  nextStepAfterPreparedUsbScan,
+  readPreparedUsbDetection,
+  type PreparedUsbWizardStep,
+} from "../../services/preparedUsbDetection.ts";
 
 interface LogInfo {
   logsDirectory?: string;
@@ -53,8 +58,13 @@ export default function HomePage({
   const outputRef = useRef<HTMLPreElement>(null);
   
   // Simple Mode state
-  const [wizardStep, setWizardStep] = useState<"checking-prepared" | "prepared-detected" | "unlock" | "method" | "usb" | "network">("checking-prepared");
+  const [wizardStep, setWizardStep] = useState<PreparedUsbWizardStep>("checking-prepared");
   const [preparedDeviceDetected, setPreparedDeviceDetected] = useState(false);
+  const [preparedCheckBusy, setPreparedCheckBusy] = useState(false);
+  const [preparedCheckNotice, setPreparedCheckNotice] = useState("");
+  const preparedCheckInFlight = useRef(false);
+  const preparedDetectionDismissed = useRef(false);
+  const preparedDetectionMounted = useRef(false);
   const [selectedUnlockMode, setSelectedUnlockMode] = useState<boolean | null>(null);
   const [scanState, setScanState] = useState<"idle" | "checking" | "scanning" | "connecting" | "success" | "not-found" | "error">("idle");
   const [xboxIp, setXboxIp] = useState("");
@@ -81,33 +91,60 @@ export default function HomePage({
     }
   }, [simpleMode]);
 
+  const checkPreparedDevice = useCallback(async (manual = false) => {
+    if (preparedCheckInFlight.current) return;
+    preparedCheckInFlight.current = true;
+    if (preparedDetectionMounted.current) {
+      setPreparedCheckBusy(true);
+      if (manual) setPreparedCheckNotice("Verificando o pendrive conectado...");
+    }
+
+    try {
+      const result = await window.godsendApi.toolsBadAvatarListDrives();
+      if (!preparedDetectionMounted.current) return;
+      const hasPrepared = readPreparedUsbDetection(result);
+      if (hasPrepared === null) {
+        if (manual) {
+          setPreparedCheckNotice(result?.error || "O Windows ainda não disponibilizou o pendrive. Reconecte-o e tente novamente.");
+        }
+        setWizardStep((current) => current === "checking-prepared" ? "unlock" : current);
+        return;
+      }
+
+      setPreparedDeviceDetected(hasPrepared);
+      setWizardStep((current) => nextStepAfterPreparedUsbScan(
+        current,
+        hasPrepared,
+        preparedDetectionDismissed.current,
+      ));
+      if (hasPrepared) {
+        setPreparedCheckNotice("");
+      } else if (manual) {
+        setPreparedCheckNotice("Nenhum pendrive preparado foi encontrado. Aguarde o Windows mostrar a unidade e verifique novamente.");
+      }
+    } catch (error: any) {
+      if (!preparedDetectionMounted.current) return;
+      if (manual) {
+        setPreparedCheckNotice(error?.message || "Não foi possível verificar o pendrive agora.");
+      }
+      setWizardStep((current) => current === "checking-prepared" ? "unlock" : current);
+    } finally {
+      preparedCheckInFlight.current = false;
+      if (preparedDetectionMounted.current) setPreparedCheckBusy(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!simpleMode) return undefined;
-
-    let cancelled = false;
-    window.godsendApi.toolsBadAvatarListDrives()
-      .then((result: any) => {
-        if (cancelled) return;
-        const hasPrepared = result?.ok === true &&
-          Array.isArray(result.drives) &&
-          result.drives.some((drive: any) => drive?.alreadyPrepared === true);
-
-        setPreparedDeviceDetected(hasPrepared);
-        setWizardStep((current) => (
-          current === "checking-prepared"
-            ? (hasPrepared ? "prepared-detected" : "unlock")
-            : current
-        ));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setWizardStep((current) => current === "checking-prepared" ? "unlock" : current);
-      });
+    preparedDetectionMounted.current = true;
+    void checkPreparedDevice();
+    const timer = window.setInterval(() => void checkPreparedDevice(), 5_000);
 
     return () => {
-      cancelled = true;
+      preparedDetectionMounted.current = false;
+      window.clearInterval(timer);
     };
-  }, [simpleMode]);
+  }, [simpleMode, checkPreparedDevice]);
 
   // Auto-scan when switching to network mode
   useEffect(() => {
@@ -358,6 +395,7 @@ export default function HomePage({
                   variant="default"
                   className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
                   onClick={() => {
+                    preparedDetectionDismissed.current = true;
                     setSelectedUnlockMode(null);
                     setWizardStep("unlock");
                   }}
@@ -446,6 +484,27 @@ export default function HomePage({
                 >
                   Avançar
                 </Button>
+
+                <div className="mt-3 flex flex-col items-center gap-2 text-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-[12px] text-green-400"
+                    onClick={() => {
+                      preparedDetectionDismissed.current = false;
+                      void checkPreparedDevice(true);
+                    }}
+                    disabled={preparedCheckBusy}
+                  >
+                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${preparedCheckBusy ? "animate-spin" : ""}`} />
+                    {preparedCheckBusy ? "Verificando pendrive..." : "Verificar pendrive preparado novamente"}
+                  </Button>
+                  {preparedCheckNotice && (
+                    <p className="max-w-xl text-[11px] leading-relaxed text-amber-300">
+                      {preparedCheckNotice}
+                    </p>
+                  )}
+                </div>
               </section>
             </div>
           </div>

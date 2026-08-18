@@ -30,10 +30,12 @@ package utils
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha1"
 	_ "embed"
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -446,6 +448,37 @@ func parseXBE(data []byte) (*TitleExecInfo, error) {
 	}, nil
 }
 
+// ExtractTitleIDFromFile reads default.xex or default.xbe and returns the TitleID as an 8-character uppercase hex string.
+func ExtractTitleIDFromFile(execPath string) (string, error) {
+	f, err := os.Open(execPath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	buf := make([]byte, 64*1024)
+	n, err := f.Read(buf)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	data := buf[:n]
+	if len(data) >= 4 && string(data[:4]) == xex2Magic {
+		info, err := parseXEX2(data)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%08X", info.TitleID), nil
+	}
+	if len(data) >= 4 && string(data[:4]) == xbeMagic {
+		info, err := parseXBE(data)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%08X", info.TitleID), nil
+	}
+	return "", fmt.Errorf("unknown executable format")
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // GOD data partition writing
 // ══════════════════════════════════════════════════════════════════════════════
@@ -665,7 +698,7 @@ func writeConHeader(path string, info *TitleExecInfo, blockCount, partCount uint
 	buf[0x035B] = 0
 	buf[0x035F] = 0
 	buf[0x0391] = 0
-	digest := sha1.Sum(buf[0x0344 : 0x0b000])
+	digest := sha1.Sum(buf[0x0344:0x0b000])
 	copy(buf[0x032C:], digest[:])
 
 	return os.WriteFile(path, buf, 0644)
@@ -740,7 +773,6 @@ func ExtractArchive(archivePath, destDir string) error {
 // tempRoot is typically GODSEND_HOME/Temp (caller passes filepath.Join(home, "Temp")).
 func ExtractISO(archivePath, safeName, tempRoot string) (string, error) {
 	dest := filepath.Join(tempRoot, safeName+"_extracted")
-	os.RemoveAll(dest)
 	if err := os.MkdirAll(dest, 0755); err != nil {
 		return "", err
 	}
@@ -819,21 +851,12 @@ func extractZipEntry(f *zip.File, destDir string) error {
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(outPath, 0755)
 	}
-	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
-		return err
-	}
 	rc, err := f.Open()
 	if err != nil {
 		return err
 	}
 	defer rc.Close()
-	out, err := os.Create(outPath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, rc)
-	return err
+	return extractFileAtomically(outPath, int64(f.UncompressedSize64), f.CRC32, true, true, rc)
 }
 
 // ── 7Z ───────────────────────────────────────────────────────────────────────
@@ -874,21 +897,12 @@ func extract7zEntry(f *sevenzip.File, destDir string) error {
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(outPath, 0755)
 	}
-	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
-		return err
-	}
 	rc, err := f.Open()
 	if err != nil {
 		return err
 	}
 	defer rc.Close()
-	out, err := os.Create(outPath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, rc)
-	return err
+	return extractFileAtomically(outPath, f.FileInfo().Size(), f.CRC32, true, true, rc)
 }
 
 // ── RAR ──────────────────────────────────────────────────────────────────────
@@ -928,19 +942,79 @@ func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string) error {
 			os.MkdirAll(outPath, 0755)
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+		// RAR readers may need the current entry fully drained (especially solid
+		// archives), so redo that entry atomically instead of size-skipping it.
+		expected := h.UnPackedSize
+		if h.UnKnownSize {
+			expected = -1
+		}
+		if err := extractFileAtomically(outPath, expected, 0, false, false, r); err != nil {
 			return err
 		}
-		out, err := os.Create(outPath)
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(out, r); err != nil {
-			out.Close()
-			return err
-		}
-		out.Close()
 	}
+}
+
+// extractFileAtomically never exposes a truncated final file. Fully committed
+// files are reused when a stage restarts; an interrupted .part is rewritten.
+func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint32, verifyCRC, allowReuse bool, src io.Reader) error {
+	if allowReuse && expectedSize >= 0 {
+		if st, err := os.Stat(outPath); err == nil && st.Mode().IsRegular() && st.Size() == expectedSize {
+			if !verifyCRC {
+				return nil
+			}
+			f, openErr := os.Open(outPath)
+			if openErr == nil {
+				h := crc32.NewIEEE()
+				_, hashErr := io.Copy(h, f)
+				closeErr := f.Close()
+				if hashErr == nil && closeErr == nil && h.Sum32() == expectedCRC {
+					return nil
+				}
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+		return err
+	}
+	partial := outPath + ".xbox-companion-part"
+	_ = os.Remove(partial)
+	out, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	var crc hash32
+	writer := io.Writer(out)
+	if verifyCRC {
+		crc = crc32.NewIEEE()
+		writer = io.MultiWriter(out, crc)
+	}
+	written, copyErr := io.CopyBuffer(writer, src, make([]byte, 1024*1024))
+	syncErr := out.Sync()
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if syncErr != nil {
+		return syncErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if expectedSize >= 0 && written != expectedSize {
+		return fmt.Errorf("arquivo extraido incompleto: %s (%d/%d bytes)", filepath.Base(outPath), written, expectedSize)
+	}
+	if verifyCRC && crc.Sum32() != expectedCRC {
+		return fmt.Errorf("CRC32 invalido ao extrair %s", filepath.Base(outPath))
+	}
+	if err := os.Remove(outPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(partial, outPath)
+}
+
+type hash32 interface {
+	io.Writer
+	Sum32() uint32
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1224,9 +1298,6 @@ func ExtractXEXFolderFromISO(isoPath, destDir string) error {
 	if !ok {
 		return fmt.Errorf("xexFromISO: no default.xex or default.xbe in ISO")
 	}
-	if err := os.RemoveAll(destDir); err != nil {
-		return err
-	}
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
 	}
@@ -1255,12 +1326,16 @@ func xdvdfsExtractRecursive(f *os.File, partOff uint64, sector, size uint32, des
 
 // xdvdfsExtractFile copies a single XDVDFS file to a local path.
 func xdvdfsExtractFile(f *os.File, partOff uint64, sector, size uint32, destPath string) error {
-	out, err := os.Create(destPath)
+	off := int64(partOff) + int64(sector)*xdvdfsSectorSz
+	if xdvdfsExtractedFileMatches(f, off, int64(size), destPath) {
+		return nil
+	}
+	partial := destPath + ".xbox-companion-part"
+	_ = os.Remove(partial)
+	out, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	off := int64(partOff) + int64(sector)*xdvdfsSectorSz
 	remaining := int64(size)
 	buf := make([]byte, 256*1024)
 	for remaining > 0 {
@@ -1271,10 +1346,12 @@ func xdvdfsExtractFile(f *os.File, partOff uint64, sector, size uint32, destPath
 		n, readErr := f.ReadAt(buf[:toRead], off)
 		if n > 0 {
 			if _, werr := out.Write(buf[:n]); werr != nil {
+				out.Close()
 				return werr
 			}
 		}
 		if readErr != nil && readErr != io.EOF {
+			out.Close()
 			return readErr
 		}
 		if n == 0 {
@@ -1283,7 +1360,42 @@ func xdvdfsExtractFile(f *os.File, partOff uint64, sector, size uint32, destPath
 		off += int64(n)
 		remaining -= int64(n)
 	}
-	return nil
+	if remaining != 0 {
+		out.Close()
+		return fmt.Errorf("xex/content incompleto: %s (%d bytes restantes)", filepath.Base(destPath), remaining)
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	if err := os.Remove(destPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(partial, destPath)
+}
+
+func xdvdfsExtractedFileMatches(source *os.File, sourceOffset, size int64, destPath string) bool {
+	st, err := os.Stat(destPath)
+	if err != nil || !st.Mode().IsRegular() || st.Size() != size {
+		return false
+	}
+	dest, err := os.Open(destPath)
+	if err != nil {
+		return false
+	}
+	defer dest.Close()
+	sourceHash := sha1.New()
+	if _, err := io.Copy(sourceHash, io.NewSectionReader(source, sourceOffset, size)); err != nil {
+		return false
+	}
+	destHash := sha1.New()
+	if _, err := io.Copy(destHash, dest); err != nil {
+		return false
+	}
+	return bytes.Equal(sourceHash.Sum(nil), destHash.Sum(nil))
 }
 
 // CompressROMFile packages a single ROM file into a deflated ZIP archive.

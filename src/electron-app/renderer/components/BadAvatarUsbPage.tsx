@@ -21,6 +21,8 @@ interface UsbDrive {
   manufacturer?: string;
   fileSystem?: string;
   freeBytes?: number;
+  diskNumber?: number;
+  volumeGuid?: string;
   safety?: {
     allowed: boolean;
     codes?: string[];
@@ -201,6 +203,13 @@ export default function BadAvatarUsbPage({
     [drives, selectedDrive],
   );
   const deviceAllowed = selectedDevice?.safety?.allowed === true;
+  const hasStableVolumeIdentity = /^\\\\\?\\Volume\{[0-9a-f-]+\}\\?$/i.test(
+    selectedDevice?.volumeGuid || "",
+  );
+  const safeFormattingAvailable = formatAvailable && deviceAllowed && hasStableVolumeIdentity;
+  useEffect(() => {
+    if (!safeFormattingAvailable) setFormatDrive(false);
+  }, [safeFormattingAvailable]);
   const canPrepare = Boolean(
     preparationEnabled &&
       deviceAllowed &&
@@ -519,10 +528,10 @@ export default function BadAvatarUsbPage({
             </div>
           </div>
 
-          <label className={`rounded-xl border border-border/50 bg-background/10 flex items-start gap-3 p-4 ${!formatAvailable ? "opacity-60" : "cursor-pointer"}`}>
+          <label className={`rounded-xl border border-border/50 bg-background/10 flex items-start gap-3 p-4 ${!safeFormattingAvailable ? "opacity-60" : "cursor-pointer"}`}>
             <Checkbox
               checked={formatDrive}
-              disabled={!formatAvailable || loading || busy}
+              disabled={!safeFormattingAvailable || loading || busy}
               onCheckedChange={(value) => setFormatDrive(value === true)}
               className="mt-0.5"
             />
@@ -530,9 +539,11 @@ export default function BadAvatarUsbPage({
               <span className="text-[13px] font-semibold text-foreground">Formatar antes</span>
               <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
                 Opcional. Apaga tudo do dispositivo e prepara em FAT32.
-                {formatAvailable
-                  ? " O Windows pedirá sua autorização antes de começar."
-                  : " O formatador FAT32 não está disponível nesta instalação."}
+                {safeFormattingAvailable
+                  ? selectedDevice?.diskNumber === -1
+                    ? " O modo alternativo revalidará o volume e o disco USB antes de apagar; o Windows pedirá sua autorização."
+                    : " O Windows pedirá sua autorização antes de começar."
+                  : " O formatador FAT32 não está disponível ou o dispositivo não passou na validação de segurança."}
               </span>
             </span>
           </label>
@@ -665,6 +676,7 @@ export default function BadAvatarUsbPage({
                 {isRghOnly
                   ? "Concluído! Insira o pendrive/HD no seu Xbox 360 RGH e ligue o videogame para carregar a Aurora automaticamente."
                   : "Abra o BadAvatar pelo perfil no console. Isso não desbloqueia o Xbox de forma permanente — repita a ativação a cada vez que ligar e mantenha o console sem internet."}
+                {!isRghOnly && " O Aurora abrir\u00e1 automaticamente, configurar\u00e1 as pastas de jogos e iniciar\u00e1 a varredura."}
               </p>
             )}
             {done && onBrowseGames && (

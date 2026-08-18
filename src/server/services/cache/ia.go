@@ -19,6 +19,9 @@ import (
 // IAService manages the Internet Archive game cache.
 type IAService struct {
 	App *app.App
+
+	// FetchCollectionEntriesFn is an optional test hook for cache rebuilds.
+	FetchCollectionEntriesFn func(string) ([]models.IAGameEntry, error)
 }
 
 // ==========================================
@@ -60,19 +63,64 @@ func (s *IAService) LoadCacheFromDisk(platform string) bool {
 	if len(pc.Games) == 0 {
 		return false
 	}
-
-	s.App.IAGameCacheMu.Lock()
-	s.App.IAGameCache[platform] = pc.Games
-	s.App.IAGameCacheMu.Unlock()
-
-	s.App.GameEntryMapMu.Lock()
-	for k, v := range pc.GameEntries {
-		s.App.GameEntryMap[k] = v
+	if strings.HasPrefix(platform, "hf_") {
+		var removed int
+		pc.Games, pc.GameEntries, removed = sanitizeHuggingFaceCache(platform, pc.Games, pc.GameEntries)
+		if len(pc.Games) == 0 {
+			return false
+		}
+		if removed > 0 {
+			s.App.Logf("HUGGINGFACE CACHE: removed %d invalid packaged item(s)", removed)
+		}
 	}
-	s.App.GameEntryMapMu.Unlock()
+
+	s.replaceMemoryCache(platform, pc.Games, pc.GameEntries)
 
 	s.SetBuildState(platform, "ready", int32(len(pc.Games)), int32(len(pc.Games)))
 	return true
+}
+
+func (s *IAService) replaceMemoryCache(platform string, games []string, entries map[string]models.IAGameEntry) {
+	s.App.IAGameCacheMu.Lock()
+	s.App.IAGameCache[platform] = games
+	s.App.IAGameCacheMu.Unlock()
+
+	s.App.GameEntryMapMu.Lock()
+	if strings.HasPrefix(platform, "hf_") {
+		prefix := platform + "\x00"
+		for key := range s.App.GameEntryMap {
+			if strings.HasPrefix(key, prefix) {
+				delete(s.App.GameEntryMap, key)
+			}
+		}
+	} else {
+		collections := make(map[string]struct{}, len(app.IACollections[platform]))
+		for _, collectionID := range app.IACollections[platform] {
+			collections[collectionID] = struct{}{}
+		}
+		for key, entry := range s.App.GameEntryMap {
+			if _, owned := collections[entry.CollectionID]; owned {
+				delete(s.App.GameEntryMap, key)
+			}
+		}
+	}
+	for key, entry := range entries {
+		s.App.GameEntryMap[key] = entry
+	}
+	s.App.GameEntryMapMu.Unlock()
+}
+
+func (s *IAService) preserveExistingCache(platform, provider string, cause error) {
+	s.App.IAGameCacheMu.RLock()
+	existing := len(s.App.IAGameCache[platform])
+	s.App.IAGameCacheMu.RUnlock()
+	if existing > 0 {
+		s.App.Logf("%s CACHE ERROR [%s]: %v; preserving %d cached games", provider, platform, cause, existing)
+		s.SetBuildState(platform, "ready", int32(existing), int32(existing))
+		return
+	}
+	s.App.Logf("%s CACHE ERROR [%s]: %v; no previous cache is available", provider, platform, cause)
+	s.SetBuildState(platform, "error", 0, 1)
 }
 
 // ==========================================
@@ -170,6 +218,9 @@ func (s *IAService) DoIAMetaFetch(collectionID string) ([]models.IAGameEntry, er
 
 // FetchIACollectionEntries wraps DoIAMetaFetch with exponential-backoff retries.
 func (s *IAService) FetchIACollectionEntries(collectionID string) ([]models.IAGameEntry, error) {
+	if s.FetchCollectionEntriesFn != nil {
+		return s.FetchCollectionEntriesFn(collectionID)
+	}
 	entries, err := s.DoIAMetaFetch(collectionID)
 	if err == nil {
 		return entries, nil
@@ -230,6 +281,7 @@ func (s *IAService) Build(platform string) {
 	newEntries := map[string]models.IAGameEntry{}
 	var allGames []string
 	var loaded int32
+	var failedCollections []string
 
 	for range colls {
 		r := <-ch
@@ -238,6 +290,12 @@ func (s *IAService) Build(platform string) {
 
 		if r.err != nil {
 			s.App.Logf("CACHE WARN [%s]: %v", platform, r.err)
+			failedCollections = append(failedCollections, r.collectionID)
+			continue
+		}
+		if len(r.entries) == 0 {
+			s.App.Logf("CACHE WARN [%s]: %s returned no downloadable archives", platform, r.collectionID)
+			failedCollections = append(failedCollections, r.collectionID)
 			continue
 		}
 		for _, e := range r.entries {
@@ -249,21 +307,20 @@ func (s *IAService) Build(platform string) {
 		}
 		s.App.Logf("CACHE [%s] %d/%d: %s (%d files)", platform, loaded, total, r.collectionID, len(r.entries))
 	}
+	if len(failedCollections) > 0 {
+		s.preserveExistingCache(platform, "INTERNET ARCHIVE", fmt.Errorf("incomplete rebuild: %d/%d collection(s) failed (%s)", len(failedCollections), len(colls), strings.Join(failedCollections, ", ")))
+		return
+	}
+	if len(allGames) == 0 {
+		s.preserveExistingCache(platform, "INTERNET ARCHIVE", fmt.Errorf("rebuild returned no games"))
+		return
+	}
 
 	sort.Strings(allGames)
 	s.SetBuildState(platform, "ready", total, total)
 	s.App.Logf("CACHE: %s complete — %d games", platform, len(allGames))
 
-	s.App.IAGameCacheMu.Lock()
-	s.App.IAGameCache[platform] = allGames
-	s.App.IAGameCacheMu.Unlock()
-
-	s.App.GameEntryMapMu.Lock()
-	for k, v := range newEntries {
-		s.App.GameEntryMap[k] = v
-	}
-	s.App.GameEntryMapMu.Unlock()
-
+	s.replaceMemoryCache(platform, allGames, newEntries)
 	s.SaveCacheToDisk(platform, allGames, newEntries)
 }
 
@@ -283,12 +340,13 @@ func (s *IAService) FindEntry(gameName, platform string) (models.IAGameEntry, er
 		return entry, nil
 	}
 
-	// Fuzzy: game name contains the search term (handles region tags)
+	// Fuzzy matching handles source-specific region and language suffixes.
 	s.App.GameEntryMapMu.RLock()
 	for k, e := range s.App.GameEntryMap {
-		baseName := strings.ToLower(strings.Split(k, " (")[0])
-		searchBase := strings.ToLower(strings.Split(gameName, " (")[0])
-		if strings.Contains(k, lower) || baseName == searchBase {
+		if strings.Contains(k, "\x00") {
+			continue
+		}
+		if TitleMatches(k, gameName) {
 			s.App.GameEntryMapMu.RUnlock()
 			return e, nil
 		}
@@ -328,15 +386,14 @@ func (s *IAService) LiveSearchIA(gameName, platform string) (models.IAGameEntry,
 		}
 	}
 
-	lowerSearch := strings.ToLower(gameName)
-
 	for _, coll := range candidates {
 		entries, err := s.DoIAMetaFetch(coll)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			if strings.Contains(strings.ToLower(e.FileName), lowerSearch) {
+			name := strings.TrimSuffix(filepath.Base(e.FileName), filepath.Ext(e.FileName))
+			if TitleMatches(name, gameName) {
 				return e, nil
 			}
 		}

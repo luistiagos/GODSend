@@ -19,6 +19,90 @@ export interface FormatProgress {
 
 export type FormatProgressCallback = (p: FormatProgress) => void;
 
+export interface WindowsFormatGuard {
+  expectedVolumeGuid: string;
+  expectedVolumeBytes: number;
+}
+
+export function validateWindowsFormatGuard(guard?: WindowsFormatGuard): WindowsFormatGuard {
+  const expectedVolumeGuid = String(guard?.expectedVolumeGuid || "").trim();
+  const expectedVolumeBytes = Number(guard?.expectedVolumeBytes || 0);
+  if (!/^\\\\\?\\Volume\{[0-9a-f-]+\}\\?$/i.test(expectedVolumeGuid)) {
+    throw new Error(
+      "A identidade estável do volume não está disponível. Atualize a lista antes de formatar.",
+    );
+  }
+  if (!Number.isSafeInteger(expectedVolumeBytes) || expectedVolumeBytes < 1024 ** 3) {
+    throw new Error("A capacidade esperada do volume é inválida; a formatação foi bloqueada.");
+  }
+  return { expectedVolumeGuid, expectedVolumeBytes };
+}
+
+export function buildGuardedWindowsFat32Script(
+  driveLetter: string,
+  executablePath: string,
+  logPath: string,
+  guard: WindowsFormatGuard,
+): string {
+  const letter = driveLetterFromRoot(`${driveLetter}:`);
+  const { expectedVolumeGuid, expectedVolumeBytes } = validateWindowsFormatGuard(guard);
+  const escapedExe = executablePath.replace(/'/g, "''");
+  const escapedLog = logPath.replace(/'/g, "''");
+  const escapedExpectedVolumeGuid = expectedVolumeGuid.replace(/'/g, "''");
+  return String.raw`$ErrorActionPreference = 'Continue'
+$log = '${escapedLog}'
+$expectedVolumeGuid = '${escapedExpectedVolumeGuid}'
+$expectedVolumeBytes = [int64]${expectedVolumeBytes}
+'=== fat32format ${letter}: ===' | Out-File -FilePath $log -Encoding utf8
+function Normalize-VolumeGuid([string]$value) {
+  if (-not $value) { return '' }
+  return $value.Trim().TrimEnd('\').ToLowerInvariant()
+}
+try {
+  $mountvol = Join-Path $env:SystemRoot 'System32\mountvol.exe'
+  $currentVolumeGuid = ((& $mountvol '${letter}:\' '/L' 2>$null) -join '').Trim()
+  if ((Normalize-VolumeGuid $currentVolumeGuid) -ne (Normalize-VolumeGuid $expectedVolumeGuid)) {
+    throw "A unidade ${letter}: mudou antes da formatação. Esperado: $expectedVolumeGuid; atual: $currentVolumeGuid"
+  }
+  $partition = Get-Partition -DriveLetter '${letter}' -ErrorAction Stop
+  $diskNo = [int]$partition.DiskNumber
+  $disk = Get-Disk -Number $diskNo -ErrorAction Stop
+  $mountedCount = @(
+    Get-Partition -DiskNumber $diskNo -ErrorAction Stop | Where-Object { $_.DriveLetter }
+  ).Count
+  if ($diskNo -eq 0 -or $disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem) {
+    throw "O destino não é um disco USB externo seguro (disco=$diskNo, barramento=$($disk.BusType))."
+  }
+  if ($disk.IsOffline -or $disk.IsReadOnly -or $mountedCount -ne 1) {
+    throw "O disco USB está offline, somente leitura ou possui mais de uma partição montada."
+  }
+  $tolerance = [Math]::Max(16777216, [Math]::Floor($expectedVolumeBytes * 0.01))
+  if ([Math]::Abs([double]$partition.Size - [double]$expectedVolumeBytes) -gt $tolerance) {
+    throw "A capacidade da partição mudou antes da formatação."
+  }
+  "Volume GUID validado: $currentVolumeGuid" | Out-File -FilePath $log -Append -Encoding utf8
+  "Disco USB validado: $diskNo ($($disk.FriendlyName))" | Out-File -FilePath $log -Append -Encoding utf8
+} catch {
+  ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
+  exit 1
+}
+$dp = @"
+select disk $diskNo
+attributes disk clear readonly
+clean
+create partition primary
+assign letter=${letter}
+exit
+"@
+($dp | diskpart 2>&1 | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 2
+$out = "Y" | & '${escapedExe}' '${letter}:' 2>&1
+$ec = $LASTEXITCODE
+$out | Out-File -FilePath $log -Append -Encoding utf8
+exit $ec`;
+}
+
 function runCommand(
   command: string,
   args: string[],
@@ -98,8 +182,10 @@ async function formatWindowsFat32(
   driveRoot: string,
   label: string,
   onProgress: FormatProgressCallback,
+  guard?: WindowsFormatGuard,
 ): Promise<void> {
   const letter = driveLetterFromRoot(driveRoot);
+  const { expectedVolumeGuid, expectedVolumeBytes } = validateWindowsFormatGuard(guard);
   const exe = resolveFat32FormatExe();
   const ts = Date.now();
   const ps1Path = path.join(os.tmpdir(), `godsend_fat32_${ts}.ps1`);
@@ -110,38 +196,14 @@ async function formatWindowsFat32(
   try {
     if (exe) {
       onProgress({ status: "Formatting to FAT32 (large-volume tool)…", percent: 8 });
-      const escapedExe = exe.replace(/'/g, "''");
-      const escapedLog = logPath.replace(/'/g, "''");
       // diskpart clean+create operates at physical-disk level, bypassing Explorer's
       // volume-level lock (ERROR_SHARING_VIOLATION / GetLastError()=32).
       // After clean, fat32format.exe gets exclusive access to the fresh raw partition.
       // Output is written to a log file because Start-Process -Verb RunAs cannot redirect I/O.
-      const innerScript =
-`$ErrorActionPreference = 'Continue'
-$log = '${escapedLog}'
-'=== fat32format ${letter}: ===' | Out-File -FilePath $log -Encoding utf8
-try {
-  $diskNo = (Get-Partition -DriveLetter '${letter}' -ErrorAction Stop).DiskNumber
-  "Disk number: $diskNo" | Out-File -FilePath $log -Append -Encoding utf8
-} catch {
-  ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
-  exit 1
-}
-$dp = @"
-select disk $diskNo
-attributes disk clear readonly
-clean
-create partition primary
-assign letter=${letter}
-exit
-"@
-($dp | diskpart 2>&1 | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Start-Sleep -Seconds 2
-$out = "Y" | & '${escapedExe}' '${letter}:' 2>&1
-$ec = $LASTEXITCODE
-$out | Out-File -FilePath $log -Append -Encoding utf8
-exit $ec`;
+      const innerScript = buildGuardedWindowsFat32Script(letter, exe, logPath, {
+        expectedVolumeGuid,
+        expectedVolumeBytes,
+      });
       fs.writeFileSync(ps1Path, innerScript, "utf8");
     } else {
       onProgress({ status: "Formatting to FAT32…", percent: 8 });
@@ -303,11 +365,12 @@ export async function formatVolumeFat32(
   driveRoot: string,
   onProgress: FormatProgressCallback,
   label = "BADAVATAR",
+  windowsGuard?: WindowsFormatGuard,
 ): Promise<void> {
   onProgress({ status: "Formatting drive to FAT32…", percent: 3 });
 
   if (process.platform === "win32") {
-    await formatWindowsFat32(driveRoot, label, onProgress);
+    await formatWindowsFat32(driveRoot, label, onProgress, windowsGuard);
     return;
   }
   if (process.platform === "darwin") {

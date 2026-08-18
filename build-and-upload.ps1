@@ -203,9 +203,42 @@ if (-not $SkipHF) {
     Print-Step "PASSO 2/3: Upload para HuggingFace (SKIPPED)"
 }
 
-# ─── STEP 3: R2 UPLOAD (DISTRIBUICAO) ─────────────
+# Purga URLs no cache de borda do Cloudflare. Retorna $true se purgou.
+function Purge-EdgeCache {
+    param([string[]]$Urls)
+
+    $cfToken = if ($env:CF_API_TOKEN) { $env:CF_API_TOKEN } elseif ($Script:CF_API_TOKEN) { $Script:CF_API_TOKEN } else { "" }
+    $cfZone  = if ($env:CF_ZONE_ID) { $env:CF_ZONE_ID } elseif ($Script:CF_ZONE_ID) { $Script:CF_ZONE_ID } else { "" }
+
+    if ([string]::IsNullOrWhiteSpace($cfToken) -or [string]::IsNullOrWhiteSpace($cfZone)) {
+        Write-Host "Purga do cache: PULADA (defina CF_API_TOKEN e CF_ZONE_ID no build.properties para purga automatica)" -ForegroundColor Yellow
+        return $false
+    }
+
+    Write-Host "Purgando cache de borda ($($Urls.Count) URL(s))..." -ForegroundColor Yellow
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    try {
+        $purgeResp = Invoke-RestMethod -Method Post `
+            -Uri "https://api.cloudflare.com/client/v4/zones/$cfZone/purge_cache" `
+            -Headers @{ Authorization = "Bearer $cfToken" } `
+            -ContentType 'application/json' `
+            -Body (@{ files = $Urls } | ConvertTo-Json) `
+            -TimeoutSec 60
+        if (-not $purgeResp.success) {
+            Write-Host "Purga falhou: $($purgeResp.errors | ConvertTo-Json -Compress)" -ForegroundColor Yellow
+            return $false
+        }
+        Write-Host "  OK: cache purgado" -ForegroundColor Green
+        return $true
+    } catch {
+        Write-Host "  Aviso na purga do cache: $($_.Exception.Message)" -ForegroundColor Yellow
+        return $false
+    }
+}
+
+# ─── STEP 3: R2 UPLOAD (DISTRIBUICAO + ANUNCIO) ───
 if (-not $SkipR2) {
-    Print-Step "PASSO 3/3: Upload para R2 (distribuicao)"
+    Print-Step "PASSO 3/4: Upload para R2 (distribuicao)"
 
     # Try build.properties first, fall back to r2-config.json
     if ($Script:R2_ACCESS_KEY_ID -and $Script:R2_SECRET_ACCESS_KEY -and $Script:R2_ENDPOINT -and $Script:R2_BUCKET) {
@@ -214,10 +247,11 @@ if (-not $SkipR2) {
             secretAccessKey = $Script:R2_SECRET_ACCESS_KEY
             endpoint        = $Script:R2_ENDPOINT
             bucket          = $Script:R2_BUCKET
-            publicBaseUrl   = if ($Script:R2_PUBLIC_URL) { $Script:R2_PUBLIC_URL } else { "" }
+            publicBaseUrl   = if ($Script:R2_PUBLIC_URL) { $Script:R2_PUBLIC_URL } else { "https://versions.digitalstoregames.com" }
         }
     } elseif (Test-Path -LiteralPath $R2_CONFIG) {
         $cfg = Get-Content -LiteralPath $R2_CONFIG -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $cfg.publicBaseUrl) { $cfg.publicBaseUrl = "https://versions.digitalstoregames.com" }
     } else {
         throw "Credenciais R2 nao encontradas. Defina R2_* no build.properties (veja build.properties.example) ou crie r2-config.json."
     }
@@ -229,6 +263,31 @@ if (-not $SkipR2) {
     }
 
     $rclone = Find-Rclone
+    $publicBase = if ($cfg.publicBaseUrl) { $cfg.publicBaseUrl.TrimEnd('/') } else { "https://versions.digitalstoregames.com" }
+
+    # Calcula hash SHA256 e tamanho
+    $localSha256 = (Get-FileHash -LiteralPath $PortablePath -Algorithm SHA256).Hash.ToLower()
+    $localSize = (Get-Item -LiteralPath $PortablePath).Length
+
+    # Gera arquivos locais no dist
+    $shaFile = Join-Path $DIST_DIR "xboxcompanion.exe.sha256"
+    "$localSha256  xboxcompanion.exe" | Out-File -FilePath $shaFile -Encoding ascii -Force
+
+    $versionJsonFile = Join-Path $DIST_DIR "version.json"
+    $downloadUrl = "$publicBase/$HF_FOLDER/xboxcompanion.exe?v=$VERSION"
+    $versionPayload = [ordered]@{
+        version     = $VERSION
+        versionCode = $VERSION
+        releaseDate = (Get-Date -Format "yyyy-MM-dd")
+        channel     = "default"
+        downloadUrl = $downloadUrl
+        sha256      = $localSha256
+        size        = [long]$localSize
+        notes       = "Xbox 360 Companion v$VERSION"
+        portableUrl = $downloadUrl
+        hfUrl       = "https://huggingface.co/datasets/$HF_REPO/blob/main/$HF_FOLDER/$PORTABLE_FILENAME"
+    } | ConvertTo-Json -Depth 4
+    $versionPayload | Out-File -FilePath $versionJsonFile -Encoding ascii -Force
 
     # Temp copy named xboxcompanion.exe
     $tempDir = Join-Path $env:TEMP "godsend-upload"
@@ -236,7 +295,8 @@ if (-not $SkipR2) {
     $tempFile = Join-Path $tempDir "xboxcompanion.exe"
     Copy-Item -LiteralPath $PortablePath -Destination $tempFile -Force
 
-    $dest = ":s3:$($cfg.bucket)"
+    $destRoot = ":s3:$($cfg.bucket)"
+    $destFolder = ":s3:$($cfg.bucket)/$HF_FOLDER"
     $s3Flags = @(
         "--s3-provider=Cloudflare",
         "--s3-access-key-id=$($cfg.accessKeyId)",
@@ -245,29 +305,37 @@ if (-not $SkipR2) {
         "--s3-no-check-bucket"
     )
 
-    Write-Host "Enviando xboxcompanion.exe -> bucket '$($cfg.bucket)'..." -ForegroundColor Yellow
-    & $rclone copy $tempFile $dest @s3Flags --progress
+    Write-Host "Enviando xboxcompanion.exe -> '$($cfg.bucket)/$HF_FOLDER' e raiz..." -ForegroundColor Yellow
+    & $rclone copy $tempFile $destFolder @s3Flags --progress
     if ($LASTEXITCODE -ne 0) {
         Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
         throw "rclone copy falhou com exit code $LASTEXITCODE"
     }
+    # Mantem copia na raiz para retrocompatibilidade
+    & $rclone copy $tempFile $destRoot @s3Flags
 
-    # Verification
+    # Envia sidecar .sha256
+    $txtHeaders = @(
+        "--header-upload=Content-Type: text/plain; charset=utf-8",
+        "--header-upload=Cache-Control: max-age=300"
+    )
+    & $rclone copyto $shaFile "$destFolder/xboxcompanion.exe.sha256" @s3Flags @txtHeaders
+    & $rclone copyto $shaFile "$destRoot/xboxcompanion.exe.sha256" @s3Flags @txtHeaders
+
+    # Verification do binario
     Write-Host ""
-    Write-Host "Verificando transferencia..." -ForegroundColor Yellow
-
-    $remoteEntries = & $rclone lsjson $dest @s3Flags -R | ConvertFrom-Json
-    $remoteByPath = @{}
+    Write-Host "Verificando transferencia do executavel..." -ForegroundColor Yellow
+    $remoteEntries = & $rclone lsjson $destFolder @s3Flags | ConvertFrom-Json
+    $remoteByName = @{}
     foreach ($e in $remoteEntries) {
-        if (-not $e.IsDir) { $remoteByPath[$e.Path] = $e.Size }
+        if (-not $e.IsDir) { $remoteByName[$e.Name] = $e.Size }
     }
 
-    $localSize = (Get-Item -LiteralPath $tempFile).Length
-    if (-not $remoteByPath.ContainsKey("xboxcompanion.exe")) {
+    if (-not $remoteByName.ContainsKey("xboxcompanion.exe")) {
         Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
         throw "VERIFICACAO FALHOU: xboxcompanion.exe nao encontrado no remoto."
     }
-    $remoteSize = $remoteByPath["xboxcompanion.exe"]
+    $remoteSize = $remoteByName["xboxcompanion.exe"]
     if ($remoteSize -ne $localSize) {
         Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
         throw "VERIFICACAO FALHOU: tamanho diferente (local: $localSize bytes, remoto: $remoteSize bytes)"
@@ -275,19 +343,47 @@ if (-not $SkipR2) {
     Write-Host "  OK: xboxcompanion.exe ($localSize bytes)" -ForegroundColor Green
     Write-Host "Verificacao passou." -ForegroundColor Green
 
-    # Cleanup
     Remove-Item -LiteralPath $tempFile -Force
 
+    # ─── STEP 4: ANUNCIO DA VERSAO (version.json) ──────
+    Print-Step "PASSO 4/4: Anuncio da versao (version.json)"
+    Write-Host "Conteudo do version.json:" -ForegroundColor Yellow
+    Write-Host $versionPayload -ForegroundColor White
     Write-Host ""
-    Write-Host "Upload para R2 concluido!" -ForegroundColor Green
-    if ($cfg.publicBaseUrl) {
-        $base = $cfg.publicBaseUrl.TrimEnd('/')
-        Write-Host "  URL publica: $base/xboxcompanion.exe" -ForegroundColor Green
-    } else {
-        Write-Host "  (defina publicBaseUrl no r2-config.json para ver a URL)" -ForegroundColor Yellow
+
+    $jsonHeaders = @(
+        "--header-upload=Content-Type: application/json; charset=utf-8",
+        "--header-upload=Cache-Control: max-age=300"
+    )
+    & $rclone copyto $versionJsonFile "$destFolder/version.json" @s3Flags @jsonHeaders
+    & $rclone copyto $versionJsonFile "$destRoot/version.json" @s3Flags @jsonHeaders
+
+    Write-Host "  OK: version.json publicado" -ForegroundColor Green
+
+    # Purga do cache de borda
+    $versionJsonUrl = "$publicBase/$HF_FOLDER/version.json"
+    $rootVersionJsonUrl = "$publicBase/version.json"
+    $binaryBareUrl = "$publicBase/$HF_FOLDER/xboxcompanion.exe"
+    $rootBinaryBareUrl = "$publicBase/xboxcompanion.exe"
+    if (Purge-EdgeCache @($versionJsonUrl, $rootVersionJsonUrl, $binaryBareUrl, $rootBinaryBareUrl)) {
+        Start-Sleep -Seconds 3
+    }
+
+    # Verificacao do anuncio pela URL publica
+    Write-Host "Verificando anuncio pela URL publica ($versionJsonUrl)..." -ForegroundColor Yellow
+    try {
+        $publicJson = Invoke-RestMethod -Uri "$versionJsonUrl`?t=$((Get-Date).Ticks)" -TimeoutSec 30 -Headers @{ 'Cache-Control' = 'no-cache' }
+        if ($publicJson.version -ne $VERSION) {
+            Write-Host "AVISO: version.json publico ainda anuncia $($publicJson.version), esperado $VERSION (cache de borda)" -ForegroundColor Yellow
+        } else {
+            Write-Host "  OK: app vera a versao $($publicJson.version) (sha256 $($publicJson.sha256.Substring(0,8))...)" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  Aviso ao verificar $versionJsonUrl: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 } else {
-    Print-Step "PASSO 3/3: Upload para R2 (SKIPPED)"
+    Print-Step "PASSO 3/4: Upload para R2 (SKIPPED)"
+    Print-Step "PASSO 4/4: Anuncio da versao (SKIPPED)"
 }
 
 # ─── SUMMARY ────────────────────────────────────────
@@ -302,9 +398,11 @@ if (-not $SkipHF) {
     Write-Host "  https://huggingface.co/datasets/$HF_REPO/blob/main/$HF_FOLDER/$PORTABLE_FILENAME" -ForegroundColor Cyan
 }
 
-if (-not $SkipR2 -and $cfg.publicBaseUrl) {
+if (-not $SkipR2) {
     Write-Host "R2 (distribuicao):" -ForegroundColor Cyan
-    Write-Host "  $base/xboxcompanion.exe" -ForegroundColor Cyan
+    Write-Host "  $publicBase/$HF_FOLDER/xboxcompanion.exe" -ForegroundColor Cyan
+    Write-Host "Anuncio da versao (lido pelo app):" -ForegroundColor Cyan
+    Write-Host "  $publicBase/$HF_FOLDER/version.json" -ForegroundColor Cyan
 }
 
 Write-Host ""

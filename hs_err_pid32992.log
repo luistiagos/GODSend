@@ -1,0 +1,274 @@
+#
+# There is insufficient memory for the Java Runtime Environment to continue.
+# Native memory allocation (mmap) failed to map 528482304 bytes. Error detail: G1 virtual space
+# Possible reasons:
+#   The system is out of physical RAM or swap space
+#   This process is running with CompressedOops enabled, and the Java Heap may be blocking the growth of the native heap
+# Possible solutions:
+#   Reduce memory load on the system
+#   Increase physical memory or swap space
+#   Check if swap backing store is full
+#   Decrease Java heap size (-Xmx/-Xms)
+#   Decrease number of Java threads
+#   Decrease Java thread stack sizes (-Xss)
+#   Set larger code cache with -XX:ReservedCodeCacheSize=
+#   JVM is running with Zero Based Compressed Oops mode in which the Java heap is
+#     placed in the first 32GB address space. The Java Heap base address is the
+#     maximum limit for the native heap growth. Please use -XX:HeapBaseMinAddress
+#     to set the Java Heap base and to place the Java Heap above 32GB virtual address.
+# This output file may be truncated or incomplete.
+#
+#  Out of Memory Error (os_windows.cpp:3766), pid=32992, tid=40352
+#
+# JRE version:  (25.0.3) (build )
+# Java VM: OpenJDK 64-Bit Server VM (25.0.3+-15898627-b508.16, mixed mode, sharing, tiered, compressed oops, compressed class ptrs, g1 gc, windows-amd64)
+# No core dump will be written. Minidumps are not enabled by default on client versions of Windows
+#
+
+---------------  S U M M A R Y ------------
+
+Command Line: -Dandroid.cli.dir=C:\Users\luist\.android/cli -Dandroid.cli.exe=C:\Users\luist\.android\bin\android-cli.exe -Dkotlinx.coroutines.debug=on -Djava.awt.headless=true --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UseAllWindowsProcessorGroups 
+
+Host: AMD Ryzen 7 4800H with Radeon Graphics         , 16 cores, 31G,  Windows 11 , 64 bit Build 26100 (10.0.26100.6725)
+Time: Tue Aug  4 16:40:42 2026 E. South America Standard Time elapsed time: 2.040576 seconds (0d 0h 0m 2s)
+
+---------------  T H R E A D  ---------------
+
+Current thread (0x00000121b985d0c0):  JavaThread "Unknown thread" [_thread_in_vm, id=40352, stack(0x00000008f5a00000,0x00000008f5c00000) (2048K)]
+
+Stack: [0x00000008f5a00000,0x00000008f5c00000]
+Native frames: (J=compiled Java code, j=interpreted, Vv=VM code, C=native code)
+V  [jvm.dll+0x7bf039]  (no source info available)
+V  [jvm.dll+0x78912d]  (no source info available)
+V  [jvm.dll+0xa0e615]  (no source info available)
+V  [jvm.dll+0xa10c94]  (no source info available)
+V  [jvm.dll+0xa11393]  (no source info available)
+V  [jvm.dll+0x30a116]  (no source info available)
+V  [jvm.dll+0x7bb145]  (no source info available)
+V  [jvm.dll+0x7adc17]  (no source info available)
+V  [jvm.dll+0x3fea3b]  (no source info available)
+V  [jvm.dll+0x406bf6]  (no source info available)
+V  [jvm.dll+0x3f30a6]  (no source info available)
+V  [jvm.dll+0x3f3388]  (no source info available)
+V  [jvm.dll+0x3c8622]  (no source info available)
+V  [jvm.dll+0x3c943e]  (no source info available)
+V  [jvm.dll+0x9d36cf]  (no source info available)
+V  [jvm.dll+0x464f42]  (no source info available)
+V  [jvm.dll+0x9b74d2]  (no source info available)
+V  [jvm.dll+0x507b3e]  (no source info available)
+V  [jvm.dll+0x5093c1]  (no source info available)
+C  [android-cli.exe+0x6a89b]  (no source info available)
+C  [android-cli.exe+0x412bd]  (no source info available)
+C  [android-cli.exe+0x149e5d]  (no source info available)
+C  [KERNEL32.DLL+0x2e8d7]  (no source info available)
+C  [ntdll.dll+0x8c53c]  (no source info available)
+
+Lock stack of current Java thread (top to bottom):
+
+
+---------------  P R O C E S S  ---------------
+
+Threads class SMR info:
+_java_thread_list=0x00007ffc1e8c1c08, length=0, elements={
+}
+
+Java Threads: ( => current thread )
+Total: 0
+
+Other Threads:
+  0x00000121bbd1a010 WorkerThread "GC Thread#0"                     [id=468, stack(0x00000008f5c00000,0x00000008f5d00000) (1024K)]
+  0x00000121d8d92b80 ConcurrentGCThread "G1 Main Marker"            [id=4376, stack(0x00000008f5d00000,0x00000008f5e00000) (1024K)]
+  0x00000121d8d93620 WorkerThread "G1 Conc#0"                       [id=33120, stack(0x00000008f5e00000,0x00000008f5f00000) (1024K)]
+
+[error occurred during error reporting (printing all threads), id 0xc0000005, EXCEPTION_ACCESS_VIOLATION (0xc0000005) at pc=0x00007ffc1df3dbba]
+VM state: not at safepoint (not fully initialized)
+
+VM Mutex/Monitor currently owned by a thread:  ([mutex/lock_event])
+[0x00007ffc1e947aa8] Heap_lock - owner thread: 0x00000121b985d0c0
+
+Heap address: 0x000000060a000000, size: 8032 MB, Compressed Oops mode: Zero based, Oop shift amount: 3
+
+CDS archive(s) mapped at: [0x0000000000000000-0x0000000000000000-0x0000000000000000), size 0, SharedBaseAddress: 0x0000000800000000, ArchiveRelocationMode: 1.
+UseCompressedClassPointers 1, UseCompactObjectHeaders 0
+Narrow klass pointer bits 32, Max shift 3
+Narrow klass base: 0xffffffffffffffff, Narrow klass shift: -1
+Encoding Range: [0xffffffffffffffff - 0x000000007fffffff), (2147483648 bytes)
+Klass Range:    [0x0000000000000000 - 0x0000000000000000), (0 bytes)
+Klass ID Range:  [4294967295 - 0) (1)
+No protection zone.
+
+GC Precious Log:
+ CardTable entry size: 512
+ Card Set container configuration: InlinePtr #cards 4 size 8 Array Of Cards #cards 32 size 80 Howl #buckets 8 coarsen threshold 7372 Howl Bitmap #cards 1024 size 144 coarsen threshold 921 Card regions per heap region 1 cards per card region 8192
+
+Heap:
+ garbage-first heap   total reserved 8224768K, committed 0K, used 0K [0x000000060a000000, 0x0000000800000000)
+  region size 4096K, 0 young (0K), 0 survivors (0K)
+
+Heap Regions: E=young(eden), S=young(survivor), O=old, HS=humongous(starts), HC=humongous(continues), CS=collection set, F=free, TAMS=top-at-mark-start, PB=parsable bottom
+
+Card table byte_map: [0x00000121d0020000,0x00000121d0fd0000] _byte_map_base: 0x00000121ccfd0000
+
+Marking Bits: (CMBitMap*) 0x00000121bbd1a7a0
+ Bits: [0x00000121d0fd0000, 0x00000121d8d50000)
+
+GC Heap Usage History (0 events):
+No events
+
+Metaspace Usage History (0 events):
+No events
+
+Dll operation events (1 events):
+Event: 0.015 Loaded shared library C:\Users\luist\.android\cli\bundles\3af3bb290ceac50660f7f48b563ac4a89cad5ed5\jre\bin\java.dll
+
+Deoptimization events (0 events):
+No events
+
+Classes loaded (0 events):
+No events
+
+Classes unloaded (0 events):
+No events
+
+Classes redefined (0 events):
+No events
+
+Internal exceptions (0 events):
+No events
+
+VM Operations (0 events):
+No events
+
+Memory protections (0 events):
+No events
+
+Nmethod flushes (0 events):
+No events
+
+Events (0 events):
+No events
+
+
+Dynamic libraries:
+0x00007ff700560000 - 0x00007ff705436000 	C:\Users\luist\.android\bin\android-cli.exe
+0x00007ffd3cae0000 - 0x00007ffd3cd48000 	C:\WINDOWS\SYSTEM32\ntdll.dll
+0x00007ffd3ba80000 - 0x00007ffd3bb49000 	C:\WINDOWS\System32\KERNEL32.DLL
+0x00007ffd3a480000 - 0x00007ffd3a872000 	C:\WINDOWS\System32\KERNELBASE.dll
+0x00007ffd3c650000 - 0x00007ffd3c727000 	C:\WINDOWS\System32\oleaut32.dll
+0x00007ffd39c40000 - 0x00007ffd39ce3000 	C:\WINDOWS\System32\msvcp_win.dll
+0x00007ffd39cf0000 - 0x00007ffd39e3b000 	C:\WINDOWS\System32\ucrtbase.dll
+0x00007ffd3b700000 - 0x00007ffd3ba7b000 	C:\WINDOWS\System32\combase.dll
+0x00007ffd3b130000 - 0x00007ffd3b248000 	C:\WINDOWS\System32\RPCRT4.dll
+0x00007ffd39fc0000 - 0x00007ffd3a058000 	C:\WINDOWS\System32\bcryptprimitives.dll
+0x00007ffd38f50000 - 0x00007ffd38f7b000 	C:\WINDOWS\SYSTEM32\USERENV.dll
+0x00007ffd0f660000 - 0x00007ffd0f67e000 	C:\WINDOWS\SYSTEM32\VCRUNTIME140.dll
+0x00007ffc1db60000 - 0x00007ffc1ea3d000 	C:\Users\luist\.android\cli\bundles\3af3bb290ceac50660f7f48b563ac4a89cad5ed5\jre\bin\server\jvm.dll
+0x00007ffd3c730000 - 0x00007ffd3c8f5000 	C:\WINDOWS\System32\USER32.dll
+0x00007ffd3a060000 - 0x00007ffd3a087000 	C:\WINDOWS\System32\win32u.dll
+0x00007ffd3b0d0000 - 0x00007ffd3b0fb000 	C:\WINDOWS\System32\GDI32.dll
+0x00007ffd3a090000 - 0x00007ffd3a1bd000 	C:\WINDOWS\System32\gdi32full.dll
+0x00007ffd3b010000 - 0x00007ffd3b0c4000 	C:\WINDOWS\System32\ADVAPI32.dll
+0x00007ffd3c300000 - 0x00007ffd3c3a9000 	C:\WINDOWS\System32\msvcrt.dll
+0x00007ffd3c250000 - 0x00007ffd3c2f6000 	C:\WINDOWS\System32\sechost.dll
+0x00007ffd3b3b0000 - 0x00007ffd3b424000 	C:\WINDOWS\System32\WS2_32.dll
+0x00007ffd325c0000 - 0x00007ffd325f5000 	C:\WINDOWS\SYSTEM32\WINMM.dll
+0x00007ffd39ac0000 - 0x00007ffd39b1e000 	C:\WINDOWS\SYSTEM32\POWRPROF.dll
+0x00007ffd013c0000 - 0x00007ffd013cc000 	C:\Users\luist\.android\cli\bundles\3af3bb290ceac50660f7f48b563ac4a89cad5ed5\jre\bin\VCRUNTIME140_1.dll
+0x00007ffd39730000 - 0x00007ffd3973b000 	C:\WINDOWS\SYSTEM32\VERSION.dll
+0x00007ffd3afd0000 - 0x00007ffd3afff000 	C:\WINDOWS\System32\IMM32.DLL
+0x00007ffd39aa0000 - 0x00007ffd39ab4000 	C:\WINDOWS\SYSTEM32\UMPDC.dll
+0x00007ffd00f40000 - 0x00007ffd00f4a000 	C:\Users\luist\.android\cli\bundles\3af3bb290ceac50660f7f48b563ac4a89cad5ed5\jre\bin\jimage.dll
+0x00007ffd303c0000 - 0x00007ffd30602000 	C:\WINDOWS\SYSTEM32\DBGHELP.DLL
+0x00007ffd24d40000 - 0x00007ffd24d7c000 	C:\WINDOWS\SYSTEM32\dbgcore.DLL
+0x00007ffd00e90000 - 0x00007ffd00eae000 	C:\Users\luist\.android\cli\bundles\3af3bb290ceac50660f7f48b563ac4a89cad5ed5\jre\bin\java.dll
+0x00007ffd3c3b0000 - 0x00007ffd3c548000 	C:\WINDOWS\System32\ole32.dll
+0x00007ffd3a880000 - 0x00007ffd3afcd000 	C:\WINDOWS\System32\SHELL32.dll
+0x00007ffd3a1c0000 - 0x00007ffd3a32b000 	C:\WINDOWS\System32\wintypes.dll
+0x00007ffd38960000 - 0x00007ffd3897b000 	C:\WINDOWS\SYSTEM32\kernel.appcore.dll
+
+JVMTI agents: none
+
+dbghelp: loaded successfully - version: 4.0.5 - missing functions: none
+symbol engine: initialized successfully - sym options: 0x614 - pdb path: .;C:\Users\luist\.android\bin;C:\WINDOWS\SYSTEM32;C:\Users\luist\.android\cli\bundles\3af3bb290ceac50660f7f48b563ac4a89cad5ed5\jre\bin\server;C:\Users\luist\.android\cli\bundles\3af3bb290ceac50660f7f48b563ac4a89cad5ed5\jre\bin
+
+VM Arguments:
+jvm_args: -Dandroid.cli.dir=C:\Users\luist\.android/cli -Dandroid.cli.exe=C:\Users\luist\.android\bin\android-cli.exe -Dkotlinx.coroutines.debug=on -Djava.awt.headless=true --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UseAllWindowsProcessorGroups 
+java_command: <unknown>
+java_class_path (initial): C:\Users\luist\.android/cli/bundles\3af3bb290ceac50660f7f48b563ac4a89cad5ed5/main.jar
+Launcher Type: generic
+
+[Global flags]
+     intx CICompilerCount                          = 12                                        {product} {ergonomic}
+     uint ConcGCThreads                            = 3                                         {product} {ergonomic}
+     uint G1ConcRefinementThreads                  = 13                                        {product} {ergonomic}
+   size_t G1HeapRegionSize                         = 4194304                                   {product} {ergonomic}
+   size_t InitialHeapSize                          = 528482304                                 {product} {ergonomic}
+   size_t MarkStackSize                            = 4194304                                   {product} {ergonomic}
+   size_t MarkStackSizeMax                         = 536870912                                 {product} {ergonomic}
+   size_t MaxHeapSize                              = 8422162432                                {product} {ergonomic}
+   size_t MinHeapDeltaBytes                        = 4194304                                   {product} {ergonomic}
+   size_t MinHeapSize                              = 8388608                                   {product} {ergonomic}
+    uintx NonNMethodCodeHeapSize                   = 7667712                                {pd product} {ergonomic}
+    uintx NonProfiledCodeHeapSize                  = 122028032                              {pd product} {ergonomic}
+    uintx ProfiledCodeHeapSize                     = 122028032                              {pd product} {ergonomic}
+    uintx ReservedCodeCacheSize                    = 251723776                              {pd product} {ergonomic}
+     bool SegmentedCodeCache                       = true                                      {product} {ergonomic}
+   size_t SoftMaxHeapSize                          = 8422162432                             {manageable} {ergonomic}
+     bool UseAllWindowsProcessorGroups             = true                                      {product} {command line}
+     bool UseCompressedOops                        = true                           {product lp64_product} {ergonomic}
+     bool UseG1GC                                  = true                                      {product} {ergonomic}
+     bool UseLargePagesIndividualAllocation        = false                                  {pd product} {ergonomic}
+
+Logging:
+Log output configuration:
+ #0: stdout all=warning uptime,level,tags foldmultilines=false
+ #1: stderr all=off uptime,level,tags foldmultilines=false
+
+Release file:
+<release file has not been read>
+Environment Variables:
+JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.18.8-hotspot\
+PATH=C:/Users/luist/.gemini/antigravity-ide/bin;C:\Program Files\Microsoft\jdk-17.0.18.8-hotspot\bin;E:\jdk-25.0.2.10-hotspot\bin;C:\Program Files\Common Files\Oracle\Java\javapath;C:\Python\Python313\Scripts\;C:\Python\Python313\;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\NVIDIA Corporation\NVIDIA App\NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\dotnet\;C:\Program Files (x86)\Windows Kits\10\Windows Performance Toolkit\;C:\Program Files\CMake\bin;C:\ProgramData\chocolatey\bin;C:\nodejs\;D:\WinMerge;D:\qemu\qemu-system-aarch64.exe;C:\Python\;C:\Python\Scripts\;C:\Program Files\Go\bin;C:\Program Files\SafeNet\Authentication\SAC\x64;C:\Program Files\SafeNet\Authentication\SAC\x32;E:\Git\cmd;C:\Program Files\Git-Xet\;C:\Users\luist\.local\bin;C:\Users\luist\.cargo\bin;C:\Users\luist\AppData\Local\Programs\Python\Python310\Scripts\;C:\Users\luist\AppData\Local\Programs\Python\Python310\;C:\Program Files\Common Files\Oracle\Java\javapath;C:\Python\Python313\Scripts\;C:\Python\Python313\;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\NVIDIA Corporation\NVIDIA App\NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\dotnet\;C:\Program Files (x86)\Windows Kits\10\Windows Performance Toolkit\;C:\Program Files\Git\cmd;C:\Program Files\CMake\bin;C:\ProgramData\chocolatey\bin;C:\nodejs\;D:\WinMerge;D:\qemu\qemu-system-aarch64.exe;C:\Python\;C:\Python\Scripts\;C:\Program Files\Docker\Docker\resources\bin;C:\Users\luist\AppData\Local\Microsoft\WindowsApps;C:\Microsoft VS Code\bin;C:\Users\luist\.dotnet\tools;C:\Users\luist\AppData\Roaming\npm;c:\Users\luist\AppData\Roaming\Code\User\globalStorage\github.copilot-chat\debugCommand;C:\Users\luist\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0-full_build\bin;C:\Users\luist\AppData\Local\Microsoft\WinGet\Packages\miurahr.aqtinstall_Microsoft.Winget.Source_8wekyb3d8bbwe;E:\cursor\resources\app\bin;C:\Users\luist\go\bin;E:\Antigravity\Antigravity IDE\bin;C:\Users\luist\AppData\Local\Programs\Antigravity IDE\bin;E:\flutter\bin;E:\Git\bin;C:\Users\luist\AppData\Local\Microsoft\WinGet\Links;E:\Kingsoft\WPS Office\12.1.0.27458\clitool
+USERNAME=luist
+OS=Windows_NT
+PROCESSOR_IDENTIFIER=AMD64 Family 23 Model 96 Stepping 1, AuthenticAMD
+TMP=E:\dev_cache\temp
+TEMP=E:\dev_cache\temp
+
+
+
+
+Compilation memory statistics disabled.
+
+Periodic native trim disabled
+
+JNI global refs:
+JNI global refs: 0, weak refs: 0
+
+JNI global refs memory usage: 0, weak refs: 0
+
+Process memory usage:
+Resident Set Size: 15416K (0% of 32896324K total physical memory with 11588028K free physical memory)
+
+OOME stack traces (most recent first):
+Classloader memory used:
+
+---------------  S Y S T E M  ---------------
+
+OS:
+ Windows 11 , 64 bit Build 26100 (10.0.26100.6725)
+OS uptime: 0 days 7:02 hours
+Hyper-V role detected
+
+CPU: total 16 (initial active 16) (16 cores per cpu, 2 threads per core) family 23 model 96 stepping 1 microcode 0x8600103, cx8, cmov, fxsr, ht, mmx, 3dnowpref, sse, sse2, sse3, ssse3, sse4a, sse4.1, sse4.2, popcnt, lzcnt, tsc, tscinvbit, avx, avx2, aes, clmul, bmi1, bmi2, adx, sha, fma, vzeroupper, clflush, clflushopt, clwb, hv, rdtscp, rdpid, f16c
+Processor Information for the first 16 processors :
+  Max Mhz: 2900, Current Mhz: 2900, Mhz Limit: 2900
+
+Memory: 4k page, system-wide physical 32125M (11316M free)
+TotalPageFile size 36198M (AvailPageFile size 288M)
+current process WorkingSet (physical memory assigned to process): 15M, peak: 15M
+current process commit charge ("private bytes"): 73M, peak: 577M
+
+vm_info: OpenJDK 64-Bit Server VM (25.0.3+-15898627-b508.16) for windows-amd64 JRE (25.0.3+-15898627-b508.16), built on 2026-07-20T17:54:23Z with MS VC++ 16.10 / 16.11 (VS2019)
+
+END.

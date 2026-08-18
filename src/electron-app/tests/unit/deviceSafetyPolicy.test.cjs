@@ -21,6 +21,7 @@ function usb(overrides = {}) {
     partitionNumber: 1,
     diskUniqueId: "{12345678-1234-1234-1234-123456789abc}",
     serialNumber: "USB-TEST-0001",
+    volumeGuid: "\\\\?\\Volume{12345678-1234-1234-1234-123456789abc}\\",
     friendlyName: "Test USB Device",
     manufacturer: "Test Vendor",
     busType: "USB",

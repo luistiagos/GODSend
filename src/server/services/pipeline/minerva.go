@@ -44,39 +44,41 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 
 	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
 	os.MkdirAll(torrentDir, 0755)
-	defer os.RemoveAll(torrentDir)
+	defer s.cleanupTorrentScratchAfterRun(gameName, torrentDir, xboxConn)
 	s.App.Logf("Minerva Torrent: %s → %s", gameName, entry.FileName)
 	s.App.LogStatus(gameName, "Processing", "Starting Minerva torrent download...")
 	archivePath, err := s.Torrent.DownloadViaTorrent(platform, torrentDir, gameName, entry)
 	if err != nil {
 		s.App.Logf("ERROR [%s]: Minerva torrent failed: %v", gameName, err)
-		return fmt.Errorf("Minerva torrent failed: %w", err)
+		return fmt.Errorf("Minerva torrent failed: %w", classifyLocalStorageFailure(xboxConn, "download-torrent", err))
 	}
 
 	installType := s.App.LookupInstallType(gameName)
 
 	if installType == "xex" {
 		extDir := filepath.Join(s.App.TempDir, safeName+"_mext")
-		os.RemoveAll(extDir)
 		s.App.LogStatus(gameName, "Processing", "Extracting archive for XEX...")
-		if err := utils.ExtractArchive(archivePath, extDir); err != nil {
-			os.Remove(archivePath)
+		if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
+			if xboxConn == nil || xboxConn.Mode != "local" {
+				os.Remove(archivePath)
+			}
 			return fmt.Errorf("Extract failed: %w", err)
 		}
-		os.Remove(archivePath)
-		defer os.RemoveAll(extDir)
+		if xboxConn == nil || xboxConn.Mode != "local" {
+			os.Remove(archivePath)
+		}
+		defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
 		xexFolder := helpers.FindXEXFolder(extDir)
 		folderName := ""
 		if xexFolder != "" {
 			folderName = filepath.Base(xexFolder)
 		} else if isoInArchive := helpers.FindFileByExt(extDir, ".iso"); isoInArchive != "" {
-			isoXexDir := filepath.Join(s.App.TempDir, safeName+"_mxex")
-			os.RemoveAll(isoXexDir)
+			isoXexDir := filepath.Join(s.outputRoot(gameName), safeName+"_mxex")
 			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
-			if err := utils.ExtractXEXFolderFromISO(isoInArchive, isoXexDir); err != nil {
+			if err := s.extractXEXResilient(gameName, isoInArchive, isoXexDir); err != nil {
 				return fmt.Errorf("XEX from ISO: %w", err)
 			}
-			defer os.RemoveAll(isoXexDir)
+			defer s.cleanupStageAfterRun(gameName, isoXexDir, xboxConn)
 			xexFolder = isoXexDir
 			folderName = safeName
 		} else {
@@ -106,7 +108,8 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 				return fmt.Errorf("Gravação local: %w", err)
 			}
 			os.RemoveAll(gameDir)
-			s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+			tid := helpers.FindTitleIDInDir(xexFolder)
+			s.App.LogLocalComplete(gameName, tid, xboxConn.LocalRoot)
 		} else {
 			partName := fmt.Sprintf("%s_Part1.7z", safeName)
 			if err := utils.CreateZipFromDir(xexFolder, filepath.Join(gameDir, partName)); err != nil {
@@ -121,36 +124,24 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting ISO...")
-	isoPath, err := utils.ExtractISO(archivePath, safeName, filepath.Join(s.App.TempDir))
-	os.Remove(archivePath)
+	isoPath, err := s.extractISOResilient(gameName, safeName, archivePath, filepath.Join(s.App.TempDir))
+	if xboxConn == nil || xboxConn.Mode != "local" {
+		os.Remove(archivePath)
+	}
 	if err != nil {
 		return fmt.Errorf("Extract failed: %w", err)
 	}
 
 	if installType == "content" {
-		s.processContentInstallFromISO(gameName, safeName, isoPath, xboxConn)
+		if err := s.processContentInstallFromISO(gameName, safeName, isoPath, xboxConn); err != nil {
+			return err
+		}
 		os.Remove(isoPath)
 		return nil
 	}
 
-	s.App.LogStatus(gameName, "Processing", "Converting to GOD...")
-	godDir := filepath.Join(s.App.TempDir, safeName+"_MGOD")
-	os.MkdirAll(godDir, 0755)
-	if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
-		os.Remove(isoPath)
-		os.RemoveAll(godDir)
-		return fmt.Errorf("GOD convert failed: %w", err)
-	}
-	os.Remove(isoPath)
-
-	titleID, mediaID, err := helpers.DetectGodStructure(godDir)
-	if err != nil {
-		os.RemoveAll(godDir)
-		return fmt.Errorf("GOD detect failed: %w", err)
-	}
-	s.App.Logf("Minerva ISO: TitleID=%s MediaID=%s", titleID, mediaID)
-	s.finalizeGOD(gameName, safeName, gameDir, godDir, titleID, mediaID, xboxConn)
-	return nil
+	godDir := filepath.Join(s.outputRoot(gameName), safeName+"_MGOD")
+	return s.convertAndFinalizeGODResilient(gameName, safeName, gameDir, isoPath, godDir, xboxConn)
 }
 
 // ProcessMinervaGenericGame handles the "games" platform from Minerva (Non-Redump mixed archives).
@@ -177,37 +168,27 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 
 	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
 	os.MkdirAll(torrentDir, 0755)
-	defer os.RemoveAll(torrentDir)
+	defer s.cleanupTorrentScratchAfterRun(gameName, torrentDir, xboxConn)
 	s.App.LogStatus(gameName, "Processing", "Starting Minerva torrent download...")
 	archivePath, err := s.Torrent.DownloadViaTorrent("games", torrentDir, gameName, entry)
 	if err != nil {
-		return fmt.Errorf("Minerva torrent failed: %w", err)
+		return fmt.Errorf("Minerva torrent failed: %w", classifyLocalStorageFailure(xboxConn, "download-torrent", err))
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting archive...")
 	extDir := filepath.Join(s.App.TempDir, safeName+"_mgext")
-	os.RemoveAll(extDir)
-	defer os.RemoveAll(extDir)
-	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
+	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
+	if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
 		return fmt.Errorf("Extract failed: %w", err)
 	}
 
 	// Try ISO pipeline first
 	isoPath := helpers.FindFileByExt(extDir, ".iso")
 	if isoPath != "" {
-		s.App.LogStatus(gameName, "Processing", "Converting to GOD...")
-		godDir := filepath.Join(s.App.TempDir, safeName+"_MGGOD")
-		os.MkdirAll(godDir, 0755)
-		if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
-			os.RemoveAll(godDir)
-			return fmt.Errorf("GOD convert failed: %w", err)
+		godDir := filepath.Join(s.outputRoot(gameName), safeName+"_MGGOD")
+		if err := s.convertAndFinalizeGODResilient(gameName, safeName, gameDir, isoPath, godDir, xboxConn); err != nil {
+			return err
 		}
-		titleID, mediaID, err := helpers.DetectGodStructure(godDir)
-		if err != nil {
-			os.RemoveAll(godDir)
-			return fmt.Errorf("GOD detect failed: %w", err)
-		}
-		s.finalizeGOD(gameName, safeName, gameDir, godDir, titleID, mediaID, xboxConn)
 		s.App.Logf("=== Complete (Minerva Generic/ISO): %s ===", gameName)
 		return nil
 	}
@@ -242,7 +223,8 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 			return fmt.Errorf("Gravação local: %w", err)
 		}
 		os.RemoveAll(gameDir)
-		s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+		tid := helpers.FindTitleIDInDir(xexFolder)
+		s.App.LogLocalComplete(gameName, tid, xboxConn.LocalRoot)
 	} else {
 		partName := fmt.Sprintf("%s_Part1.7z", safeName)
 		if err := utils.CreateZipFromDir(xexFolder, filepath.Join(gameDir, partName)); err != nil {
@@ -280,18 +262,17 @@ func (s *Service) ProcessMinervaDigitalWithErr(gameName string, entry models.Min
 
 	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
 	os.MkdirAll(torrentDir, 0755)
-	defer os.RemoveAll(torrentDir)
+	defer s.cleanupTorrentScratchAfterRun(gameName, torrentDir, xboxConn)
 	s.App.LogStatus(gameName, "Processing", "Starting Minerva torrent download...")
 	archivePath, err := s.Torrent.DownloadViaTorrent(platform, torrentDir, gameName, entry)
 	if err != nil {
-		return fmt.Errorf("Minerva torrent failed: %w", err)
+		return fmt.Errorf("Minerva torrent failed: %w", classifyLocalStorageFailure(xboxConn, "download-torrent", err))
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting...")
 	extDir := filepath.Join(s.App.TempDir, safeName+"_mdext")
-	os.RemoveAll(extDir)
-	defer os.RemoveAll(extDir)
-	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
+	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
+	if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
 		return fmt.Errorf("Extract failed: %w", err)
 	}
 
@@ -341,7 +322,7 @@ func (s *Service) ProcessMinervaDigitalWithErr(gameName string, entry models.Min
 			return fmt.Errorf("Gravação local: %w", err)
 		}
 		os.RemoveAll(gameDir)
-		s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+		s.App.LogLocalComplete(gameName, titleID, xboxConn.LocalRoot)
 	} else {
 		relPath := fmt.Sprintf("Content\\0000000000000000\\%s\\%s\\", titleID, typeDir)
 		if err := helpers.CopyFileBuffered(contentFile, filepath.Join(gameDir, finalName)); err != nil {

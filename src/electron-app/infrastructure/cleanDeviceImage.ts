@@ -4,6 +4,7 @@ import { promises as fsPromises } from "fs";
 import path from "path";
 import { pipeline } from "stream/promises";
 import { hashFileSha256 } from "./secureComponentStaging";
+import { generateReadyToPlayLaunchIni } from "./readyToPlayConfiguration";
 import type { SecureZipExtractionResult } from "./secureZipExtractor";
 import { canonicalizeJson, type TrustedComponent, type TrustedComponentManifest, type TrustedComponentRole } from "./trustedComponentManifest";
 import { validateXboxTargetRelativePath, type WritePlanSourceEntry } from "./transactionalWritePlan";
@@ -58,16 +59,7 @@ export interface CleanDeviceImageResult {
 }
 
 export function generateCleanLaunchIni(): string {
-  return [
-    "[Paths]",
-    "Default = Usb:\\Aurora\\default.xex",
-    "",
-    "[Settings]",
-    "noupdater = true",
-    "liveblock = true",
-    "livestrong = false",
-    "",
-  ].join("\r\n");
+  return generateReadyToPlayLaunchIni();
 }
 
 export function validateCleanLaunchIni(contents: string): void {
@@ -299,4 +291,3 @@ export async function buildCleanDeviceImage(
     throw error;
   }
 }
-

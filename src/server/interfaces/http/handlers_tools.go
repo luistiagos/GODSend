@@ -184,3 +184,77 @@ func toolsSanitizeFileName(name string) string {
 	}
 	return strings.TrimSpace(strings.Trim(s, "_. "))
 }
+
+// StorageDrive represents a mounted USB drive, SD card, or storage volume.
+type StorageDrive struct {
+	Path     string `json:"path"`
+	Label    string `json:"label"`
+	Type     string `json:"type"`
+	Writable bool   `json:"writable"`
+}
+
+// GET /tools/storage-drives
+// Scans mounted drives (e.g. /storage, /mnt, or drive letters on Windows) for USB pendrives and SD cards.
+func (d *Deps) handleToolsStorageDrives(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	var drives []StorageDrive
+
+	// Check Android/Linux storage paths under /storage
+	if _, err := os.Stat("/storage"); err == nil {
+		if entries, err := os.ReadDir("/storage"); err == nil {
+			for _, e := range entries {
+				name := e.Name()
+				if name == "self" || name == "knox-emulated" {
+					continue
+				}
+				fullPath := filepath.Join("/storage", name)
+				label := fmt.Sprintf("Pendrive USB / Cartão SD (%s)", name)
+				driveType := "usb_sd"
+				if name == "emulated" {
+					fullPath = "/storage/emulated/0"
+					label = "Armazenamento Interno (/storage/emulated/0)"
+					driveType = "internal"
+				}
+
+				testFile := filepath.Join(fullPath, ".godsend_write_test")
+				writable := false
+				if err := os.WriteFile(testFile, []byte("ok"), 0666); err == nil {
+					writable = true
+					os.Remove(testFile)
+				}
+
+				drives = append(drives, StorageDrive{
+					Path:     fullPath,
+					Label:    label,
+					Type:     driveType,
+					Writable: writable,
+				})
+			}
+		}
+	}
+
+	// Also check /mnt or /sdcard fallback
+	if len(drives) == 0 {
+		for _, altPath := range []string{"/sdcard", "/mnt/media_rw"} {
+			if _, err := os.Stat(altPath); err == nil {
+				testFile := filepath.Join(altPath, ".godsend_write_test")
+				writable := false
+				if err := os.WriteFile(testFile, []byte("ok"), 0666); err == nil {
+					writable = true
+					os.Remove(testFile)
+				}
+				drives = append(drives, StorageDrive{
+					Path:     altPath,
+					Label:    fmt.Sprintf("Armazenamento Armazenado (%s)", altPath),
+					Type:     "usb_sd",
+					Writable: writable,
+				})
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":     true,
+		"drives": drives,
+	})
+}

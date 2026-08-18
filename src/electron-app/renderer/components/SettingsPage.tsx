@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, RefreshCw, Loader2, Sparkles, Download, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
@@ -53,6 +53,7 @@ interface SettingsPageProps {
   onAppendLine: (line: string) => void;
   simpleMode?: boolean;
   onSimpleModeChange?: (enabled: boolean) => void;
+  onOpenUpdateModal?: (info: any) => void;
 }
 
 export default function SettingsPage({
@@ -103,6 +104,12 @@ export default function SettingsPage({
   const [dataCheckLoading, setDataCheckLoading] = useState(false);
   const [dataClearLoading, setDataClearLoading] = useState(false);
   const [dataStatusMsg, setDataStatusMsg]       = useState("");
+
+  // Auto Update State
+  const [autoCheckUpdates, setAutoCheckUpdates]       = useState(true);
+  const [updateCheckLoading, setUpdateCheckLoading]   = useState(false);
+  const [updateStatusMsg, setUpdateStatusMsg]         = useState("");
+  const [updateAvailableInfo, setUpdateAvailableInfo] = useState<any>(null);
 
   // Status messages
   const [iaSessionStatus, setIaSessionStatus]           = useState("Não conectado.");
@@ -183,6 +190,9 @@ export default function SettingsPage({
       if (priority && priority.length > 0) {
         setProviderPriority(priority);
       }
+
+      const checkRes = await window.godsendApi.getAutoCheckUpdates().catch(() => ({ ok: true, enabled: true }));
+      setAutoCheckUpdates(checkRes.enabled !== false);
     }
     load();
 
@@ -217,6 +227,37 @@ export default function SettingsPage({
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
+
+  async function handleCheckUpdates() {
+    setUpdateCheckLoading(true);
+    setUpdateStatusMsg("Verificando se há novas versões disponíveis...");
+    setUpdateAvailableInfo(null);
+    try {
+      const res = await window.godsendApi.checkForUpdates(true);
+      if (!res.ok) {
+        setUpdateStatusMsg(`Falha na verificação: ${res.error || "Não foi possível conectar ao servidor de distribuição."}`);
+        return;
+      }
+      if (res.updateAvailable) {
+        setUpdateAvailableInfo(res);
+        setUpdateStatusMsg(`Nova versão v${res.latestVersion} disponível!`);
+        if (onOpenUpdateModal) {
+          onOpenUpdateModal(res);
+        }
+      } else {
+        setUpdateStatusMsg(`Você já está na versão mais recente (v${res.currentVersion || "2.12.39"}).`);
+      }
+    } catch (err: any) {
+      setUpdateStatusMsg(`Erro: ${err.message || String(err)}`);
+    } finally {
+      setUpdateCheckLoading(false);
+    }
+  }
+
+  async function handleAutoCheckToggle(checked: boolean) {
+    setAutoCheckUpdates(checked);
+    await window.godsendApi.setAutoCheckUpdates(checked);
+  }
 
   async function handleStartupChange(checked: boolean | "indeterminate") {
     const result = await window.godsendApi.setStartupEnabled(checked);
@@ -719,6 +760,73 @@ export default function SettingsPage({
             </Hint>
           </Section>
 
+          {/* ── Atualizações do Sistema ── */}
+          <Section title="Atualizações do Aplicativo">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-surface border border-border">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-green-500/10 text-green-400 border border-green-500/20">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-muted-foreground block">Versão Instalada</span>
+                    <span className="text-[13px] font-mono font-semibold text-foreground">
+                      v2.12.39
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {updateAvailableInfo && (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => onOpenUpdateModal && onOpenUpdateModal(updateAvailableInfo)}
+                      className="text-[12px] flex items-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Ver Atualização (v{updateAvailableInfo.latestVersion})
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    disabled={updateCheckLoading}
+                    onClick={handleCheckUpdates}
+                    className="text-[12px] flex items-center gap-1.5"
+                  >
+                    {updateCheckLoading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Verificando&hellip;
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Verificar atualizações
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {updateStatusMsg && (
+                <Status className={updateAvailableInfo ? "text-green-400 font-medium" : ""}>
+                  {updateStatusMsg}
+                </Status>
+              )}
+
+              <label className="flex items-center gap-2.5 text-[12px] text-muted-foreground cursor-pointer select-none pt-1">
+                <Checkbox
+                  checked={autoCheckUpdates}
+                  onCheckedChange={(c) => handleAutoCheckToggle(c === true)}
+                />
+                Verificar atualizações automaticamente ao iniciar o aplicativo
+              </label>
+            </div>
+            <Hint>
+              O aplicativo verifica se há novas versões publicadas no servidor de distribuição e avisa com notas de lançamento e atualização com um clique, mantendo suas configurações e dados locais intactos.
+            </Hint>
+          </Section>
 
           {/* ── Launch at login ── */}
           <Section>

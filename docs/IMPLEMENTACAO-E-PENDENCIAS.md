@@ -23,7 +23,8 @@ Hoje o projeto consegue, em validação automatizada e build local:
 - simular gravação transacional e retomada após interrupções;
 - produzir uma prévia completa sem alterar o destino;
 - validar o pacote fixo incorporado por catálogo SHA-256;
-- preparar fisicamente um dispositivo USB seguro no Windows com FAT32 opcional, revalidação, diário transacional, backup e verificação pós-cópia.
+- preparar fisicamente um dispositivo USB seguro no Windows com FAT32 opcional, revalidação, diário transacional, backup e verificação pós-cópia;
+- verificar, baixar e instalar atualizações in-app automaticamente e sob demanda com validação de SHA-256 e substituição atômica (`docs/ATUALIZACAO-AUTOMATICA.md`).
 
 O projeto ainda precisa de QA destrutivo em pendrive/HD descartável e validação em Xbox 360 de laboratório antes de qualquer distribuição pública ampla. O fluxo de manifesto remoto assinado continua disponível como infraestrutura, mas a rota principal atual usa o pacote fixo incorporado e catalogado localmente.
 
@@ -487,7 +488,7 @@ Além disso, existem 2 testes Go do listener local.
 | Download seguro no fluxo | Infraestrutura com cancelamento | Retry e testes de falhas HTTP ponta a ponta antes de reativar catálogo remoto. |
 | Executor real | Integrado ao USB revalidado | Ensaios destrutivos em pendrive/HD descartável e validação de retomada após remoção física. |
 | Formatação FAT32 | Integrada com UAC sob demanda | Testes destrutivos em mídia de laboratório e confirmação de comportamento em controladoras diferentes. |
-| Configuração Aurora | Estrutura mínima pronta | Distribuição autorizada e settings/scan paths para funcionamento sem configuração manual no console. |
+| Configuração Aurora | Automação implementada | `launch.ini`, marcador exclusivo e Content Filter configuram `\games` e `\Content\0000000000000000`; falta concluir o checklist em console de laboratório. |
 | Jogos no dispositivo | Recursos de conversão herdados | Novo planejador para instalar GOD/XEX/conteúdo no dispositivo local com segurança transacional. |
 | Windows | Enumeração segura implementada | Testes em hardware/controladoras reais. |
 | macOS/Linux | Detecção herdada, fluxo novo indisponível | Política física equivalente e testes específicos; não deve ser liberado por paridade presumida. |
@@ -551,16 +552,25 @@ Critério de saída para a rota remota: usuário consegue chegar a uma prévia c
 
 Este ponto é essencial para cumprir a promessa de “plugou, ativou o exploit, abriu o Aurora”.
 
-- escolher uma distribuição Aurora autorizada;
-- definir configurações mínimas limpas;
-- configurar caminhos de scan para jogos no USB/HD;
-- validar que `Usb:\Aurora\default.xex` inicia com o payload escolhido;
-- validar bancos/configurações Aurora sem dados específicos de outro console;
-- definir comportamento quando mais de um USB estiver conectado;
-- confirmar janela de cancelamento do AutoStart com botão B;
-- decidir localização de GOD, XEX, XBLA, DLC, emuladores e ROMs;
-- testar primeiro boot, scans posteriores e atualização/reparo;
-- documentar recuperação quando Aurora ou configuração estiver corrompida.
+Concluído no código:
+
+- geração do `launch.ini` canônico apontando para `Usb:\Aurora\default.xex` nos modos BadAvatar/LT e somente RGH;
+- marcador versionado exclusivo do Xbox 360 Companion;
+- hook em `Aurora\User\Scripts\Content\Filters`, cuja carga no boot é demonstrada pelos logs incluídos no pacote;
+- correlação segura entre o serial do mount `Game:` e o serial físico do USB, sem índice `Usb0:` fixo;
+- cadastro idempotente de `\games` (profundidade 6) e `\Content\0000000000000000` (profundidade 5);
+- preservação de scan paths iguais pertencentes a outros dispositivos;
+- reinicialização única após a primeira alteração do banco;
+- reparo transacional de configuração apagada ou corrompida;
+- procedimento operacional, recuperação e QA documentados em `docs/READY-TO-PLAY-AURORA.md`.
+
+Ainda pendente:
+
+- confirmar a procedência e autorização da distribuição incorporada para publicação;
+- validar `launch.ini`, BadAvatar/AutoStart e o hook em console de laboratório compatível;
+- confirmar a janela de cancelamento do AutoStart com botão B;
+- testar primeiro boot, segundo boot, mais de um USB, XEX e GOD em hardware;
+- registrar os logs e resultados do ensaio físico.
 
 Critério de saída: em console de laboratório compatível, o Aurora inicia e encontra conteúdo sem configuração manual e sem escrever NAND.
 

@@ -180,4 +180,20 @@ contextBridge.exposeInMainWorld("godsendApi", {
     logs?: string[],
     terminal?: boolean
   ) => ipcRenderer.invoke("telemetry:report", { component, file, method, message, pageUrl, logs, terminal }),
+
+  // ── Auto Update API ──────────────────────────────────────────────────────
+  checkForUpdates:        (force?: boolean) => ipcRenderer.invoke("update:check", { force }),
+  downloadUpdate:         (payload: { downloadUrl: string; sha256?: string; size?: number }) =>
+    ipcRenderer.invoke("update:download", payload),
+  cancelUpdateDownload:   () => ipcRenderer.invoke("update:cancel-download"),
+  applyUpdateAndRestart:  (filePath?: string) => ipcRenderer.invoke("update:apply", { filePath }),
+  dismissUpdateVersion:   (version: string) => ipcRenderer.invoke("update:dismiss-version", { version }),
+  getAutoCheckUpdates:    () => ipcRenderer.invoke("update:get-auto-check"),
+  setAutoCheckUpdates:    (enabled: boolean) => ipcRenderer.invoke("update:set-auto-check", { enabled }),
+  onUpdateDownloadProgress: (callback: (progress: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: any) => callback(progress);
+    ipcRenderer.on("update:download-progress", handler);
+    return () => ipcRenderer.removeListener("update:download-progress", handler);
+  },
 });
+

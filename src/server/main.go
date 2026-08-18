@@ -22,6 +22,7 @@ import (
 )
 
 func main() {
+	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.39\n")
 	a := app.NewApp()
 	if err := a.SetupPaths(); err != nil {
 		fmt.Printf("[FATAL] Setup failed: %v\n", err)
@@ -56,23 +57,24 @@ func main() {
 
 	// ── Service layer ───────────────────────────────────────────────
 	iaSvc := &cache.IAService{App: a}
-	minervaSvc := &cache.MinervaService{App: a}
+	minervaSvc := &cache.MinervaService{App: a, Torrent: torrentSvc}
 	romSvc := &cache.ROMService{App: a, IA: iaSvc}
 	hfSvc := &cache.HuggingFaceService{App: a, IA: iaSvc}
 	localSvc := &local.Service{App: a}
 	pipelineSvc := &pipeline.Service{
-		App:      a,
-		IA:       iaSvc,
-		Minerva:  minervaSvc,
-		ROM:      romSvc,
-		Download: dlSvc,
-		FTP:      ftpSvc,
-		Torrent:  torrentSvc,
+		App:         a,
+		IA:          iaSvc,
+		Minerva:     minervaSvc,
+		ROM:         romSvc,
+		HuggingFace: hfSvc,
+		Download:    dlSvc,
+		FTP:         ftpSvc,
+		Torrent:     torrentSvc,
 	}
 
 	// ── Banner ──────────────────────────────────────────────────────
 	fmt.Println("╔══════════════════════════════════════════╗")
-	fmt.Println("║    Xbox 360 Companion Server v2.12.27    ║")
+	fmt.Println("║    Xbox 360 Companion Server v2.12.38    ║")
 	fmt.Println("║  ISO + XEX + XBLA + DLC + ROMs (EdgeEmu) ║")
 	fmt.Println("╚══════════════════════════════════════════╝")
 	fmt.Printf("[INFO] Copy Buffer: %d MB | Serve Buffer: %d KB | FTP Buffer: %d MB\n",
@@ -135,6 +137,8 @@ func main() {
 	go func() {
 		if iaSvc.LoadCacheFromDisk("hf_xbox360") {
 			a.Logf("HUGGINGFACE CACHE: Loaded xbox360 from disk")
+		} else {
+			hfSvc.Build("xbox360")
 		}
 	}()
 

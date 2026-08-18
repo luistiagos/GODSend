@@ -8,6 +8,7 @@ import ISO2GODPage from "./components/ISO2GODPage";
 import ISO2XEXPage from "./components/ISO2XEXPage";
 import FTPManagerPage from "./components/FTPManagerPage";
 import BadAvatarUsbPage from "./components/BadAvatarUsbPage";
+import AppUpdateModal, { type UpdateInfo } from "./components/AppUpdateModal";
 import MainNav from "./components/MainNav";
 
 type PageId = "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb";
@@ -25,6 +26,11 @@ const PAGE_TITLES: Record<string, string> = {
 export default function App() {
   const [page, setPage] = useState<PageId>("home");
   const [simpleMode, setSimpleMode] = useState(true);
+
+  // ── Auto Update modal state ───────────────────────────────────────────────
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateModalInfo, setUpdateModalInfo] = useState<UpdateInfo | null>(null);
+
   // Forçar o tema escuro/grafite por padrão e limpar qualquer estado anterior
   useEffect(() => {
     localStorage.setItem("theme", "dark");
@@ -114,6 +120,16 @@ export default function App() {
 
     initApp();
 
+    const updateTimer = setTimeout(async () => {
+      try {
+        const res = await window.godsendApi.checkForUpdates(false);
+        if (res && res.ok && res.updateAvailable && !res.skipped) {
+          setUpdateModalInfo(res);
+          setUpdateModalOpen(true);
+        }
+      } catch {}
+    }, 3500);
+
     const queueInterval = setInterval(async () => {
       const [pipelineRes, ftpRes] = await Promise.all([
         window.godsendApi.getQueue().catch(() => ({ ok: false, jobs: [] })),
@@ -129,6 +145,7 @@ export default function App() {
       cleanupCover();
       cleanupVisuals();
       clearInterval(queueInterval);
+      clearTimeout(updateTimer);
     };
   }, []);
 
@@ -272,50 +289,66 @@ export default function App() {
   // ── Routing ───────────────────────────────────────────────────────────────
   if (page === "library") {
     return (
-      <LibraryPage
-        status={libraryStatus}
-        games={libraryGames}
-        covers={covers}
-        titleVisuals={titleVisuals}
-        connectedTo={libraryConnectedTo}
-        onToggle={handleLibraryToggle}
-        onRefresh={handleLibraryRefresh}
-        refreshBusy={libraryRefreshing}
-        ftpStatus={ftpStatus}
-        libraryLoading={libraryLoading}
-        queueJobs={queueJobs}
-        onReconnect={pingFtp}
-        onNavigateQueue={navProps.onNavigateQueue}
-        onNavigateBrowse={navProps.onNavigateBrowse}
-        onNavigateSettings={navProps.onNavigateSettings}
-        onNavigateIso2God={navProps.onNavigateIso2God}
-        onNavigateIso2Xex={navProps.onNavigateIso2Xex}
-        onNavigateFtpManager={navProps.onNavigateFtpManager}
-        onNavigateBadAvatarUsb={navProps.onNavigateBadAvatarUsb}
-      />
+      <>
+        <LibraryPage
+          status={libraryStatus}
+          games={libraryGames}
+          covers={covers}
+          titleVisuals={titleVisuals}
+          connectedTo={libraryConnectedTo}
+          onToggle={handleLibraryToggle}
+          onRefresh={handleLibraryRefresh}
+          refreshBusy={libraryRefreshing}
+          ftpStatus={ftpStatus}
+          libraryLoading={libraryLoading}
+          queueJobs={queueJobs}
+          onReconnect={pingFtp}
+          onNavigateQueue={navProps.onNavigateQueue}
+          onNavigateBrowse={navProps.onNavigateBrowse}
+          onNavigateSettings={navProps.onNavigateSettings}
+          onNavigateIso2God={navProps.onNavigateIso2God}
+          onNavigateIso2Xex={navProps.onNavigateIso2Xex}
+          onNavigateFtpManager={navProps.onNavigateFtpManager}
+          onNavigateBadAvatarUsb={navProps.onNavigateBadAvatarUsb}
+        />
+        <AppUpdateModal
+          isOpen={updateModalOpen}
+          updateInfo={updateModalInfo}
+          onClose={() => setUpdateModalOpen(false)}
+          onDismissVersion={(v) => window.godsendApi.dismissUpdateVersion(v)}
+        />
+      </>
     );
   }
 
   if (page === "home") {
     return (
-      <HomePage
-        outputLines={outputLines}
-        logInfo={logInfo}
-        ftpStatus={ftpStatus}
-        onNavigateSettings={navProps.onNavigateSettings}
-        onNavigateQueue={navProps.onNavigateQueue}
-        onNavigateBrowse={navProps.onNavigateBrowse}
-        onNavigateIso2God={navProps.onNavigateIso2God}
-        onNavigateIso2Xex={navProps.onNavigateIso2Xex}
-        onNavigateFtpManager={navProps.onNavigateFtpManager}
-        onNavigateBadAvatarUsb={navProps.onNavigateBadAvatarUsb}
-        onLibraryToggle={handleLibraryToggle}
-        onReconnect={pingFtp}
-        libraryLoading={libraryLoading}
-        onAppendLine={appendLine}
-        queueJobs={queueJobs}
-        simpleMode={simpleMode}
-      />
+      <>
+        <HomePage
+          outputLines={outputLines}
+          logInfo={logInfo}
+          ftpStatus={ftpStatus}
+          onNavigateSettings={navProps.onNavigateSettings}
+          onNavigateQueue={navProps.onNavigateQueue}
+          onNavigateBrowse={navProps.onNavigateBrowse}
+          onNavigateIso2God={navProps.onNavigateIso2God}
+          onNavigateIso2Xex={navProps.onNavigateIso2Xex}
+          onNavigateFtpManager={navProps.onNavigateFtpManager}
+          onNavigateBadAvatarUsb={navProps.onNavigateBadAvatarUsb}
+          onLibraryToggle={handleLibraryToggle}
+          onReconnect={pingFtp}
+          libraryLoading={libraryLoading}
+          onAppendLine={appendLine}
+          queueJobs={queueJobs}
+          simpleMode={simpleMode}
+        />
+        <AppUpdateModal
+          isOpen={updateModalOpen}
+          updateInfo={updateModalInfo}
+          onClose={() => setUpdateModalOpen(false)}
+          onDismissVersion={(v) => window.godsendApi.dismissUpdateVersion(v)}
+        />
+      </>
     );
   }
 
@@ -327,6 +360,10 @@ export default function App() {
         onAppendLine={appendLine}
         simpleMode={simpleMode}
         onSimpleModeChange={setSimpleMode}
+        onOpenUpdateModal={(info) => {
+          setUpdateModalInfo(info);
+          setUpdateModalOpen(true);
+        }}
       />
     );
   } else if (page === "queue") {
@@ -354,6 +391,12 @@ export default function App() {
       <div className="flex-1 min-h-0 overflow-auto animate-fade-in">
         {pageContent}
       </div>
+      <AppUpdateModal
+        isOpen={updateModalOpen}
+        updateInfo={updateModalInfo}
+        onClose={() => setUpdateModalOpen(false)}
+        onDismissVersion={(v) => window.godsendApi.dismissUpdateVersion(v)}
+      />
     </div>
   );
 }

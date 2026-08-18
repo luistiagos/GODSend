@@ -1,35 +1,36 @@
 # LLM Technical Functionality Guide (Standalone Developer Reference)
 
-This document is the unified, standalone technical reference for the GODsend-360 codebase. It contains complete architectural overviews, API contracts, domain type definitions, Go/Node/Lua algorithms, safety policies, database schemas, and release workflows. Any AI agent modifying, debugging, or extending this project should consult this guide first.
+This document is the unified, standalone technical reference for the **Xbox 360 Companion** (formerly GODsend-360) codebase. It contains complete architectural overviews, API contracts, domain type definitions, Go/Node/Lua/Kotlin algorithms, safety policies, database schemas, and release workflows. Any AI agent modifying, debugging, or extending this project should consult this guide first.
 
 ---
 
 ## 1. System Architecture & Component Mapping
 
-GODsend-360 is structured into three main layers that interact over a local area network (LAN) and physical storage media.
+Xbox 360 Companion is structured into four main layers that interact over a local area network (LAN) and physical storage media.
 
 ```
-┌───────────────────────────────────────┐
-│       Electron Desktop App            │
-│       (TypeScript / React)            │
-│  - App Settings & Local Path Config   │
-│  - SQLite Parser (Aurora DB Sync)     │
-│  - Transactional USB Exploit Builder  │
-└──────────────────┬────────────────────┘
-                   │ Child Process / IPC
-                   ▼
-┌───────────────────────────────────────┐          FTP Protocol          ┌───────────────────────────────────────┐
-│              Go Backend               │───────────────────────────────>│             Xbox 360                  │
-│            (HTTP Server)              │<───────────────────────────────│         (Aurora Dashboard)            │
-│  - Native ISO -> GOD/XEX Conversion   │    (HTTP Asset / Game Pull)    │  - Lua GUI Menu (Browser & Trigger)   │
-│  - Chunked Parallel Downloader       │                                │  - STFS Profile Storage (Saves)       │
-│  - Core FTP Manager (IP Locks)        │                                │  - Aurora FTP Server (Port 21)        │
-└───────────────────────────────────────┘                                └───────────────────────────────────────┘
+┌───────────────────────────────────────┐         ┌───────────────────────────────────────┐
+│       Electron Desktop App            │         │          Android Mobile App           │
+│       (TypeScript / React)            │         │       (Kotlin / JNI / Service)        │
+│  - App Settings & Local Path Config   │         │  - Foreground Service + WakeLock      │
+│  - SQLite Parser (Aurora DB Sync)     │         │  - Mobile Setup Wizard (3 Steps)      │
+│  - Transactional USB Exploit Builder  │         │  - Embedded libgodsend.so JNI backend  │
+└──────────────────┬────────────────────┘         └──────────────────┬────────────────────┘
+                   │ Child Process / IPC                             │ Internal JNI / Local HTTP
+                   ▼                                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐          FTP Protocol          ┌───────────────────────────────────────┐
+│                                   Go Backend                                            │───────────────────────────────>│             Xbox 360                  │
+│                                 (HTTP Server)                                           │<───────────────────────────────│         (Aurora Dashboard)            │
+│  - Native ISO -> GOD/XEX Conversion (Pure Go)                                           │    (HTTP Asset / Game Pull)    │  - Lua GUI Menu (Browser & Trigger)   │
+│  - Chunked Parallel Downloader (IA HTTP / Minerva BitTorrent aria2c)                     │                                │  - STFS Profile Storage (Saves)       │
+│  - Core FTP Manager (IP Locks & Resilient Retry)                                        │                                │  - Aurora FTP Server (Port 21)        │
+└─────────────────────────────────────────────────────────────────────────────────────────┘                                └───────────────────────────────────────┘
 ```
 
 ### Component Code Registries
 * **Go Backend**: Rooted in `src/server/`. Follows a DDD-like layout with constructor-based dependency injection.
 * **Electron App**: Rooted in `src/electron-app/`. Runs TypeScript main process code, preload bridges, and React renderer components.
+* **Android App**: Rooted in `src/android-app/`. Native Kotlin app wrapping `libgodsend.so` with a Foreground Service and mobile wizard.
 * **Aurora scripts**: Rooted in `aurora-scripts/`. Pure Lua 5.1 code operating within Aurora's execution environment.
 
 ---

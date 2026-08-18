@@ -23,6 +23,7 @@ export interface PhysicalUsbDevice {
   partitionNumber: number;
   diskUniqueId: string;
   serialNumber: string;
+  volumeGuid: string;
   friendlyName: string;
   manufacturer: string;
   busType: string;
@@ -66,6 +67,7 @@ export function createDeviceFingerprint(device: PhysicalUsbDevice): string {
     device.partitionNumber,
     normalized(device.diskUniqueId),
     normalized(device.serialNumber),
+    normalized(device.volumeGuid),
     normalized(device.manufacturer),
     normalized(device.friendlyName),
     normalized(device.busType),

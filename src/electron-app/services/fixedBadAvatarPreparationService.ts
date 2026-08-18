@@ -4,10 +4,21 @@ import fs, { promises as fsPromises } from "fs";
 import path from "path";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
 import { getBundledResourcesRoot, getRepoRoot } from "../infrastructure/fileSystem";
+import {
+  AURORA_READY_TO_PLAY_FILTER_PATH,
+  generateAuroraReadyToPlayFilterLua,
+  generateReadyToPlayMarker,
+  generateReadyToPlayLaunchIni,
+  READY_TO_PLAY_MARKER_PATH,
+  READY_TO_PLAY_CONFIGURATION_VERSION,
+} from "../infrastructure/readyToPlayConfiguration";
 import { executeTransactionalWriteToDevice } from "../infrastructure/simulatedTransactionalWriter";
 import { buildTransactionalWritePlan, validateXboxTargetRelativePath } from "../infrastructure/transactionalWritePlan";
 import { assessWriteCapacity } from "../infrastructure/writeCapacityPolicy";
-import { requireSafeWindowsUsbTarget } from "../infrastructure/windowsUsbDeviceService";
+import {
+  enumerateSafeWindowsUsbDevices,
+  requireSafeWindowsUsbTarget,
+} from "../infrastructure/windowsUsbDeviceService";
 
 const PACKAGE_INDEX_FILE_NAME = "badavatar-package.json";
 const DEVICE_REVALIDATION_INTERVAL_MS = 10_000;
@@ -177,6 +188,57 @@ async function listPayloadFiles(root: string, directory = root, output: string[]
   return output;
 }
 
+async function createReadyToPlayStagingDirectory(sourceRoot: string, transactionId: string): Promise<string> {
+  const directoryName = `.godsend-ready-to-play-${transactionId}`;
+  const candidates = [
+    path.join(path.dirname(sourceRoot), directoryName),
+    path.join(app.getPath("temp"), directoryName),
+  ];
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      await fsPromises.rm(candidate, { recursive: true, force: true });
+      await fsPromises.mkdir(candidate);
+      return candidate;
+    } catch (error) {
+      lastError = error;
+      await fsPromises.rm(candidate, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+  throw lastError || new Error("N\u00e3o foi poss\u00edvel criar o staging da configura\u00e7\u00e3o autom\u00e1tica.");
+}
+
+async function stagePayloadEntry(sourcePath: string, destinationPath: string): Promise<void> {
+  await fsPromises.mkdir(path.dirname(destinationPath), { recursive: true });
+  try {
+    await fsPromises.link(sourcePath, destinationPath);
+  } catch {
+    await fsPromises.copyFile(sourcePath, destinationPath);
+  }
+}
+
+async function replaceGeneratedEntry(
+  entries: Array<{ sourcePath: string; relativePath: string; sizeBytes: number; sha256: string }>,
+  stagingRoot: string,
+  relativePath: string,
+  contents: string,
+): Promise<void> {
+  const key = relativePath.toLowerCase();
+  const destinationPath = path.join(stagingRoot, ...relativePath.split("/"));
+  await fsPromises.mkdir(path.dirname(destinationPath), { recursive: true });
+  await fsPromises.rm(destinationPath, { force: true });
+  await fsPromises.writeFile(destinationPath, contents, "utf8");
+  const stat = await fsPromises.stat(destinationPath);
+  const existingIndex = entries.findIndex((entry) => entry.relativePath.toLowerCase() === key);
+  if (existingIndex >= 0) entries.splice(existingIndex, 1);
+  entries.push({
+    sourcePath: destinationPath,
+    relativePath,
+    sizeBytes: stat.size,
+    sha256: createHash("sha256").update(contents, "utf8").digest("hex"),
+  });
+}
+
 export function inspectFixedPayloadReadiness(): {
   ready: boolean;
   blocker?: string;
@@ -200,11 +262,27 @@ export function inspectFixedPayloadReadiness(): {
   }
 }
 
-async function waitForSameDevice(root: string, fingerprint: string) {
+async function waitForFormattedDevice(root: string, expectedVolumeBytes: number) {
+  const normalizedRoot = root.trim().toUpperCase();
   let lastError: any;
   for (let attempt = 0; attempt < 20; attempt++) {
     try {
-      return await requireSafeWindowsUsbTarget(root, fingerprint);
+      const matches = (await enumerateSafeWindowsUsbDevices()).filter(
+        (candidate) => candidate.rootPath.trim().toUpperCase() === normalizedRoot,
+      );
+      if (matches.length !== 1 || !matches[0].safety.allowed) {
+        throw new Error("O dispositivo formatado ainda não voltou a ficar disponível com segurança.");
+      }
+      const candidate = matches[0];
+      const actualBytes = candidate.partitionSizeBytes || candidate.sizeBytes;
+      const tolerance = Math.max(16 * 1024 ** 2, Math.floor(expectedVolumeBytes * 0.01));
+      if (Math.abs(actualBytes - expectedVolumeBytes) > tolerance) {
+        throw new Error("A capacidade mudou após a formatação; selecione o dispositivo novamente.");
+      }
+      if (String(candidate.fileSystem || "").toUpperCase() !== "FAT32") {
+        throw new Error("O dispositivo voltou a aparecer, mas ainda não está em FAT32.");
+      }
+      return candidate;
     } catch (error) {
       lastError = error;
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -255,11 +333,17 @@ export async function prepareFixedBadAvatarDevice(
 
   let device = await requireSafeWindowsUsbTarget(request.driveRoot, request.expectedDeviceFingerprint);
   if (request.formatDrive) {
+    const expectedVolumeBytes = device.partitionSizeBytes || device.sizeBytes;
     await formatVolumeFat32(request.driveRoot, (progress) => {
       onProgress({ status: progress.status, percent: Math.min(12, progress.percent) });
+    }, "BADAVATAR", {
+      expectedVolumeGuid: device.volumeGuid,
+      expectedVolumeBytes,
     });
-    device = await waitForSameDevice(request.driveRoot, request.expectedDeviceFingerprint);
+    device = await waitForFormattedDevice(request.driveRoot, expectedVolumeBytes);
   }
+
+  const effectiveDeviceFingerprint = device.fingerprint;
 
   if (String(device.fileSystem || "").toUpperCase() !== "FAT32") {
     throw new Error("O dispositivo precisa estar em FAT32. Marque “Formatar antes” e tente novamente.");
@@ -270,10 +354,12 @@ export async function prepareFixedBadAvatarDevice(
   if (!sourceRoot) throw new Error(`A versão ${index.release} não foi encontrada no aplicativo.`);
   const manifest = loadManifest(assetsRoot, index);
   onProgress({ status: `Verificando o pacote ${manifest.release}…`, percent: 14 });
-  const transactionScope = request.isRghOnly ? "rgh-only" : "";
+  const transactionScope = request.isRghOnly
+    ? `rgh-only-ready-to-play-v${READY_TO_PLAY_CONFIGURATION_VERSION}`
+    : `badavatar-ready-to-play-v${READY_TO_PLAY_CONFIGURATION_VERSION}`;
   const transactionId = deterministicTransactionId(
     manifest.bundleSha256,
-    request.expectedDeviceFingerprint,
+    effectiveDeviceFingerprint,
     transactionScope,
   );
 
@@ -294,60 +380,47 @@ export async function prepareFixedBadAvatarDevice(
 
   try {
     if (request.isRghOnly) {
-      // Keep only Aurora dashboard files
-      entries = entries.filter((e) => e.relativePath.startsWith("Aurora/"));
-
-      // Create a temporary staging directory where we will reconstruct the filtered package
-      // and write the dynamic launch.ini, making it a single trusted staging folder.
-      tempStagingDir = path.join(app.getPath("temp"), `godsend-rgh-staging-${transactionId}`);
-      await fsPromises.mkdir(tempStagingDir, { recursive: true });
-
-      // Copy all Aurora files to the staging directory
-      for (const entry of entries) {
-        const destPath = path.join(tempStagingDir, ...entry.relativePath.split("/"));
-        await fsPromises.mkdir(path.dirname(destPath), { recursive: true });
-        await fsPromises.copyFile(entry.sourcePath, destPath);
-        // Point the entry sourcePath to the staged copy
-        entry.sourcePath = destPath;
-      }
-
-      // Dynamically generate a clean launch.ini pointing directly to Usb:\Aurora\default.xex inside the staging folder
-      const tempLaunchPath = path.join(tempStagingDir, "launch.ini");
-      const launchContents = [
-        "[Paths]",
-        "Default = Usb:\\Aurora\\default.xex",
-        "",
-        "[Settings]",
-        "noupdater = true",
-        "liveblock = true",
-        "livestrong = false",
-        "",
-      ].join("\r\n");
-      await fsPromises.writeFile(tempLaunchPath, launchContents, "utf8");
-
-      const launchStat = await fsPromises.stat(tempLaunchPath);
-      const launchSha = createHash("sha256").update(launchContents).digest("hex");
-      entries.push({
-        sourcePath: tempLaunchPath,
-        relativePath: "launch.ini",
-        sizeBytes: launchStat.size,
-        sha256: launchSha,
-      });
-
-      // Update sourceRoot to our temporary staging directory
-      sourceRoot = tempStagingDir;
+      entries = entries.filter((entry) => entry.relativePath.startsWith("Aurora/"));
     }
+
+    onProgress({ status: "Configurando inicializa\u00e7\u00e3o e biblioteca do Aurora\u2026", percent: 17 });
+    tempStagingDir = await createReadyToPlayStagingDirectory(sourceRoot, transactionId);
+    for (const entry of entries) {
+      const destinationPath = path.join(tempStagingDir, ...entry.relativePath.split("/"));
+      await stagePayloadEntry(entry.sourcePath, destinationPath);
+      entry.sourcePath = destinationPath;
+    }
+
+    await replaceGeneratedEntry(
+      entries,
+      tempStagingDir,
+      AURORA_READY_TO_PLAY_FILTER_PATH,
+      generateAuroraReadyToPlayFilterLua(),
+    );
+    await replaceGeneratedEntry(
+      entries,
+      tempStagingDir,
+      READY_TO_PLAY_MARKER_PATH,
+      generateReadyToPlayMarker(),
+    );
+    await replaceGeneratedEntry(
+      entries,
+      tempStagingDir,
+      "launch.ini",
+      generateReadyToPlayLaunchIni(),
+    );
+    sourceRoot = tempStagingDir;
 
     const plan = await buildTransactionalWritePlan({
       sourceRoot,
-      deviceFingerprint: request.expectedDeviceFingerprint,
+      deviceFingerprint: effectiveDeviceFingerprint,
       manifestId: manifest.manifestId,
       manifestRelease: manifest.release,
       entries,
     }, new Date(manifest.createdAt), transactionId);
 
     onProgress({ status: "Verificando espaço disponível…", percent: 20 });
-    device = await requireSafeWindowsUsbTarget(request.driveRoot, request.expectedDeviceFingerprint);
+    device = await requireSafeWindowsUsbTarget(request.driveRoot, effectiveDeviceFingerprint);
     const capacity = await assessWriteCapacity(plan, request.driveRoot, {
       fileSystem: device.fileSystem,
       totalBytes: device.partitionSizeBytes || device.sizeBytes,
@@ -358,7 +431,7 @@ export async function prepareFixedBadAvatarDevice(
 
     const revalidateTarget = createThrottledUsbTargetRevalidator(
       request.driveRoot,
-      request.expectedDeviceFingerprint,
+      effectiveDeviceFingerprint,
     );
     await revalidateTarget();
 

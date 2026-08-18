@@ -8,10 +8,12 @@ import {
   type PhysicalUsbDevice,
   type SafeUsbDevice,
 } from "./deviceSafetyPolicy";
+import { appendAppEvent } from "./serverLog";
 
-const USB_ENUMERATION_TIMEOUT_MS = 45_000;
+const USB_ENUMERATION_TIMEOUT_MS = 12_000;
+const REMOVABLE_ENUMERATION_TIMEOUT_MS = 5_000;
 
-function runPowerShell(script: string): Promise<string> {
+function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     // Write script to a temp file so PowerShell uses -File instead of -Command.
     // -Command has trouble parsing complex multiline scripts (hashtables, if/else
@@ -58,7 +60,7 @@ function runPowerShell(script: string): Promise<string> {
           ),
         );
       });
-    }, USB_ENUMERATION_TIMEOUT_MS);
+    }, timeoutMs);
     child.stdout.on("data", (data) => { stdout += data.toString(); });
     child.stderr.on("data", (data) => { stderr += data.toString(); });
     child.on("error", (error) => finish(() => { cleanup(); reject(error); }));
@@ -72,9 +74,87 @@ function runPowerShell(script: string): Promise<string> {
   });
 }
 
+// Storage Management (Get-Disk/Get-CimInstance) can block indefinitely after
+// a flaky USB disconnect. DriveInfo + mountvol use independent Win32 paths and
+// keep ordinary removable pendrives selectable while that service recovers.
+const ENUMERATE_REMOVABLE_SCRIPT = String.raw`
+$ErrorActionPreference = 'SilentlyContinue'
+$rows = @()
+$mountvol = Join-Path $env:SystemRoot 'System32\mountvol.exe'
+
+try {
+  Add-Type -Namespace XboxCompanion -Name NativeDisk -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+public static extern bool GetDiskFreeSpace(
+  string rootPath,
+  out uint sectorsPerCluster,
+  out uint bytesPerSector,
+  out uint freeClusters,
+  out uint totalClusters
+);
+'@
+} catch {}
+
+foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
+  try {
+    if (-not $drive.IsReady -or $drive.DriveType -ne [System.IO.DriveType]::Removable) { continue }
+    $root = $drive.Name.ToUpperInvariant()
+    $volumeGuid = ((& $mountvol $root '/L' 2>$null) -join '').Trim()
+    if (-not $volumeGuid) {
+      $volumeGuid = 'removable|' + $root + '|' + [string]$drive.TotalSize + '|' + [string]$drive.VolumeLabel
+    }
+    [uint32]$sectorsPerCluster = 0
+    [uint32]$bytesPerSector = 0
+    [uint32]$freeClusters = 0
+    [uint32]$totalClusters = 0
+    [int64]$allocationUnitBytes = 0
+    try {
+      if ([XboxCompanion.NativeDisk]::GetDiskFreeSpace(
+        $root,
+        [ref]$sectorsPerCluster,
+        [ref]$bytesPerSector,
+        [ref]$freeClusters,
+        [ref]$totalClusters
+      )) {
+        $allocationUnitBytes = [int64]$sectorsPerCluster * [int64]$bytesPerSector
+      }
+    } catch {}
+    $rows += [PSCustomObject]@{
+      RootPath = $root
+      Label = if ($drive.VolumeLabel) { [string]$drive.VolumeLabel } else { 'Sem nome' }
+      FileSystem = [string]$drive.DriveFormat
+      SizeBytes = [int64]$drive.TotalSize
+      PartitionSizeBytes = [int64]$drive.TotalSize
+      FreeBytes = [int64]$drive.AvailableFreeSpace
+      AllocationUnitBytes = $allocationUnitBytes
+      DiskNumber = -1
+      PartitionNumber = -1
+      DiskUniqueId = $volumeGuid
+      SerialNumber = $volumeGuid
+      VolumeGuid = $volumeGuid
+      FriendlyName = 'Dispositivo USB removivel'
+      Manufacturer = ''
+      BusType = 'USB'
+      PartitionStyle = ''
+      DriveType = 'Removable'
+      DiskPath = $volumeGuid
+      OperationalStatus = 'Online (fallback nativo)'
+      IsBoot = $false
+      IsSystem = $false
+      IsReadOnly = $false
+      IsOffline = $false
+      MountedPartitionCount = 1
+    }
+  } catch {}
+}
+
+if ($rows.Count -eq 0) { '[]' } else { @($rows) | ConvertTo-Json -Compress -Depth 4 }
+`;
+
 const ENUMERATE_USB_SCRIPT = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 $rows = @()
+$mountvol = Join-Path $env:SystemRoot 'System32\mountvol.exe'
 
 try {
   $disks = @(Get-Disk -ErrorAction SilentlyContinue | Where-Object { $_.BusType -eq 'USB' })
@@ -82,8 +162,10 @@ try {
     $mounted = @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter })
     foreach ($partition in $mounted) {
       $volume = Get-Volume -Partition $partition -ErrorAction SilentlyContinue
+      $rootPath = $partition.DriveLetter.ToString().ToUpperInvariant() + ':\'
+      $volumeGuid = ((& $mountvol $rootPath '/L' 2>$null) -join '').Trim()
       $rows += [PSCustomObject]@{
-        RootPath = ($partition.DriveLetter.ToString().ToUpperInvariant() + ':\')
+        RootPath = $rootPath
         Label = if ($volume.FileSystemLabel) { [string]$volume.FileSystemLabel } else { 'Sem nome' }
         FileSystem = if ($volume.FileSystem) { [string]$volume.FileSystem } else { '' }
         SizeBytes = [int64]$disk.Size
@@ -94,6 +176,7 @@ try {
         PartitionNumber = [int]$partition.PartitionNumber
         DiskUniqueId = [string]$disk.UniqueId
         SerialNumber = [string]$disk.SerialNumber
+        VolumeGuid = $volumeGuid
         FriendlyName = [string]$disk.FriendlyName
         Manufacturer = [string]$disk.Manufacturer
         BusType = [string]$disk.BusType
@@ -120,8 +203,10 @@ if ($rows.Count -eq 0) {
       $logicals = @(Get-CimInstance -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($part.DeviceID)'} WHERE AssocClass=Win32_LogicalDiskToPartition" -ErrorAction SilentlyContinue)
       foreach ($ld in $logicals) {
         if (-not $ld.DeviceID) { continue }
+        $rootPath = $ld.DeviceID + '\'
+        $volumeGuid = ((& $mountvol $rootPath '/L' 2>$null) -join '').Trim()
         $rows += [PSCustomObject]@{
-          RootPath = $ld.DeviceID + '\'
+          RootPath = $rootPath
           Label = if ($ld.VolumeName) { [string]$ld.VolumeName } else { 'Sem nome' }
           FileSystem = if ($ld.FileSystem) { [string]$ld.FileSystem } else { '' }
           SizeBytes = [int64]$disk.Size
@@ -132,6 +217,7 @@ if ($rows.Count -eq 0) {
           PartitionNumber = -1
           DiskUniqueId = [string]$disk.SerialNumber
           SerialNumber = [string]$disk.SerialNumber
+          VolumeGuid = $volumeGuid
           FriendlyName = [string]$disk.Model
           Manufacturer = [string]$disk.Manufacturer
           BusType = 'USB'
@@ -179,6 +265,7 @@ function parsePhysicalDevice(row: any): PhysicalUsbDevice {
     partitionNumber: asNumber(row.PartitionNumber),
     diskUniqueId: asString(row.DiskUniqueId),
     serialNumber: asString(row.SerialNumber),
+    volumeGuid: asString(row.VolumeGuid),
     friendlyName: asString(row.FriendlyName),
     manufacturer: asString(row.Manufacturer),
     busType: asString(row.BusType),
@@ -201,21 +288,43 @@ function normalizeRoot(rootPath: string): string {
 
 export async function enumerateSafeWindowsUsbDevices(): Promise<SafeUsbDevice[]> {
   if (process.platform !== "win32") return [];
-  const output = (await runPowerShell(ENUMERATE_USB_SCRIPT)).trim();
-  if (!output) return [];
+  const systemDrive = process.env.SystemDrive || "C:";
+  const parseOutput = (rawOutput: string): SafeUsbDevice[] => {
+    const output = rawOutput.trim();
+    if (!output) return [];
+    let parsed: any;
+    try {
+      parsed = JSON.parse(output);
+    } catch {
+      throw new Error("O Windows retornou dados inválidos ao enumerar os dispositivos USB.");
+    }
+    const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+    return rows
+      .filter((row) => row?.RootPath)
+      .map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive));
+  };
 
-  let parsed: any;
   try {
-    parsed = JSON.parse(output);
-  } catch {
-    throw new Error("O Windows retornou dados inválidos ao enumerar os dispositivos USB.");
+    const removable = parseOutput(
+      await runPowerShell(ENUMERATE_REMOVABLE_SCRIPT, REMOVABLE_ENUMERATION_TIMEOUT_MS),
+    );
+    if (removable.length > 0) {
+      appendAppEvent(
+        "usb",
+        `enumeração nativa encontrou ${removable.length} unidade(s): ${removable.map((device) => device.rootPath).join(", ")}`,
+      );
+      return removable;
+    }
+  } catch (error: any) {
+    appendAppEvent("usb", `enumeração nativa falhou: ${error?.message || String(error)}`);
   }
 
-  const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
-  const systemDrive = process.env.SystemDrive || "C:";
-  return rows
-    .filter((row) => row?.RootPath)
-    .map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive));
+  const devices = parseOutput(await runPowerShell(ENUMERATE_USB_SCRIPT));
+  appendAppEvent(
+    "usb",
+    `enumeração física encontrou ${devices.length} unidade(s): ${devices.map((device) => device.rootPath).join(", ") || "nenhuma"}`,
+  );
+  return devices;
 }
 
 export async function requireSafeWindowsUsbTarget(

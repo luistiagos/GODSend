@@ -237,6 +237,29 @@ async function loadOrCreateJournal(
   return { journal, resumed: false };
 }
 
+async function completedPlanStillMatchesTarget(
+  root: string,
+  plan: TransactionalWritePlan,
+): Promise<boolean> {
+  for (const entry of plan.entries) {
+    if (!(await fileMatches(resolveInside(root, entry.relativePath), entry))) return false;
+  }
+  return true;
+}
+
+async function resetCompletedJournalForRepair(
+  paths: ReturnType<typeof metadataPaths>,
+  plan: TransactionalWritePlan,
+  revalidate: () => Promise<void>,
+): Promise<void> {
+  await revalidate();
+  await fsPromises.rm(paths.stagingRoot, { recursive: true, force: true });
+  await fsPromises.rm(paths.backupRoot, { recursive: true, force: true });
+  for (const suffix of [".json", ".previous.json", ".next.json"]) {
+    await fsPromises.rm(path.join(paths.journalRoot, `${plan.transactionId}${suffix}`), { force: true });
+  }
+}
+
 async function executeTransactionalWrite(
   plan: TransactionalWritePlan,
   targetRoot: string,
@@ -263,10 +286,14 @@ async function executeTransactionalWrite(
   try {
     if (!resumed) await options.faultInjector?.("after-journal-created");
     if (journal.state === "completed") {
-      await options.revalidateTarget();
-      await fsPromises.rm(paths.stagingRoot, { recursive: true, force: true });
-      await fsPromises.rm(paths.backupRoot, { recursive: true, force: true });
-      return { journal, resumed: true, reusedFiles: plan.entries.length, writtenFiles: 0 };
+      if (await completedPlanStillMatchesTarget(root, plan)) {
+        await options.revalidateTarget();
+        await fsPromises.rm(paths.stagingRoot, { recursive: true, force: true });
+        await fsPromises.rm(paths.backupRoot, { recursive: true, force: true });
+        return { journal, resumed: true, reusedFiles: plan.entries.length, writtenFiles: 0 };
+      }
+      await resetCompletedJournalForRepair(paths, plan, options.revalidateTarget);
+      ({ journal, resumed } = await loadOrCreateJournal(root, plan, paths, options.revalidateTarget));
     }
     if (journal.state === "failed") {
       throw new Error("Uma transação marcada como falha não pode ser retomada; crie um novo plano.");

@@ -2,17 +2,79 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	stdhttp "net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"godsend/app"
 	"godsend/infrastructure/ftp"
 )
 
 // ── Synchronous utility endpoints ─────────────────────────────────────
+
+// GET /ftp/discover — scans the local /24 subnet on port 21 for an Xbox 360 FTP server.
+func (d *Deps) handleFTPDiscover(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	outboundIP := d.App.ServerIP
+	if outboundIP == "" {
+		outboundIP = app.GetOutboundIP()
+	}
+	if outboundIP == "" || outboundIP == "127.0.0.1" {
+		jsonError(w, 400, "Local network IP unavailable")
+		return
+	}
+
+	parts := strings.Split(outboundIP, ".")
+	if len(parts) != 4 {
+		jsonError(w, 400, "Invalid local IP")
+		return
+	}
+	prefix := fmt.Sprintf("%s.%s.%s.", parts[0], parts[1], parts[2])
+
+	var foundIP string
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	for i := 1; i <= 254; i++ {
+		targetIP := fmt.Sprintf("%s%d", prefix, i)
+		if targetIP == outboundIP {
+			continue
+		}
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
+			var dialer net.Dialer
+			conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip, "21"))
+			if err != nil {
+				return
+			}
+			conn.Close()
+
+			mu.Lock()
+			if foundIP == "" {
+				foundIP = ip
+			}
+			mu.Unlock()
+		}(targetIP)
+	}
+
+	wg.Wait()
+
+	w.Header().Set("Content-Type", "application/json")
+	if foundIP != "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"found": true, "ip": foundIP})
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"found": false})
+	}
+}
 
 // POST /ftp/ping  { "ip": "..." }
 func (d *Deps) handleFTPPing(w stdhttp.ResponseWriter, r *stdhttp.Request) {

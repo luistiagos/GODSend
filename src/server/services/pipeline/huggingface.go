@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"godsend/infrastructure/ftp"
@@ -36,19 +37,27 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
 	os.MkdirAll(gameDir, 0755)
 
-	archivePath := filepath.Join(s.App.TempDir, safeName+"_hf.7z")
+	ext := strings.ToLower(filepath.Ext(downloadURL))
+	if ext == "" || (ext != ".zip" && ext != ".rar" && ext != ".7z") {
+		ext = ".7z"
+	}
+	archivePath := filepath.Join(s.App.TempDir, safeName+"_hf"+ext)
+	if xboxConn != nil && xboxConn.Mode == "local" {
+		archivePath = filepath.Join(gameDir, ".source_hf"+ext)
+	}
 	s.App.LogStatus(gameName, "Processing", "Downloading from HuggingFace...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, "huggingface.co"); err != nil {
 		s.App.Logf("ERROR [%s]: HuggingFace download failed: %v", gameName, err)
-		return fmt.Errorf("HuggingFace download failed: %w", err)
+		return fmt.Errorf("HuggingFace download failed: %w", classifyLocalStorageFailure(xboxConn, "download-http", err))
 	}
-	defer os.Remove(archivePath)
+	if xboxConn == nil || xboxConn.Mode != "local" {
+		defer os.Remove(archivePath)
+	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting HuggingFace archive...")
-	extDir := filepath.Join(s.App.TempDir, safeName+"_hf_ext")
-	os.RemoveAll(extDir)
-	defer os.RemoveAll(extDir)
-	if err := utils.ExtractArchive(archivePath, extDir); err != nil {
+	extDir := filepath.Join(s.outputRoot(gameName), safeName+"_hf_ext")
+	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
+	if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
 		return fmt.Errorf("Extract failed: %w", err)
 	}
 
@@ -86,7 +95,8 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 			return fmt.Errorf("Gravação local: %w", err)
 		}
 		os.RemoveAll(gameDir)
-		s.App.LogStatus(gameName, "Ready", "Gravado no dispositivo!")
+		tid := helpers.FindTitleIDInDir(xexFolder)
+		s.App.LogLocalComplete(gameName, tid, xboxConn.LocalRoot)
 	} else {
 		partName := fmt.Sprintf("%s_Part1.7z", safeName)
 		if err := utils.CreateZipFromDir(xexFolder, filepath.Join(gameDir, partName)); err != nil {

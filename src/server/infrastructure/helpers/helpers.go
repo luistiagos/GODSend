@@ -229,3 +229,53 @@ func FindXEXFolder(dir string) string {
 	})
 	return xexFolder
 }
+
+// FindTitleIDInDir attempts to detect the 8-character hex TitleID of a game in dir (GOD, XEX, or STFS).
+func FindTitleIDInDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	// 1. Try default.xex or default.xbe directly in dir
+	for _, name := range []string{"default.xex", "default.xbe", "Default.xex", "Default.xbe"} {
+		p := filepath.Join(dir, name)
+		if tid, err := utils.ExtractTitleIDFromFile(p); err == nil && len(tid) == 8 && IsHexString(tid) {
+			return strings.ToUpper(tid)
+		}
+	}
+
+	// 2. Try GOD structure detection
+	if tid, _, err := DetectGodStructure(dir); err == nil && len(tid) == 8 && IsHexString(tid) {
+		return strings.ToUpper(tid)
+	}
+
+	// 3. Search first two levels of subdirectories for default.xex / default.xbe or STFS headers
+	var foundTID string
+	filepath.Walk(dir, func(p string, i os.FileInfo, e error) error {
+		if e != nil {
+			return nil
+		}
+		if i.IsDir() {
+			// Don't walk excessively deep
+			rel, _ := filepath.Rel(dir, p)
+			if strings.Count(rel, string(filepath.Separator)) > 3 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		baseLower := strings.ToLower(i.Name())
+		if baseLower == "default.xex" || baseLower == "default.xbe" || strings.HasSuffix(baseLower, ".xex") {
+			if tid, err := utils.ExtractTitleIDFromFile(p); err == nil && len(tid) == 8 && IsHexString(tid) {
+				foundTID = strings.ToUpper(tid)
+				return io.EOF
+			}
+		}
+		if tid, _ := ParseXboxHeader(p); tid != "" && len(tid) == 8 && IsHexString(tid) {
+			foundTID = strings.ToUpper(tid)
+			return io.EOF
+		}
+		return nil
+	})
+
+	return foundTID
+}
+

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +38,8 @@ type Service struct {
 	// aria2c resolved path cache (mutex-guarded, local to this service)
 	aria2cResolvedMu   sync.Mutex
 	aria2cResolvedPath string
+	minervaTorrentMu   sync.Mutex
+	minervaTorrents    map[string][]byte
 }
 
 // FetchMinervaTorrent downloads the collection .torrent file for the given platform from Minerva.
@@ -44,6 +47,11 @@ func (s *Service) FetchMinervaTorrent(platform string) ([]byte, error) {
 	torrentURL, ok := app.MinervaTorrentURLs[platform]
 	if !ok {
 		return nil, fmt.Errorf("no torrent URL for platform %q", platform)
+	}
+	s.minervaTorrentMu.Lock()
+	defer s.minervaTorrentMu.Unlock()
+	if cached := s.minervaTorrents[torrentURL]; len(cached) > 0 {
+		return cached, nil
 	}
 	s.App.Logf("TORRENT: Fetching collection torrent for %s...", platform)
 	req, err := http.NewRequest("GET", torrentURL, nil)
@@ -59,7 +67,15 @@ func (s *Service) FetchMinervaTorrent(platform string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("torrent HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if s.minervaTorrents == nil {
+		s.minervaTorrents = make(map[string][]byte)
+	}
+	s.minervaTorrents[torrentURL] = data
+	return data, nil
 }
 
 // aria2cWorks runs `<path> --version` with a short timeout and reports whether
@@ -179,18 +195,79 @@ func (s *Service) Aria2cBinary() (string, error) {
 // torrentBasenameMatches reports whether a path inside the .torrent matches the Minerva entry
 // filename, including when one side uses HTML entities and the other uses a literal apostrophe.
 func torrentBasenameMatches(torrentBase, entryFileName string) bool {
-	if strings.EqualFold(torrentBase, entryFileName) {
-		return true
-	}
-	a := helpers.DecodeMinervaName(torrentBase)
-	b := helpers.DecodeMinervaName(entryFileName)
-	if strings.EqualFold(a, b) {
-		return true
-	}
-	if strings.EqualFold(a, entryFileName) || strings.EqualFold(torrentBase, b) {
-		return true
+	for _, torrentKey := range minervaFilenameKeys(torrentBase) {
+		for _, entryKey := range minervaFilenameKeys(entryFileName) {
+			if torrentKey == entryKey {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+func minervaFilenameKeys(name string) []string {
+	decoded := helpers.DecodeMinervaName(strings.TrimSpace(name))
+	keys := []string{
+		strings.ToLower(strings.TrimSpace(name)),
+		strings.ToLower(decoded),
+		strings.ToLower(strings.TrimSuffix(decoded, filepath.Ext(decoded))),
+	}
+	unique := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, key)
+	}
+	return unique
+}
+
+// ValidateMinervaEntries verifies that every catalog entry names a real file
+// in the collection torrent used by DownloadViaTorrent.
+func (s *Service) ValidateMinervaEntries(platform string, entries []models.MinervaEntry) ([]models.MinervaEntry, []string, error) {
+	torrentData, err := s.FetchMinervaTorrent(platform)
+	if err != nil {
+		return nil, nil, err
+	}
+	mi, err := metainfo.Load(bytes.NewReader(torrentData))
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse .torrent: %w", err)
+	}
+	info, err := mi.UnmarshalInfo()
+	if err != nil {
+		return nil, nil, fmt.Errorf("torrent info: %w", err)
+	}
+
+	torrentKeys := make(map[string]struct{})
+	for _, file := range info.UpvertedFiles() {
+		base := filepath.Base(filepath.Join(file.Path...))
+		for _, key := range minervaFilenameKeys(base) {
+			torrentKeys[key] = struct{}{}
+		}
+	}
+
+	valid := make([]models.MinervaEntry, 0, len(entries))
+	missing := make([]string, 0)
+	for _, entry := range entries {
+		matched := false
+		for _, key := range minervaFilenameKeys(entry.FileName) {
+			if _, ok := torrentKeys[key]; ok {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			valid = append(valid, entry)
+		} else {
+			missing = append(missing, entry.FileName)
+		}
+	}
+	return valid, missing, nil
 }
 
 // aria2cExitMessages maps aria2c's documented exit codes to human-readable
@@ -276,13 +353,20 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		return "", err
 	}
 
-	torrentURL, ok := app.MinervaTorrentURLs[platform]
+	targetPlatform := platform
+	if entry.Platform != "" {
+		if _, ok := app.MinervaTorrentURLs[entry.Platform]; ok {
+			targetPlatform = entry.Platform
+		}
+	}
+
+	torrentURL, ok := app.MinervaTorrentURLs[targetPlatform]
 	if !ok {
-		return "", fmt.Errorf("no torrent URL for platform %q", platform)
+		return "", fmt.Errorf("no torrent URL for platform %q", targetPlatform)
 	}
 
 	// Fetch torrent to find the 1-based file index aria2c needs.
-	torrentData, err := s.FetchMinervaTorrent(platform)
+	torrentData, err := s.FetchMinervaTorrent(targetPlatform)
 	if err != nil {
 		return "", fmt.Errorf("fetch torrent: %w", err)
 	}
@@ -308,6 +392,12 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 	if fileIndex < 0 {
 		return "", fmt.Errorf("file %q not found in torrent", entry.FileName)
 	}
+	cachedFile := filepath.Join(destDir, filepath.Base(entry.FileName))
+	if st, statErr := os.Stat(cachedFile); statErr == nil && st.Mode().IsRegular() && st.Size() == fileSize {
+		s.App.Logf("TORRENT CACHE [%s]: reutilizando arquivo completo %s", gameName, cachedFile)
+		s.App.LogStatus(gameName, "Processing", "Torrent ja concluido. Reutilizando arquivo local...")
+		return cachedFile, nil
+	}
 
 	s.App.Logf("TORRENT [%s]: aria2c downloading %s (%.0f MB) file-index=%d", gameName, entry.FileName, float64(fileSize)/1048576, fileIndex)
 	s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Torrenting (Minerva): starting... (%.0f MB)", float64(fileSize)/1048576))
@@ -318,12 +408,22 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		return "", fmt.Errorf("create torrent temp dir: %w", err)
 	}
 
-	// Fail fast when the staging volume can't hold the file. Otherwise aria2c
+	resumeKey := fmt.Sprintf("%x", sha256.Sum256([]byte(targetPlatform+"\n"+entry.FileName)))[:20]
+	aria2cDir := filepath.Join(s.App.TorrentTempDir, "resume-"+resumeKey)
+	var resumableBytes uint64
+	_ = filepath.Walk(aria2cDir, func(_ string, info os.FileInfo, walkErr error) error {
+		if walkErr == nil && info != nil && !info.IsDir() && !strings.HasSuffix(info.Name(), ".aria2") {
+			resumableBytes += uint64(info.Size())
+		}
+		return nil
+	})
+
+	// Fail fast when the staging volume can't hold the remaining bytes. Otherwise aria2c
 	// downloads for many minutes and dies with the opaque "exit 9" (disk full)
 	// on a drive the UI never shows — the destination's free space is unrelated,
 	// because the download stages here, not on the destination.
 	if free, ferr := helpers.FreeSpaceBytes(freeSpaceQuery(s.App.TorrentTempDir)); ferr == nil {
-		if uint64(fileSize)+stagingSpaceMargin > free {
+		if uint64(fileSize)+stagingSpaceMargin > free+resumableBytes {
 			return "", fmt.Errorf(
 				"espaço insuficiente no disco de download (%s): %q precisa de ~%.1f GB, mas há só %.1f GB livres. Aponte o \"torrent download temp\" (Settings → Temporary directories, ou GODSEND_TORRENT_TEMP) para um disco com espaço",
 				freeSpaceQuery(s.App.TorrentTempDir), entry.FileName,
@@ -349,11 +449,12 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 	// Windows MAX_PATH (260 chars) when destDir + torrent subdirs + filename are combined.
 	// Stage under TorrentTempDir (configurable; default GODSEND_HOME/Temp/torrent-dl), then
 	// move the finished file to destDir afterwards.
-	aria2cDir, err := os.MkdirTemp(s.App.TorrentTempDir, "gd-dl-*")
-	if err != nil {
+	if err := os.MkdirAll(aria2cDir, 0755); err != nil {
 		return "", fmt.Errorf("create aria2c temp dir: %w", err)
 	}
-	defer os.RemoveAll(aria2cDir)
+	if resumableBytes > 0 {
+		s.App.Logf("TORRENT RESUME [%s]: %.1f MB preservados em %s", gameName, float64(resumableBytes)/1048576, aria2cDir)
+	}
 
 	args := []string{
 		"--dir=" + aria2cDir,
@@ -363,6 +464,9 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		"--bt-max-peers=100",
 		"--follow-torrent=false", // torrent file is our input, don't re-fetch
 		"--file-allocation=none", // skip pre-allocation — avoids spurious ENOSPC on large files
+		"--continue=true",
+		"--auto-file-renaming=false",
+		"--allow-overwrite=true",
 		"--console-log-level=warn",
 		"--summary-interval=3", // print progress every 3 s
 		"--human-readable=true",
@@ -395,8 +499,9 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 	// Drain aria2c output in a goroutine so the pipe never fills and deadlocks cmd.Wait().
 	const tailMax = 50
 	var (
-		tailMu  sync.Mutex
-		tailBuf []string
+		tailMu     sync.Mutex
+		tailBuf    []string
+		abortError error
 	)
 	appendTail := func(line string) {
 		tailMu.Lock()
@@ -407,6 +512,8 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		tailBuf = append(tailBuf, line)
 	}
 
+	startTime := time.Now()
+	var lowSpeedStart time.Time
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
@@ -428,6 +535,15 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 			return 0, nil, nil
 		})
 		for sc.Scan() {
+			if s.App.IsGameJobCancelled(gameName) {
+				tailMu.Lock()
+				abortError = app.ErrJobCancelled
+				tailMu.Unlock()
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+				return
+			}
 			line := strings.TrimRight(sc.Text(), " \t")
 			if line == "" {
 				continue
@@ -437,6 +553,29 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 				msg := fmt.Sprintf("Torrenting (Minerva): %s%% @ %s/s ETA %s", pct, dl, eta)
 				s.App.Logf("TORRENT [%s]: %s", gameName, msg)
 				s.App.LogStatus(gameName, "Processing", msg)
+
+				now := time.Now()
+				speedBps := parseSpeedBytesPerSec(dl)
+				var pctVal int
+				fmt.Sscanf(pct, "%d", &pctVal)
+				if now.Sub(startTime) > app.LowSpeedGracePeriod && pctVal < 95 {
+					if speedBps < float64(app.MinDownloadSpeedThreshold) {
+						if lowSpeedStart.IsZero() {
+							lowSpeedStart = now
+						} else if now.Sub(lowSpeedStart) >= app.LowSpeedSustainedDuration {
+							s.App.Logf("WARN [%s]: Minerva torrent speed sustained below 1.0 MB/s (%s/s) — aborting for provider switch", gameName, dl)
+							tailMu.Lock()
+							abortError = app.ErrDownloadTooSlow
+							tailMu.Unlock()
+							if cmd.Process != nil {
+								cmd.Process.Kill()
+							}
+							return
+						}
+					} else {
+						lowSpeedStart = time.Time{}
+					}
+				}
 				continue
 			}
 			// Log every line, but keep only genuine warnings/errors in the
@@ -451,6 +590,17 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 
 	waitErr := cmd.Wait()
 	<-doneCh // ensure pipe is fully drained before proceeding
+
+	tailMu.Lock()
+	aborted := abortError
+	tailMu.Unlock()
+	if aborted != nil {
+		if errors.Is(aborted, app.ErrJobCancelled) {
+			_ = os.RemoveAll(aria2cDir)
+		}
+		return "", aborted
+	}
+
 	if waitErr != nil {
 		tailMu.Lock()
 		tail := strings.Join(tailBuf, " | ")
@@ -485,6 +635,7 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 	if err := moveDownloadedFile(foundPath, destFile); err != nil {
 		return "", err
 	}
+	_ = os.RemoveAll(aria2cDir)
 
 	s.App.Logf("TORRENT [%s]: Download complete (%.0f MB)", gameName, float64(fileSize)/1048576)
 	return destFile, nil
@@ -518,4 +669,24 @@ func isCrossDeviceRenameErr(err error) bool {
 		strings.Contains(msg, "cross-device") ||
 		strings.Contains(msg, "cross device") ||
 		strings.Contains(msg, "exdev")
+}
+
+func parseSpeedBytesPerSec(dlStr string) float64 {
+	dlStr = strings.TrimSpace(strings.ToUpper(dlStr))
+	var val float64
+	var unit string
+	_, err := fmt.Sscanf(dlStr, "%f%s", &val, &unit)
+	if err != nil {
+		return 0
+	}
+	switch {
+	case strings.HasPrefix(unit, "GIB") || strings.HasPrefix(unit, "GB"):
+		return val * 1024 * 1024 * 1024
+	case strings.HasPrefix(unit, "MIB") || strings.HasPrefix(unit, "MB"):
+		return val * 1024 * 1024
+	case strings.HasPrefix(unit, "KIB") || strings.HasPrefix(unit, "KB"):
+		return val * 1024
+	default:
+		return val
+	}
 }

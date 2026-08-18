@@ -21,6 +21,7 @@ import {
   prepareFixedBadAvatarDevice,
   type FixedPreparationRequest,
 } from "../services/fixedBadAvatarPreparationService";
+import { appendAppEvent } from "../infrastructure/serverLog";
 
 let previewInProgress = false;
 let previewAbortController: AbortController | null = null;
@@ -30,8 +31,13 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("tools:badavatar-list-drives", async () => {
     try {
       const drives = await listFat32UsbDrives();
+      appendAppEvent(
+        "usb",
+        `lista enviada à interface: ${drives.length} unidade(s); ${drives.map((drive) => `${drive.rootPath}:${drive.safety?.allowed ? "permitida" : "bloqueada"}`).join(", ") || "nenhuma"}`,
+      );
       return { ok: true, drives };
     } catch (err: any) {
+      appendAppEvent("usb", `falha ao listar unidades: ${err?.message || String(err)}`);
       return { ok: false, drives: [], error: err.message || String(err) };
     }
   });

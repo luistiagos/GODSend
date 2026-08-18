@@ -9,6 +9,119 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.39] - 2026-08-17
+
+### Added
+- **In-App Auto and Manual Update System** - Complete update mechanism for the Desktop Electron application, similar to the Lemuroid reference architecture:
+  - Remote manifest announcement (`version.json`) hosted on Cloudflare R2 and HuggingFace.
+  - Automatic background check on startup (with 12-hour throttle and "Remind Me Later" version dismissal).
+  - Manual update check button in the Settings page ("Atualizações do Aplicativo") with real-time status and version badges.
+  - Smooth in-app download flow with progress tracking (speed, downloaded MB / total MB, progress percentage).
+  - Mandatory SHA-256 integrity verification before update application to ensure no corrupted binaries are executed.
+  - Detached helper process for atomic replacement of Windows portable/installed executables and automatic relaunch.
+  - Publishing pipeline integration in `build-and-upload.ps1` and `upload-r2.ps1` to calculate hashes, generate `version.json`, upload sidecars, and purge Cloudflare edge cache.
+
+### Tests
+- Added unit tests in `src/electron-app/tests/unit/autoUpdate.test.cjs` covering semver comparison, SHA-256 validation, and 12-hour background throttling logic.
+
+### Fixed
+- **Elevated formatter preserves Windows paths correctly** - the generated PowerShell now uses a raw JavaScript template, retaining the backslashes in `System32\mountvol.exe` and `<drive>:\`. This fixes the observed `System32mountvol.exe is not recognized` failure before formatting began.
+
+### Tests
+- The exact generated elevated script is checked for preserved paths and parsed through the PowerShell AST without execution. Its non-destructive identity preflight was also executed successfully against the observed `F:\` device; the `diskpart` block was deliberately excluded.
+
+## [2.12.37] - 2026-08-10
+
+### Fixed
+- **Native USB fallback now reports the real FAT32 cluster size** - `GetDiskFreeSpaceW` supplies sectors-per-cluster and bytes-per-sector without depending on the stalled Windows Storage Management provider. The observed `F:\` volume is now validated as FAT32 with a 32 KiB allocation unit instead of being rejected as “invalid or unknown”.
+- **Reformatting is available for safely identified fallback devices** - the checkbox is enabled when the removable volume has an allowed safety assessment and a stable Windows volume GUID, even if the quick path has no physical disk number.
+- **Fallback formatting remains destructive-action safe** - immediately before `diskpart clean`, the elevated formatter rechecks the selected volume GUID, maps it to the physical disk, and rejects disk 0, non-USB, boot/system, offline, read-only, multi-mounted or capacity-mismatched targets.
+- **Post-format identity is rebased safely** - because rebuilding the partition changes its volume GUID, the preparation waits for a safe FAT32 device of the same expected capacity and uses its new fingerprint for the transactional plan and every subsequent revalidation.
+
+### Tests
+- Extended the real Electron USB smoke test to require a valid allocation unit and volume GUID. Added guard tests for accepted and rejected destructive-format identities.
+
+## [2.12.36] - 2026-08-10
+
+### Fixed
+- **The welcome wizard now follows USB reconnections** - prepared-device detection is repeated every five seconds while the simple interface is open. A pendrive mounted after startup automatically changes the screen from console-mode selection to “Pendrive Xbox 360 detectado”.
+- **Prepared USB detection can be retried explicitly** - the console-mode screen now includes “Verificar pendrive preparado novamente” and reports whether Windows has not mounted the device yet, instead of implying that its Xbox preparation was lost.
+- **Intentional preparation of another device is preserved** - after choosing that action, background scans no longer interrupt the new-device wizard even if the old prepared drive remains connected.
+
+### Tests
+- Added state-transition coverage for initial detection, delayed reconnection, invalid enumeration responses and the explicit “prepare another device” path.
+
+## [2.12.35] - 2026-08-10
+
+### Fixed
+- **Pendrives remain detectable when Windows Storage Management hangs** - the USB list first uses a bounded `DriveInfo`/`mountvol` path for mounted removable media, then falls back to physical `Get-Disk` enumeration for USB HDDs. The observed FAT32 `F:\` device is returned without waiting on the blocked WMI/Storage Management provider.
+- **Fallback enumeration remains fail-safe for formatting** - a removable volume discovered without a physical disk number can receive verified transactional files, but destructive FAT32 formatting is blocked until Windows supplies the physical identity.
+- **USB detection is now diagnosable** - enumeration method, discovered roots, safety decision and IPC failures are written to the daily application log.
+
+## [2.12.34] - 2026-08-10
+
+### Fixed
+- **Resilience now covers every local-install phase** - HTTP downloads persist either a byte offset or a verified segment map, archive and XDVDFS extraction commit files atomically, and GOD/XEX/Content stages publish SHA-256 checkpoints before the pipeline advances.
+- **Interrupted downloads resume instead of restarting** - single-stream HTTP uses `Range`/`If-Range`; parallel Internet Archive downloads reuse only segments whose persisted SHA-256 still matches; completed HTTP sources remain cached until local delivery succeeds.
+- **Storage failures no longer masquerade as provider failures** - disk-full, read-only, permission, CRC and disconnected-device errors during download, extraction or conversion stop fallback and retain the recoverable source. Resume and completion metadata is flushed before being published.
+- **Minerva torrents survive process and destination failures** - aria2 uses a deterministic resume directory with continuation metadata, partial capacity is included in the free-space calculation, and a completed torrent artifact is reused on a retriggered job.
+- **Extraction and conversion can be replayed without network access** - ZIP/7Z/RAR and XDVDFS files are written through `.xbox-companion-part`; ZIP/7Z CRC32 and XDVDFS source bytes reject same-size corruption, completed stage manifests are revalidated, and a lost or invalid GOD staging tree is rebuilt from the retained ISO up to a bounded retry limit.
+- **Incomplete local stages survive job exit and restart** - extraction/XEX/content directories are retained until the job reaches `Ready`; a durable source-identity marker allows the same source to resume while forcing incompatible residue to be cleared when the source changes.
+- **Content-disc failures now propagate correctly** - DLC/content extraction or local-write errors no longer return false success or delete the only recoverable ISO before the stage reaches `Ready`.
+
+### Tests
+- Added interruption coverage for HTTP offset resume, verified parallel-segment resume and repair, atomic archive extraction, persistent stage checkpoints, removable-device identity, local file repair and retained Minerva staging.
+
+## [2.12.33] - 2026-08-09
+
+### Fixed
+- **Local USB/HDD installs now survive accidental disconnects** - each selected device receives a persistent identity, a running job waits for that exact device to return, and a replacement mounted under the same drive letter is rejected.
+- **Interrupted writes resume without redownloading** - files are written to a temporary sibling, flushed, SHA-256 verified and atomically committed. Already valid files are reused, while only the interrupted or corrupt file is copied again.
+- **Completed Internet Archive downloads are reusable recovery sources** - local jobs keep the archive and a URL/size/SHA-256 completion marker until installation succeeds. A retry or application restart reuses the verified archive instead of downloading it again.
+- **Destination errors no longer trigger provider fallback** - local storage failures are typed separately from provider failures, preserving downloaded and converted material and reporting an actionable device error.
+
+### Documentation
+- Added `docs/RESILIENT-LOCAL-INSTALL.md` with the incident diagnosis, recovery contract, generated metadata and automated validation strategy.
+
+## [2.12.32] - 2026-08-09
+
+### Fixed
+- **Aurora ready-to-play setup now runs from a verified boot hook** - preparation preserves the bundled `Main.lua` and installs `XboxCompanionReady.lua` under `Aurora\User\Scripts\Content\Filters`, a directory whose automatic loading is demonstrated by the bundled Aurora logs. The hook no longer depends on the undocumented `Content.StartScan()` call; it persists scan paths before the normal Content Manager startup and restarts Aurora only after a database change.
+- **The prepared USB is selected without guessing a drive index** - a versioned Companion marker is correlated with the physical serial behind the running `Game:` mount. A single marked-device fallback is allowed when that mapping is unavailable, while ambiguous multiple candidates fail closed. Existing scan paths owned by other devices are preserved.
+- **Completed USB preparations repair later damage** - completed transaction journals now revalidate every planned target by size and SHA-256. Missing or changed files reset only that transaction's journal and are restored while intact games and payload files are reused.
+
+### Documentation
+- Added `docs/READY-TO-PLAY-AURORA.md` with the diagnosed causes, generated files, boot sequence, update instructions for existing USB devices, automated coverage and the required physical-console QA checklist.
+
+## [2.12.31] - 2026-08-09
+
+### Fixed
+- **BadAvatar USB now completes the promised ready-to-play flow** - both locked/LT BadAvatar and RGH preparation always generate the canonical root `launch.ini`, so the in-memory DashLaunch configuration can open `Usb:\Aurora\default.xex` automatically.
+- **Aurora discovers games without manual path setup** - preparation installs an idempotent Aurora startup bootstrap that finds the physical USB serial on the console, creates or repairs the `\games` and `\Content\0000000000000000` scan paths, restarts Aurora once when its database changes, and starts the content scan. The staging step uses hard links when available to avoid duplicating the bundled payload on the PC.
+
+## [2.12.30] — 2026-08-09
+
+### Fixed
+- **Large catalog downloads no longer poison the temporary-drive selector after interruption** — startup removes orphaned archive/extraction scratch only when its recorded backend PID is no longer alive, while preserving source directories referenced by pending FTP jobs. Free-space selection therefore sees reclaimed capacity instead of choosing a nearly-full system drive because an earlier preallocated download was abandoned.
+- **Heavy game jobs now share one storage-aware processing lane** — queued catalog downloads run sequentially so multiple 5–10 GB archives cannot reserve the entire scratch volume at once. Cancellation tokens prevent a removed queued job from starting later, stop a download already in progress, and remove its partial file. HTTP downloads report an actionable free-space error before `truncate` fails.
+- **Local FAT32 installs use the destination for compatible output** — compressed archives and full ISOs stay on NTFS/exFAT scratch, while loose XEX extraction and split GOD/content output can use `.xbox-360-companion-temp` on the selected local device. This removes the archive-plus-output space spike that blocked `Batman Arkham City GOTY` despite 57 GB being free on the target.
+- **GOTY fallback aliases resolve consistently** — `GOTY`, `Game of the Year`, and `Game of the Year Edition` normalize to the same edition key without conflating the base game. Minerva multi-disc matches deterministically prefer Disc 1, and final local-install failures are returned to the fallback pipeline instead of being reported as success.
+- **Packaged Xbox 360 catalogs are validated before publication** — HuggingFace entries now require a valid HTTP(S) archive URL and are sanitized when caches are loaded. An invalid pseudo-game named `path` whose filename was `link` was removed, and a regression audit verifies that every published HuggingFace, Internet Archive, and Minerva title resolves to a structurally valid provider entry.
+- **Catalog refresh includes the primary provider** — refreshing Xbox 360 or all caches now rebuilds HuggingFace together with Internet Archive and Minerva, so the first fallback source cannot remain stale while only the later providers are updated.
+- **Minerva refresh follows the current catalog links without erasing good data** — the scraper now accepts the provider's current `/rom?id=...` anchors as well as legacy name-based links. A successful refresh replaces stale platform entries, while an empty scrape preserves the previous memory and disk cache instead of publishing and saving zero games.
+- **Catalog refreshes are atomic and artifact-aware** — Internet Archive keeps the previous complete cache if any configured collection fails or returns no archives; HuggingFace likewise preserves the live catalog on an empty/invalid response and now publishes successful refreshes to memory immediately. Minerva compares every scraped filename with the actual collection torrent and excludes page-only entries before publication.
+- **Opt-in exhaustive remote catalog audit** — `GODSEND_REMOTE_CATALOG_AUDIT=1 go test ./services/cache -run TestRemoteXbox360CatalogArtifacts -v` verifies every packaged Xbox 360 Archive and HuggingFace artifact against the providers' current indexes, probes every direct HuggingFace URL, and compares every Minerva entry with its download torrent.
+
+## [2.12.29] — 2026-08-09
+
+### Fixed
+- **Unified source fallback title matching** — the unified catalog and download lookup now use one normalized title key, preserving the priority `HuggingFace -> Internet Archive -> Minerva` while matching regional/language variants such as `007 Legends (USA, Europe) (En,Fr,De)`. Valid Minerva schema-2 caches are migrated locally instead of being discarded during startup, and a final failure reports the result from every attempted provider instead of showing only the Minerva error.
+
+## [2.12.28] — 2026-08-03
+
+### Fixed
+- **Minerva torrent match platform scoping & title normalization** — fixed `file "..." not found in torrent` error during Minerva downloads. Previously, `FindEntry` searched a global cross-platform map without platform scoping or normalized title comparison, occasionally matching a game from the Digital No-Intro torrent (such as XBLA's *Teenage Mutant Ninja Turtles: Out of the Shadows*) when processing an Xbox 360 Redump ISO. This caused `DownloadViaTorrent` to search inside the wrong torrent file (the Redump 360 ISO torrent) and fail with "file not found in torrent". `MinervaEntry` now tracks its source `Platform`, `FindEntry` performs normalized title comparison and platform scoping, and `DownloadViaTorrent` uses the entry's source platform to fetch the matching `.torrent` collection file.
+
 ### Added
 - **Local portable build script** - `build-portable-local.ps1` generates the Windows portable executable locally without upload steps or release credentials.
 - **Unified build+upload script** — `build-and-upload.ps1` builds the portable and uploads to HuggingFace (versioned) + R2 (unversioned `xboxcompanion.exe`). Credentials stored in `build.properties` (gitignored); see `build.properties.example`.

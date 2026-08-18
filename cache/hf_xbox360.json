@@ -1662,7 +1662,6 @@
     "X Men Origins Wolverine",
     "X-Blades",
     "X-Men Destiny",
-    "X-Men Origins Wolverine",
     "X-Men The Official Game",
     "XCOM Enemy Unknown",
     "XCOM Enemy Within",
@@ -1688,7 +1687,6 @@
     "Zumba Kids",
     "de Blob 2",
     "of Orcs \u0026 Men",
-    "path",
     "uDraw Studio Instant Artist"
   ],
   "game_entries": {
@@ -6160,10 +6158,6 @@
       "collection_id": "1.91 GiB",
       "filename": "https://archive.org/download/mx360gcpt4-x360-ztm/Painkiller.Hell.\u0026.Damnation.EUR.X360-ZTM.rar"
     },
-    "hf_xbox360\u0000path": {
-      "collection_id": "size",
-      "filename": "link"
-    },
     "hf_xbox360\u0000payday 2": {
       "collection_id": "4.03 GiB",
       "filename": "https://archive.org/download/mx360gcpt4-x360-ztm/Payday.2.USA.X360-ZTM.rar"
@@ -8355,10 +8349,6 @@
     "hf_xbox360\u0000x-men destiny": {
       "collection_id": "7.12 GiB",
       "filename": "https://archive.org/download/mx360gcpt6-x360-ztm/X-Men.Destiny.USA.X360-ZTM.rar"
-    },
-    "hf_xbox360\u0000x-men origins wolverine": {
-      "collection_id": "6.03 GiB",
-      "filename": "https://archive.org/download/mx360gcpt6-x360-ztm/X-Men.Origins.Wolverine.EUR.X360-ZTM.rar"
     },
     "hf_xbox360\u0000x-men the official game": {
       "collection_id": "5.28 GiB",

@@ -106,6 +106,38 @@ test("reutiliza arquivo existente somente quando tamanho e hash conferem", async
   assert.equal(result.writtenFiles, 0);
 });
 
+test("repara arquivo removido mesmo quando a transacao anterior consta como concluida", async (t) => {
+  const target = createSimulationRoot(t);
+  const plan = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch-canonico" },
+  ], "43333333-3333-4333-8333-333333333333");
+
+  await executeTransactionalWriteSimulation(plan, target, {
+    revalidateTarget: async () => {},
+  });
+  const staleBackup = path.join(
+    target,
+    ".xbox-downloader-sim",
+    "backup",
+    plan.transactionId,
+    "launch.ini",
+  );
+  fs.mkdirSync(path.dirname(staleBackup), { recursive: true });
+  fs.writeFileSync(staleBackup, "backup-obsoleto");
+  fs.rmSync(path.join(target, "launch.ini"));
+
+  const repaired = await executeTransactionalWriteSimulation(plan, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(repaired.journal.state, "completed");
+  assert.equal(repaired.resumed, false);
+  assert.equal(repaired.reusedFiles, 1);
+  assert.equal(repaired.writtenFiles, 1);
+  assert.equal(fs.readFileSync(path.join(target, "launch.ini"), "utf8"), "launch-canonico");
+  assert.equal(fs.existsSync(path.dirname(staleBackup)), false);
+});
+
 test("substitui arquivo diferente e remove backup somente após concluir", async (t) => {
   const target = createSimulationRoot(t);
   fs.mkdirSync(path.join(target, "Aurora"));

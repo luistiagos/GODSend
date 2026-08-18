@@ -4,6 +4,7 @@ package cache
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,9 +20,14 @@ import (
 	"godsend/models"
 )
 
+type MinervaTorrentValidator interface {
+	ValidateMinervaEntries(platform string, entries []models.MinervaEntry) ([]models.MinervaEntry, []string, error)
+}
+
 // MinervaService manages the Minerva Archive game cache.
 type MinervaService struct {
-	App *app.App
+	App     *app.App
+	Torrent MinervaTorrentValidator
 }
 
 // ==========================================
@@ -63,30 +69,45 @@ func (s *MinervaService) LoadCacheFromDisk(platform string) bool {
 	if len(mc.Games) == 0 {
 		return false
 	}
-	// Reject caches built with an older filter scheme so the next startup
-	// rebuilds them and surfaces previously-filtered entries (e.g. `(DLC)`
-	// tags in the No-Intro Digital collection).
+	migrated := false
 	if mc.Schema < app.MinervaCacheSchema {
-		s.App.Logf("MINERVA CACHE: %s schema=%d < %d — rebuilding", platform, mc.Schema, app.MinervaCacheSchema)
-		return false
+		// Schema 3 only added platform ownership to entries. Schema 2 caches
+		// already contain all lookup data and can be upgraded without a rebuild.
+		if mc.Schema == 2 && app.MinervaCacheSchema == 3 && len(mc.Entries) > 0 {
+			migrated = true
+			s.App.Logf("MINERVA CACHE: Migrating %s schema 2 to 3", platform)
+		} else {
+			s.App.Logf("MINERVA CACHE: %s schema=%d < %d - rebuilding", platform, mc.Schema, app.MinervaCacheSchema)
+			return false
+		}
 	}
 
 	s.App.MinervaGameCacheMu.Lock()
 	s.App.MinervaGameCache[platform] = mc.Games
 	s.App.MinervaGameCacheMu.Unlock()
 
-	s.App.MinervaEntryMapMu.Lock()
+	entries := make(map[string]models.MinervaEntry, len(mc.Entries)*2)
 	for k, v := range mc.Entries {
-		s.App.MinervaEntryMap[k] = v
+		if v.Platform == "" {
+			v.Platform = platform
+		}
+		entries[k] = v
 		if dk := strings.ToLower(helpers.DecodeMinervaName(k)); dk != k {
-			if _, taken := s.App.MinervaEntryMap[dk]; !taken {
-				s.App.MinervaEntryMap[dk] = v
+			if _, taken := entries[dk]; !taken {
+				entries[dk] = v
 			}
 		}
+	}
+	s.App.MinervaEntryMapMu.Lock()
+	for k, v := range entries {
+		s.App.MinervaEntryMap[k] = v
 	}
 	s.App.MinervaEntryMapMu.Unlock()
 
 	s.SetBuildState(platform, "ready", int32(len(mc.Games)), int32(len(mc.Games)))
+	if migrated {
+		s.SaveCacheToDisk(platform, mc.Games, entries)
+	}
 	return true
 }
 
@@ -112,6 +133,19 @@ func (s *MinervaService) SetBuildState(platform, state string, loaded, total int
 	s.App.MinervaBuildStatesMu.Lock()
 	st.State = state
 	s.App.MinervaBuildStatesMu.Unlock()
+}
+
+func (s *MinervaService) preserveExistingCache(platform string, cause error) {
+	s.App.MinervaGameCacheMu.RLock()
+	existing := len(s.App.MinervaGameCache[platform])
+	s.App.MinervaGameCacheMu.RUnlock()
+	if existing > 0 {
+		s.App.Logf("MINERVA CACHE ERROR [%s]: %v; preserving %d cached games", platform, cause, existing)
+		s.SetBuildState(platform, "ready", int32(existing), int32(existing))
+		return
+	}
+	s.App.Logf("MINERVA CACHE ERROR [%s]: %v; no previous cache is available", platform, cause)
+	s.SetBuildState(platform, "error", 0, 1)
 }
 
 // ==========================================
@@ -142,24 +176,23 @@ func (s *MinervaService) ScrapeMinervaPage(browseURL string, tagFilters []string
 		return nil, fmt.Errorf("read %s: %w", browseURL, err)
 	}
 
-	matches := app.MinervaHrefRe.FindAllSubmatch(body, -1)
+	matches := app.MinervaROMAnchorRe.FindAllSubmatch(body, -1)
 	var entries []models.MinervaEntry
 	for _, m := range matches {
-		hrefVal := string(m[1])
-		const prefix = "/rom?name="
-		if !strings.HasPrefix(hrefVal, prefix) {
+		hrefVal := html.UnescapeString(string(m[1]))
+		parsed, err := url.Parse(hrefVal)
+		if err != nil || parsed.Path != "/rom" {
 			continue
 		}
-		pathParam := hrefVal[len(prefix):]
-		decoded, err := url.PathUnescape(pathParam)
-		if err != nil {
-			continue
+		pathParam := parsed.RawQuery
+		fileName := strings.TrimSpace(html.UnescapeString(string(m[2])))
+		if fileName == "" {
+			fileName = parsed.Query().Get("name")
 		}
-		ext := strings.ToLower(filepath.Ext(decoded))
+		ext := strings.ToLower(filepath.Ext(fileName))
 		if ext != ".zip" && ext != ".7z" && ext != ".rar" {
 			continue
 		}
-		fileName := filepath.Base(decoded)
 		if len(tagFilters) > 0 {
 			match := false
 			for _, t := range tagFilters {
@@ -211,6 +244,27 @@ func (s *MinervaService) Build(platform string) {
 		s.SetBuildState(platform, "error", 0, 1)
 		return
 	}
+	if len(entries) == 0 {
+		s.preserveExistingCache(platform, fmt.Errorf("scrape returned no games"))
+		return
+	}
+	if s.Torrent == nil {
+		s.preserveExistingCache(platform, fmt.Errorf("torrent validator is unavailable"))
+		return
+	}
+	validated, missing, err := s.Torrent.ValidateMinervaEntries(platform, entries)
+	if err != nil {
+		s.preserveExistingCache(platform, fmt.Errorf("torrent validation failed: %w", err))
+		return
+	}
+	if len(missing) > 0 {
+		s.App.Logf("MINERVA CACHE WARN [%s]: excluded %d page item(s) absent from the torrent", platform, len(missing))
+	}
+	entries = validated
+	if len(entries) == 0 {
+		s.preserveExistingCache(platform, fmt.Errorf("no scraped item exists in the collection torrent"))
+		return
+	}
 
 	newEntries := make(map[string]models.MinervaEntry, len(entries)*2)
 	var allGames []string
@@ -220,11 +274,11 @@ func (s *MinervaService) Build(platform string) {
 		if _, dup := newEntries[lower]; dup {
 			continue
 		}
-		me := models.MinervaEntry{FileName: e.FileName, PathParam: e.PathParam}
+		me := models.MinervaEntry{FileName: e.FileName, PathParam: e.PathParam, Platform: platform}
 		newEntries[lower] = me
 		if dec := strings.ToLower(helpers.DecodeMinervaName(name)); dec != lower {
 			if _, taken := newEntries[dec]; !taken {
-				newEntries[dec] = models.MinervaEntry{FileName: me.FileName, PathParam: me.PathParam}
+				newEntries[dec] = models.MinervaEntry{FileName: me.FileName, PathParam: me.PathParam, Platform: platform}
 			}
 		}
 		allGames = append(allGames, name)
@@ -238,6 +292,11 @@ func (s *MinervaService) Build(platform string) {
 	s.App.MinervaGameCacheMu.Unlock()
 
 	s.App.MinervaEntryMapMu.Lock()
+	for key, entry := range s.App.MinervaEntryMap {
+		if entry.Platform == platform {
+			delete(s.App.MinervaEntryMap, key)
+		}
+	}
 	for k, v := range newEntries {
 		s.App.MinervaEntryMap[k] = v
 	}
@@ -255,33 +314,85 @@ func (s *MinervaService) Build(platform string) {
 func (s *MinervaService) FindEntry(gameName, platform string) (models.MinervaEntry, bool) {
 	keys := MinervaLookupKeys(gameName)
 
+	torrentMatches := func(e models.MinervaEntry) bool {
+		if e.Platform == "" || platform == "" {
+			return true
+		}
+		urlTarget := app.MinervaTorrentURLs[platform]
+		urlEntry := app.MinervaTorrentURLs[e.Platform]
+		return urlTarget == "" || urlEntry == "" || urlTarget == urlEntry
+	}
+
 	s.App.MinervaEntryMapMu.RLock()
+	defer s.App.MinervaEntryMapMu.RUnlock()
+
+	// 1. Exact key match with matching torrent collection
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		if e, ok := s.App.MinervaEntryMap[key]; ok && torrentMatches(e) {
+			return e, true
+		}
+	}
+
+	// 2. Exact key match across any platform
 	for _, key := range keys {
 		if key == "" {
 			continue
 		}
 		if e, ok := s.App.MinervaEntryMap[key]; ok {
-			s.App.MinervaEntryMapMu.RUnlock()
 			return e, true
 		}
 	}
-	// Fuzzy: strip region tags and compare base names
-	decName := helpers.DecodeMinervaName(gameName)
-	lowerDec := strings.ToLower(decName)
-	baseName := strings.ToLower(strings.SplitN(decName, " (", 2)[0])
-	for k, e := range s.App.MinervaEntryMap {
-		kDec := helpers.DecodeMinervaName(k)
-		if strings.Contains(strings.ToLower(kDec), lowerDec) {
-			s.App.MinervaEntryMapMu.RUnlock()
-			return e, true
+
+	normGame := NormalizeTitleForMatching(gameName)
+	findNormalized := func(requireTorrentMatch bool) (models.MinervaEntry, bool) {
+		var best models.MinervaEntry
+		found := false
+		for k, entry := range s.App.MinervaEntryMap {
+			if requireTorrentMatch && !torrentMatches(entry) {
+				continue
+			}
+			if NormalizeTitleForMatching(k) != normGame {
+				continue
+			}
+			if !found || preferMinervaEntry(entry, best) {
+				best = entry
+				found = true
+			}
 		}
-		kBase := strings.ToLower(strings.SplitN(kDec, " (", 2)[0])
-		if kBase == baseName {
-			s.App.MinervaEntryMapMu.RUnlock()
-			return e, true
+		return best, found
+	}
+
+	// 3. Normalized title match with matching torrent collection
+	if entry, ok := findNormalized(true); ok {
+		return entry, true
+	}
+
+	// 4. Normalized title match across any platform
+	if entry, ok := findNormalized(false); ok {
+		return entry, true
+	}
+
+	// 5. Substring match with matching torrent collection (only for specific queries len >= 4)
+	if len(normGame) >= 4 {
+		for k, e := range s.App.MinervaEntryMap {
+			if !torrentMatches(e) {
+				continue
+			}
+			if TitleMatches(k, gameName) {
+				return e, true
+			}
+		}
+
+		// 6. Substring match across any platform
+		for k, e := range s.App.MinervaEntryMap {
+			if TitleMatches(k, gameName) {
+				return e, true
+			}
 		}
 	}
-	s.App.MinervaEntryMapMu.RUnlock()
 
 	// Trigger a background build if the cache is empty for this platform
 	s.App.MinervaGameCacheMu.RLock()
@@ -291,6 +402,17 @@ func (s *MinervaService) FindEntry(gameName, platform string) (models.MinervaEnt
 		go s.Build(platform)
 	}
 	return models.MinervaEntry{}, false
+}
+
+func preferMinervaEntry(candidate, current models.MinervaEntry) bool {
+	candidateName := strings.ToLower(helpers.DecodeMinervaName(candidate.FileName))
+	currentName := strings.ToLower(helpers.DecodeMinervaName(current.FileName))
+	candidateDiscOne := strings.Contains(candidateName, "disc 1") || strings.Contains(candidateName, "disc1") || strings.Contains(candidateName, "dvd1")
+	currentDiscOne := strings.Contains(currentName, "disc 1") || strings.Contains(currentName, "disc1") || strings.Contains(currentName, "dvd1")
+	if candidateDiscOne != currentDiscOne {
+		return candidateDiscOne
+	}
+	return candidateName < currentName
 }
 
 // ==========================================

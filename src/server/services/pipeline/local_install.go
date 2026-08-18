@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"godsend/infrastructure/helpers"
 )
@@ -42,60 +41,6 @@ func (s *Service) ensureFreeSpace(root string, needBytes int64) error {
 			float64(needBytes)/1073741824, float64(free)/1073741824)
 	}
 	return nil
-}
-
-// copyTreeLocal copies every file under srcDir into dstDir (recreating the tree),
-// reporting overall progress through LogStatus so the queue UI shows a percentage.
-// root is the destination volume root, used for the pre-flight free-space check.
-func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) error {
-	var totalFiles int
-	var totalSize int64
-	filepath.Walk(srcDir, func(_ string, i os.FileInfo, e error) error {
-		if e == nil && !i.IsDir() {
-			totalFiles++
-			totalSize += i.Size()
-		}
-		return nil
-	})
-	if totalFiles == 0 {
-		return fmt.Errorf("nenhum arquivo para gravar em %s", srcDir)
-	}
-	if err := s.ensureFreeSpace(root, totalSize); err != nil {
-		return err
-	}
-	s.App.Logf("LOCAL %s: %d arquivos (%.2f GB) → %s", label, totalFiles, float64(totalSize)/1073741824, dstDir)
-
-	var doneFiles int
-	var doneSize int64
-	lastLog := time.Now()
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, relErr := filepath.Rel(srcDir, path)
-		if relErr != nil {
-			return relErr
-		}
-		dst := filepath.Join(dstDir, rel)
-		if info.IsDir() {
-			return os.MkdirAll(dst, 0755)
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-			return err
-		}
-		if err := helpers.CopyFileBuffered(path, dst); err != nil {
-			return fmt.Errorf("gravar %s: %v", filepath.Base(path), err)
-		}
-		doneFiles++
-		doneSize += info.Size()
-		if time.Since(lastLog) > time.Second {
-			pct := float64(doneSize) / float64(totalSize) * 100
-			s.App.LogStatus(gameName, "Processing",
-				fmt.Sprintf("Gravando no dispositivo… %.0f%% (%d/%d)", pct, doneFiles, totalFiles))
-			lastLog = time.Now()
-		}
-		return nil
-	})
 }
 
 // detectExistingGamesDir scans the root for folders that look like JTAG/RGH game directories.
@@ -166,9 +111,6 @@ func (s *Service) InstallGameLocal(godDir, root, gameName, titleID, resolvedName
 	base := filepath.Join(joinSub(root, godSub), fmt.Sprintf("%s - %s", folderID, titleID))
 
 	contentDir := filepath.Join(godDir, titleID)
-	if _, err := os.Stat(contentDir); os.IsNotExist(err) {
-		return fmt.Errorf("conteúdo GOD não encontrado: %s", contentDir)
-	}
 	return s.copyTreeLocal(contentDir, base, root, gameName, "GOD")
 }
 
@@ -195,33 +137,17 @@ func (s *Service) InstallXEXLocal(xexFolder, folderName, root, gameName string) 
 // InstallContentFileLocal copies a single digital/DLC content package to
 // <root>/Content/0000000000000000/<titleID>/<typeDir>/<name>.
 func (s *Service) InstallContentFileLocal(srcFile, root, gameName, titleID, typeDir string) error {
-	if st, err := os.Stat(srcFile); err == nil {
-		if err := s.ensureFreeSpace(root, st.Size()); err != nil {
-			return err
-		}
-	}
 	base := filepath.Join(root, "Content", "0000000000000000", titleID, typeDir)
-	if err := os.MkdirAll(base, 0755); err != nil {
-		return err
-	}
 	dst := filepath.Join(base, filepath.Base(srcFile))
 	s.App.LogStatus(gameName, "Processing", "Gravando no dispositivo…")
-	return helpers.CopyFileBuffered(srcFile, dst)
+	return s.copyFileLocal(srcFile, dst, root, gameName, "Gravando e verificando no dispositivo...")
 }
 
 // InstallROMLocal copies a ROM file to <root>/<xboxROMPath>/<name>, where xboxROMPath
 // is the same "RomRoot\System\" relative path the FTP path uses on the console.
 func (s *Service) InstallROMLocal(romFile, root, xboxROMPath, gameName string) error {
-	if st, err := os.Stat(romFile); err == nil {
-		if err := s.ensureFreeSpace(root, st.Size()); err != nil {
-			return err
-		}
-	}
 	base := joinSub(root, xboxROMPath)
-	if err := os.MkdirAll(base, 0755); err != nil {
-		return err
-	}
 	dst := filepath.Join(base, filepath.Base(romFile))
 	s.App.LogStatus(gameName, "Processing", "Gravando ROM no dispositivo…")
-	return helpers.CopyFileBuffered(romFile, dst)
+	return s.copyFileLocal(romFile, dst, root, gameName, "Gravando e verificando ROM no dispositivo...")
 }

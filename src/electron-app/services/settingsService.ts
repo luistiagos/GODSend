@@ -29,6 +29,9 @@ export interface GodsendConfig {
   providerPriority?: string[];
   errorReporting?: boolean;
   errorReportingEndpoint?: string;
+  autoCheckUpdates?: boolean;
+  lastUpdateCheck?: number;
+  skippedUpdateVersion?: string;
 }
 
 export function configFilePath(): string {
@@ -41,6 +44,29 @@ export function readConfig(): GodsendConfig {
   } catch {
     return {};
   }
+}
+
+export function getConfiguredAutoCheckUpdates(): boolean {
+  const v = readConfig().autoCheckUpdates;
+  return typeof v === "boolean" ? v : true;
+}
+
+export function getLastUpdateCheck(): number {
+  const v = readConfig().lastUpdateCheck;
+  return typeof v === "number" ? v : 0;
+}
+
+export function setLastUpdateCheck(timestamp: number): void {
+  writeConfig({ lastUpdateCheck: timestamp });
+}
+
+export function getSkippedUpdateVersion(): string {
+  const v = readConfig().skippedUpdateVersion;
+  return typeof v === "string" ? v.trim() : "";
+}
+
+export function setSkippedUpdateVersion(version: string): void {
+  writeConfig({ skippedUpdateVersion: version.trim() });
 }
 
 export function getConfiguredSimpleMode(): boolean {

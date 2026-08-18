@@ -1,6 +1,6 @@
 scriptTitle       = "Xbox 360 Companion"
 scriptAuthor      = "Nesquin/david12549 & ghosty99"
-scriptVersion     = "2.12.27"
+scriptVersion     = "2.12.39"
 scriptDescription = "Browse and install Xbox 360, Original, Digital (XBLA/DLC), and Retro ROMs via Minerva Archive, Internet Archive, or EdgeEmu!"
 scriptIcon        = "icon\\icon.xur"
 scriptPermissions = { "http", "filesystem" }
@@ -32,47 +32,15 @@ function main()
     local mkOk = pcall(FileSystem.CreateDirectory, absoluteDownloadsPath)
     if not mkOk then
         Script.ShowMessageBox("Error",
-            "Could not create Downloads folder.\n" ..
-            "Path: " .. absoluteDownloadsPath .. "\n\n" ..
-            "The script storage may be read-only or full.", "OK")
+            "Failed to create directory:\n" .. absoluteDownloadsPath ..
+            "\n\nPlease check storage permissions.",
+            "OK")
         return
     end
 
-    if not testServerConnection() then
-        return
-    end
+    -- Step 3: Register this console's FTP IP with the brain.
+    registerConsoleFTP()
 
-    loadServerConfig()
-
-    -- Step 3: Main menu loop.
-    while true do
-        Menu.ResetMenu()
-        Menu.SetTitle(scriptTitle .. " v" .. scriptVersion)
-
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("Server Queue & Status",              {action = "SHOW_QUEUE"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("Local Library  (Transfer Folder)",   {action = "BROWSE_LOCAL"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("Xbox 360 Redump ISOs",              {action = "BROWSE_360"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("Original Xbox Redump ISOs",         {action = "BROWSE_OG"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("XBLA Arcade",                       {action = "BROWSE_XBLA"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("Digital / No-Intro Titles",         {action = "BROWSE_DIGI"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("DLC / Multi-Disc",                  {action = "BROWSE_DLC"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("Xbox Live Indie Games",             {action = "BROWSE_XBLIG"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("Xbox 360 Game Archives",            {action = "BROWSE_GAMES"}))
-        Menu.AddMainMenuItem(Menu.MakeMenuItem("Retro ROMs  (62 Systems)",          {action = "BROWSE_ROMS"}))
-
-        local ret, menu, canceled = Menu.ShowMainMenu()
-        if canceled or not ret then break end
-
-        if     ret.action == "SHOW_QUEUE"    then showQueue()
-        elseif ret.action == "BROWSE_LOCAL"  then browseLibrary("local")
-        elseif ret.action == "BROWSE_360"    then browseLibrary("xbox360")
-        elseif ret.action == "BROWSE_OG"     then browseLibrary("xbox")
-        elseif ret.action == "BROWSE_XBLA"   then browseLibrary("xbla")
-        elseif ret.action == "BROWSE_DIGI"   then browseLibrary("digital")
-        elseif ret.action == "BROWSE_DLC"    then browseLibrary("dlc")
-        elseif ret.action == "BROWSE_XBLIG"  then browseLibrary("xblig")
-        elseif ret.action == "BROWSE_GAMES"  then browseLibrary("games")
-        elseif ret.action == "BROWSE_ROMS"   then browseROMs()
-        end
-    end
+    -- Step 4: Show main menu.
+    showMainMenu()
 end

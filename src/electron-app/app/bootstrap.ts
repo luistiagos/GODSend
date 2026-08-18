@@ -95,6 +95,7 @@ import * as toolsHandlers         from "../ipc/toolsHandlers";
 import * as badAvatarHandlers     from "../ipc/badAvatarHandlers";
 import * as contentHandlers       from "../ipc/contentHandlers";
 import * as saveHandlers          from "../ipc/saveHandlers";
+import * as updateHandlers        from "../ipc/updateHandlers";
 
 function registerIpcHandlers(): void {
   ipcMain.handle("godsend:get-buffer", () => getOutputBuffer());
@@ -134,6 +135,7 @@ function registerIpcHandlers(): void {
   badAvatarHandlers.register(ipcMain);
   contentHandlers.register(ipcMain);
   saveHandlers.register(ipcMain);
+  updateHandlers.register(ipcMain);
 }
 
 export function bootstrapApp(): void {

@@ -1,550 +1,205 @@
-## Project overview
+# Guia e Diretrizes do Desenvolvedor AI (AGENTS.md)
 
-GODsend-360 is a local-network game management system for Xbox 360 consoles running the Aurora dashboard. It has three main components:
+## Visão Geral do Projeto
 
-- **Go backend (`src/server/`)**: HTTP server running on a PC, talking to Internet Archive and the local filesystem, converting ISOs to GOD / content packages, and coordinating queue state.
-- **Electron desktop app (`src/electron-app/`)**: Windows tray UI that manages the backend process, exposes configuration (transfer folder, IA auth), and ships an installer.
-- **Aurora Lua scripts (`aurora-scripts/`)**: Script bundle running inside Aurora on the Xbox, providing the in-dashboard UI to browse libraries, trigger jobs, and monitor/perform installs.
+**Xbox 360 Companion** (anteriormente GODsend-360) é um ecossistema completo para gerenciamento local de jogos, conteúdos (DLCs/TUs), perfis, saves e preparação de mídias para consoles Xbox 360 rodando a dashboard **Aurora** ou consoles travados/LT utilizando o exploit **BadAvatar**.
 
-High-level data flow:
+O ecossistema é composto por quatro componentes principais:
 
-- `aurora-scripts` ⇄ **HTTP** ⇄ Go backend ⇄ **Internet Archive / local Transfer folder**
-- Go backend ⇄ **FTP** ⇄ Xbox content drives (via Aurora's FTP server; GOD/XEX/DLC layout)
-- Electron app ⇄ **child process & IPC** ⇄ Go backend and local config
+1. **Go Backend (`src/server/`)**: Servidor HTTP em Go de alta performance rodando no PC ou Android, responsável pela comunicação com o Internet Archive e Minerva Archive (BitTorrent), conversão nativa de ISOs para os formatos GOD/XEX, servidor cliente de FTP resiliente (com retentativas e suporte a `REST` resume), parsing de perfis STFS com descriptografia RC4, codec de texturas RXEA (DXT5) e coordenação da fila de trabalhos.
+2. **Electron Desktop App (`src/electron-app/`)**: Aplicação desktop para Windows (instalador NSIS e portátil), macOS (DMG) e Linux (AppImage). Interface gráfica em React 19 + TailwindCSS que gerencia o processo do backend em Go, oferece sincronização 3D da biblioteca do Xbox, gerenciador FTP integrado, editor de artes/capas, gerenciador de saves, e a ferramenta **BadAvatar USB** com formatador FAT32 nativo.
+3. **Android Mobile App (`src/android-app/`)**: Aplicativo nativo em Kotlin que empacota o backend Go como uma biblioteca JNI nativa (`libgodsend.so`). Executa um *Foreground Service* com *WakeLock* e conformidade com SELinux (Android 10+), acompanhado de um assistente didático em 3 passos para transferências Wi-Fi ou mídias USB móveis.
+4. **Aurora Lua Scripts (`aurora-scripts/`)**: Conjunto de scripts Lua 5.1 executados dentro da dashboard Aurora no Xbox 360, permitindo que o usuário navegue pelas bibliotecas online/locais, monitore filas e instale jogos diretamente pela TV com o controle do videogame.
 
-**Aurora Lua host (agents):** When editing `aurora-scripts/`, read [`docs/reference/aurora.md`](docs/reference/aurora.md) for supported APIs, path rules (relative vs absolute), known limits (Zip extraction, large downloads), and patterns that avoid crashes on-console.
+### Fluxo Geral de Dados
+```
+┌─────────────────────────────────────────────────────────────┐
+│             Electron App (PC) / Android App                 │
+│         (Interface React/Vite / Kotlin Native)              │
+│  - Gerenciamento de Biblioteca, Saves, DLCs e BadAvatar     │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ IPC / JNI / HTTP local (127.0.0.1:8080)
+                               ▼
+┌─────────────────────────────────────────────────────────────┐          Protocolo FTP           ┌───────────────────────────────────────┐
+│                    Go Backend Server                        │─────────────────────────────────>│             Xbox 360                  │
+│  - Conversor Nativo ISO -> GOD/XEX (Pure Go)                │<─────────────────────────────────│         (Aurora Dashboard)            │
+│  - Downloader Paralelo (IA HTTP / Minerva BitTorrent aria2c)│    (Pull de Capas e Status)    │  - Lua GUI Menu (Navegação na TV)    │
+│  - Core FTP Manager (Locking de IP & Retentativas)          │                                │  - Leitura de Perfil STFS / Saves     │
+└─────────────────────────────────────────────────────────────┘                                └───────────────────────────────────────┘
+```
 
-**Technical Reference for LLMs:** For a deep-dive, function-by-function technical breakdown of every system, directory, entry point, data flow, and technical quirk/gotcha, refer to [docs/agents/llm_functionality_guide.md](file:///e:/projects/Downloader-XBOX360-XEX-HDD-Games/docs/agents/llm_functionality_guide.md).
+**Referência Técnica Detalhada para LLMs:** Para especificações minuciosas de funções, codecs e endpoints HTTP, consulte [docs/agents/llm_functionality_guide.md](file:///e:/projects/Downloader-XBOX360-XEX-HDD-Games/docs/agents/llm_functionality_guide.md).
 
 ---
 
-## Repository layout & architectural patterns
+## Estrutura do Repositório e Padrões Arquiteturais
 
-### Go backend (`src/server/`)
+### 1. Go Backend (`src/server/`)
 
-The backend uses a **DDD-style package layout** with an `App` struct for dependency injection. All shared state lives in `*app.App`; services hold an `App` pointer and expose methods instead of free functions.
+O backend utiliza o padrão de **DDD (Domain-Driven Design)** com uma estrutura central `*app.App` para injeção de dependência. Todo estado compartilhado reside em `App`, e os serviços mantêm um ponteiro para `App`.
 
-- **`main.go`** (~180 lines) — entry point only: constructs `*app.App`, all services, the HTTP `Deps` struct, wires the router, and starts the server. No business logic.
-- **`embed_titles.go`** + `data/iso2god_titles.jsonl` — embeds the iso2god-rs title list and registers it with `services` at init.
-- **`aria2c_darwin.go`** / **`aria2c_stub.go`** — build-tagged macOS aria2c bootstrap; accepts `*app.App` + `*torrent.Service` parameters.
+* **`main.go`**: Ponto de entrada fino. Apenas instancia `*app.App`, registra os serviços, configura as rotas e inicia o servidor HTTP. Nenhuma regra de negócio deve ser colocada aqui.
+* **`embed_titles.go`**: Embutição do banco de dados de títulos (`iso2god_titles.jsonl`) via `go:embed`.
+* **`models/`**: Tipos puros de domínio (sem dependências externas):
+  * `types.go`: Estruturas exported (`IAGameEntry`, `PlatformCache`, `MinervaEntry`, `XboxConnection`, `PendingFTPJob`, `ROMSystemDef`, etc.).
+  * `compat.go`: Tabela de compatibilidade de discos multi-disco (`discCompatTable`) e função de busca `DiscCompat()`.
+  * `game.go`: Enums de plataformas (`Platform`) e status de trabalhos (`JobStatus`).
+* **`app/`**: Container de estado central:
+  * `app.go`: Estrutura `App`, locks de concorrência (`sync.Map`, mutexes), logs formatados (`Logf`, `LogStatus`), lookup de instalações.
+  * `config.go`: Constantes globais, coleções IA/Minerva, rotas de armazenamento (`SetupPaths`), suporte a credenciais.
+* **`infrastructure/`**: Adaptadores de efeitos colaterais:
+  * `download/`: Downloads via IA (chunked range requests) e EdgeEmu.
+  * `ftp/`: Serviço FTP para Xbox (`client.go`), gerenciamento de conexões assíncronas, retentativas com backoff exponencial e persistência de jobs em `GODSEND_HOME/pending_ftp/`.
+  * `torrent/`: Serviço de torrent utilizando `aria2c` embutido (`DownloadViaTorrent`).
+  * `helpers/`: Funções utilitárias (cálculo de IP, sanitização de nomes, inspeção de cabeçalhos XDVDFS).
+* **`services/`**: Camada de aplicação e regras de negócio:
+  * `cache/`: Serviços de cache para IA (`ia.go`), Minerva (`minerva.go`) e ROMs (`rom.go`).
+  * `pipeline/`: Pipeline de conversão e transferência (`ProcessLocalISO`, `ProcessGame`, `FinalizeGOD`, `digital.go`, `minerva.go`, `rom.go`, `ini.go`).
+  * `saves/`: Leitura e gerenciamento de perfis/saves (`saves.go`, `account.go`). Leitura de contêineres STFS, validação HMAC-SHA1 + descriptografia RC4 com chaves Retail e Devkit para extração da gamertag UTF-16BE.
+  * `title_lookup.go`: Resolução de nomes de jogos em cascata (XboxUnity ➔ XboxDB ➔ Lista embutida iso2god-rs).
+* **`interfaces/http/`**: Camada HTTP/REST:
+  * `router.go`: Registro central de rotas no `*http.ServeMux`.
+  * `handlers.go`, `handlers_content.go`, `handlers_saves.go`, `handlers_tools.go`, `handlers_rxea.go`, `handlers_ftp_manager.go`: Métodos HTTP expostos pela estrutura `*Deps`.
+* **`utils/`**: Codecs e conversores puros:
+  * `iso2god.go`: Conversor nativo em Go de ISO para GOD (Games On Demand), extrator de XDVDFS e probe de discos (`ProbeISODiscInfo`). Usa a semente `utils/data/empty_live.bin`.
+  * `rxea.go`: Codec nativo para codificação/decodificação de capas e texturas DXT5 do Aurora (`.asset`).
 
-#### `models/` — pure domain types (no dependencies)
-  - `types.go`: all exported domain types (`IAGameEntry`, `PlatformCache`, `BuildState`, `MinervaEntry`, `MinervaPlatformCache`, `XboxConnection`, `GameStatus`, `PendingFTPJob`, `ROMSystemDef`, etc.).
-  - `compat.go`: disc compatibility table and `DiscCompat()` lookup.
-  - `game.go`: `Platform`, `JobStatus` enums; `Game`, `GameRepository`, `QueueRepository` interfaces.
+---
 
-#### `app/` — central App struct and configuration
-  - `app.go`: `App` struct holding all shared state (config/paths, mutex-guarded caches, sync.Maps for job queue / connections / install types), `NewApp()` constructor, logging methods (`Logf`, `LogStatus`, `LogFTPComplete`), `LookupInstallType`, `FmtDuration`.
-  - `config.go`: constants, IA/Minerva collection maps, ROM system definitions, `SetupPaths`, `LoadIAAuthFromEnv`, `ApplyArchiveOrgHeaders`, `CleanupEmptyReadyDirs`.
-  - `listen.go`: `IsTCPAddrInUse`, `ListenOnAvailablePort` TCP helpers.
+### 2. Electron Desktop App (`src/electron-app/`)
 
-#### `infrastructure/` — side-effect adapters (filesystem, network, external processes)
-  - `helpers/helpers.go`: utility functions (`GetOutboundIP`, `SanitizeFilename`, `CopyFileBuffered`, `DetectGodStructure`, `IsHexString`, `ParseXboxHeader`, `BucketAndZip`, `DecodeMinervaName`).
-  - `download/ia.go`: IA download `Service` with chunked/parallel range-request support.
-  - `download/edgeemu.go`: EdgeEmu download `Service` with chunked/parallel support.
-  - `download/progress.go`: `ProgressWriter` for download progress tracking.
-  - `ftp/client.go`: FTP `Service` — Xbox connection, upload, GOD/XEX/content transfer functions, pending-job persistence and retry, `MkdirAll` package-level helper.
-  - `torrent/torrent.go`: torrent/aria2c `Service` — `DownloadViaTorrent`, aria2c detection, `DarwinCandidatesFn` injection point for macOS.
+Escrito em **TypeScript** (compilado in-place via `tsconfig.json`, mantendo arquivos `.ts` e gerando `.js` lado a lado):
 
-#### `services/` — application-layer logic
-  - `cache/ia.go`: IA cache `IAService` — build, load, save, find, persistence.
-  - `cache/minerva.go`: Minerva cache `MinervaService` — scrape, build, load, save, find.
-  - `cache/rom.go`: ROM/EdgeEmu cache `ROMService` — build, load, find.
-  - `local/scanner.go`: local Transfer-folder `Service` — ISO scanning, matching, `NormalizeClientGameName` (package-level function).
-  - `pipeline/pipeline.go`: pipeline `Service` struct (holds references to all other services), `ProcessLocalISO`, `ProcessGame`, `FinalizeGOD`.
-  - `pipeline/digital.go`: `ProcessContentInstallFromISO`, `ProcessGenericGame`, `ProcessDigital`, XEX/DLC transfer helpers.
-  - `pipeline/minerva.go`: `ProcessMinervaGame`, `ProcessMinervaGenericGame`, `ProcessMinervaDigital`.
-  - `pipeline/rom.go`: `ProcessROM`, `FindROMFiles`, `UpdateGameINI_ROM`.
-  - `pipeline/ini.go`: `UpdateGameINI_Parts`, `UpdateGameINI_Raw`, `UpdateGameINI_XEX`, `Iso2GodResolveDisplayTitle`, `GodFolderName`.
-  - `title_lookup.go`: `LookupTitleName` (XboxUnity → XboxDB → embedded iso2god-rs list).
-  - `game_service.go`: `GameService` interface.
-  - `saves/saves.go`, `saves/account.go`: save-game `Service` — FTP-walk profiles + per-title saves, profile-package STFS parsing, `Account` blob RC4 decrypt, gamertag extraction (retail + devkit keys), `BackupAllProfiles` bulk pull. Backup folder layout `Saves/<gamertag> (<XUID>)/<gameName> - <titleID>/<files>`.
+* **`app/`**: Ciclo de vida da aplicação (`bootstrap.ts`), gerenciamento da janela principal (`window.ts`) e bandeja do sistema (`electronTray.ts`).
+* **`services/`**: Regras de aplicação no Node.js:
+  * `settingsService.ts`: Leitura e escrita de configurações em `%APPDATA%`, injeção das variáveis de ambiente `GODSEND_*`.
+  * `backendClient.ts`: Gerenciamento do processo filho Go (`godsend-backend.exe` / `godsend-backend`), captura de logs e login no Internet Archive.
+  * `auroraLibraryService.ts`: Parser SQLite (`sql.js`) dos bancos de dados do Aurora (`content.db` e `settings.db`), com caching por fingerprint SHA-256 / tamanho.
+  * `auroraVisualService.ts`: Sincronização de capas e artes visuais do console (RXEA `.asset`, Media JPGs, `visual-manifest.json`).
+  * `badAvatarUsbService.ts`: Orquestrador de criação do pendrive BadAvatar USB (formatador FAT32 + gravação transacional do BadStick).
+  * `autoSyncService.ts`: Sincronização pós-transferência de capas e biblioteca do Aurora.
+* **`ipc/`**: Manipuladores IPC expostos ao React (`configHandlers`, `xboxFtpHandlers`, `auroraLibraryHandlers`, `auroraAssetHandlers`, `browseHandlers`, `toolsHandlers`, `contentHandlers`, `saveHandlers`, `badAvatarHandlers`).
+* **`infrastructure/`**:
+  * `fat32Format.ts`: Formatação FAT32 multiplataforma para drives USB grandes (Ridgecrop `fat32format.exe` no Windows, `newfs_msdos`/`diskutil` no macOS, `mkfs.vfat`/`mkfs.fat` no Linux).
+  * `serverLog.ts`: Logs rotativos diários com timestamp ISO 8601 em `logs/`.
+* **`preload.ts`**: Ponte restrita e tipada entre o processo Main e a interface React (`window.godsendApi.*`).
+* **`renderer/`**: Interface visual construída em React 19, Vite e TailwindCSS (páginas `HomePage`, `LibraryPage`, `QueuePage`, `SettingsPage` e overlays).
 
-#### `interfaces/http/` — HTTP delivery layer
-  - `middleware.go`: `Deps` struct (holds `*app.App` + service references), `jsonError`, `jsonSuccess`, `RecoverMiddleware`.
-  - `handlers.go`: all main HTTP handlers as methods on `*Deps` (browse, cache, trigger, status, queue, register, debug, file serving, range parsing, `/disc-info`, etc.).
-  - `handlers_rxea.go`: `/rxea/decode`, `/rxea/encode`, `/rxea/encode-multi` handlers.
-  - `handlers_tools.go`: `/tools/probe-iso`, `/tools/iso2god`, `/tools/iso2xex` handlers.
-  - `handlers_content.go`: `/content/discover`, `/content/tu`, `/content/installed`, `/content/queue`, `/content/sources`, `/content/set-active` — DLC / Title Update management.
-  - `handlers_saves.go`: `/saves/discover`, `/saves/list`, `/saves/download`, `/saves/delete`, `/saves/copy`, `/saves/backup-all`, `/saves/keyvault-status`.
-  - `router.go`: `NewRouter()` — registers all routes on `*http.ServeMux`.
+---
 
-#### `utils/` (`package utils`)
-  - `iso2god.go`: pure-Go ISO→GOD conversion, archive extract/create, disc metadata probe (`ProbeISODiscInfo`). LIVE CON seed: `utils/data/empty_live.bin`.
-  - `rxea.go`: pure-Go RXEA codec (Aurora `.asset` file encode/decode).
+### 3. Android Mobile App (`src/android-app/`)
 
-#### Dependency flow (no import cycles)
-```
-models → (nothing)
-app → models
-infrastructure/* → app, models
-services/* → app, models, infrastructure/*
-interfaces/http → app, models, services/*, infrastructure/*
-main → everything (wiring only)
-```
+Aplicativo nativo Android em **Kotlin**:
 
-#### Key architectural notes
-- **Pending FTP queue** (`infrastructure/ftp/`) — when an FTP transfer fails after retries (e.g. console launched a game), the backend persists the job to `GODSEND_HOME/pending_ftp/<id>.json` and retries indefinitely (30 s → 5 min backoff). Jobs survive restarts and are resumed at startup. Endpoints: `GET /data/status`, `GET /data/clear`, `GET /config`. Env vars: `GODSEND_DEFAULT_DRIVE`, `GODSEND_TORRENT_TEMP`, `GODSEND_ARIA2_LISTEN_PORT`, `GODSEND_ARIA2_DHT_PORT`.
-- **Minerva source** (`services/cache/minerva.go`, `infrastructure/torrent/`, `services/pipeline/minerva.go`) — Minerva Archive integration alongside IA. Download priority in `/trigger`: **local → Minerva → Internet Archive**. `/browse` merges Minerva + IA lists (Minerva first, deduped). Torrent download via `aria2c` (`--select-file`); macOS uses Homebrew bootstrap (`aria2c_darwin.go`).
-- **Bundled torrent zips** — `cache/minerva_*.zip` in the repo root. Electron `extraFiles` ships `cache/` next to the app; backend seeds `GODSEND_HOME/cache` from that bundle. Pre-scrape: `npm run scrape:minerva`.
+* **Backend Go Embutido (`libgodsend.so`)**: Compilado nativamente para a arquitetura `android/arm64` (`CGO_ENABLED=1`) e empacotado em `jniLibs/arm64-v8a/libgodsend.so` com `android:extractNativeLibs="true"`, cumprindo os requisitos de execução de binários do SELinux no Android 10+ (API 29+).
+* **Foreground Service (`GodsendBackendService.kt`)**: Mantém o servidor Go rodando em segundo plano no celular/tablet com notificação persistente e `WakeLock`, garantindo downloads e transferências contínuas mesmo com a tela desligada.
+* **Activity Principal (`MainActivity.kt`)**: Carrega a interface web local (`http://127.0.0.1:8080`) com tratamento de permissões de armazenamento.
+* **Assistente de 3 Passos (Wizard Mobile)**: Interface intuitiva para escolha entre modo Wi-Fi (FTP para Xbox RGH) e modo USB (gravação de pendrive/cartão SD em dispositivos móveis).
 
-**Pattern**: treat `models` as pure domain, `app` as shared state container, `services` as application layer, `infrastructure` for side effects, and `interfaces/http` as the delivery mechanism. Keep `main.go` thin: wiring only, no complicated logic.
+---
 
-### Electron app (`src/electron-app/`)
+### 4. Aurora Lua Scripts (`aurora-scripts/`)
 
-The Electron main-process source is written in **TypeScript** (compiled in-place via `tsconfig.json`; no `outDir`). All source files are `.ts`; the compiled `.js` files are the build artefacts used at runtime.
+Executados diretamente no Xbox 360 na dashboard Aurora:
 
-- **Entrypoint & app shell**
-  - `main.ts`: minimal bootstrap that registers the `godsend-aurora://` protocol scheme and calls `app/bootstrap.ts`.
-  - `app/bootstrap.ts`: creates the BrowserWindow and tray, registers all IPC handlers, and coordinates startup/shutdown of the backend child process via services.
-  - `app/window.ts`: BrowserWindow creation, minimize-to-tray / close-to-tray behaviour, `getMainWindow` / `getWebContentsForPush` helpers.
-- **Services (application behaviour)**
-  - `services/settingsService.ts`: reads/writes JSON config under `app.getPath("userData")`, exposes getters/setters for transfer folder, IA settings, backend server port (`serverPort`), default Xbox drive (`defaultXboxDrive`), and aria2 ports (`aria2ListenPort`, `aria2DhtPort`); builds the child process environment (`GODSEND_*` variables).
-  - `services/backendClient.ts`: owns the backend `spawn` lifecycle, output buffering and broadcast, restart semantics, and Internet Archive login flow.
-  - `services/auroraLibraryService.ts`: parses Aurora's SQLite databases (content.db / settings.db) into `AuroraGame[]`, probes FTP drive letters, and builds the local game-name cache from JSON title lists.
-  - `services/auroraVisualService.ts`: syncs Aurora asset files (`.asset` RXEA, flat Media cover JPGs, `GameCoverInfo.bin`, `visual-manifest.json`) between the console and the local cache, emitting `xbox-cover` and `xbox-title-visuals` IPC events.
-  - `services/auroraPathHelper.ts`: derives and caches the Aurora install root from the configured FTP scripts path; `discoverAuroraRoot` probes common locations.
-  - `services/coverArtService.ts`: multi-source cover art fetching (XboxUnity, Xbox CDN, Microsoft Store autosuggest, Wikipedia); in-memory `browseCoverCache`.
-  - `services/autoSyncService.ts`: post-FTP automation — `autoUploadAuroraAssets` and `doAuroraLibrarySync`.
-  - `services/badAvatarUsbService.ts`: BadAvatar USB build orchestrator — optional FAT32 format step + BadStick payload (Proto / FreestyleDash / Aurora XeUnshackle) install with per-file progress.
-- **IPC handlers (`ipc/`)**
-  - `configHandlers.ts`: startup, logs, storage path, torrent temp path, app data directory, transfer folder, server port, IA auth, ROM path, cache refresh, Xbox connection, default drive, aria2 ports, Aurora library sources, save-backup folder.
-  - `xboxFtpHandlers.ts`: ping, verbose FTP test, port scanner, Aurora scripts upload, drive listing, game listing, cover fetch.
-  - `auroraLibraryHandlers.ts`: Aurora library sync (DB fingerprint caching), cover + visual asset sync, disk-cache visual refresh.
-  - `auroraAssetHandlers.ts`: asset search (XboxUnity + CDN), image fetch, file picker, console upload, RXEA decode/encode, Aurora game inspector.
-  - `browseHandlers.ts`: game list, queue game, disc info, browse cover art, download queue.
-  - `toolsHandlers.ts`: ISO probe/convert, FTP Manager (list, upload queue, delete, mkdir, rename, copy), game drive move.
-  - `contentHandlers.ts`: DLC / Title Update discovery (`content:discover`, `content:title-updates`, `content:installed`, `content:sources`), install queue (`content:queue`), active-TU toggle (`content:set-active`).
-  - `saveHandlers.ts`: profile + save game ops (`saves:discover`, `saves:list`, `saves:download`, `saves:delete`, `saves:copy`, `saves:backup-all`, `saves:keyvault-status`).
-  - `badAvatarHandlers.ts`: BadAvatar USB tool (`tools:badavatar-list-drives`, `tools:badavatar-is-admin`, `tools:badavatar-create`, `tools:badavatar-progress`).
-- **Infrastructure (platform concerns)**
-  - `infrastructure/fileSystem.ts`: canonical install/runtime root detection, directory creation, cache/Temp/Transfer/Ready layout, Aurora scripts path, icon resolution.
-  - `infrastructure/electronTray.ts`: tray icon creation, context menu wiring.
-  - `infrastructure/backendHttp.ts`: thin `backendGet` / `backendPost` helpers for the local Go server.
-  - `infrastructure/httpHelper.ts`: redirect-following HTTP image fetch, magic-byte MIME detection.
-  - `infrastructure/serverLog.ts`: session-structured log file appender for backend stdout/stderr and app events.
-  - `infrastructure/auroraLibraryCache.ts`: local Aurora DB cache layout, meta read/write, safe path helper.
-  - `infrastructure/sqlHelper.ts`: sql.js wrapper (`getSqlJs`, `sqlRows`, `filetimeToDateStr`).
-  - `infrastructure/fat32Format.ts`: cross-platform FAT32 format for large USB volumes — bundled Ridgecrop `fat32format.exe` on Windows (fetched by `scripts/download-fat32format.js` → `dist/tools/` at build time), `newfs_msdos` / `diskutil` on macOS, `mkfs.vfat` / `mkfs.fat` on Linux.
-- **Renderer bridge**
-  - `preload.ts`: exposes a narrow, typed IPC surface to the renderer (`window.godsendApi.*`).
-  - React renderer (`renderer/`): `App.jsx` (routing, queue polling every 5 s), page components `HomePage`, `SettingsPage`, `LibraryPage`, `QueuePage`.
-- **Build scripts**
-  - `scripts/sync-assets-icon.js`: pre-build script to normalise tray/icon artwork.
-  - `scripts/after-pack-win-icon.js`: `electron-builder` `afterPack` hook for embedding the icon.
-  - `scripts/download-fat32format.js`: fetches Ridgecrop `fat32format.exe` into `dist/tools/` for Windows builds (BadAvatar USB large-volume formatter). Run from `build:server` and `build-go-all.js` before packaging.
-- **TypeScript compilation**
-  - `tsconfig.json`: `"module": "commonjs"`, `"strict": false`, no `outDir` (in-place compilation).
-  - Build commands (`npm run build:win` etc.) run `tsc` before electron-builder; `npm run tsc` compiles only.
-  - Packaged `.asar` excludes `*.ts` and `tsconfig.json` via `build.files` in `package.json`.
+* **`main.lua`**: Metadados do script e gerenciador do loop principal.
+* **`state.lua`**: Configurações de conexão (`BRAIN_IP`, `PORT`) e estado mutável compartilhado.
+* **`http_client.lua`**: Utilitários HTTP defensivos para o console.
+* **`services.lua`**: Operações de segundo plano (trigger de downloads, registro FTP, loop `waitForProcessing`).
+* **`menu.lua`**: Interface gráfica no console para navegação de bibliotecas, seleção de drives e monitoramento de fila.
 
-**Pattern**: keep Electron main process organised as:
+#### Regras Críticas do Ambiente Lua no Console:
+1. **Barras Invertidas Obrogatórias:** Usar exclusivamente `\` nos caminhos (`Hdd1:\Games\`). Barras normais `/` causam falha.
+2. **Bug Crítico dos 350 MB no Zip:** Arquivos maiores que 350 MB dentro de um `.zip` são extraídos como **0 bytes sem emitir erro**. O backend cuida de descompactar arquivos grandes antes de enviar ao Xbox.
+3. **MoveFile Exige 3 Parâmetros:** O comando `FileSystem.MoveFile(src, dst, overwrite)` **causa crash** se o terceiro argumento booleano de overwrite não for fornecido.
+4. **Índices de Perfil em Base-1:** `Profile.GetGamerTag(1)` usa índice 1 para o primeiro perfil (e não 0).
 
-- `app/` – lifecycle, IPC registration, top-level composition.
-- `services/` – high-level behaviour, no direct knowledge of Electron window creation.
-- `infrastructure/` – filesystem and OS-specific helpers, no business logic.
-- `preload.ts` – IPC surface only; no business logic.
+---
 
-### Aurora scripts (`aurora-scripts/`)
+## Resumo das APIs REST HTTP do Backend
 
-- `main.lua`: script metadata and orchestrator; wires modules and implements the main menu loop.
-- `state.lua`: connection settings (`BRAIN_IP`, `PORT`, URL roots, paths) and all mutable state used across modules (`gAbortedOperation`, progress counters, install drive/mode, etc.), plus `initServerURL()` and `loadConfig()`.
-- `http_client.lua`: HTTP helpers (`httpGet`, `jsonField`, `validateResponse`), time/size formatting, global `HttpProgressRoutine`, and a centralised error catalogue (`showError`).
-- `services.lua`: backend-facing operations, including:
-  - `getGameStatus`, `triggerDownload`, `registerForFTP`, `testServerConnection`
-  - `waitForProcessing` loop
-  - `installGame` for XEX, raw, and GOD installs + DLC handling.
-- `menu.lua`: in-Aurora UI for:
-  - Server queue/status viewer (`showQueue`) and cache status details.
-  - Library browser (`browseLibrary`) with per-platform title lists, drive selection (skipped when `gDefaultDrive` is set), and orchestration of FTP trigger/wait/install.
+O backend disponibiliza uma API REST na porta `8080` (ou `GODSEND_PORT`):
 
-**Pattern**: treat each `.lua` file as a module with globals shared intentionally:
-
-- `state.lua` defines globals; other modules consume them.
-- I/O-heavy functions (HTTP, filesystem, long loops) live in `http_client.lua` and `services.lua`.
-- Menu/UX logic lives in `menu.lua` and calls into services instead of duplicating HTTP calls.
-
-### Build tooling
-
-> **Builds are run locally from this repo** with the `npm run build:*` scripts. Cross-platform packaging works from a macOS host: macOS DMGs build natively, and **Windows installers build via Wine** (`wine` must be on `PATH` — `brew install --cask wine-stable`). The Go backend cross-compiles to every target with `CGO_ENABLED=0`, so no platform-specific toolchain is needed for the binaries. (The old `godsend-release-keeper` Sliplane watchdog has been retired — there is no external build service.)
-
-- `dist/`: consolidated build artifacts (per-OS Go binaries, installers, etc.) produced by the local `npm run build:*` scripts.
-- `tools/`: ignored directory for third-party executables (`7za.exe`, `7za.dll`, `7zxa.dll`) when needed outside the bundled Go pipeline.
-
-Build-script map (run from repo root):
-
-| Command | Output |
-|---|---|
-| `npm run build:server` | `dist/godsend.exe` (Windows backend) + `dist/tools/{aria2c,fat32format}.exe` |
-| `npm run build:server:mac` / `:mac:arm` | `dist/godsend-mac` (Intel / Apple Silicon headless backend) |
-| `npm run build:server:linux` | `dist/godsend-linux-x64` + `dist/godsend-linux-arm64` |
-| `npm run build:server:all` | all headless Go backends in one pass |
-| `npm run build:electron:win:x64` | `dist/godsend-Setup-X.Y.Z.exe` (NSIS installer, via Wine) |
-| `npm run build:electron:win:portable` | `dist/godsend-Portable-X.Y.Z.exe` (portable, via Wine) |
-| `npm run build:electron:mac` / `:mac:arm` | `dist/godsend-X.Y.Z-{x64,arm64}.dmg` |
-| `npm run build:electron:linux` | `dist/godsend-X.Y.Z-{x86_64,arm64}.AppImage` |
-
-> The Electron Windows build needs `dist/godsend.exe` + `dist/tools/*.exe` present first, so run `build:server` before `build:electron:win:*`. On a non-Windows host the `rcedit` icon-embed step is skipped (it needs `wine64` on `PATH`); this is cosmetic and the installer/exe still carry their icons.
-
-#### Upload scripts (HuggingFace + R2 distribution)
-
-| Script | Purpose | Dependencies |
+| Categoria | Endpoints Princpais | Descrição |
 |---|---|---|
-| `build-and-upload.ps1` | Build portable + upload to HuggingFace (versioned) + upload to R2 as `xboxcompanion.exe` (unversioned) | PowerShell 5.1+, Node.js, `rclone`, `huggingface_hub` |
-| `build-portable-local.ps1` | Build the Windows portable executable locally without uploading | PowerShell 5.1+, Node.js |
-| `upload-hf.ps1` | Upload portable to HuggingFace `XBOX360Companion/` folder only | `huggingface_hub` |
-| `upload-r2.ps1` | Upload portable as `xboxcompanion.exe` to R2 only | `rclone` |
-
-Credentials are read from `build.properties` (gitignored; see `build.properties.example` for the template) or from `r2-config.json` (gitignored; see `r2-config.example.json`). The `build.properties` file supports `HF_TOKEN`, `HF_REPO`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, and `R2_PUBLIC_URL`.
-
-### Release assets (GoFile + file.kiwi upload + README links)
-
-**Do NOT create git tags or GitHub releases.** All build assets are uploaded to **GoFile.io** (primary) and **file.kiwi** (backup mirror) and linked directly from `README.md` — the download table has one column per host.
-
-#### GoFile upload workflow
-
-Each file must be uploaded **individually** (no `folderId`) so every file gets its own unique download page URL. Use the persistent account token in `.gofile-io-token` so uploads survive (anonymous uploads expire).
-
-Upload steps (per file):
-
-```bash
-TOKEN=$(cat .gofile-io-token)
-RESPONSE=$(curl -s -X POST "https://upload.gofile.io/contents/uploadfile" \
-  -H "Authorization: Bearer $TOKEN" -F "file=@dist/FILENAME")
-echo "$RESPONSE" | jq -r '.data.downloadPage'
-```
-
-The `downloadPage` value (e.g. `https://gofile.io/d/AbC123`) is the per-file public link to use in the README.
-
-#### file.kiwi upload workflow
-
-Mirror each file to file.kiwi (anonymous, E2E-encrypted) with the official CLI:
-
-```bash
-FORCE_COLOR=0 npx -y @file-kiwi/node dist/FILENAME --title "FILENAME" 2>&1 \
-  | grep -Eo 'https://file\.kiwi/[A-Za-z0-9][A-Za-z0-9#_+/=-]*' | tail -1
-```
-
-The full URL **including the `#<key>` fragment** is the link to use in the README — without the fragment the file cannot be decrypted.
-
-##### Files to upload
-
-After building on macOS, the following files in `dist/` must be uploaded (to both hosts):
-
-| File | Description |
-|---|---|
-| `godsend-Setup-X.Y.Z.exe` | Windows NSIS installer (tray app + backend) |
-| `godsend-Portable-X.Y.Z.exe` | Windows portable exe (no install needed) |
-| `godsend-X.Y.Z-arm64.dmg` | macOS Apple Silicon DMG |
-| `godsend-X.Y.Z-x64.dmg` | macOS Intel DMG |
-| `godsend-X.Y.Z-x86_64.AppImage` | Linux x64 AppImage |
-| `godsend-X.Y.Z-arm64.AppImage` | Linux arm64 AppImage |
-| `godsend.exe` | Headless Windows backend |
-| `godsend-darwin-arm64` | Headless macOS Apple Silicon backend |
-| `godsend-darwin-amd64` | Headless macOS Intel backend |
-| `godsend-mac` | Headless macOS (Electron helper copy) |
-| `godsend-linux-x64` | Headless Linux x64 backend |
-| `godsend-linux-arm64` | Headless Linux arm64 backend |
-
-#### Updating README download links
-
-After uploading, update **both** download tables in `README.md` (and `docs/headless-setup.md`). Each table has a **GoFile column** and a **file.kiwi column** — update both per row:
-
-1. **Quick Installation table** (desktop installers):
-   ```markdown
-   | **macOS (Apple Silicon)** | [`godsend-X.Y.Z-arm64.dmg`](https://gofile.io/d/CODE) | [`godsend-X.Y.Z-arm64.dmg`](https://file.kiwi/ID#KEY) |
-   ```
-
-2. **Running Without the Desktop App table** (headless backend binaries):
-   ```markdown
-   | **Windows (x64)** | [`godsend.exe`](https://gofile.io/d/CODE) | [`godsend.exe`](https://file.kiwi/ID#KEY) |
-   ```
-
-Each cell gets its own unique link — do **not** point multiple files at the same folder page.
-
-Also update all inline version references in `README.md` (filenames in prose, installer names in instructions).
-
-#### Rules
-
-- **Never** create git tags, GitHub releases, or push tags to the remote.
-- Upload each platform build as a **separate file** — do not zip multiple builds together.
-- Each file must have its **own unique GoFile download page** (upload without `folderId`) and its own file.kiwi link (with the `#<key>` fragment).
-- When bumping versions, update `README.md` download links **in the same commit** as the version bump.
-- You only need to rebuild + re-upload the platforms that actually changed; leave links for platforms already published at the current version alone.
+| **Navegação & Fila** | `GET /browse`, `GET /status`, `GET /queue`, `GET /trigger`, `GET /register`, `POST /queue/remove` | Consulta de jogos por plataforma, polling de status, disparador de downloads e limpeza da fila. |
+| **Diagnóstico & Caches** | `GET /cache-status`, `GET /cache-refresh`, `GET /disc-info`, `GET /data/status`, `GET /data/clear` | Status do cache, rebuild assíncrono, probe de ISOs e limpeza de temporários em `Ready/` e `Temp/`. |
+| **DLC & Title Updates** | `GET /content/discover`, `GET /content/tu`, `GET /content/installed`, `POST /content/queue`, `POST /content/set-active` | Descoberta e instalação de DLCs/TUs, alternância de TU ativo (renomeando inativos para `.disabled`). |
+| **Saves & Perfis** | `GET /saves/discover`, `GET /saves/list`, `POST /saves/download`, `POST /saves/delete`, `POST /saves/copy`, `POST /saves/backup-all` | Leitura de contêineres STFS, descriptografia RC4 de perfis, extração de gamertags e backup completo em 1 clique. |
+| **Ferramentas & Codecs** | `POST /tools/probe-iso`, `POST /tools/iso2god`, `POST /tools/iso2xex`, `POST /rxea/decode`, `POST /rxea/encode` | Conversão e inspeção local de ISOs, codificação/decodificação de capas RXEA DXT5 para Aurora. |
+| **Utilitários FTP** | `GET /ftp/ping`, `GET /ftp/drives`, `POST /ftp/list`, `POST /ftp/mkdir`, `POST /ftp/delete`, `POST /ftp/move-game`, `POST /ftp/upload-scripts` | Navegação no sistema de arquivos do Xbox, movimentação de jogos entre HDs e envio de scripts. |
 
 ---
 
-### Version bump, build & release workflow
+## Ferramentas e Scripts de Build
 
-**Every non-trivial change must include a version bump.** Agents should never commit functional changes without also bumping the version string in all four places listed below and updating `CHANGELOG.md`. Do not wait for an explicit "bump version" request — it is part of the standard commit workflow.
-
-When asked to **bump the version**, **cut a release**, or **commit changes** that include a version bump, execute the full pipeline below. Do not skip steps.
-
-#### 1. Bump the version string in all four places
-
-| File | What to change |
-|---|---|
-| `package.json` | `"version": "X.Y.Z"` |
-| `src/electron-app/package.json` | `"version": "X.Y.Z"` |
-| `src/server/main.go` | Banner line: `GODSend Backend Server vX.Y.Z` |
-| `aurora-scripts/main.lua` | `scriptVersion = "X.Y.Z"` (line 3) |
-
-#### 2. Update CHANGELOG.md
-
-Move the `[Unreleased]` section to a `[X.Y.Z] - YYYY-MM-DD` heading and create a fresh empty `[Unreleased]` above it.
-
-#### 3. Update README.md version references
-
-Search-and-replace the old version with the new one in all filenames and inline references:
-- Installer filenames (e.g. `godsend-Setup-2.10.0.exe` → `godsend-Setup-2.11.0.exe`, `godsend-Portable-2.10.0.exe` → `godsend-Portable-2.11.0.exe`)
-- DMG/AppImage filenames
-- Prose mentioning the version
-
-#### 4. Build all targets locally
-
-Cross-compile the Go backends and package the Electron apps with the `npm run build:*` scripts (see the **Build tooling** section for the full command→output map). From a macOS host:
+Todos os builds são executados a partir do diretório raiz utilizando os scripts do `package.json`:
 
 ```bash
-# Headless Go backends (all platforms)
+# Compilar o backend em Go para a plataforma local (dist/godsend.exe no Windows)
+npm run build:server
+
+# Compilar o backend em Go para todas as plataformas (Windows, macOS Intel/ARM, Linux x64/ARM64)
 npm run build:server:all
-# Windows installer + portable (via Wine)
-npm run build:server && npm run build:electron:win:x64 && npm run build:electron:win:portable
-# macOS DMGs (native)
-npm run build:electron:mac && npm run build:electron:mac:arm
-# Linux AppImages
+
+# Compilar o backend em Go para Android (dist/godsend-android-arm64)
+npm run build:server:android
+
+# Compilar o aplicativo Electron completo para Windows (NSIS Installer)
+npm run build:electron:win:x64
+
+# Compilar a versão portátil para Windows (.exe único)
+npm run build:electron:win:portable
+
+# Compilar para macOS (DMG para Intel e Apple Silicon)
+npm run build:electron:mac
+npm run build:electron:mac:arm
+
+# Compilar para Linux (AppImage)
 npm run build:electron:linux
 ```
 
-You only need to rebuild the platforms that changed since the last release.
+### Scripts de Deploy e Upload (HuggingFace + Cloudflare R2)
 
-#### 5. Upload all dist files to GoFile + file.kiwi
+Para automação de compilação e publicação dos binários compilados:
 
-Upload each changed file individually (no `folderId`) to **both** hosts and collect the per-file links:
-
-```bash
-TOKEN=$(cat .gofile-io-token)
-for f in godsend.exe godsend-darwin-arm64 godsend-darwin-amd64 godsend-linux-arm64 \
-         godsend-linux-x64 godsend-mac \
-         godsend-Setup-X.Y.Z.exe godsend-Portable-X.Y.Z.exe \
-         godsend-X.Y.Z-arm64.dmg godsend-X.Y.Z-x64.dmg \
-         godsend-X.Y.Z-arm64.AppImage godsend-X.Y.Z-x86_64.AppImage; do
-  gofile=$(curl -s -X POST "https://upload.gofile.io/contents/uploadfile" \
-    -H "Authorization: Bearer $TOKEN" -F "file=@dist/$f" | jq -r '.data.downloadPage')
-  kiwi=$(FORCE_COLOR=0 npx -y @file-kiwi/node "dist/$f" --title "$f" 2>&1 \
-    | grep -Eo 'https://file\.kiwi/[A-Za-z0-9][A-Za-z0-9#_+/=-]*' | tail -1)
-  echo "$f | $gofile | $kiwi"
-done
-```
-
-#### 6. Update README.md download links
-
-Replace the GoFile and file.kiwi URLs in both download tables with the fresh per-file links from step 5 (only for the platforms you rebuilt).
-
-#### 7. Commit and push
-
-Stage all changed files and commit. Then push:
-
-```bash
-git push github HEAD
-```
-
-### Git remote and pushing
-
-The active remote is **github** (GitHub). The legacy GitGud remote (`origin`) is no longer updated.
-
-| Remote | URL | Notes |
-|--------|-----|-------|
-| **github** | `https://github.com/ghostyshell/GODSend-360.git` | [GitHub repo](https://github.com/ghostyshell/GODSend-360) — push here |
-| **origin** (legacy) | `git@gitgud.io:ghosty99/godsend-360.git` | GitGud — no longer updated |
-
-When pushing changes, push to **github** only:
-
-```bash
-git push github HEAD
-```
-
-If the current branch does not track a remote yet, use `-u` on the first push:
-
-```bash
-git push -u github HEAD
-```
+* **`build-and-upload.ps1`**: Compila o executável portátil e envia automaticamente para o repositório no HuggingFace (com versionamento) e para o bucket Cloudflare R2 (como `xboxcompanion.exe`).
+* **`upload-hf.ps1`**: Faz o upload apenas do executável para a pasta `XBOX360Companion/` no HuggingFace.
+* **`upload-r2.ps1`**: Faz o upload do executável atualizado como `xboxcompanion.exe` no Cloudflare R2.
+* **`build-portable-local.ps1`**: Compila localmente a versão portátil do Windows sem realizar o upload.
 
 ---
 
-## Build, run, and test commands
+## Processo Estrito de Bump de Versão e Release
 
-> **Builds run locally** via the `npm run build:*` scripts (see **Build tooling** for the command→output map). Windows installers package through Wine on macOS/Linux; macOS DMGs build natively; the Go backend cross-compiles to every target.
+**Toda alteração funcional DEVE incluir o bump de versão.** Nunca envie alterações de código sem atualizar a versão nos 4 locais obrigatórios e no arquivo `CHANGELOG.md`.
 
-### Electron + backend (Windows)
+### 1. Atualizar a Versão nos 4 Locais Obrigatórios
 
-- **Install dependencies (root + Electron)**:
-  - `npm install`
-- **Run Electron app in dev mode**:
-  - `npm start --prefix src/electron-app`
-  - Dev binary resolved from `dist/godsend.exe` (Win), `dist/godsend-mac` (macOS), `dist/godsend-linux` (Linux).
+| Arquivo | O que alterar |
+|---|---|
+| `package.json` | `"version": "X.Y.Z"` |
+| `src/electron-app/package.json` | `"version": "X.Y.Z"` |
+| `src/server/main.go` | Linha de banner: `Xbox 360 Companion Backend Server vX.Y.Z` |
+| `aurora-scripts/main.lua` | `scriptVersion = "X.Y.Z"` (linha 3) |
 
-When making changes to Electron or the backend, prefer:
+### 2. Atualizar o `CHANGELOG.md`
+Mova a seção `[Unreleased]` para o novo cabeçalho `[X.Y.Z] - YYYY-MM-DD` e crie uma nova seção `[Unreleased]` vazia no topo.
 
-- Start the built app and verify:
-  - Backend starts successfully.
-  - Settings page works (transfer folder, IA login).
-  - Lua script can still talk to the backend using the API described in `README.md`.
+### 3. Atualizar Referências no `README.md` e Documentações
+Substitua as menções da versão antiga pela nova nos nomes de arquivos do instalador (`xbox-360-companion-Setup-X.Y.Z.exe`, `xbox-360-companion-Portable-X.Y.Z.exe`, `.dmg`, `.AppImage`).
 
-### Aurora scripts
-
-- There is no automated test harness; manual checks are performed from Aurora:
-  - Copy the contents of `aurora-scripts/` to the Aurora scripts directory.
-  - Configure `GODSend.ini` as described in `README.md`.
-  - Exercise:
-    - Queue view.
-    - Each library (xbox360/xbox/xbla/digital/dlc/xblig/local/games).
-    - Install paths (GOD/XEX/DLC).
+### 4. Regras Absolutas de Release
+* **NUNCA crie tags git.**
+* **NUNCA crie GitHub Releases nem envie tags para o repositório remoto.**
+* **Uploads de Artefatos:** Todo binário de release é publicado diretamente no **GoFile.io** (principal) e **file.kiwi** (espelho), e os links da tabela de downloads no `README.md` são atualizados no mesmo commit.
 
 ---
 
-## Code style & design guidelines
+## Diretrizes de Desenvolvimento para Agentes
 
-### General
-
-- Prefer **small, focused modules** over large monoliths.
-- Keep IO/infrastructure code separated from domain logic:
-  - Domain types and invariants in `models/` (Go) or `state.lua` (Lua).
-  - Application behaviour in `services/`.
-  - Network, filesystem, external processes in `infrastructure/` or clearly named helpers.
-- Backwards compatibility is important:
-  - Preserve existing HTTP endpoints and query shapes.
-  - Preserve Electron IPC channel names.
-  - Preserve Lua-visible behaviour and user flows wherever possible.
-
-### Go (`src/server/`)
-
-- Follow standard `gofmt` formatting and idiomatic Go.
-- Keep handlers thin:
-  - Parse/validate HTTP input.
-  - Delegate to `services`.
-  - Translate domain outcomes to HTTP status codes + JSON.
-- Avoid global mutable state:
-  - Prefer structs with dependencies injected via constructors.
-  - Use interfaces from `models/` for repositories/clients to keep the core testable.
-
-### Electron (Node/JS)
-
-- Use modern JS syntax (const/let, arrow functions where appropriate).
-- Keep `main.js` minimal – all real behaviour flows through `app/bootstrap.js` + services.
-- Do not import Electron directly from services unless absolutely necessary:
-  - Services should be reusable and testable with minimal mocking.
-  - Infrastructure modules can depend on Electron APIs (e.g. `app`, `nativeImage`) where needed.
-- Keep `preload.js` as the **single bridge** between renderer and main; only expose stable, well-named methods on `window.godsendApi`.
-- Avoid adding new global IPC channels without documenting them here and in `README.md`.
-
-### Lua (Aurora scripts)
-
-- Consult [`docs/reference/aurora.md`](docs/reference/aurora.md) for Aurora-specific Lua APIs, filesystem/HTTP quirks, and pre-deployment checks beyond this summary.
-- The scripting environment is Lua 5.1 with limited libraries:
-  - Avoid heavy allocations or deep recursion in hot paths.
-  - Use `pcall` around operations that can throw from the host (e.g. `Http.*`, `IniFile`, `FileSystem`, `ZipFile`, `Script` UI calls).
-- Keep cross-module state centralised in `state.lua`.
-- Prefer defensive parsing for HTTP responses (`jsonField`, `validateResponse`) over brittle patterns; use **`sanitizeManifestValue`** / **`sanitizeIniTitleName`** on `IniFile.ReadValue` results that become paths, URLs, or filenames (NUL/control tails from Aurora).
-- When adding new functionality:
-  - Add low-level helpers to `http_client.lua` or `services.lua`.
-  - Add menu flows to `menu.lua`, calling into those helpers instead of duplicating HTTP logic.
-
----
-
-## Changelog and contributing rules
-
-Every non-trivial change **must** include a `CHANGELOG.md` update. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full rules; the key points for agents are:
-
-- Add a bullet under `[Unreleased]` at the top of `CHANGELOG.md` (create the section if absent) in the appropriate category (`Added`, `Fixed`, `Changed`, `Removed`).
-- When releasing (cutting a new version), move `[Unreleased]` to the new version number + date and bump versions in **all four places** — see the version-bump table in `CONTRIBUTING.md`.
-
-## Doc-sync trigger (mandatory)
-
-Before every commit that touches `src/` or `aurora-scripts/`, run the trigger checklist in [`docs/agents/skills/doc-sync.md`](docs/agents/skills/doc-sync.md). It maps each kind of code change (new HTTP route, IPC channel, service, env var, user-facing feature, etc.) to the docs that **must** be updated **in the same commit** — `README.md`, `AGENTS.md`, `CHANGELOG.md`, `docs/features.md`, and `docs/api-reference.md`. Doc drift is treated as a regression; don't ship code that updates only one side.
-
-## When and how to update this file
-
-Treat `AGENTS.md` as **living documentation for agents and automation**. Update it whenever you:
-
-- Introduce a new subsystem or directory that encodes architectural decisions:
-  - e.g. new `infrastructure/` subpackages, new `interfaces/*` targets, new script bundles.
-- Change build or run commands:
-  - e.g. add tests, change package manager, add makefiles, modify Docker entrypoints.
-- Add or change conventions:
-  - e.g. preferred logging style, error-handling patterns, IPC naming schemes, or directory naming standards.
-
-When editing:
-
-- Keep sections short and structured using the existing headings: **overview**, **layout**, **commands**, **style/guidelines**, **update rules**.
-- Prefer describing **intent and constraints** over restating obvious code structure.
-- If a new rule or pattern is **project-wide**, document it here and (if user-facing) in `README.md`.
-- If a rule only applies to a subdirectory, briefly mention it here and link or reference any local docs.
-
-If you are an agent performing a significant refactor:
-
-- **First**: scan this file and the relevant section of `README.md` for constraints.
-- **After changes**: update this file to reflect any new module layouts, entrypoints, or required commands before finishing your task.
-
-### Skill addition pattern
-
-When adding a new skill (agent instructions for a specific task or domain):
-
-1. **Create the canonical skill** under `docs/agents/skills/<skill-name>.md`.
-   - Include a clear `description`, `scope`, and `key conventions` section.
-   - Add a `see also` block linking to `docs/agents/skills/docs-source-of-truth.md`.
-2. **Create shim skills** under each agent-specific directory:
-   - `.claude/skills/<skill-name>.md`
-   - `.opencode/skills/<skill-name>.md`
-   - `.cursor/skills/<skill-name>.md`
-   - Shims should contain a pointer banner and a quick-reference summary.
-3. **Update the source-of-truth index** in `docs/agents/skills/docs-source-of-truth.md` (add to `related_skills`).
-4. **Do not** duplicate full instructions in shims — they reference the canonical file so all agents stay in sync.
-
-### NEVER commit video files
-- `test-results/` is already in `.gitignore` for Playwright video outputs.
-- `.mp4`, `.webm`, `.mov` files must never be committed to git.
-- Generated demo videos should be stored in shared drives or linked from docs, never in the repo.
-
----
-
-# AI coding guidelines
-
-Apply to all tasks here, across Claude Code, OpenCode, and Cursor.
-
-## Coding discipline — adapted from Andrej Karpathy's CLAUDE.md
-Source: https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md
-
-1. **Think before coding.** State assumptions explicitly; if uncertain, ask. Surface confusion and tradeoffs instead of silently guessing.
-2. **Simplicity first.** Write the minimum code that solves the problem — nothing speculative. If a simpler approach exists, say so. Ask: would a senior engineer find this overcomplicated?
-3. **Surgical changes.** Touch only what the task requires — every changed line should trace directly to the request. Don't refactor or "improve" unrelated code; match the existing style.
-4. **Goal-driven execution.** Turn vague tasks into testable objectives (e.g. "add validation" → write tests for invalid inputs, then make them pass) and verify before finishing.
-
-These favor caution over speed; use judgment on trivial work.
-
-## Minimalist code — Ponytail
-Source: https://github.com/DietrichGebert/ponytail — "the best code is the code you never wrote."
-Before writing code, walk the ladder and stop at the first that works:
-1. Does this need to exist at all? (YAGNI)
-2. Is it in the standard library?
-3. Is it a native platform feature?
-4. Is it an already-installed dependency?
-5. Can it be one line?
-6. Only then, write the minimum necessary.
-
-Claude Code plugin: install once with `/plugin marketplace add DietrichGebert/ponytail` then `/plugin install ponytail@ponytail`, then review with `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`. (Cursor/OpenCode: copy the repo's rules files / add the plugin to `opencode.json`.)
-
-## UI/UX work — ui-ux-pro-max
-Source: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill
-This repo has user-facing UI. For any UI/UX task (pages, components, layouts, design systems, styling), use the **ui-ux-pro-max** skill — styles, color palettes, font pairings, and per-product design reasoning. In Claude Code it activates automatically; you can also run `python3 .claude/skills/ui-ux-pro-max/scripts/search.py "<product>" --design-system`.
-
-## Use the specialized agents for quality
-A large library of specialized subagents is installed for each tool — `~/.claude/agents/` (Claude Code), `~/.config/opencode/agents/` (OpenCode), and `~/.cursor/agents/` (Cursor). Use them as part of **every** change to the repos, not as an afterthought: pick the most specific agent for the task and chain them.
-
-- **Review (always):** after any substantive change, run `code-reviewer`; for design/architecture changes, `architect-reviewer`.
-- **Security:** `security-auditor` / `security-engineer` for auth, secrets, input handling, crypto, or user-facing surfaces.
-- **Tests:** `test-automator` to add/extend tests; `qa-expert` for strategy.
-- **Debugging:** `debugger`, `error-detective`. **Performance:** `performance-engineer`; queries → `database-optimizer` / `sql-pro`.
-- **Refactors:** `refactoring-specialist`; multi-file or cross-repo → `codebase-orchestrator`.
-- **Stack specialists** (match the repo): e.g. `golang-pro`, `typescript-pro`, `javascript-pro`, `node-specialist`, `react-specialist`, `nextjs-developer`, `python-pro`.
-
-Before treating a change as done, run at least `code-reviewer` (plus `security-auditor` for sensitive changes). Browse the agent dirs above for the full set (154 agents).
+1. **Preservar a Integridade da Documentação:** Mantenha comentários, comentários de documentação e tipos intactos, a menos que o usuário solicite explicitamente a remoção.
+2. **Inspecione Logs e Stack Traces Antes de Diagnosticar Erros:** Nunca faça suposições sobre falhas de runtime sem ler os logs completos gerados em `%APPDATA%\Xbox 360 Companion\logs\`.
+3. **Sem Correções Superficiais de Sintomas:** Não resolva erros engolindo exceções, retornando dados falsos ou desativando verificações de testes. Identifique e corrija a causa raiz.
+4. **Verificação Obrigatória:** Nunca declare uma tarefa concluída sem executar o comando de build (`npm run build:server` ou `npm run tsc`) para validar que não há erros de compilação.
+5. **Nomes de Arquivo e Links de Código:** Ao mencionar arquivos no chat, crie links markdown clicáveis utilizando o esquema `file://` (ex: `[handlers.go](file:///e:/projects/Downloader-XBOX360-XEX-HDD-Games/src/server/interfaces/http/handlers.go)`).
