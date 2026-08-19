@@ -22,7 +22,12 @@ if (Test-Path -LiteralPath $envFile) {
     }
 }
 
-$VERSION = "2.12.26"
+$pkgJson = Join-Path $PSScriptRoot "package.json"
+$VERSION = if (Test-Path -LiteralPath $pkgJson) {
+    (Get-Content -LiteralPath $pkgJson -Raw -Encoding UTF8 | ConvertFrom-Json).version
+} else {
+    "2.12.40"
+}
 $REPO = "luisluis123/versions"
 $REPO_TYPE = "dataset"
 $FOLDER = "XBOX360Companion"
@@ -50,10 +55,10 @@ Write-Host "  File: $PortablePath" -ForegroundColor Cyan
 
 $env:PYTHONIOENCODING = "utf-8"
 $savedEAP = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "SilentlyContinue"
 try {
-    hf upload $REPO "$PortablePath" "$FOLDER/" `
-        --repo-type $REPO_TYPE --token $HfToken --commit-message "v$VERSION" 2>&1
+    & hf upload $REPO "$PortablePath" "$FOLDER/" `
+        --repo-type $REPO_TYPE --token $HfToken --commit-message "v$VERSION"
 } finally {
     $ErrorActionPreference = $savedEAP
 }

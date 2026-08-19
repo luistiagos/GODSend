@@ -184,10 +184,10 @@ if (-not $SkipHF) {
     $hfRemotePath = "$HF_FOLDER/$PORTABLE_FILENAME"
 
     $savedEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
+    $ErrorActionPreference = "SilentlyContinue"
     try {
-        hf upload $HF_REPO "$PortablePath" $hfRemotePath `
-            --repo-type $HF_REPO_TYPE --token $HF_TOKEN --commit-message "v$VERSION" 2>&1
+        & hf upload $HF_REPO "$PortablePath" $hfRemotePath `
+            --repo-type $HF_REPO_TYPE --token $HF_TOKEN --commit-message "v$VERSION"
     } finally {
         $ErrorActionPreference = $savedEAP
     }
@@ -379,7 +379,7 @@ if (-not $SkipR2) {
             Write-Host "  OK: app vera a versao $($publicJson.version) (sha256 $($publicJson.sha256.Substring(0,8))...)" -ForegroundColor Green
         }
     } catch {
-        Write-Host "  Aviso ao verificar $versionJsonUrl: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "  Aviso ao verificar ${versionJsonUrl}: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 } else {
     Print-Step "PASSO 3/4: Upload para R2 (SKIPPED)"

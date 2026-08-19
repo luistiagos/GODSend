@@ -12,6 +12,13 @@ const root = path.resolve(__dirname, "..");
 const dist = path.join(root, "dist");
 const serverDir = path.join(root, "src", "server");
 
+// Automatically include standard Go install locations in PATH if not already present
+for (const p of ["C:\\Program Files\\Go\\bin", "C:\\Go\\bin", path.join(process.env.USERPROFILE || "", "go", "bin")]) {
+  if (fs.existsSync(p) && !(process.env.PATH || "").toLowerCase().includes(p.toLowerCase())) {
+    process.env.PATH = `${p};${process.env.PATH || ""}`;
+  }
+}
+
 fs.mkdirSync(dist, { recursive: true });
 
 // Download aria2c for Windows + Linux (macOS uses Homebrew at runtime; skips if present).
