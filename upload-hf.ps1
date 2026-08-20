@@ -26,7 +26,7 @@ $pkgJson = Join-Path $PSScriptRoot "package.json"
 $VERSION = if (Test-Path -LiteralPath $pkgJson) {
     (Get-Content -LiteralPath $pkgJson -Raw -Encoding UTF8 | ConvertFrom-Json).version
 } else {
-    "2.12.41"
+    "2.12.43"
 }
 $REPO = "luisluis123/versions"
 $REPO_TYPE = "dataset"

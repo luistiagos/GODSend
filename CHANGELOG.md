@@ -9,6 +9,25 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.43] - 2026-08-20
+
+### Fixed
+- **Electron Main `fs.copyFileSync` / `EBUSY` fatal crash on startup cache sync (`fileSystem.ts`)**:
+  - Wrapped `copyFileIfMissing` and `copyDirectoryContentsIfMissing` in defensive `try / catch` blocks with up to 3 automatic retries and exponential backoff.
+  - Handled transient file locks (`EBUSY`, `EPERM`, `EACCES`, `EEXIST`) safely when bundled cache files (e.g. `digital.json`, `xbox360.json`) are locked by concurrent reads, indexers, or antivirus during `prepareWritableRuntime()`.
+  - Added non-fatal logging via `appendAppEvent("RUNTIME", ...)` to preserve application startup without throwing uncaught exceptions to `bootstrap.ts`.
+  - Enhanced `appDataPath.ts` (`copyDirRecursive` and `migrateAppData`) with defensive try-catch guards around all file copy and migration steps.
+  - Added unit test suite `fileSystem.test.cjs` covering recursive directory creation, copy idempotency, recursive content copying, and EBUSY lock recovery.
+
+## [2.12.42] - 2026-08-20
+
+### Fixed
+- **Electron Portable `sql-wasm.js` missing fatal crash on startup (`sql.js`)**:
+  - Restricted `asarUnpack` in `package.json` to `"**/node_modules/sql.js/dist/*.wasm"`, preventing JavaScript entrypoints (`sql-wasm.js`, `sql-wasm-browser.js`) from being unpacked outside `app.asar`.
+  - Resolved `ENOENT: no such file or directory, open '.../app.asar.unpacked/node_modules/sql.js/dist/sql-wasm.js'` fatal exceptions occurring in portable builds where temporary directory extraction does not retain the unpacked directory.
+  - Implemented multi-candidate defensive fallback path lookup in `sqlHelper.ts` (`resolveWasmBinaryPath()`) with automatic `opts.wasmBinary` buffer instantiation.
+  - Added automated unit test suite for `sqlHelper` verifying WASM initialization, SQLite database operations, and date conversions.
+
 ## [2.12.41] - 2026-08-20
 
 ### Fixed

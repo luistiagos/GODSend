@@ -2,6 +2,7 @@ import { app, nativeImage } from "electron";
 import path from "path";
 import fs from "fs";
 import { getConfiguredStoragePath } from "../services/settingsService";
+import { appendAppEvent } from "./serverLog";
 
 /**
  * Monorepo root (directory containing `cache/`, `dist/`, `tools/`).
@@ -65,27 +66,77 @@ export function getWritableRuntimeRoot(): string {
 }
 
 export function ensureDirectory(dirPath: string): void {
-  fs.mkdirSync(dirPath, { recursive: true });
+  try {
+    fs.mkdirSync(dirPath, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== "EEXIST") {
+      appendAppEvent("RUNTIME", `ensureDirectory failed for ${dirPath}: ${err?.message || err}`);
+    }
+  }
 }
 
 export function copyFileIfMissing(sourcePath: string, targetPath: string): void {
-  if (!fs.existsSync(sourcePath) || fs.existsSync(targetPath)) return;
-  ensureDirectory(path.dirname(targetPath));
-  fs.copyFileSync(sourcePath, targetPath);
+  try {
+    if (!fs.existsSync(sourcePath)) return;
+    if (fs.existsSync(targetPath)) return;
+    ensureDirectory(path.dirname(targetPath));
+
+    let copied = false;
+    let lastError: any = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (fs.existsSync(targetPath)) {
+          copied = true;
+          break;
+        }
+        fs.copyFileSync(sourcePath, targetPath);
+        copied = true;
+        break;
+      } catch (err: any) {
+        lastError = err;
+        if (err?.code === "EEXIST" || fs.existsSync(targetPath)) {
+          copied = true;
+          break;
+        }
+        if (attempt < 2) {
+          const waitUntil = Date.now() + 50;
+          while (Date.now() < waitUntil) { /* spin */ }
+        }
+      }
+    }
+    if (!copied && lastError) {
+      appendAppEvent(
+        "RUNTIME",
+        `copyFileIfMissing non-fatal warning (${sourcePath} -> ${targetPath}): ${lastError.message || lastError}`
+      );
+    }
+  } catch (err: any) {
+    appendAppEvent(
+      "RUNTIME",
+      `copyFileIfMissing unexpected error (${sourcePath} -> ${targetPath}): ${err?.message || err}`
+    );
+  }
 }
 
 export function copyDirectoryContentsIfMissing(sourceDir: string, targetDir: string): void {
-  if (!fs.existsSync(sourceDir)) return;
-  ensureDirectory(targetDir);
-  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const src = path.join(sourceDir, entry.name);
-    const dst = path.join(targetDir, entry.name);
-    if (entry.isDirectory()) {
-      copyDirectoryContentsIfMissing(src, dst);
-    } else {
-      copyFileIfMissing(src, dst);
+  try {
+    if (!fs.existsSync(sourceDir)) return;
+    ensureDirectory(targetDir);
+    const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const src = path.join(sourceDir, entry.name);
+      const dst = path.join(targetDir, entry.name);
+      if (entry.isDirectory()) {
+        copyDirectoryContentsIfMissing(src, dst);
+      } else {
+        copyFileIfMissing(src, dst);
+      }
     }
+  } catch (err: any) {
+    appendAppEvent(
+      "RUNTIME",
+      `copyDirectoryContentsIfMissing warning for ${sourceDir}: ${err?.message || err}`
+    );
   }
 }
 

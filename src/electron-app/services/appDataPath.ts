@@ -120,18 +120,26 @@ export function isPortable(): boolean {
 
 /** Recursively copy contents of src into dst. Skips files already at dst. */
 function copyDirRecursive(src: string, dst: string): void {
-  if (!fs.existsSync(src)) return;
-  fs.mkdirSync(dst, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dst, entry.name);
-    if (entry.isDirectory()) {
-      copyDirRecursive(s, d);
-    } else if (entry.isFile()) {
-      if (!fs.existsSync(d)) {
-        fs.copyFileSync(s, d);
+  try {
+    if (!fs.existsSync(src)) return;
+    try { fs.mkdirSync(dst, { recursive: true }); } catch { /* ignore */ }
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      const s = path.join(src, entry.name);
+      const d = path.join(dst, entry.name);
+      if (entry.isDirectory()) {
+        copyDirRecursive(s, d);
+      } else if (entry.isFile()) {
+        try {
+          if (!fs.existsSync(d)) {
+            fs.copyFileSync(s, d);
+          }
+        } catch {
+          // Ignore transient/locking errors on individual files
+        }
       }
     }
+  } catch {
+    // Ignore directory traversal errors
   }
 }
 
@@ -143,7 +151,7 @@ function copyDirRecursive(src: string, dst: string): void {
 export function migrateAppData(from: string, to: string): { ok: boolean; error?: string } {
   try {
     if (path.resolve(from) === path.resolve(to)) return { ok: true };
-    fs.mkdirSync(to, { recursive: true });
+    try { fs.mkdirSync(to, { recursive: true }); } catch { /* ignore */ }
     for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
       if (entry.name === MARKER_FILENAME) continue;
       const s = path.join(from, entry.name);
@@ -152,7 +160,9 @@ export function migrateAppData(from: string, to: string): { ok: boolean; error?:
         copyDirRecursive(s, d);
         try { fs.rmSync(s, { recursive: true, force: true }); } catch { /* ignore */ }
       } else if (entry.isFile()) {
-        if (!fs.existsSync(d)) fs.copyFileSync(s, d);
+        try {
+          if (!fs.existsSync(d)) fs.copyFileSync(s, d);
+        } catch { /* ignore */ }
         try { fs.unlinkSync(s); } catch { /* ignore */ }
       }
     }

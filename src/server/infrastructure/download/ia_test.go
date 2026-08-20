@@ -51,6 +51,7 @@ func TestSingleDownloadResumesFromPersistedOffset(t *testing.T) {
 	defer server.Close()
 
 	a := app.NewApp()
+	a.IAAuthorizationHeader = "test-auth-token"
 	a.IAHTTPClient = server.Client()
 	service := &Service{App: a}
 	dest := filepath.Join(t.TempDir(), "resume.zip")
@@ -96,6 +97,7 @@ func TestChunkedDownloadReusesCheckpointedSegments(t *testing.T) {
 	iaSegmentSize = 8
 	defer func() { iaSegmentSize = previousSegmentSize }()
 	a := app.NewApp()
+	a.IAAuthorizationHeader = "test-auth-token"
 	a.IAHTTPClient = server.Client()
 	a.IADownloadMaxParallel = 2
 	service := &Service{App: a}
@@ -178,6 +180,7 @@ func TestDownloadWithProgressReusesOnlyVerifiedCompletedFile(t *testing.T) {
 	defer server.Close()
 
 	a := app.NewApp()
+	a.IAAuthorizationHeader = "test-auth-token"
 	a.IAHTTPClient = server.Client()
 	service := &Service{App: a}
 	testDir := t.TempDir()
@@ -217,6 +220,7 @@ func TestDownloadPromotesDurableFullSingleResumeWithoutRequest(t *testing.T) {
 	defer server.Close()
 
 	a := app.NewApp()
+	a.IAAuthorizationHeader = "test-auth-token"
 	a.IAHTTPClient = server.Client()
 	service := &Service{App: a}
 	testDir := t.TempDir()

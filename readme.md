@@ -43,19 +43,19 @@ Download the build for your platform:
 
 | Platform | GoFile | file.kiwi backup |
 |---|---|---|
-| **Windows (x64, installer — tray app + backend)** | [`xbox-360-companion-Setup-2.12.41-x64.exe`](https://gofile.io/d/37IXmG) | [`xbox-360-companion-Setup-2.12.41-x64.exe`](https://file.kiwi/7c60592b#rqB5pynFvj09UP-iES_prg) |
-| **Windows (x64, portable — no install needed)** | [`xbox-360-companion-Portable-2.12.41.exe`](https://gofile.io/d/pnHMrf) | [`xbox-360-companion-Portable-2.12.41.exe`](https://file.kiwi/bb5fbb75#AlchyU1d0FCQGSGoOIRzMQ) |
-| **Windows (ia32 / 32-bit, portable)** | [`xbox-360-companion-Portable-2.12.41-ia32.exe`](https://gofile.io/d/pnHMrf) | [`xbox-360-companion-Portable-2.12.41-ia32.exe`](https://file.kiwi/bb5fbb75#AlchyU1d0FCQGSGoOIRzMQ) |
-| **macOS (Apple Silicon)** | [`xbox-360-companion-2.12.41-arm64.dmg`](https://gofile.io/d/x3Ig2y) | [`xbox-360-companion-2.12.41-arm64.dmg`](https://file.kiwi/39bfadea#xDm2KTFizR2KTdqYtzk02g) |
-| **macOS (Intel)** | [`xbox-360-companion-2.12.41-x64.dmg`](https://gofile.io/d/o5UeTH) | [`xbox-360-companion-2.12.41-x64.dmg`](https://file.kiwi/9b476035#8bCXdyItt8yLauNew6Lr7g) |
-| **Linux (x64 / amd64)** | [`xbox-360-companion-2.12.41-x64.AppImage`](https://gofile.io/d/dq3TW6) | [`xbox-360-companion-2.12.41-x64.AppImage`](https://file.kiwi/f33d9e80#t2xnWyVG7D4l_Yx3sRiYyA) |
-| **Linux (arm64)** | [`xbox-360-companion-2.12.41-arm64.AppImage`](https://gofile.io/d/2EAscX) | [`xbox-360-companion-2.12.41-arm64.AppImage`](https://file.kiwi/00620d8b#vR2T0H26NrCEv-rybSqNSQ) |
+| **Windows (x64, installer — tray app + backend)** | [`xbox-360-companion-Setup-2.12.43-x64.exe`](https://gofile.io/d/37IXmG) | [`xbox-360-companion-Setup-2.12.43-x64.exe`](https://file.kiwi/7c60592b#rqB5pynFvj09UP-iES_prg) |
+| **Windows (x64, portable — no install needed)** | [`xbox-360-companion-Portable-2.12.43.exe`](https://gofile.io/d/pnHMrf) | [`xbox-360-companion-Portable-2.12.43.exe`](https://file.kiwi/bb5fbb75#AlchyU1d0FCQGSGoOIRzMQ) |
+| **Windows (ia32 / 32-bit, portable)** | [`xbox-360-companion-Portable-2.12.43-ia32.exe`](https://gofile.io/d/pnHMrf) | [`xbox-360-companion-Portable-2.12.43-ia32.exe`](https://file.kiwi/bb5fbb75#AlchyU1d0FCQGSGoOIRzMQ) |
+| **macOS (Apple Silicon)** | [`xbox-360-companion-2.12.43-arm64.dmg`](https://gofile.io/d/x3Ig2y) | [`xbox-360-companion-2.12.43-arm64.dmg`](https://file.kiwi/39bfadea#xDm2KTFizR2KTdqYtzk02g) |
+| **macOS (Intel)** | [`xbox-360-companion-2.12.43-x64.dmg`](https://gofile.io/d/o5UeTH) | [`xbox-360-companion-2.12.43-x64.dmg`](https://file.kiwi/9b476035#8bCXdyItt8yLauNew6Lr7g) |
+| **Linux (x64 / amd64)** | [`xbox-360-companion-2.12.43-x64.AppImage`](https://gofile.io/d/dq3TW6) | [`xbox-360-companion-2.12.43-x64.AppImage`](https://file.kiwi/f33d9e80#t2xnWyVG7D4l_Yx3sRiYyA) |
+| **Linux (arm64)** | [`xbox-360-companion-2.12.43-arm64.AppImage`](https://gofile.io/d/2EAscX) | [`xbox-360-companion-2.12.43-arm64.AppImage`](https://file.kiwi/00620d8b#vR2T0H26NrCEv-rybSqNSQ) |
 
 > **Windows:** use **`xbox-360-companion-Setup-X.X.X.exe`** for the full installer, or **`xbox-360-companion-Portable-X.X.X.exe`** to run without installing. For the headless backend binary only, see [headless setup](docs/headless-setup.md).
 
 ### 2. Install and launch
 
-1. **macOS:** open the `.dmg` and drag **Xbox 360 Companion** to Applications. **Linux:** `chmod +x` the `.AppImage` and run it. **Windows:** run **`xbox-360-companion-Setup-2.12.41-x64.exe`** and follow the installer (or just run **`xbox-360-companion-Portable-2.12.41.exe`** directly — no install step needed).
+1. **macOS:** open the `.dmg` and drag **Xbox 360 Companion** to Applications. **Linux:** `chmod +x` the `.AppImage` and run it. **Windows:** run **`xbox-360-companion-Setup-2.12.43-x64.exe`** and follow the installer (or just run **`xbox-360-companion-Portable-2.12.43.exe`** directly — no install step needed).
 2. **macOS / Linux / Windows:** launch **Xbox 360 Companion** from the Start menu, **Applications**, or your app launcher — the tray icon appears. For a **headless backend** without the desktop app, see [headless setup](docs/headless-setup.md).
 
 For Linux distro-specific run notes (Ubuntu/Debian/Fedora/Arch), see **Linux runtime notes** in the setup section below.

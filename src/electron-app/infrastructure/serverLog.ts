@@ -35,7 +35,19 @@ export function getPrimaryIPv4(): string | null {
 }
 
 function logsDirectory(): string {
-  return path.join(app.getPath("userData"), "logs");
+  try {
+    if (app && typeof app.getPath === "function") {
+      return path.join(app.getPath("userData"), "logs");
+    }
+  } catch {
+    // fallback below
+  }
+  const appData =
+    process.env.APPDATA ||
+    (process.platform === "darwin"
+      ? path.join(os.homedir(), "Library", "Application Support")
+      : path.join(os.homedir(), ".config"));
+  return path.join(appData, "Xbox 360 Companion", "logs");
 }
 
 function currentLogFilePath(): string {

@@ -6,28 +6,71 @@ import initSqlJs, { SqlJsStatic, Database } from "sql.js";
 let _SQL: SqlJsStatic | null = null;
 
 /**
+ * Locate the sql-wasm.wasm binary across multiple possible runtime locations:
+ * 1. Directly next to resolved sql.js package entry point (inside app.asar or node_modules)
+ * 2. In app.asar.unpacked directory (if extracted by electron-builder)
+ * 3. In app.getAppPath() node_modules
+ * 4. Relative to current compiled module directory (__dirname)
+ * 5. In app / resources assets folder fallback
+ */
+function resolveWasmBinaryPath(): string | null {
+  const candidates: (string | null | undefined)[] = [
+    // 1. Direct resolution relative to sql.js package
+    (() => {
+      try {
+        const sqlJsMain = require.resolve("sql.js");
+        return path.join(path.dirname(sqlJsMain), "sql-wasm.wasm");
+      } catch {
+        return null;
+      }
+    })(),
+    // 2. Unpacked asar directory (if electron-builder asarUnpack extracted it)
+    process.resourcesPath
+      ? path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "sql.js", "dist", "sql-wasm.wasm")
+      : null,
+    // 3. Inside app path (app.asar or dev root)
+    app?.getAppPath ? path.join(app.getAppPath(), "node_modules", "sql.js", "dist", "sql-wasm.wasm") : null,
+    // 4. Relative to __dirname
+    path.join(__dirname, "..", "node_modules", "sql.js", "dist", "sql-wasm.wasm"),
+    path.join(__dirname, "..", "..", "node_modules", "sql.js", "dist", "sql-wasm.wasm"),
+    // 5. Assets resource fallback
+    process.resourcesPath ? path.join(process.resourcesPath, "assets", "sql-wasm.wasm") : null,
+    app?.getAppPath ? path.join(app.getAppPath(), "assets", "sql-wasm.wasm") : null,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate) {
+      try {
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      } catch {
+        // Ignore filesystem check errors and continue trying next candidates
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Return the initialised sql.js constructor, loading the WASM binary from
- * the correct location for both development and packaged (asar.unpacked) builds.
+ * the correct location for development, packaged (asar / asar.unpacked), and portable builds.
  */
 export async function getSqlJs(): Promise<SqlJsStatic> {
   if (_SQL) return _SQL;
-  const wasmPath = app.isPackaged
-    ? path.join(
-        process.resourcesPath,
-        "app.asar.unpacked",
-        "node_modules",
-        "sql.js",
-        "dist",
-        "sql-wasm.wasm"
-      )
-    : path.join(__dirname, "..", "node_modules", "sql.js", "dist", "sql-wasm.wasm");
 
+  const wasmPath = resolveWasmBinaryPath();
   const opts: any = {};
-  if (fs.existsSync(wasmPath)) {
-    opts.wasmBinary = fs.readFileSync(wasmPath);
-  } else {
-    opts.locateFile = () => wasmPath;
+
+  if (wasmPath) {
+    try {
+      opts.wasmBinary = fs.readFileSync(wasmPath);
+    } catch {
+      opts.locateFile = () => wasmPath;
+    }
   }
+
   _SQL = await initSqlJs(opts);
   return _SQL!;
 }
