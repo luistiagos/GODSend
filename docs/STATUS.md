@@ -63,9 +63,9 @@ O preparo físico está habilitado no Windows quando um dispositivo USB seguro �
 
 Validação local refeita em 2026-06-25: `npm run test:safety`, `npm run test:electron-security`, `npm audit --json`, `go test ./...` e `go vet ./...` aprovados.
 
-Instalador NSIS x64 validado: `dist/xbox-360-companion-Setup-2.12.40-x64.exe`.
+Instalador NSIS x64 validado: `dist/xbox-360-companion-Setup-2.12.41-x64.exe`.
 
-Executável portátil x64 validado: `dist/xbox-360-companion-Portable-2.12.40.exe`. O build usa compressão 7-Zip nível 1 para não esgotar a memória virtual ao incluir o pacote fixo.
+Executável portátil x64 validado: `dist/xbox-360-companion-Portable-2.12.41.exe`. O build usa compressão 7-Zip nível 1 para não esgotar a memória virtual ao incluir o pacote fixo.
 
 ## Dependências
 

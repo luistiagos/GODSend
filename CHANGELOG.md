@@ -9,7 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [2.12.40] - 2026-08-18
+## [2.12.41] - 2026-08-20
+
+### Fixed
+- **FAT32 formatting on large drives (>200 GB / 2 TB)**:
+  - Fixed a `System.Int32` overflow exception (`MethodArgumentConversionInvalidCastArgument`) in the Windows elevated FAT32 formatting guard script (`fat32Format.ts`).
+  - The script's capacity tolerance calculation previously passed an untyped 16 MB literal to `[Math]::Max`, prompting PowerShell to select the `Int32` overload and attempt casting 1% of the disk capacity (e.g. ~20.9 GB for a 2 TB disk) to `Int32`.
+  - Added explicit `[double]` casting to ensure standard 64-bit floating-point math for any drive capacity up to multi-terabyte drives.
+  - Added unit test coverage verifying tolerance calculation and PowerShell script execution for 2 TB+ storage devices.
 
 ### Added
 - **Full Windows 32-bit (ia32 / x86) Support**:

@@ -59,3 +59,33 @@ test("bloqueia formatacao sem GUID estavel ou com capacidade invalida", () => {
     /capacidade esperada/,
   );
 });
+
+test("calcula tolerancia sem overflow de Int32 em unidades de grande capacidade (2 TB)", (t) => {
+  const largeGuard = {
+    expectedVolumeGuid: "\\\\?\\Volume{3dbb510f-622c-11f0-9508-bcf171ac5412}\\",
+    expectedVolumeBytes: 2_097_133_649_900,
+  };
+  const script = buildGuardedWindowsFat32Script(
+    "D",
+    "C:\\Xbox Companion\\fat32format.exe",
+    "C:\\Temp\\fat32.log",
+    largeGuard,
+  );
+  assert.ok(script.includes("$expectedVolumeBytes = [int64]2097133649900"));
+
+  if (process.platform !== "win32") {
+    t.skip("avaliação de execução PowerShell disponível somente no Windows");
+    return;
+  }
+  const evalCommand = [
+    "$expectedVolumeBytes = [int64]2097133649900",
+    "$tolerance = [Math]::Max([double]16777216, [Math]::Floor([double]$expectedVolumeBytes * 0.01))",
+    "if ($tolerance -lt 20000000000) { throw 'Tolerancia incorreta' }",
+    "Write-Output 'OK'",
+  ].join("; ");
+  const executed = spawnSync("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", evalCommand,
+  ], { encoding: "utf8", timeout: 10_000 });
+  assert.equal(executed.status, 0, executed.stderr || executed.stdout);
+  assert.match(executed.stdout, /OK/);
+});

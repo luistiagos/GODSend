@@ -76,7 +76,7 @@ try {
   if ($disk.IsOffline -or $disk.IsReadOnly -or $mountedCount -ne 1) {
     throw "O disco USB está offline, somente leitura ou possui mais de uma partição montada."
   }
-  $tolerance = [Math]::Max(16777216, [Math]::Floor($expectedVolumeBytes * 0.01))
+  $tolerance = [Math]::Max([double]16777216, [Math]::Floor([double]$expectedVolumeBytes * 0.01))
   if ([Math]::Abs([double]$partition.Size - [double]$expectedVolumeBytes) -gt $tolerance) {
     throw "A capacidade da partição mudou antes da formatação."
   }
