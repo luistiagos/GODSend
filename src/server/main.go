@@ -22,7 +22,7 @@ import (
 )
 
 func main() {
-	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.43\n")
+	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.44\n")
 	a := app.NewApp()
 	if err := a.SetupPaths(); err != nil {
 		fmt.Printf("[FATAL] Setup failed: %v\n", err)
@@ -74,8 +74,7 @@ func main() {
 
 	// ── Banner ──────────────────────────────────────────────────────
 	fmt.Println("╔══════════════════════════════════════════╗")
-	fmt.Println("║    Xbox 360 Companion Server v2.12.38    ║")
-	fmt.Println("║  ISO + XEX + XBLA + DLC + ROMs (EdgeEmu) ║")
+	fmt.Println("║    Xbox 360 Companion Server v2.12.44    ║")
 	fmt.Println("╚══════════════════════════════════════════╝")
 	fmt.Printf("[INFO] Copy Buffer: %d MB | Serve Buffer: %d KB | FTP Buffer: %d MB\n",
 		app.CopyBufferSize/1024/1024, app.ServeBufferSize/1024, app.FTPBufferSize/1024/1024)

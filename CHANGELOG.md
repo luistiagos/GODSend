@@ -9,6 +9,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.44] - 2026-08-20
+
+### Fixed
+- **Go Backend localized Windows TCP port bind / in-use recognition (`listen.go`)**:
+  - Enhanced `IsTCPAddrInUse` to reliably extract underlying `syscall.Errno` from nested error trees (`*net.OpError` -> `*os.SyscallError` -> `syscall.Errno`).
+  - Added support for Windows Winsock error codes (`10048` `WSAEADDRINUSE`, `10013` `WSAEACCES`, `10049` `WSAEADDRNOTAVAIL`, `5` `ERROR_ACCESS_DENIED`, `32` `ERROR_SHARING_VIOLATION`) as well as POSIX errnos (`EADDRINUSE`, `EACCES`, `EPERM`).
+  - Added multi-language localized string fallback matching for Windows OS error messages in Portuguese (e.g. `"Foi feita uma tentativa de acesso a um soquete de uma maneira que é proibida pelas permissões de acesso"`, `"Normalmente é permitida apenas uma utilização de cada endereço de soquete"`), Spanish, French, German, and Italian.
+  - Resolved fatal server startup aborts on machines with non-English Windows locales, enabling seamless port hopping (e.g. 8080 -> 8081).
+  - Added comprehensive automated test suite in `listen_test.go` covering wrapped syscall errors, Windows error codes, localized string variants, and dynamic port collision hopping.
+
 ## [2.12.43] - 2026-08-20
 
 ### Fixed

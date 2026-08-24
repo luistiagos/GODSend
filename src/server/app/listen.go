@@ -13,14 +13,19 @@ import (
 
 // IsTCPAddrInUse returns true if the error indicates the address is already bound or restricted.
 func IsTCPAddrInUse(err error) bool {
+	if err == nil {
+		return false
+	}
 	var errno syscall.Errno
 	if errors.As(err, &errno) {
-		if errno == syscall.EADDRINUSE {
+		if errno == syscall.EADDRINUSE || errno == syscall.EACCES || errno == syscall.EPERM {
 			return true
 		}
 		if runtime.GOOS == "windows" {
-			// WSAEADDRINUSE (10048) or WSAEACCES (10013)
-			if int(errno) == 10048 || int(errno) == 10013 {
+			// WSAEADDRINUSE (10048), WSAEACCES (10013), WSAEADDRNOTAVAIL (10049),
+			// ERROR_ACCESS_DENIED (5), ERROR_SHARING_VIOLATION (32)
+			code := int(errno)
+			if code == 10048 || code == 10013 || code == 10049 || code == 5 || code == 32 {
 				return true
 			}
 		}
@@ -29,8 +34,60 @@ func IsTCPAddrInUse(err error) bool {
 	return strings.Contains(msg, "address already in use") ||
 		strings.Contains(msg, "only one usage of each socket address") ||
 		strings.Contains(msg, "wsaeaddrinuse") ||
+		strings.Contains(msg, "wsaeacces") ||
+		strings.Contains(msg, "wsaeaddrnotavail") ||
+		strings.Contains(msg, "eaddrinuse") ||
+		strings.Contains(msg, "eacces") ||
+		strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "access is denied") ||
+		strings.Contains(msg, "cannot assign requested address") ||
+		strings.Contains(msg, "10048") ||
+		strings.Contains(msg, "10013") ||
+		strings.Contains(msg, "10049") ||
+		// Portuguese (Win32 localized)
 		strings.Contains(msg, "permissões de acesso") ||
-		strings.Contains(msg, "utilização de cada endereço")
+		strings.Contains(msg, "permissoes de acesso") ||
+		strings.Contains(msg, "tentativa de acesso a um soquete") ||
+		strings.Contains(msg, "proibida pelas permissões") ||
+		strings.Contains(msg, "proibida pelas permissoes") ||
+		strings.Contains(msg, "utilização de cada endereço") ||
+		strings.Contains(msg, "utilizacao de cada endereco") ||
+		strings.Contains(msg, "endereço já em uso") ||
+		strings.Contains(msg, "endereco ja em uso") ||
+		strings.Contains(msg, "endereço de soquete") ||
+		strings.Contains(msg, "endereco de soquete") ||
+		strings.Contains(msg, "acesso negado") ||
+		strings.Contains(msg, "permissão negada") ||
+		strings.Contains(msg, "permissao negada") ||
+		strings.Contains(msg, "não é válido no contexto dele") ||
+		strings.Contains(msg, "nao e valido no contexto dele") ||
+		// Spanish (Win32 localized)
+		strings.Contains(msg, "sólo se permite un uso") ||
+		strings.Contains(msg, "solo se permite un uso") ||
+		strings.Contains(msg, "dirección ya en uso") ||
+		strings.Contains(msg, "direccion ya en uso") ||
+		strings.Contains(msg, "permisos de acceso") ||
+		strings.Contains(msg, "acceso denegado") ||
+		strings.Contains(msg, "permiso denegado") ||
+		// French (Win32 localized)
+		strings.Contains(msg, "une seule utilisation") ||
+		strings.Contains(msg, "adresse déjà utilisée") ||
+		strings.Contains(msg, "adresse deja utilisee") ||
+		strings.Contains(msg, "autorisations d'accès") ||
+		strings.Contains(msg, "autorisations d'acces") ||
+		strings.Contains(msg, "accès refusé") ||
+		strings.Contains(msg, "acces refuse") ||
+		// German (Win32 localized)
+		strings.Contains(msg, "normalerweise darf jede socketadresse") ||
+		strings.Contains(msg, "adresse wird bereits verwendet") ||
+		strings.Contains(msg, "zugriffsberechtigungen") ||
+		strings.Contains(msg, "zugriff verweigert") ||
+		// Italian (Win32 localized)
+		strings.Contains(msg, "un solo utilizzo di ogni indirizzo") ||
+		strings.Contains(msg, "indirizzo già in uso") ||
+		strings.Contains(msg, "indirizzo gia in uso") ||
+		strings.Contains(msg, "autorizzazioni di accesso") ||
+		strings.Contains(msg, "accesso negato")
 }
 
 // ListenOnAvailablePort binds to loopback by default. Network exposure must be
