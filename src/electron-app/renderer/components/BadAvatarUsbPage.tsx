@@ -558,7 +558,7 @@ export default function BadAvatarUsbPage({
               <ul className="mt-2 list-disc space-y-1.5 pl-5">
                 <li>
                   O BadAvatar é <span className="font-medium text-foreground">temporário</span>: sempre que
-                  o Xbox liga ou reinicia, é preciso abrir o perfil de novo para ativá-lo.
+                  o Xbox liga ou reinicia, conecte o pendrive e permaneça na tela de escolha de perfis sem entrar em nenhum perfil.
                 </li>
                 <li>Pode não funcionar logo de primeira — às vezes leva algumas tentativas.</li>
                 <li>
@@ -675,7 +675,7 @@ export default function BadAvatarUsbPage({
               <p className="mt-2 text-[11px] leading-relaxed text-gray-200">
                 {isRghOnly
                   ? "Concluído! Insira o pendrive/HD no seu Xbox 360 RGH e ligue o videogame para carregar a Aurora automaticamente."
-                  : "Abra o BadAvatar pelo perfil no console. Isso não desbloqueia o Xbox de forma permanente — repita a ativação a cada vez que ligar e mantenha o console sem internet."}
+                  : "Ligue o Xbox com o pendrive conectado e fique parado na tela de escolha de perfis, sem entrar em nenhum perfil. Em até 2 minutos a Aurora abrirá sozinha. Não desbloqueia de forma permanente — repita a cada vez que ligar e mantenha o console sem internet."}
                 {!isRghOnly && " O Aurora abrir\u00e1 automaticamente, configurar\u00e1 as pastas de jogos e iniciar\u00e1 a varredura."}
               </p>
             )}

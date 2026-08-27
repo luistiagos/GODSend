@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.45] - 2026-08-26
+
+### Fixed
+- **BadAvatar UI ambiguous login instruction (`BadAvatarUsbPage.tsx`)**:
+  - Replaced ambiguous message `"Abra o BadAvatar pelo perfil no console"` with explicit instruction `"Ligue o Xbox com o pendrive conectado e fique parado na tela de escolha de perfis, sem entrar em nenhum perfil. Em até 2 minutos a Aurora abrirá sozinha."`.
+  - Updated `"Como funciona e o que esperar"` help drawer to instruct remaining on the profile selection screen without logging into any profile.
+  - Aligned UI instructions with knowledge base and chatbot prompt guidance, preventing users from attempting Xbox Live / password login on the `ABadAvatar` exploit profile.
+
 ## [2.12.44] - 2026-08-20
 
 ### Fixed
