@@ -22,7 +22,7 @@ import (
 )
 
 func main() {
-	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.44\n")
+	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.46\n")
 	a := app.NewApp()
 	if err := a.SetupPaths(); err != nil {
 		fmt.Printf("[FATAL] Setup failed: %v\n", err)

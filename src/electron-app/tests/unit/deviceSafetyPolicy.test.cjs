@@ -81,6 +81,73 @@ test("a impressão digital é estável para a mesma identidade", () => {
   assert.equal(createDeviceFingerprint(usb()), createDeviceFingerprint(usb()));
 });
 
+test("a revalidação aceita transição de dispositivo removível sintético para dispositivo físico", () => {
+  const volumeGuid = "\\\\?\\Volume{abcdef01-2345-6789-abcd-ef0123456789}\\";
+  const sizeBytes = 32 * 1024 ** 3;
+
+  const syntheticSelection = enrichDeviceSafety({
+    rootPath: "E:\\",
+    label: "MEU_PENDRIVE",
+    fileSystem: "FAT32",
+    sizeBytes: sizeBytes,
+    partitionSizeBytes: sizeBytes,
+    freeBytes: 30 * 1024 ** 3,
+    allocationUnitBytes: 32768,
+    diskNumber: -1,
+    partitionNumber: -1,
+    diskUniqueId: volumeGuid,
+    serialNumber: volumeGuid,
+    volumeGuid: volumeGuid,
+    friendlyName: "Dispositivo USB removivel",
+    manufacturer: "",
+    busType: "USB",
+    partitionStyle: "",
+    driveType: "Removable",
+    diskPath: volumeGuid,
+    operationalStatus: "Online (fallback nativo)",
+    isBoot: false,
+    isSystem: false,
+    isReadOnly: false,
+    isOffline: false,
+    mountedPartitionCount: 1,
+  });
+
+  const physicalCurrent = enrichDeviceSafety(
+    usb({
+      rootPath: "E:\\",
+      diskNumber: 2,
+      partitionNumber: 1,
+      diskUniqueId: "{99998888-7777-6666-5555-444433332222}",
+      serialNumber: "SANDISK_CRUZER_123",
+      volumeGuid: volumeGuid,
+      friendlyName: "SanDisk Cruzer Blade USB Device",
+      manufacturer: "SanDisk",
+      sizeBytes: sizeBytes,
+      partitionSizeBytes: sizeBytes,
+    }),
+  );
+
+  assert.doesNotThrow(() =>
+    assertDeviceStillMatches(syntheticSelection.fingerprint, physicalCurrent),
+  );
+
+  const swappedDevice = enrichDeviceSafety(
+    usb({
+      rootPath: "E:\\",
+      diskNumber: 3,
+      partitionNumber: 1,
+      volumeGuid: "\\\\?\\Volume{different-guid-different-drive}\\",
+      sizeBytes: 64 * 1024 ** 3,
+      partitionSizeBytes: 64 * 1024 ** 3,
+    }),
+  );
+
+  assert.throws(
+    () => assertDeviceStillMatches(syntheticSelection.fingerprint, swappedDevice),
+    /mudou desde a seleção/,
+  );
+});
+
 test("a revalidação recusa troca de dispositivo", () => {
   const selected = enrichDeviceSafety(usb());
   const replaced = enrichDeviceSafety(usb({ serialNumber: "USB-OTHER-9999" }));
@@ -94,3 +161,4 @@ test("a revalidação aceita o mesmo dispositivo ainda seguro", () => {
   const selected = enrichDeviceSafety(usb());
   assert.doesNotThrow(() => assertDeviceStillMatches(selected.fingerprint, selected));
 });
+

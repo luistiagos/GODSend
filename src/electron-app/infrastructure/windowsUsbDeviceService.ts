@@ -345,6 +345,31 @@ export async function requireSafeWindowsUsbTarget(
     );
   }
 
-  assertDeviceStillMatches(expectedFingerprint, matches[0]);
-  return matches[0];
+  try {
+    assertDeviceStillMatches(expectedFingerprint, matches[0]);
+    return matches[0];
+  } catch (initialError: any) {
+    if (matches[0].diskNumber === -1 && process.platform === "win32") {
+      try {
+        const systemDrive = process.env.SystemDrive || "C:";
+        const rawPhysical = await runPowerShell(ENUMERATE_USB_SCRIPT);
+        const output = rawPhysical.trim();
+        if (output) {
+          const parsed = JSON.parse(output);
+          const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+          const physicalMatches = rows
+            .filter((row) => row?.RootPath)
+            .map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive))
+            .filter((device) => normalizeRoot(device.rootPath) === normalizedRoot);
+
+          if (physicalMatches.length === 1) {
+            assertDeviceStillMatches(expectedFingerprint, physicalMatches[0]);
+            return physicalMatches[0];
+          }
+        }
+      } catch {}
+    }
+    throw initialError;
+  }
 }
+

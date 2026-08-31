@@ -9,6 +9,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.46] - 2026-08-30
+
+### Fixed
+- **BadAvatar USB device fingerprint reconciliation (`deviceSafetyPolicy.ts`, `windowsUsbDeviceService.ts`)**:
+  - Implemented `createSyntheticRemovableFingerprint()` to reconcile initial USB volume selection (from fast `System.IO.DriveInfo` / `mountvol` enumeration where `diskNumber = -1`) with subsequent physical disk revalidation (from WMI `Get-Disk` / `Get-Partition`).
+  - Resolved spurious `"O dispositivo mudou desde a seleção. Atualize a lista e selecione novamente antes de continuar."` errors when preparing USB drives on Windows.
+  - Preserved strict anti-TOCTOU safety protections: device substitutions across different volume GUIDs, differing capacities, or unsafe/system drives remain strictly rejected.
+  - Added fallback in `requireSafeWindowsUsbTarget` to query physical WMI enumeration if native fast enumeration returned a synthetic device and expected a physical fingerprint.
+  - Added automated unit test suite in `deviceSafetyPolicy.test.cjs` validating seamless synthetic-to-physical device transitions and rejection of swapped devices.
+
 ## [2.12.45] - 2026-08-26
 
 ### Fixed

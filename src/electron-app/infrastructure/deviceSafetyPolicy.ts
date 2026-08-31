@@ -139,11 +139,64 @@ export function enrichDeviceSafety(
   };
 }
 
+export function createSyntheticRemovableFingerprint(
+  device: PhysicalUsbDevice,
+  customSizeBytes?: number,
+): string {
+  const volumeGuid = normalized(device.volumeGuid);
+  const size =
+    typeof customSizeBytes === "number" && customSizeBytes > 0
+      ? customSizeBytes
+      : (device.partitionSizeBytes || device.sizeBytes);
+
+  const identity = [
+    "xbox360-usb-device-v1",
+    -1,
+    -1,
+    volumeGuid,
+    volumeGuid,
+    volumeGuid,
+    "",
+    normalized("Dispositivo USB removivel"),
+    "usb",
+    size,
+    normalizeDriveRoot(device.rootPath),
+  ].join("\n");
+
+  return createHash("sha256").update(identity, "utf8").digest("hex");
+}
+
 export function assertDeviceStillMatches(
   expectedFingerprint: string,
   current: SafeUsbDevice,
 ): void {
-  if (!expectedFingerprint || expectedFingerprint !== current.fingerprint) {
+  const exactMatch = Boolean(expectedFingerprint && expectedFingerprint === current.fingerprint);
+
+  const matchesSynthetic = (): boolean => {
+    if (!expectedFingerprint || !current.volumeGuid) return false;
+
+    if (
+      current.partitionSizeBytes &&
+      expectedFingerprint === createSyntheticRemovableFingerprint(current, current.partitionSizeBytes)
+    ) {
+      return true;
+    }
+
+    if (
+      current.sizeBytes &&
+      expectedFingerprint === createSyntheticRemovableFingerprint(current, current.sizeBytes)
+    ) {
+      return true;
+    }
+
+    if (expectedFingerprint === createSyntheticRemovableFingerprint(current)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  if (!exactMatch && !matchesSynthetic()) {
     throw new Error(
       "O dispositivo mudou desde a seleção. Atualize a lista e selecione novamente antes de continuar.",
     );
@@ -152,3 +205,4 @@ export function assertDeviceStillMatches(
     throw new Error(`Operação bloqueada: ${current.safety.reasons.join(" ")}`);
   }
 }
+
