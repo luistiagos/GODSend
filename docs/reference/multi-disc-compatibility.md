@@ -1,88 +1,80 @@
 # Multi-Disc Game Compatibility
 
-Adapted from [Iso2God by r4dius](https://github.com/r4dius/Iso2God) with additional notes.
+The primary compatibility reference is the retail-disc table maintained by
+[Iso2God by r4dius](https://github.com/r4dius/Iso2God#compatibility--installation-notes).
+Title IDs are cross-checked against the embedded `iso2god_titles.jsonl` catalog.
 
-## Install Methods
+## Authoritative detection
 
-| Method | Description | When to Use |
-|--------|-------------|-------------|
-| **GOD** | Convert Disc 2 ISO to Games-on-Demand format, same as Disc 1 | Default for sequel discs / expansion discs that are standalone games |
-| **Content** | Copy files to `Content\0000000000000000\{TitleID}\00000002\` | Disc 2 is DLC/bonus content that is loaded by Disc 1 (the main game) |
+The compatibility table is only a pre-download hint. Once an ISO is available,
+the server inspects its XDVDFS tree:
 
----
+- A populated `Content/0000000000000000/<TitleID>/00000002` or `FFFFFFFF`
+  tree is installed as Content.
+- A playable/continuation disc without that tree is converted to GOD.
+- The parent Title ID is read from an embedded LIVE/PIRS/CON package whenever
+  possible, so a placeholder `FFED2000` XEX cannot select the destination.
+- Unknown Disc 2+ entries default to GOD before download. They are never
+  assumed to be content merely because of their disc number.
+- Every generated GOD is accepted only after its LIVE header and complete
+  MHT/SHT/data hash chain validate.
 
-## Games with Known Compatibility Notes
+This structure-based decision covers catalog titles that are not present in a
+manual table and protects region/revision variants with different filenames.
 
-### Content install required (Disc 2 = DLC/bonus content loaded by Disc 1)
+## Verified content/install discs
 
-| Game | TitleID | Disc 2 Notes |
-|------|---------|--------------|
-| Alan Wake | 4D5308AB | Disc 2 is bonus content; install as Content to `00000002` |
-| Alpha Protocol | 555307DC | Disc 2 is bonus content |
-| Bayonetta | 5345082C / 53450833 | Disc 2 is bonus content; install as Content |
-| Borderlands: Game of the Year Edition | 545407E7 | GOTY Disc 2 / Add-On Content Disc is DLC/bonus content; install as Content. The Add-On Content Disc XEX carries placeholder TitleID `FFED2000` — server overrides to `545407E7` automatically. |
-| Borderlands 2: Game of the Year Edition | 5454087C | GOTY Disc 2 is DLC/bonus content (same Title ID as base game); install as Content |
-| Brutal Legend | 4541082F | Disc 2 is bonus content |
-| Call of Duty: Black Ops | 41560855 | Disc 2 (multiplayer/zombies); install as Content |
-| Call of Duty: Modern Warfare 2 | 41560817 | Disc 2 (spec ops); install as Content |
-| Call of Duty: Modern Warfare 3 | 41560882 | Disc 2 (spec ops); install as Content |
-| Call of Duty: World at War | 41560812 | Disc 2 (multiplayer); install as Content |
-| Dante's Inferno | 4541085F | Disc 2 is bonus content |
-| Dead Space | 45410850 | Disc 2 is bonus content |
-| Dragon Age: Origins | 45410889 | Disc 2 is bonus content |
-| L.A. Noire | 524B4005 | Disc 2 is bonus content; install as Content |
-| Mass Effect 2 | 4541082E | Disc 2 is bonus content |
-| Mass Effect 3 | 4541097C | Disc 2 is bonus content |
-| Max Payne 3 | 5254082A | Disc 2 is multiplayer/bonus |
-| Rage | 5553083E | Disc 2 is game continuation; install as Content |
-| Red Dead Redemption | 5454082B | Disc 2 (Undead Nightmare); install as Content |
-| Resident Evil 5 | 5553081A | Disc 2 is bonus content |
-| Star Wars: The Force Unleashed II | 4541091B | Disc 2 is bonus content |
-| The Elder Scrolls V: Skyrim | 5454086B | Disc 2 is high-res texture pack; install as Content |
-| Tom Clancy's Splinter Cell Blacklist | 5553088F | Disc 2 is bonus content |
-| Two Worlds II | 4541089C | Disc 2 is bonus content |
+| Game | Title ID | Disc installed as Content |
+|---|---:|---:|
+| Alien: Isolation | `5345085E` | Disc 1 |
+| Batman: Arkham City GOTY | `57520802` | Disc 2 |
+| Batman: Arkham Origins | `57520828` | Disc 2 |
+| Battlefield 4 | `454109BA` | Disc 1 |
+| BioShock | `545407D8` | Bonus Disc 2 |
+| BioShock 2 | `54540861` | Bonus Disc 2 |
+| BioShock Infinite | `5454085D` | Bonus Disc 2 |
+| Call of Duty: Advanced Warfare | `41560914` | Disc 2 |
+| Call of Duty: Ghosts | `415608FC` | Disc 2 |
+| Dark Souls II: Scholar of the First Sin | `465307E4` | Disc 2 |
+| Dishonored GOTY | `425307E3` | Disc 2 |
+| Dragon's Dogma: Dark Arisen | `43430814` | Disc 2 |
+| The Elder Scrolls IV: Oblivion GOTY | `425307D1` | Disc 2 |
+| The Elder Scrolls V: Skyrim Legendary Edition | `425307E6` | Disc 2 |
+| Fallout 3 GOTY | `425307D5` | Disc 2 |
+| Fallout: New Vegas Ultimate Edition | `425307E0` | Disc 2 |
+| Forza Motorsport 2 | `4D5307EA` | Bonus Disc 2 |
+| Forza Motorsport 3 | `4D53084D` | Content Install Disc 2 |
+| Forza Motorsport 4 | `4D530910` | Content Install Disc 2 |
+| Grand Theft Auto V | `545408A7` | Disc 1 |
+| Mafia II | `545407E6` | Bonus Disc 2 |
+| Mass Effect | `4D5307E8` | Bonus Disc 2 |
+| Metal Gear Solid V: The Phantom Pain | `4B4E085E` | Disc 1 |
+| Saints Row: The Third — The Full Package | `5451086D` | Disc 1 |
+| Saints Row IV — National Treasure Edition | `4B4D07F6` | Disc 1 |
 
-### GOD install recommended (Disc 2 = continuation of the game)
+Content is written to:
 
-| Game | TitleID | Disc 2 Notes |
-|------|---------|--------------|
-| Deus Ex: Human Revolution | 0B4607F2 | Disc 2 is game continuation; install as GOD |
-| Final Fantasy XIII | 4D5307E6 | Disc 2 is game continuation |
-| Final Fantasy XIII-2 | 4D5307F1 | Disc 2 is game continuation |
-| Forza Motorsport 3 | 4D53082D | Disc 2 (car/track data); install as GOD |
-| Forza Motorsport 4 | 4D53087F | Disc 2 (car/track data); install as GOD |
-| GTA IV | 5345200A | Disc 2 is game continuation |
-| Halo 3: ODST | 4D530877 | Disc 2 is multiplayer/Halo 3 disc |
-| Lost Odyssey | 4D530830 | 4-disc game; all discs are GOD |
-| L.A. Noire (all discs) | 524B4005 | 3 discs; Disc 1 as GOD, Disc 2/3 as Content |
-| The Last Remnant | 5345082D | 2-disc game; both as GOD |
-| Too Human | 4D530810 | 2-disc game |
-
----
-
-## Content Install Path Format
-
-When installing Disc 2 as **Content**:
-
-```
-{Drive}:\Content\0000000000000000\{TitleID}\00000002\
+```text
+<Drive>/Content/0000000000000000/<TitleID>/00000002/
 ```
 
-- `{TitleID}` is the 8-character hex TitleID of **Disc 1** (the main game)
-- `00000002` is the standard subfolder code for secondary disc/DLC content
-- The file(s) from the Disc 2 ISO are placed directly in this folder
+Retail installers using `FFED2000/FFFFFFFF` are normalized to the same path.
 
-Some Add-On Content Discs (used by many publishers, e.g. 2K Games for Borderlands GOTY) carry a generic placeholder Title ID `FFED2000` in their `default.xex`, with content stored under:
-```
-content\0000000000000000\FFED2000\00000002\
-```
-The server automatically resolves the correct parent Title ID by reading the STFS header (offset `0x0360`) of the first content package in that directory. The resolved Title ID is used as the install destination so Aurora/FSD correctly associates the DLC with the parent game. A game-name heuristic is used as a fallback if the package probe fails.
+## Playable continuation and special cases
 
----
+- Blue Dragon, Dead Space 2, Dead Space 3, Final Fantasy XIII, Lost Odyssey,
+  The Last Remnant, and Wolfenstein: The New Order use playable GOD discs.
+- Alien: Isolation, Battlefield 4, Grand Theft Auto V, Metal Gear Solid V, and
+  the Saints Row editions above put installation data on Disc 1 and the
+  playable game on Disc 2.
+- Splinter Cell Blacklist Disc 2 is mixed: it is playable as GOD and also has
+  embedded content. The GOD path is retained to avoid losing the playable disc.
+- Assassin's Creed IV: Black Flag Disc 2 is explicitly No-GOD and is routed to
+  XEX extraction as a multiplayer disc.
+- Watch Dogs requires a custom combined layout and cannot be represented by a
+  normal one-disc GOD/content decision; isolated Disc 2 jobs are blocked.
+- Tetris: The Grand Master Ace (`434107D2`) must retain game-partition padding;
+  it is the documented exception to full padding removal.
 
-## Notes
-
-- TitleIDs can be verified via [XboxUnity](http://xboxunity.net/), [XboxDB](https://xboxdb.altervista.org/), or by reading the default.xex
-- When in doubt, try **Content** install first; it's the safer choice for multi-disc games where Disc 1 launches the game and Disc 2 is referenced as DLC
-- After installing Disc 2 as Content, Aurora/FSD will find it automatically when Disc 1 is launched
-- If a game has 3+ discs, Disc 2 and beyond typically all go to the same `00000002` folder
+These special cases need physical-console testing when new media revisions are
+added, even though structural and hash validation is automatic.

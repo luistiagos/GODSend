@@ -51,6 +51,14 @@ func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 	}
 
 	installType := s.App.LookupInstallType(gameName)
+	if installType != "xex" {
+		resolved, err := s.resolveISOInstallType(gameName, isoPath, installType)
+		if err != nil {
+			s.App.LogStatus(gameName, "Error", err.Error())
+			return
+		}
+		installType = resolved
+	}
 	if installType == "xex" {
 		xexDir := filepath.Join(s.outputRoot(gameName), safeName+"_xex")
 		s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
@@ -261,6 +269,10 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	if err != nil {
 		s.App.Logf("ERROR [%s]: Extract failed: %v", gameName, err)
 		return fmt.Errorf("Extract failed: %w", err)
+	}
+	installType, err = s.resolveISOInstallType(gameName, isoPath, installType)
+	if err != nil {
+		return err
 	}
 
 	if installType == "content" {

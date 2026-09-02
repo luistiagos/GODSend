@@ -346,52 +346,35 @@ func (s *MinervaService) FindEntry(gameName, platform string) (models.MinervaEnt
 		}
 	}
 
-	normGame := NormalizeTitleForMatching(gameName)
-	findNormalized := func(requireTorrentMatch bool) (models.MinervaEntry, bool) {
+	findBestMatch := func(requireTorrentMatch bool) (models.MinervaEntry, bool) {
 		var best models.MinervaEntry
+		bestScore := -1
 		found := false
 		for k, entry := range s.App.MinervaEntryMap {
 			if requireTorrentMatch && !torrentMatches(entry) {
 				continue
 			}
-			if NormalizeTitleForMatching(k) != normGame {
+			score := titleMatchScore(k, gameName)
+			if score < 0 {
 				continue
 			}
-			if !found || preferMinervaEntry(entry, best) {
+			if !found || score > bestScore || (score == bestScore && preferMinervaEntry(entry, best)) {
 				best = entry
+				bestScore = score
 				found = true
 			}
 		}
 		return best, found
 	}
 
-	// 3. Normalized title match with matching torrent collection
-	if entry, ok := findNormalized(true); ok {
+	// 3. Best title/metadata match with matching torrent collection
+	if entry, ok := findBestMatch(true); ok {
 		return entry, true
 	}
 
-	// 4. Normalized title match across any platform
-	if entry, ok := findNormalized(false); ok {
+	// 4. Best title/metadata match across any platform
+	if entry, ok := findBestMatch(false); ok {
 		return entry, true
-	}
-
-	// 5. Substring match with matching torrent collection (only for specific queries len >= 4)
-	if len(normGame) >= 4 {
-		for k, e := range s.App.MinervaEntryMap {
-			if !torrentMatches(e) {
-				continue
-			}
-			if TitleMatches(k, gameName) {
-				return e, true
-			}
-		}
-
-		// 6. Substring match across any platform
-		for k, e := range s.App.MinervaEntryMap {
-			if TitleMatches(k, gameName) {
-				return e, true
-			}
-		}
 	}
 
 	// Trigger a background build if the cache is empty for this platform

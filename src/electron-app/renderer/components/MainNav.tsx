@@ -67,16 +67,20 @@ export function ToolboxDropdown({
   return (
     <div className="relative" ref={ref}>
       <Button
-        size={simpleMode ? "sm" : "icon"}
-        title={simpleMode ? "Abrir outras funções" : "Mais opções"}
-        aria-label={simpleMode ? undefined : "Mais opções"}
+        size="sm"
+        title={simpleMode ? "Abrir outras funções" : "Mais opções e ferramentas"}
+        aria-label={simpleMode ? undefined : "Mais opções e ferramentas"}
         aria-haspopup="menu"
         aria-expanded={open}
         variant={active ? "primary" : "default"}
         onClick={() => setOpen(!open)}
+        className={cn(
+          "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+          active && "ring-1 ring-accent ring-offset-1 ring-offset-background"
+        )}
       >
-        <Wrench className="h-4 w-4" />
-        {simpleMode && "Outras funções"}
+        <Wrench className="h-4 w-4 text-orange-400" />
+        <span className="hidden sm:inline">{simpleMode ? "Outras funções" : "Ferramentas"}</span>
       </Button>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-surface border border-border rounded-lg shadow-lg overflow-hidden animate-fade-in">
@@ -85,8 +89,8 @@ export function ToolboxDropdown({
               className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
               onClick={() => { setOpen(false); onBrowse(); }}
             >
-              <Store className="h-3.5 w-3.5 text-green-400" />
-              Jogos e downloads
+              <Store className="h-3.5 w-3.5 text-blue-400" />
+              Baixar Jogos
             </button>
           )}
           {simpleMode && onSettings && (
@@ -137,13 +141,15 @@ export function ToolboxDropdown({
 
 export interface MainNavProps {
   ftpStatus: string;
-  currentPage: "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb";
+  currentPage: "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb" | "usb-games";
   libraryAvailable?: boolean;
   libraryLoading: boolean;
   queueJobs: any[];
+  usbGamesCount?: number;
   onReconnect: () => void;
   onLibraryToggle: () => void;
   onNavigateHome?: () => void;
+  onNavigateUsbGames?: () => void;
   onNavigateQueue: () => void;
   onNavigateBrowse: () => void;
   onNavigateSettings: () => void;
@@ -160,9 +166,11 @@ export default function MainNav({
   libraryAvailable,
   libraryLoading,
   queueJobs,
+  usbGamesCount,
   onReconnect,
   onLibraryToggle,
   onNavigateHome,
+  onNavigateUsbGames,
   onNavigateQueue,
   onNavigateBrowse,
   onNavigateSettings,
@@ -201,63 +209,110 @@ export default function MainNav({
         <FtpIndicator status={ftpStatus} />
 
         <Button
-          size="icon"
+          size="sm"
           title="Início"
           aria-label="Início"
           variant={currentPage === "home" ? "primary" : "default"}
           onClick={onNavigateHome}
+          className={cn(
+            "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+            currentPage === "home" && activeBtnClass
+          )}
         >
-          <Home className="h-4 w-4" />
+          <Home className="h-4 w-4 text-sky-400" />
+          <span className="hidden sm:inline">Início</span>
         </Button>
+
+        {onNavigateUsbGames && (
+          <Button
+            size="sm"
+            title="Jogos Instalados"
+            aria-label="Jogos Instalados"
+            variant={currentPage === "usb-games" ? "primary" : "default"}
+            onClick={onNavigateUsbGames}
+            className={cn(
+              "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+              currentPage === "usb-games" && activeBtnClass
+            )}
+          >
+            <Usb className="h-4 w-4 text-emerald-400" />
+            <span className="hidden sm:inline">Jogos Instalados</span>
+            {typeof usbGamesCount === "number" && usbGamesCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                {usbGamesCount}
+              </span>
+            )}
+          </Button>
+        )}
 
         {showLibBtn && (
           <Button
-            size="icon"
+            size="sm"
             title={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
             aria-label={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
             disabled={libraryLoading}
             variant={currentPage === "library" ? "primary" : "default"}
             onClick={onLibraryToggle}
+            className={cn(
+              "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+              currentPage === "library" && activeBtnClass
+            )}
           >
             {libraryLoading
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <Gamepad2 className="h-4 w-4" />}
+              ? <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
+              : <Gamepad2 className="h-4 w-4 text-purple-400" />}
+            <span className="hidden sm:inline">Biblioteca Xbox</span>
           </Button>
         )}
 
         {hasQueueJobs && (
           <Button
-            size="icon"
-            title={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
-            aria-label={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+            size="sm"
+            title={`Fila de tarefas (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+            aria-label={`Fila de tarefas (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+            variant={currentPage === "queue" ? "primary" : "default"}
             onClick={onNavigateQueue}
-            className={cn("relative", currentPage === "queue" && activeBtnClass)}
+            className={cn(
+              "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+              currentPage === "queue" && activeBtnClass
+            )}
           >
-            <ListOrdered className="h-4 w-4" />
-            <span className="absolute -top-1 -right-1 h-4 min-w-[16px] px-0.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center leading-none">
+            <ListOrdered className="h-4 w-4 text-amber-400" />
+            <span className="hidden sm:inline">Fila</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold">
               {queueJobs.length > 9 ? "9+" : queueJobs.length}
             </span>
           </Button>
         )}
 
         <Button
-          size="icon"
-          title="Procurar e baixar"
-          aria-label="Procurar e baixar"
+          size="sm"
+          title="Baixar Jogos"
+          aria-label="Baixar Jogos"
           variant={currentPage === "browse" ? "primary" : "default"}
           onClick={onNavigateBrowse}
+          className={cn(
+            "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+            currentPage === "browse" && activeBtnClass
+          )}
         >
-          <Store className="h-4 w-4" />
+          <Store className="h-4 w-4 text-blue-400" />
+          <span className="hidden sm:inline">Baixar Jogos</span>
         </Button>
 
         <Button
-          size="icon"
+          size="sm"
           title="Configurações"
           aria-label="Configurações"
           variant={currentPage === "settings" ? "primary" : "default"}
           onClick={onNavigateSettings}
+          className={cn(
+            "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+            currentPage === "settings" && activeBtnClass
+          )}
         >
-          <Settings className="h-4 w-4" />
+          <Settings className="h-4 w-4 text-slate-400" />
+          <span className="hidden sm:inline">Configurações</span>
         </Button>
       </div>
     );
@@ -268,67 +323,111 @@ export default function MainNav({
       <FtpIndicator status={ftpStatus} />
 
       <Button
-        size="icon"
+        size="sm"
         title="Reconectar FTP"
         aria-label="Reconectar FTP"
         disabled={ftpChecking}
         onClick={onReconnect}
+        className="flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg cursor-pointer"
       >
         {ftpChecking
           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          : <RotateCcw className="h-3.5 w-3.5" />}
+          : <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />}
+        <span className="hidden md:inline">Reconectar</span>
       </Button>
 
       {!onHome && (
         <Button
-          size="icon"
+          size="sm"
           title="Console"
           aria-label="Console"
           variant={currentPage === "home" ? "primary" : "default"}
           onClick={onNavigateHome || onLibraryToggle}
+          className={cn(
+            "flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg cursor-pointer",
+            currentPage === "home" && activeBtnClass
+          )}
         >
-          <Terminal className="h-4 w-4" />
+          <Terminal className="h-4 w-4 text-sky-400" />
+          <span className="hidden sm:inline">Console</span>
+        </Button>
+      )}
+
+      {onNavigateUsbGames && (
+        <Button
+          size="sm"
+          title="Jogos Instalados"
+          aria-label="Jogos Instalados"
+          variant={currentPage === "usb-games" ? "primary" : "default"}
+          onClick={onNavigateUsbGames}
+          className={cn(
+            "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+            currentPage === "usb-games" && activeBtnClass
+          )}
+        >
+          <Usb className="h-4 w-4 text-emerald-400" />
+          <span className="hidden sm:inline">Jogos Instalados</span>
+          {typeof usbGamesCount === "number" && usbGamesCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+              {usbGamesCount}
+            </span>
+          )}
         </Button>
       )}
 
       {showLibBtn && (
         <Button
-          size="icon"
+          size="sm"
           title={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
           aria-label={libraryLoading ? "Conectando ao Xbox…" : "Biblioteca do Xbox"}
           disabled={libraryLoading}
           variant={currentPage === "library" ? "primary" : "default"}
           onClick={onLibraryToggle}
+          className={cn(
+            "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+            currentPage === "library" && activeBtnClass
+          )}
         >
           {libraryLoading
-            ? <Loader2 className="h-4 w-4 animate-spin" />
-            : <Gamepad2 className="h-4 w-4" />}
+            ? <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
+            : <Gamepad2 className="h-4 w-4 text-purple-400" />}
+          <span className="hidden sm:inline">Biblioteca Xbox</span>
         </Button>
       )}
 
       {hasQueueJobs && (
         <Button
-          size="icon"
-          title={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
-          aria-label={`Fila do servidor (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+          size="sm"
+          title={`Fila de tarefas (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+          aria-label={`Fila de tarefas (${queueJobs.length} tarefa${queueJobs.length !== 1 ? "s" : ""})`}
+          variant={currentPage === "queue" ? "primary" : "default"}
           onClick={onNavigateQueue}
-          className={cn("relative", currentPage === "queue" && activeBtnClass)}
+          className={cn(
+            "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+            currentPage === "queue" && activeBtnClass
+          )}
         >
-          <ListOrdered className="h-4 w-4" />
-          <span className="absolute -top-1 -right-1 h-4 min-w-[16px] px-0.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center leading-none">
+          <ListOrdered className="h-4 w-4 text-amber-400" />
+          <span className="hidden sm:inline">Fila</span>
+          <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold">
             {queueJobs.length > 9 ? "9+" : queueJobs.length}
           </span>
         </Button>
       )}
 
       <Button
-        size="icon"
-        title="Procurar e baixar"
-        aria-label="Procurar e baixar"
+        size="sm"
+        title="Baixar Jogos"
+        aria-label="Baixar Jogos"
         variant={currentPage === "browse" ? "primary" : "default"}
         onClick={onNavigateBrowse}
+        className={cn(
+          "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+          currentPage === "browse" && activeBtnClass
+        )}
       >
-        <Store className="h-4 w-4" />
+        <Store className="h-4 w-4 text-blue-400" />
+        <span className="hidden sm:inline">Baixar Jogos</span>
       </Button>
 
       <ToolboxDropdown
@@ -340,22 +439,29 @@ export default function MainNav({
       />
 
       <Button
-        size="icon"
+        size="sm"
         title="Reiniciar serviço"
         aria-label="Reiniciar serviço"
         onClick={() => window.godsendApi.restartProcess()}
+        className="flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg cursor-pointer"
       >
-        <RefreshCw className="h-4 w-4" />
+        <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="hidden md:inline">Reiniciar</span>
       </Button>
 
       <Button
-        size="icon"
+        size="sm"
         title="Configurações"
         aria-label="Configurações"
         variant={currentPage === "settings" ? "primary" : "default"}
         onClick={onNavigateSettings}
+        className={cn(
+          "relative flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer",
+          currentPage === "settings" && activeBtnClass
+        )}
       >
-        <Settings className="h-4 w-4" />
+        <Settings className="h-4 w-4 text-slate-400" />
+        <span className="hidden sm:inline">Configurações</span>
       </Button>
     </div>
   );

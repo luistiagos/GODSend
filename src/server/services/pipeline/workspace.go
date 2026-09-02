@@ -10,28 +10,26 @@ import (
 
 const localScratchFolder = ".xbox-360-companion-temp"
 
-// outputRoot keeps extracted loose files and split GOD output on the local
-// destination when possible. The compressed archive and any full ISO remain on
-// the large-file-capable processing volume.
+// outputRoot returns the working directory for extracted loose files, ISO extraction,
+// and GOD conversion. Staging and conversion MUST ALWAYS happen on the host machine's
+// high-speed processing volume (s.App.TempDir) which has no 4 GB file size limit,
+// fast I/O, and does not exhaust USB flash drive capacity. The final verified files
+// are then copied sequentially to the destination drive by copyTreeLocal.
 func (s *Service) outputRoot(gameName string) string {
-	if value, ok := s.App.XboxConnections.Load(gameName); ok {
-		connection := value.(models.XboxConnection)
-		if connection.Mode == "local" && connection.LocalRoot != "" {
-			root := filepath.Join(connection.LocalRoot, localScratchFolder)
-			if err := os.MkdirAll(root, 0755); err == nil {
-				return root
-			} else {
-				s.App.Logf("LOCAL: could not create output scratch %s: %v; using %s", root, err, s.App.TempDir)
-			}
-		}
-	}
 	return s.App.TempDir
 }
 
 func (s *Service) scratchRoots(gameName string) []string {
 	roots := []string{s.App.TempDir}
-	if local := s.outputRoot(gameName); !samePath(local, s.App.TempDir) {
-		roots = append(roots, local)
+	// Also clean up any legacy local scratch directory left on target devices
+	if value, ok := s.App.XboxConnections.Load(gameName); ok {
+		connection := value.(models.XboxConnection)
+		if connection.Mode == "local" && connection.LocalRoot != "" {
+			legacyRoot := filepath.Join(connection.LocalRoot, localScratchFolder)
+			if !samePath(legacyRoot, s.App.TempDir) {
+				roots = append(roots, legacyRoot)
+			}
+		}
 	}
 	return roots
 }

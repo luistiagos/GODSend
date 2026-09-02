@@ -29,6 +29,9 @@ interface HomePageProps {
   onNavigateIso2Xex: () => void;
   onNavigateFtpManager: () => void;
   onNavigateBadAvatarUsb: () => void;
+  onNavigateUsbGames?: () => void;
+  onNavigateHome?: () => void;
+  usbGamesCount?: number;
   onLibraryToggle: () => void;
   onReconnect: () => void;
   libraryLoading: boolean;
@@ -48,6 +51,9 @@ export default function HomePage({
   onNavigateIso2Xex,
   onNavigateFtpManager,
   onNavigateBadAvatarUsb,
+  onNavigateUsbGames,
+  onNavigateHome,
+  usbGamesCount,
   onLibraryToggle,
   onReconnect,
   libraryLoading,
@@ -60,6 +66,7 @@ export default function HomePage({
   // Simple Mode state
   const [wizardStep, setWizardStep] = useState<PreparedUsbWizardStep>("checking-prepared");
   const [preparedDeviceDetected, setPreparedDeviceDetected] = useState(false);
+  const [detectedGamesCount, setDetectedGamesCount] = useState<number | null>(null);
   const [preparedCheckBusy, setPreparedCheckBusy] = useState(false);
   const [preparedCheckNotice, setPreparedCheckNotice] = useState("");
   const preparedCheckInFlight = useRef(false);
@@ -119,6 +126,11 @@ export default function HomePage({
       ));
       if (hasPrepared) {
         setPreparedCheckNotice("");
+        window.godsendApi.browseGetInstalledGames().then((r: any) => {
+          if (r?.ok && Array.isArray(r.games)) {
+            setDetectedGamesCount(r.games.length);
+          }
+        }).catch(() => {});
       } else if (manual) {
         setPreparedCheckNotice("Nenhum pendrive preparado foi encontrado. Aguarde o Windows mostrar a unidade e verifique novamente.");
       }
@@ -304,8 +316,10 @@ export default function HomePage({
             libraryAvailable={ftpStatus === "connected"}
             libraryLoading={libraryLoading}
             queueJobs={queueJobs}
+            usbGamesCount={usbGamesCount}
             onReconnect={onReconnect}
             onLibraryToggle={onLibraryToggle}
+            onNavigateHome={onNavigateHome}
             onNavigateQueue={onNavigateQueue}
             onNavigateBrowse={onNavigateBrowse}
             onNavigateSettings={onNavigateSettings}
@@ -313,6 +327,7 @@ export default function HomePage({
             onNavigateIso2Xex={onNavigateIso2Xex}
             onNavigateFtpManager={onNavigateFtpManager}
             onNavigateBadAvatarUsb={onNavigateBadAvatarUsb}
+            onNavigateUsbGames={onNavigateUsbGames}
             simpleMode={false}
           />
         </header>
@@ -325,12 +340,23 @@ export default function HomePage({
         </pre>
 
         <footer className="flex justify-between items-center gap-2.5 shrink-0 text-[11px] text-muted-foreground">
-          <span
-            className="overflow-hidden text-ellipsis whitespace-nowrap min-w-0"
-            title={logInfo?.logsDirectory ?? ""}
-          >
-            {logInfo?.currentLogFile ? `Log: ${logInfo.currentLogFile}` : ""}
-          </span>
+          <div className="flex items-center gap-2 font-mono">
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                ftpStatus === "connected"
+                  ? "bg-[#22c55e]"
+                  : ftpStatus === "checking"
+                  ? "bg-[#eab308] animate-pulse"
+                  : "bg-[#ef4444]"
+              }`}
+            />
+            {ftpStatus === "connected"
+              ? "Xbox 360 conectado"
+              : ftpStatus === "checking"
+              ? "Verificando conexao..."
+              : "Desconectado"}
+          </div>
+
           <Button size="sm" className="shrink-0" onClick={handleOpenLogs}>
             Abrir pasta de logs
           </Button>
@@ -377,13 +403,30 @@ export default function HomePage({
                   Pendrive Xbox 360 detectado!
                 </h1>
                 <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
-                  Encontramos um pendrive ou HD que já está preparado. Você pode pular o assistente e ir direto ao catálogo para incluir jogos nele.
+                  {detectedGamesCount !== null && detectedGamesCount > 0
+                    ? `Encontramos um pendrive ou HD preparado com ${detectedGamesCount} jogo${detectedGamesCount !== 1 ? "s" : ""} gravado${detectedGamesCount !== 1 ? "s" : ""} na pasta Games. Você pode visualizar os títulos já gravados ou ir direto ao catálogo para baixar novos jogos.`
+                    : `Encontramos um pendrive ou HD que já está preparado. Você pode visualizar os jogos nele ou ir direto ao catálogo para baixar novos títulos.`
+                  }
                 </p>
               </header>
 
               <section className="card-surface p-5 flex flex-col gap-3">
+                {onNavigateUsbGames && (
+                  <Button
+                    variant="primary"
+                    className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
+                    onClick={onNavigateUsbGames}
+                  >
+                    <Usb className="h-4 w-4" />
+                    {detectedGamesCount !== null && detectedGamesCount > 0
+                      ? `Ver Jogos Instalados (${detectedGamesCount})`
+                      : "Abrir Jogos Instalados"
+                    }
+                  </Button>
+                )}
+
                 <Button
-                  variant="primary"
+                  variant="default"
                   className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
                   onClick={onNavigateBrowse}
                 >
@@ -392,8 +435,8 @@ export default function HomePage({
                 </Button>
 
                 <Button
-                  variant="default"
-                  className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
+                  variant="ghost"
+                  className="h-11 w-full text-sm font-medium flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground"
                   onClick={() => {
                     preparedDetectionDismissed.current = true;
                     setSelectedUnlockMode(null);

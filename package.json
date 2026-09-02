@@ -1,6 +1,6 @@
 {
   "name": "xbox-360-companion",
-  "version": "2.12.46",
+  "version": "2.12.58",
   "private": true,
   "description": "Xbox 360 Companion — Go backend + Electron desktop app",
   "scripts": {

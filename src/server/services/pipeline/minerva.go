@@ -131,6 +131,10 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 	if err != nil {
 		return fmt.Errorf("Extract failed: %w", err)
 	}
+	installType, err = s.resolveISOInstallType(gameName, isoPath, installType)
+	if err != nil {
+		return err
+	}
 
 	if installType == "content" {
 		if err := s.processContentInstallFromISO(gameName, safeName, isoPath, xboxConn); err != nil {

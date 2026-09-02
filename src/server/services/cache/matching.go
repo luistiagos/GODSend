@@ -12,12 +12,9 @@ import (
 // It removes source metadata tags like regions/languages while keeping edition
 // words such as "GOTY" or "Game of the Year".
 func NormalizeTitleForMatching(title string) string {
-	title = strings.TrimSpace(helpers.DecodeMinervaName(title))
+	title = cleanTitleName(title)
 	if title == "" {
 		return ""
-	}
-	if ext := filepath.Ext(title); ext != "" {
-		title = strings.TrimSuffix(title, ext)
 	}
 	title = stripMetadataGroups(title)
 	title = strings.Map(normalizeTitleRune, title)
@@ -28,6 +25,76 @@ func NormalizeTitleForMatching(title string) string {
 		"goty edition", "goty",
 	).Replace(normalized)
 	return strings.Join(strings.Fields(normalized), " ")
+}
+
+// titleMatchScore ranks variants which share the same normalized base title.
+// Region, language and disc metadata make the result deterministic without
+// preventing a cross-provider fallback when an exact variant is unavailable.
+func titleMatchScore(catalogTitle, requestedTitle string) int {
+	if !TitleMatches(catalogTitle, requestedTitle) {
+		return -1
+	}
+	if strings.EqualFold(cleanTitleName(catalogTitle), cleanTitleName(requestedTitle)) {
+		return 1 << 30
+	}
+
+	catalogMetadata := titleMetadataTokens(catalogTitle)
+	requestedMetadata := titleMetadataTokens(requestedTitle)
+	score := 1000
+	for token := range catalogMetadata {
+		if _, ok := requestedMetadata[token]; ok {
+			score += 4
+		} else {
+			score--
+		}
+	}
+	for token := range requestedMetadata {
+		if _, ok := catalogMetadata[token]; !ok {
+			score--
+		}
+	}
+	return score
+}
+
+func cleanTitleName(title string) string {
+	title = strings.TrimSpace(helpers.DecodeMinervaName(title))
+	if ext := filepath.Ext(title); ext != "" {
+		title = strings.TrimSuffix(title, ext)
+	}
+	return strings.TrimSpace(title)
+}
+
+func titleMetadataTokens(title string) map[string]struct{} {
+	tokens := make(map[string]struct{})
+	runes := []rune(cleanTitleName(title))
+	for i := 0; i < len(runes); i++ {
+		open := runes[i]
+		if open != '(' && open != '[' {
+			continue
+		}
+		close := ')'
+		if open == '[' {
+			close = ']'
+		}
+		end := -1
+		for j := i + 1; j < len(runes); j++ {
+			if runes[j] == close {
+				end = j
+				break
+			}
+		}
+		if end == -1 {
+			continue
+		}
+		groupTokens := splitMetadataGroup(string(runes[i+1 : end]))
+		if metadataTokensOnly(groupTokens) {
+			for _, token := range groupTokens {
+				tokens[token] = struct{}{}
+			}
+		}
+		i = end
+	}
+	return tokens
 }
 
 // TitleMatches compares two catalog titles after removing source metadata.
@@ -85,6 +152,10 @@ func stripMetadataGroups(title string) string {
 }
 
 func isMetadataGroup(group string) bool {
+	return metadataTokensOnly(splitMetadataGroup(group))
+}
+
+func splitMetadataGroup(group string) []string {
 	group = strings.ToLower(group)
 	group = strings.NewReplacer(
 		"/", " ",
@@ -95,7 +166,10 @@ func isMetadataGroup(group string) bool {
 		";", " ",
 		",", " ",
 	).Replace(group)
-	tokens := strings.Fields(group)
+	return strings.Fields(group)
+}
+
+func metadataTokensOnly(tokens []string) bool {
 	if len(tokens) == 0 {
 		return true
 	}
@@ -169,6 +243,7 @@ func normalizeTitleRune(r rune) rune {
 
 var metadataTitleTokens = map[string]struct{}{
 	"asia":      {},
+	"ar":        {},
 	"au":        {},
 	"australia": {},
 	"beta":      {},
@@ -176,12 +251,15 @@ var metadataTitleTokens = map[string]struct{}{
 	"brazil":    {},
 	"canada":    {},
 	"cn":        {},
+	"cs":        {},
+	"da":        {},
 	"de":        {},
 	"demo":      {},
 	"disc":      {},
 	"disk":      {},
 	"dlc":       {},
 	"en":        {},
+	"el":        {},
 	"es":        {},
 	"eu":        {},
 	"europe":    {},
@@ -189,8 +267,10 @@ var metadataTitleTokens = map[string]struct{}{
 	"fr":        {},
 	"france":    {},
 	"germany":   {},
+	"hu":        {},
 	"it":        {},
 	"italy":     {},
+	"ja":        {},
 	"jp":        {},
 	"japan":     {},
 	"jpn":       {},
@@ -210,10 +290,12 @@ var metadataTitleTokens = map[string]struct{}{
 	"ru":        {},
 	"russia":    {},
 	"se":        {},
+	"sk":        {},
 	"spain":     {},
 	"sv":        {},
 	"the":       {},
 	"tw":        {},
+	"tr":        {},
 	"u":         {},
 	"uk":        {},
 	"us":        {},
@@ -223,4 +305,5 @@ var metadataTitleTokens = map[string]struct{}{
 	"xbla":      {},
 	"xblig":     {},
 	"xbox":      {},
+	"zh":        {},
 }

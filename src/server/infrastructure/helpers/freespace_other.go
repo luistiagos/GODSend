@@ -14,3 +14,13 @@ func FreeSpaceBytes(path string) (uint64, error) {
 	// Bavail is uint64 on both linux and darwin; Bsize differs in width, so widen.
 	return uint64(st.Bavail) * uint64(st.Bsize), nil
 }
+
+// VolumeFileSystem returns empty string on non-windows platforms.
+func VolumeFileSystem(path string) string {
+	return ""
+}
+
+// IsFATVolume returns false on non-windows platforms by default.
+func IsFATVolume(path string) bool {
+	return false
+}

@@ -188,13 +188,23 @@ func FindHuggingFaceEntry(a *app.App, gameName, platform string) (models.IAGameE
 	if entry, ok := a.GameEntryMap[exactKey]; ok {
 		return entry, true
 	}
+	var bestEntry models.IAGameEntry
+	bestKey := ""
+	bestScore := -1
 	for k, entry := range a.GameEntryMap {
 		if !strings.HasPrefix(k, prefix) {
 			continue
 		}
-		if TitleMatches(k[len(prefix):], gameName) {
-			return entry, true
+		name := k[len(prefix):]
+		score := titleMatchScore(name, gameName)
+		if score > bestScore || (score == bestScore && score >= 0 && name < bestKey) {
+			bestEntry = entry
+			bestKey = name
+			bestScore = score
 		}
+	}
+	if bestScore >= 0 {
+		return bestEntry, true
 	}
 	return models.IAGameEntry{}, false
 }

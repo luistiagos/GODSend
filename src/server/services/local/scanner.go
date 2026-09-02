@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode"
@@ -12,6 +13,7 @@ import (
 
 	"godsend/app"
 	"godsend/infrastructure/helpers"
+	"godsend/services"
 )
 
 // Service manages local Transfer folder operations.
@@ -67,21 +69,113 @@ func NormalizeClientGameName(s string) string {
 	return s
 }
 
-func (s *Service) ScanTransferFolder() []string {
-	entries, err := os.ReadDir(s.App.TransferDir)
-	if err != nil {
-		return nil
+func findGamesDirInRoot(root string) string {
+	common := []string{"Games", "games", "Jogos", "jogos", "Xbox360", "xbox360", "Xbox 360", "xbox 360", "RGH", "rgh"}
+	for _, c := range common {
+		p := filepath.Join(root, c)
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			return p
+		}
 	}
-	var games []string
+	return ""
+}
+
+func scanGamesSubdir(gamesDir string, seen map[string]bool, result *[]string) {
+	entries, err := os.ReadDir(gamesDir)
+	if err != nil {
+		return
+	}
 	for _, e := range entries {
-		if e.IsDir() {
+		if !e.IsDir() {
 			continue
 		}
-		n := e.Name()
-		if strings.HasSuffix(strings.ToLower(n), ".iso") {
-			games = append(games, strings.TrimSuffix(n, filepath.Ext(n)))
+		dirName := e.Name()
+		lower := strings.ToLower(dirName)
+		if lower == "$systemupdate" || lower == "$$systemupdate" || lower == "content" {
+			continue
+		}
+
+		titleName := dirName
+		// Match pattern "Name - TitleID"
+		parts := strings.Split(dirName, " - ")
+		if len(parts) >= 2 {
+			last := strings.TrimSpace(parts[len(parts)-1])
+			if len(last) == 8 && helpers.IsHexString(last) {
+				titleName = strings.TrimSpace(strings.Join(parts[:len(parts)-1], " - "))
+			}
+		} else if len(dirName) == 8 && helpers.IsHexString(dirName) {
+			// TitleID folder
+			if resolved := services.LookupTitleName(dirName); resolved != "" {
+				titleName = resolved
+			}
+		}
+
+		key := strings.ToLower(titleName)
+		if !seen[key] {
+			seen[key] = true
+			*result = append(*result, titleName)
 		}
 	}
+}
+
+func (s *Service) ScanTransferFolder() []string {
+	seen := make(map[string]bool)
+	var games []string
+
+	// 1. Scan Transfer folder for ISOs and Games subfolder
+	if s.App.TransferDir != "" {
+		if entries, err := os.ReadDir(s.App.TransferDir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				n := e.Name()
+				if strings.HasSuffix(strings.ToLower(n), ".iso") {
+					name := strings.TrimSuffix(n, filepath.Ext(n))
+					key := strings.ToLower(name)
+					if !seen[key] {
+						seen[key] = true
+						games = append(games, name)
+					}
+				}
+			}
+		}
+		// Also scan Transfer/Games if present
+		transferGames := filepath.Join(s.App.TransferDir, "Games")
+		if fi, err := os.Stat(transferGames); err == nil && fi.IsDir() {
+			scanGamesSubdir(transferGames, seen, &games)
+		}
+	}
+
+	// 2. Scan connected drive roots (e.g. USB drives D:\ to Z:\ on Windows)
+	if runtime.GOOS == "windows" {
+		for r := 'D'; r <= 'Z'; r++ {
+			root := string(r) + ":\\"
+			if fi, err := os.Stat(root); err == nil && fi.IsDir() {
+				if gdir := findGamesDirInRoot(root); gdir != "" {
+					scanGamesSubdir(gdir, seen, &games)
+				}
+				// Also check Content/0000000000000000
+				contentDir := filepath.Join(root, "Content", "0000000000000000")
+				if centries, err := os.ReadDir(contentDir); err == nil {
+					for _, ce := range centries {
+						if ce.IsDir() && len(ce.Name()) == 8 && helpers.IsHexString(ce.Name()) {
+							name := ce.Name()
+							if resolved := services.LookupTitleName(name); resolved != "" {
+								name = resolved
+							}
+							key := strings.ToLower(name)
+							if !seen[key] {
+								seen[key] = true
+								games = append(games, name)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	sort.Strings(games)
 	return games
 }

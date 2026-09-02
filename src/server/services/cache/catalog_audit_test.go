@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"godsend/app"
 )
+
+var catalogLanguageGroupPattern = regexp.MustCompile(`[\(\[]([A-Za-z]{2}(?:,[A-Za-z]{2})+)[\)\]]`)
 
 // TestPackagedXbox360CatalogResolvesEveryPublishedTitle guards the contract of
 // the browse screen: every title it publishes must resolve back to at least the
@@ -95,6 +98,42 @@ func TestPackagedXbox360CatalogResolvesEveryPublishedTitle(t *testing.T) {
 			if entry.FileName == "" || entry.PathParam == "" || entry.Platform == "" {
 				t.Errorf("incomplete Minerva entry for %q: %#v", key, entry)
 			}
+		}
+	})
+
+	t.Run("language-metadata-groups", func(t *testing.T) {
+		catalogs := [][]string{
+			a.IAGameCache["hf_xbox360"],
+			a.IAGameCache["xbox360"],
+			a.MinervaGameCache["xbox360"],
+		}
+		var invalid []string
+		for _, games := range catalogs {
+			for _, game := range games {
+				for _, match := range catalogLanguageGroupPattern.FindAllStringSubmatch(game, -1) {
+					if !isMetadataGroup(match[1]) {
+						invalid = append(invalid, fmt.Sprintf("%s in %s", match[1], game))
+						if len(invalid) == 20 {
+							t.Fatalf("unrecognized catalog language metadata: %s", strings.Join(invalid, "; "))
+						}
+					}
+				}
+			}
+		}
+		if len(invalid) > 0 {
+			t.Fatalf("unrecognized catalog language metadata: %s", strings.Join(invalid, "; "))
+		}
+	})
+
+	t.Run("forza-horizon-2-cross-provider-fallback", func(t *testing.T) {
+		selected := "Forza Horizon 2 (Europe) (En,Ja,Fr,De,Es,It,Pt,Zh,Pl,Ru) (En,Ja,Pl,Ru)"
+		entry, findErr := ia.FindEntry(selected, "xbox360")
+		if findErr != nil {
+			t.Fatal(findErr)
+		}
+		wantFile := "Forza Horizon 2 (Europe) (En,Ja,Fr,De,Es,It,Pt,Zh,Pl,Ru).zip"
+		if entry.CollectionID != "microsoft_xbox360_f_part2" || entry.FileName != wantFile {
+			t.Fatalf("unexpected Internet Archive fallback entry: %#v", entry)
 		}
 	})
 }

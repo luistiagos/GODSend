@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"godsend/app"
+	"godsend/infrastructure/helpers"
 	"godsend/models"
 )
 
@@ -22,6 +23,9 @@ var (
 	ErrLocalDelivery = errors.New("falha no dispositivo local")
 	// ErrLocalSourceLost requests regeneration from the retained ISO.
 	ErrLocalSourceLost = errors.New("arquivos temporarios locais foram perdidos")
+	// ErrFAT32FileSizeLimit indicates a single file exceeds FAT32's 4 GB limit.
+	// Provider fallback should switch to an ISO/GOD provider rather than halting as a hardware fault.
+	ErrFAT32FileSizeLimit = errors.New("arquivo excede o limite de 4 GB do FAT32")
 )
 
 const localDeviceIdentityFile = ".xbox-downloader/xbox-companion-device-id"
@@ -201,6 +205,18 @@ func (s *Service) waitForLocalDevice(root, expectedID, gameName string) error {
 	}
 }
 
+type progressWriter struct {
+	onWrite func(n int64)
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	if n > 0 && pw.onWrite != nil {
+		pw.onWrite(int64(n))
+	}
+	return n, nil
+}
+
 func hashLocalFile(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -208,13 +224,14 @@ func hashLocalFile(path string) (string, error) {
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	buf := make([]byte, app.CopyBufferSize)
+	if _, err := io.CopyBuffer(h, f, buf); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func localFileMatches(path string, entry localCopyEntry) (bool, error) {
+func localFileMatches(path string, entry *localCopyEntry) (bool, error) {
 	st, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return false, nil
@@ -224,6 +241,13 @@ func localFileMatches(path string, entry localCopyEntry) (bool, error) {
 	}
 	if !st.Mode().IsRegular() || st.Size() != entry.size {
 		return false, nil
+	}
+	if entry.sha256 == "" {
+		srcHash, srcErr := hashLocalFile(entry.sourcePath)
+		if srcErr != nil {
+			return false, srcErr
+		}
+		entry.sha256 = srcHash
 	}
 	hash, err := hashLocalFile(path)
 	return err == nil && hash == entry.sha256, err
@@ -243,12 +267,8 @@ func buildLocalCopyManifest(srcDir string) ([]localCopyEntry, int64, error) {
 		if err != nil {
 			return err
 		}
-		hash, err := hashLocalFile(path)
-		if err != nil {
-			return err
-		}
 		entries = append(entries, localCopyEntry{
-			sourcePath: path, relativePath: rel, size: info.Size(), sha256: hash,
+			sourcePath: path, relativePath: rel, size: info.Size(), sha256: "",
 		})
 		totalSize += info.Size()
 		return nil
@@ -256,15 +276,21 @@ func buildLocalCopyManifest(srcDir string) ([]localCopyEntry, int64, error) {
 	return entries, totalSize, err
 }
 
-// copyLocalEntry commits only a fully written and SHA-256 verified file. A
-// valid partial file left between copy and rename can be committed on resume.
-func copyLocalEntry(entry localCopyEntry, dst string) error {
+// copyLocalEntry commits only a fully written and verified file. A valid
+// partial file left between copy and rename can be committed on resume.
+func copyLocalEntry(entry *localCopyEntry, dst string, onProgress func(bytesCopied int64)) error {
 	partial := dst + ".xbox-companion-part"
-	if matches, err := localFileMatches(partial, entry); err == nil && matches {
-		_ = os.Remove(dst)
-		return os.Rename(partial, dst)
+	if st, err := os.Stat(partial); err == nil && st.Mode().IsRegular() && st.Size() == entry.size {
+		if matches, matchErr := localFileMatches(partial, entry); matchErr == nil && matches {
+			_ = os.Remove(dst)
+			return os.Rename(partial, dst)
+		}
 	}
 	_ = os.Remove(partial)
+	if entry.size >= 4294967295 && helpers.IsFATVolume(dst) {
+		return fmt.Errorf("%w: o arquivo '%s' possui %.2f GB e excede o limite maximo de 4 GB do sistema FAT32 (jogos com arquivos grandes devem ser instalados no formato GOD)",
+			ErrFAT32FileSizeLimit, filepath.Base(dst), float64(entry.size)/(1024*1024*1024))
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
@@ -272,34 +298,68 @@ func copyLocalEntry(entry localCopyEntry, dst string) error {
 	if err != nil {
 		return err
 	}
+	defer in.Close()
+
 	out, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		_ = in.Close()
 		return err
 	}
-	_, copyErr := io.CopyBuffer(out, in, make([]byte, 1024*1024))
-	closeInErr := in.Close()
+
+	hasher := sha256.New()
+	var writer io.Writer = out
+	if onProgress != nil {
+		writer = io.MultiWriter(out, hasher, &progressWriter{onWrite: onProgress})
+	} else {
+		writer = io.MultiWriter(out, hasher)
+	}
+
+	buf := make([]byte, app.CopyBufferSize)
+	copied, copyErr := io.CopyBuffer(writer, in, buf)
 	syncErr := out.Sync()
 	closeOutErr := out.Close()
+
 	if copyErr != nil {
+		_ = os.Remove(partial)
 		return copyErr
 	}
-	if closeInErr != nil {
-		return closeInErr
-	}
 	if syncErr != nil {
+		_ = os.Remove(partial)
 		return syncErr
 	}
 	if closeOutErr != nil {
+		_ = os.Remove(partial)
 		return closeOutErr
 	}
-	if matches, err := localFileMatches(partial, entry); err != nil || !matches {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("verificacao SHA-256 falhou para %s", filepath.Base(dst))
+	if copied != entry.size {
+		_ = os.Remove(partial)
+		return fmt.Errorf("tamanho gravado divergente para %s: esperado %d, gravado %d bytes", filepath.Base(dst), entry.size, copied)
 	}
+
+	entry.sha256 = hex.EncodeToString(hasher.Sum(nil))
+
+	if os.Getenv("GODSEND_FULL_VERIFY") == "1" || os.Getenv("GODSEND_FULL_VERIFY") == "true" {
+		partHash, hashErr := hashLocalFile(partial)
+		if hashErr != nil || partHash != entry.sha256 {
+			_ = os.Remove(partial)
+			if hashErr != nil {
+				return hashErr
+			}
+			return fmt.Errorf("verificacao SHA-256 falhou para %s", filepath.Base(dst))
+		}
+	} else {
+		partStat, statErr := os.Stat(partial)
+		if statErr != nil {
+			_ = os.Remove(partial)
+			return statErr
+		}
+		if partStat.Size() != entry.size {
+			_ = os.Remove(partial)
+			return fmt.Errorf("tamanho do arquivo no disco divergente para %s: esperado %d, encontrado %d", filepath.Base(dst), entry.size, partStat.Size())
+		}
+	}
+
 	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		_ = os.Remove(partial)
 		return err
 	}
 	return os.Rename(partial, dst)
@@ -339,10 +399,18 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 	if len(entries) == 0 {
 		return fmt.Errorf("%w: nenhum arquivo para gravar em %s", ErrLocalDelivery, srcDir)
 	}
-	remainingSize := totalSize
+	isFAT := helpers.IsFATVolume(root)
 	for _, entry := range entries {
-		if matches, matchErr := localFileMatches(filepath.Join(dstDir, entry.relativePath), entry); matchErr == nil && matches {
-			remainingSize -= entry.size
+		if entry.size >= 4294967295 && isFAT {
+			return fmt.Errorf("%w: o arquivo '%s' possui %.2f GB e excede o limite maximo de 4 GB do sistema FAT32 do pendrive (jogos com arquivos individuais maiores que 4 GB devem ser instalados no formato GOD)",
+				ErrFAT32FileSizeLimit, filepath.Base(entry.sourcePath), float64(entry.size)/(1024*1024*1024))
+		}
+	}
+	remainingSize := totalSize
+	for i := range entries {
+		dst := filepath.Join(dstDir, entries[i].relativePath)
+		if st, stErr := os.Stat(dst); stErr == nil && st.Mode().IsRegular() && st.Size() == entries[i].size {
+			remainingSize -= entries[i].size
 		}
 	}
 	if err := s.ensureFreeSpace(root, remainingSize); err != nil {
@@ -350,11 +418,30 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 	}
 	s.App.Logf("LOCAL %s: %d arquivos (%.2f GB) -> %s", label, len(entries), float64(totalSize)/1073741824, dstDir)
 
-	var doneSize int64
+	var doneBytes int64
 	lastLog := time.Time{}
-	for index, entry := range entries {
+
+	updateProgress := func(addedBytes int64, currentFileIndex int) {
+		doneBytes += addedBytes
+		if lastLog.IsZero() || time.Since(lastLog) >= 500*time.Millisecond || doneBytes >= totalSize {
+			pct := float64(0)
+			if totalSize > 0 {
+				pct = float64(doneBytes) / float64(totalSize) * 100
+			}
+			if pct > 100 {
+				pct = 100
+			}
+			s.App.LogStatus(gameName, "Processing",
+				fmt.Sprintf("Gravando e verificando... %.0f%% (%d/%d)", pct, currentFileIndex+1, len(entries)))
+			lastLog = time.Now()
+		}
+	}
+
+	for index := range entries {
+		entry := &entries[index]
 		dst := filepath.Join(dstDir, entry.relativePath)
 		transientRetries := 0
+		var fileCopiedBytes int64
 		for {
 			if s.App.IsGameJobCancelled(gameName) {
 				return app.ErrJobCancelled
@@ -362,13 +449,23 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 			matches, copyErr := localFileMatches(dst, entry)
 			if copyErr == nil && matches {
 				_ = os.Remove(dst + ".xbox-companion-part")
+				updateProgress(entry.size-fileCopiedBytes, index)
 				break
 			}
+			fileCopiedBytes = 0
 			if copyErr == nil {
-				copyErr = copyLocalEntry(entry, dst)
+				copyErr = copyLocalEntry(entry, dst, func(n int64) {
+					fileCopiedBytes += n
+					updateProgress(n, index)
+				})
 			}
 			if copyErr == nil {
 				break
+			}
+			doneBytes -= fileCopiedBytes
+			fileCopiedBytes = 0
+			if errors.Is(copyErr, ErrFAT32FileSizeLimit) {
+				return copyErr
 			}
 			if !localDeviceMatches(root, expectedID) {
 				if waitErr := s.waitForLocalDevice(root, expectedID, gameName); waitErr != nil {
@@ -381,7 +478,7 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 				continue
 			}
 			sourceHash, sourceErr := hashLocalFile(entry.sourcePath)
-			if sourceErr != nil || sourceHash != entry.sha256 {
+			if sourceErr != nil || (entry.sha256 != "" && sourceHash != entry.sha256) {
 				if sourceErr == nil {
 					sourceErr = fmt.Errorf("SHA-256 da origem mudou")
 				}
@@ -395,13 +492,6 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 				continue
 			}
 			return fmt.Errorf("%w: gravar %s: %v", ErrLocalDelivery, filepath.Base(entry.sourcePath), copyErr)
-		}
-		doneSize += entry.size
-		if lastLog.IsZero() || time.Since(lastLog) > time.Second || index == len(entries)-1 {
-			pct := float64(doneSize) / float64(totalSize) * 100
-			s.App.LogStatus(gameName, "Processing",
-				fmt.Sprintf("Gravando e verificando... %.0f%% (%d/%d)", pct, index+1, len(entries)))
-			lastLog = time.Now()
 		}
 	}
 	return nil
@@ -427,11 +517,7 @@ func (s *Service) copyFileLocal(src, dst, root, gameName, message string) error 
 	if err != nil {
 		return fmt.Errorf("%w: origem indisponivel: %v", ErrLocalDelivery, err)
 	}
-	hash, err := hashLocalFile(src)
-	if err != nil {
-		return fmt.Errorf("%w: verificar origem: %v", ErrLocalDelivery, err)
-	}
-	entry := localCopyEntry{sourcePath: src, relativePath: filepath.Base(dst), size: st.Size(), sha256: hash}
+	entry := localCopyEntry{sourcePath: src, relativePath: filepath.Base(dst), size: st.Size(), sha256: ""}
 	if err := s.ensureFreeSpace(root, entry.size); err != nil {
 		return fmt.Errorf("%w: %v", ErrLocalDelivery, err)
 	}
@@ -441,11 +527,11 @@ func (s *Service) copyFileLocal(src, dst, root, gameName, message string) error 
 		if s.App.IsGameJobCancelled(gameName) {
 			return app.ErrJobCancelled
 		}
-		if matches, matchErr := localFileMatches(dst, entry); matchErr == nil && matches {
+		if matches, matchErr := localFileMatches(dst, &entry); matchErr == nil && matches {
 			_ = os.Remove(dst + ".xbox-companion-part")
 			return nil
 		}
-		if err := copyLocalEntry(entry, dst); err == nil {
+		if err := copyLocalEntry(&entry, dst, nil); err == nil {
 			return nil
 		} else if localDeviceMatches(root, expectedID) {
 			if transientRetries < 3 {

@@ -11,6 +11,23 @@ import (
 	cacheService "godsend/services/cache"
 )
 
+func isFAT32LimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ErrFAT32FileSizeLimit) ||
+		strings.Contains(err.Error(), "excede o limite maximo de 4 GB") ||
+		strings.Contains(err.Error(), "incompativel com pendrive FAT32")
+}
+
+func isDownloadTooSlowError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, app.ErrDownloadTooSlow) ||
+		strings.Contains(err.Error(), "muito lento")
+}
+
 // ProcessGameWithFallback sequentially tries the given providers in priority order for the game download and installation.
 func (s *Service) ProcessGameWithFallback(gameName, platform string, providers []string) {
 	s.App.Logf("=== Fallback Pipeline: %s (%s) ===", gameName, platform)
@@ -51,16 +68,21 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 					s.cleanupGameScratch(gameName)
 					return
 				}
-				if errors.Is(lastErr, ErrLocalDelivery) {
-					s.App.LogStatus(gameName, "Error", "Falha no dispositivo local. O download concluido foi preservado para nova tentativa: "+lastErr.Error())
-					return
-				}
 				if lastErr == nil {
 					s.cleanupCompletedLocalScratch(gameName)
 					s.App.Logf("FALLBACK SUCCESS: HuggingFace for %s", gameName)
 					return
 				}
-				if errors.Is(lastErr, app.ErrDownloadTooSlow) || strings.Contains(lastErr.Error(), "muito lento") {
+				if isFAT32LimitError(lastErr) {
+					s.App.Logf("FALLBACK WARNING: HuggingFace falhou por limite de 4 GB do FAT32 para %s — alternando para provedor ISO/GOD", gameName)
+					recordError("HuggingFace", lastErr)
+					continue
+				}
+				if errors.Is(lastErr, ErrLocalDelivery) {
+					s.App.LogStatus(gameName, "Error", "Falha no dispositivo local. O download concluido foi preservado para nova tentativa: "+lastErr.Error())
+					return
+				}
+				if isDownloadTooSlowError(lastErr) {
 					s.App.Logf("FALLBACK WARNING: HuggingFace cancelado por velocidade baixa (< 1.0 MB/s) para %s — alternando provedor", gameName)
 				} else {
 					s.App.Logf("FALLBACK ERROR: HuggingFace falhou para %s: %v — alternando provedor", gameName, lastErr)
@@ -78,20 +100,25 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			} else {
 				lastErr = s.ProcessGameWithErr(gameName, platform)
 			}
+			if errors.Is(lastErr, app.ErrJobCancelled) {
+				s.cleanupGameScratch(gameName)
+				return
+			}
 			if lastErr == nil {
 				s.cleanupCompletedLocalScratch(gameName)
 				s.App.Logf("FALLBACK SUCCESS: Internet Archive for %s", gameName)
 				return
 			}
-			if errors.Is(lastErr, app.ErrJobCancelled) {
-				s.cleanupGameScratch(gameName)
-				return
+			if isFAT32LimitError(lastErr) {
+				s.App.Logf("FALLBACK WARNING: Internet Archive falhou por limite de 4 GB do FAT32 para %s — alternando provedor", gameName)
+				recordError("Internet Archive", lastErr)
+				continue
 			}
 			if errors.Is(lastErr, ErrLocalDelivery) {
 				s.App.LogStatus(gameName, "Error", "Falha no dispositivo local. O download concluido foi preservado para nova tentativa: "+lastErr.Error())
 				return
 			}
-			if errors.Is(lastErr, app.ErrDownloadTooSlow) || strings.Contains(lastErr.Error(), "muito lento") {
+			if isDownloadTooSlowError(lastErr) {
 				s.App.Logf("FALLBACK WARNING: Internet Archive cancelado por velocidade baixa (< 1.0 MB/s) para %s — alternando provedor", gameName)
 			} else {
 				s.App.Logf("FALLBACK ERROR: Internet Archive falhou para %s: %v — alternando provedor", gameName, lastErr)
@@ -123,20 +150,25 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			} else {
 				lastErr = s.ProcessMinervaGameWithErr(gameName, entry, effPlatform)
 			}
+			if errors.Is(lastErr, app.ErrJobCancelled) {
+				s.cleanupGameScratch(gameName)
+				return
+			}
 			if lastErr == nil {
 				s.cleanupCompletedLocalScratch(gameName)
 				s.App.Logf("FALLBACK SUCCESS: Minerva for %s", gameName)
 				return
 			}
-			if errors.Is(lastErr, app.ErrJobCancelled) {
-				s.cleanupGameScratch(gameName)
-				return
+			if isFAT32LimitError(lastErr) {
+				s.App.Logf("FALLBACK WARNING: Minerva falhou por limite de 4 GB do FAT32 para %s — alternando provedor", gameName)
+				recordError("Minerva", lastErr)
+				continue
 			}
 			if errors.Is(lastErr, ErrLocalDelivery) {
 				s.App.LogStatus(gameName, "Error", "Falha no dispositivo local. O material baixado foi preservado para nova tentativa: "+lastErr.Error())
 				return
 			}
-			if errors.Is(lastErr, app.ErrDownloadTooSlow) || strings.Contains(lastErr.Error(), "muito lento") {
+			if isDownloadTooSlowError(lastErr) {
 				s.App.Logf("FALLBACK WARNING: Minerva Torrent cancelado por velocidade baixa (< 1.0 MB/s) para %s — alternando provedor", gameName)
 			} else {
 				s.App.Logf("FALLBACK ERROR: Minerva falhou para %s: %v", gameName, lastErr)

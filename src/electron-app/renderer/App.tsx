@@ -8,10 +8,11 @@ import ISO2GODPage from "./components/ISO2GODPage";
 import ISO2XEXPage from "./components/ISO2XEXPage";
 import FTPManagerPage from "./components/FTPManagerPage";
 import BadAvatarUsbPage from "./components/BadAvatarUsbPage";
+import UsbGamesPage from "./components/UsbGamesPage";
 import AppUpdateModal, { type UpdateInfo } from "./components/AppUpdateModal";
 import MainNav from "./components/MainNav";
 
-type PageId = "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb";
+type PageId = "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb" | "usb-games";
 
 const PAGE_TITLES: Record<string, string> = {
   settings:   "Configurações",
@@ -21,6 +22,7 @@ const PAGE_TITLES: Record<string, string> = {
   iso2xex:    "ISO para XEX",
   ftpmanager: "Gerenciador FTP",
   badavatarusb: "Preparar dispositivo",
+  "usb-games": "Jogos Instalados",
 };
 
 export default function App() {
@@ -266,6 +268,23 @@ export default function App() {
 
   const navigateTo = useCallback((id: PageId) => setPage(id), []);
 
+  // ── Installed USB games count ─────────────────────────────────────────────
+  const [usbGamesCount, setUsbGamesCount] = useState<number>(0);
+
+  const refreshUsbGamesCount = useCallback(() => {
+    window.godsendApi.browseGetInstalledGames().then((res: any) => {
+      if (res && res.ok && Array.isArray(res.games)) {
+        setUsbGamesCount(res.games.length);
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshUsbGamesCount();
+    const timer = setInterval(refreshUsbGamesCount, 7000);
+    return () => clearInterval(timer);
+  }, [refreshUsbGamesCount]);
+
   // ── Shared nav props ───────────────────────────────────────────────────────
   const navProps = {
     ftpStatus,
@@ -273,9 +292,11 @@ export default function App() {
     libraryAvailable: ftpStatus === "connected",
     libraryLoading,
     queueJobs,
+    usbGamesCount,
     onReconnect: pingFtp,
     onLibraryToggle: handleLibraryToggle,
     onNavigateHome:       () => navigateTo("home"),
+    onNavigateUsbGames:   () => navigateTo("usb-games"),
     onNavigateQueue:      () => navigateTo("queue"),
     onNavigateBrowse:     () => navigateTo("browse"),
     onNavigateSettings:   () => navigateTo("settings"),
@@ -302,7 +323,10 @@ export default function App() {
           ftpStatus={ftpStatus}
           libraryLoading={libraryLoading}
           queueJobs={queueJobs}
+          usbGamesCount={usbGamesCount}
           onReconnect={pingFtp}
+          onNavigateHome={navProps.onNavigateHome}
+          onNavigateUsbGames={navProps.onNavigateUsbGames}
           onNavigateQueue={navProps.onNavigateQueue}
           onNavigateBrowse={navProps.onNavigateBrowse}
           onNavigateSettings={navProps.onNavigateSettings}
@@ -310,6 +334,7 @@ export default function App() {
           onNavigateIso2Xex={navProps.onNavigateIso2Xex}
           onNavigateFtpManager={navProps.onNavigateFtpManager}
           onNavigateBadAvatarUsb={navProps.onNavigateBadAvatarUsb}
+          simpleMode={simpleMode}
         />
         <AppUpdateModal
           isOpen={updateModalOpen}
@@ -335,6 +360,9 @@ export default function App() {
           onNavigateIso2Xex={navProps.onNavigateIso2Xex}
           onNavigateFtpManager={navProps.onNavigateFtpManager}
           onNavigateBadAvatarUsb={navProps.onNavigateBadAvatarUsb}
+          onNavigateUsbGames={navProps.onNavigateUsbGames}
+          onNavigateHome={navProps.onNavigateHome}
+          usbGamesCount={usbGamesCount}
           onLibraryToggle={handleLibraryToggle}
           onReconnect={pingFtp}
           libraryLoading={libraryLoading}
@@ -378,6 +406,14 @@ export default function App() {
     pageContent = <FTPManagerPage />;
   } else if (page === "badavatarusb") {
     pageContent = <BadAvatarUsbPage onBrowseGames={navProps.onNavigateBrowse} />;
+  } else if (page === "usb-games") {
+    pageContent = (
+      <UsbGamesPage
+        onNavigateBrowse={navProps.onNavigateBrowse}
+        onNavigateHome={navProps.onNavigateHome}
+        onGamesCountChange={(count) => setUsbGamesCount(count)}
+      />
+    );
   }
 
   return (

@@ -32,15 +32,21 @@ func (s *Service) processContentInstallFromISO(gameName, safeName, isoPath strin
 		return fmt.Errorf("disc probe: %w", err)
 	}
 	titleID := fmt.Sprintf("%08X", info.TitleID)
-	if models.IsContentDiscPlaceholderTitleID(info.TitleID) {
-		if probed, err := utils.ProbeContentPackageTitleID(isoPath, info); err == nil && probed != 0 {
-			s.App.Logf("Content install: placeholder TitleID %s resolved to %08X from content packages", titleID, probed)
-			titleID = fmt.Sprintf("%08X", probed)
-		} else if guessed := models.GuessTitleIDFromMultiDiscName(gameName); guessed != 0 {
+	layout, layoutErr := utils.ProbeISOInstallLayout(isoPath, info)
+	if layoutErr != nil {
+		return fmt.Errorf("disc layout: %w", layoutErr)
+	}
+	if layout.ContentTitleID != 0 {
+		if resolved := fmt.Sprintf("%08X", layout.ContentTitleID); resolved != titleID {
+			s.App.Logf("Content install: XEX TitleID %s resolved to %s from embedded content", titleID, resolved)
+			titleID = resolved
+		}
+	} else if models.IsContentDiscPlaceholderTitleID(info.TitleID) {
+		if guessed := models.GuessTitleIDFromMultiDiscName(gameName); guessed != 0 {
 			s.App.Logf("Content install: placeholder TitleID %s overridden to %08X from game name", titleID, guessed)
 			titleID = fmt.Sprintf("%08X", guessed)
 		} else {
-			s.App.Logf("Content install: WARNING — TitleID %s is a known placeholder; could not resolve parent title from content packages or game name %q — content may install to wrong folder", titleID, gameName)
+			return fmt.Errorf("nao foi possivel resolver o Title ID real do disco de conteudo %q", gameName)
 		}
 	}
 	s.App.Logf("Content install: TitleID=%s disc=%d/%d", titleID, info.DiscNumber, info.DiscCount)
@@ -164,6 +170,13 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 
 	isoPath := helpers.FindFileByExt(extDir, ".iso")
 	xexFolder := helpers.FindXEXFolder(extDir)
+	if isoPath != "" && installType != "xex" {
+		resolved, resolveErr := s.resolveISOInstallType(gameName, isoPath, installType)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		installType = resolved
+	}
 
 	if installType == "xex" {
 		folderName := ""

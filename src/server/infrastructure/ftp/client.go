@@ -216,6 +216,13 @@ func (s *Service) UploadFile(conn *goftp.ServerConn, localPath, remotePath, game
 	if err = conn.Stor(remotePath, rdr); err != nil {
 		return fmt.Errorf("STOR %s: %v", filepath.Base(localPath), err)
 	}
+	remoteSize, err := conn.FileSize(remotePath)
+	if err != nil {
+		return fmt.Errorf("SIZE %s apos upload: %v", filepath.Base(localPath), err)
+	}
+	if remoteSize != info.Size() {
+		return fmt.Errorf("upload incompleto de %s: destino tem %d bytes; esperado %d", filepath.Base(localPath), remoteSize, info.Size())
+	}
 	*transferred += info.Size()
 	s.App.Logf("FTP [%d/%d] Done:     %s (%.1f MB)", fileNum, totalFiles, filepath.Base(localPath), fileMB)
 	return nil

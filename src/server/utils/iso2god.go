@@ -39,6 +39,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 
@@ -205,10 +206,21 @@ func RunIso2GodNative(isoPath, outDir string, resolveDisplayTitle func(titleID u
 	if err != nil {
 		return fmt.Errorf("iso2god: stat ISO: %w", err)
 	}
-	dataSize := fi.Size() - int64(partOff)
-	if dataSize <= 0 {
+	availableSize := fi.Size() - int64(partOff)
+	if availableSize <= 0 {
 		return fmt.Errorf("iso2god: no game data after partition offset")
 	}
+	usedSize, err := maxXDVDFSUsedPrefix(f, partOff, rootSector, rootSize)
+	if err != nil {
+		return fmt.Errorf("iso2god: validate XDVDFS extents: %w", err)
+	}
+	if usedSize > uint64(availableSize) {
+		return fmt.Errorf("iso2god: ISO truncada: o XDVDFS referencia %d bytes, mas somente %d bytes estao disponiveis", usedSize, availableSize)
+	}
+	// Match iso2god-rs' safe default: omit unused disc padding after the final
+	// XDVDFS extent. TGM ACE is the documented retail exception and requires
+	// partial/no game-partition trimming to remain bootable.
+	dataSize := godDataSizeForTitle(info.TitleID, int64(usedSize), availableSize)
 	blockCount := uint64((dataSize + godBlockSz - 1) / godBlockSz)
 	partCount := (blockCount + godBlocksPerPart - 1) / godBlocksPerPart
 
@@ -347,6 +359,55 @@ func findInDir(f *os.File, partOff uint64, sector, size uint32, name string) (ui
 		}
 	}
 	return 0, 0, false
+}
+
+// maxXDVDFSUsedPrefix returns the byte immediately after the last filesystem
+// extent, relative to the game partition. A declared extent beyond EOF means
+// the source image is incomplete even when its volume descriptor/default.xex
+// remain readable.
+func maxXDVDFSUsedPrefix(f *os.File, partOff uint64, rootSector, rootSize uint32) (uint64, error) {
+	type directoryExtent struct {
+		sector uint32
+		size   uint32
+	}
+	visited := make(map[directoryExtent]bool)
+	maxUsed := uint64(0x21 * xdvdfsSectorSz)
+
+	var walk func(sector, size uint32) error
+	walk = func(sector, size uint32) error {
+		key := directoryExtent{sector: sector, size: size}
+		if visited[key] {
+			return nil
+		}
+		visited[key] = true
+		end := uint64(sector)*xdvdfsSectorSz + uint64(size)
+		if end > maxUsed {
+			maxUsed = end
+		}
+		for _, entry := range readXDVDFSDirTable(f, partOff, sector, size) {
+			entryEnd := uint64(entry.sector)*xdvdfsSectorSz + uint64(entry.size)
+			if entryEnd > maxUsed {
+				maxUsed = entryEnd
+			}
+			if entry.isDir() {
+				if err := walk(entry.sector, entry.size); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := walk(rootSector, rootSize); err != nil {
+		return 0, err
+	}
+	return maxUsed, nil
+}
+
+func godDataSizeForTitle(titleID uint32, usedSize, availableSize int64) int64 {
+	if titleID == 0x434107D2 { // Tetris: The Grand Master Ace / TGM ACE
+		return availableSize
+	}
+	return usedSize
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1082,6 +1143,94 @@ func ProbeISODiscInfo(isoPath string) (*TitleExecInfo, error) {
 		return nil, fmt.Errorf("probeDiscInfo: volDesc: %w", err)
 	}
 	return extractExecInfo(f, partOff, rootSector, rootSize)
+}
+
+// ISOInstallLayout describes installable STFS content embedded in a disc ISO.
+// It is intentionally independent of a title-name compatibility table.
+type ISOInstallLayout struct {
+	HasInstallableContent bool
+	ContentTitleID        uint32
+	ContentType           string
+}
+
+// ProbeISOInstallLayout inspects the real XDVDFS directory tree. Content discs
+// are identified by files below Content/0000000000000000/<TitleID>/00000002
+// (or the FFFFFFFF layout used by several retail installer discs).
+func ProbeISOInstallLayout(isoPath string, info *TitleExecInfo) (*ISOInstallLayout, error) {
+	if info == nil {
+		var err error
+		info, err = ProbeISODiscInfo(isoPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	f, err := os.Open(isoPath)
+	if err != nil {
+		return nil, fmt.Errorf("probeInstallLayout: open: %w", err)
+	}
+	defer f.Close()
+	partOff, err := detectXGDPartition(f)
+	if err != nil {
+		return nil, fmt.Errorf("probeInstallLayout: %w", err)
+	}
+	rootSector, rootSize, err := readXDVDFSVolDesc(f, partOff)
+	if err != nil {
+		return nil, fmt.Errorf("probeInstallLayout: volDesc: %w", err)
+	}
+	layout := &ISOInstallLayout{}
+	cSec, cSz, ok := findInDir(f, partOff, rootSector, rootSize, "content")
+	if !ok {
+		return layout, nil
+	}
+	zSec, zSz, ok := findInDir(f, partOff, cSec, cSz, "0000000000000000")
+	if !ok {
+		return layout, nil
+	}
+
+	type extent struct{ sector, size uint32 }
+	var hasRegularFile func(extent, map[extent]bool) bool
+	hasRegularFile = func(dir extent, visited map[extent]bool) bool {
+		if visited[dir] {
+			return false
+		}
+		visited[dir] = true
+		for _, entry := range readXDVDFSDirTable(f, partOff, dir.sector, dir.size) {
+			if !entry.isDir() && entry.size > 0 {
+				return true
+			}
+			if entry.isDir() && hasRegularFile(extent{entry.sector, entry.size}, visited) {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, titleDir := range readXDVDFSDirTable(f, partOff, zSec, zSz) {
+		if !titleDir.isDir() {
+			continue
+		}
+		for _, typeDir := range readXDVDFSDirTable(f, partOff, titleDir.sector, titleDir.size) {
+			if !typeDir.isDir() || (!strings.EqualFold(typeDir.name, "00000002") && !strings.EqualFold(typeDir.name, "FFFFFFFF")) {
+				continue
+			}
+			if !hasRegularFile(extent{typeDir.sector, typeDir.size}, make(map[extent]bool)) {
+				continue
+			}
+			layout.HasInstallableContent = true
+			layout.ContentType = strings.ToUpper(typeDir.name)
+			if parsed, parseErr := strconv.ParseUint(titleDir.name, 16, 32); parseErr == nil && uint32(parsed) != 0xFFED2000 {
+				layout.ContentTitleID = uint32(parsed)
+			}
+			if packageTitleID, probeErr := ProbeContentPackageTitleID(isoPath, info); probeErr == nil && packageTitleID != 0 {
+				layout.ContentTitleID = packageTitleID
+			}
+			if layout.ContentTitleID == 0 && info.TitleID != 0 && info.TitleID != 0xFFED2000 {
+				layout.ContentTitleID = info.TitleID
+			}
+			return layout, nil
+		}
+	}
+	return layout, nil
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

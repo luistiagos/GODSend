@@ -9,6 +9,151 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.58] - 2026-09-02
+
+### Performance
+- **Otimização e Aceleração da Gravação e Verificação em Dispositivos USB e Locais (`local_resilient.go`, `local_install.go`, `local_resilient_test.go`)**:
+  - **Manifesto Instantâneo sem Pré-Leitura:** Refatorada a função `buildLocalCopyManifest` para obter caminhos e tamanhos em milissegundos sem realizar pré-leitura completa de gigabytes do disco apenas para calcular hashes antes da cópia.
+  - **Streaming Hash (Cálculo em Tempo Real):** O hash SHA-256 da origem agora é calculado em fluxo contínuo durante a transmissão de bytes para o pendrive (`io.MultiWriter`), com custo zero de I/O adicional.
+  - **Buffers de E/S Ampliados (4 MB):** Buffer de cópia aumentado de 1 MB para `app.CopyBufferSize` (4 MB), aumentando a vazão do barramento USB e reduzindo o overhead de chamadas de sistema no Windows.
+  - **Verificação Atômica Rápida:** Implementada validação pós-gravação rápida baseada em confirmação de flush do sistema de arquivos (`Sync()`), integridade de descritor e verificação exata de tamanho em bytes, dispensando a releitura completa do jogo a partir do pendrive USB (com suporte a verificação profunda via `GODSEND_FULL_VERIFY`).
+  - **Progresso Granular em Tempo Real:** Atualização contínua de status em bytes para arquivos grandes, evitando travamentos visuais de porcentagem na interface durante a gravação.
+
+## [2.12.57] - 2026-09-02
+
+### Fixed
+- **Detecção e Listagem de Jogos no Pendrive e Dispositivos Locais (`localGameScannerService.ts`, `huggingface.go`, `helpers.go`)**:
+  - Corrigida a detecção de jogos no pendrive e unidades conectadas para suportar todos os tipos de subpastas e pacotes Xbox 360 (`00007000`, `000D0000`, `00000002`, `00004000`, `00080000`, `00020000`, `00040000` e arquivos com diretórios `.data`).
+  - Implementado escaneamento abrangente de pastas de jogos (`Games`, `games`, `Jogos`, `jogos`, `Xbox360`, `apps`, etc.) e suporte a pastas de jogos na raiz da unidade (ex: `E:\Gears of War 3 - 4D5308AB\`).
+  - Isolamento defensivo com `try/catch` individual por pasta escaneada, impedindo que entradas corrompidas ou temporárias abortem o escaneamento do pendrive.
+  - Implementado suporte nativo a pacotes GOD e conteúdos STFS no pipeline de downloads do HuggingFace (`huggingface.go`), permitindo extração e instalação direta de pacotes GOD na pasta `Games/` ou via FTP para o console sem falhas de formato.
+  - Adicionado helper `helpers.FindGODPackage` no backend Go para identificar e estruturar pacotes GOD mesmo em arquivos aninhados.
+
+## [2.12.56] - 2026-09-01
+
+### Fixed
+- **Prevenção de Panic por Nil Pointer no Pipeline de Provedores com Fallback (`fallback.go`)**:
+  - Corrigido bug crítico onde a verificação de limite de tamanho de arquivos FAT32 (`strings.Contains(lastErr.Error(), ...)`) no caso do provedor HuggingFace era executada antes da verificação `if lastErr == nil`, resultando em desreferenciamento de ponteiro nulo (`nil pointer dereference panic`) quando o download e extração eram concluídos com 100% de sucesso.
+  - Implementadas funções auxiliares defensivas (`isFAT32LimitError` e `isDownloadTooSlowError`) com verificação estrita de `err == nil` para todos os provedores do fallback (HuggingFace, Internet Archive e Minerva), impedindo falhas em cascata.
+  - Adicionada suíte de testes unitários para resiliência a ponteiros nulos no pipeline (`fallback_test.go`).
+
+## [2.12.55] - 2026-09-01
+
+### Fixed
+- **Resolução e Busca de Capas de Jogos Populares (GTA 5, GTA 4, Skyrim, Minecraft, CoD, etc.) (`coverArtService.ts`, `browseHandlers.ts`)**:
+  - Corrigido falso positivo por prefixo no XboxUnity onde buscas por `Grand Theft Auto V` retornavam `Grand Theft Auto Vice City` (`5454000F`).
+  - Corrigido truncamento destrutivo de palavras em `generateSearchCandidates` que reduzia `Grand Theft Auto IV` para `Grand Theft Auto` (fazendo com que caísse na capa do GTA 3).
+  - Implementada indexação local em memória de bases de Title IDs (`xboxdb_browse_pairs.json`, `gist_title_ids.json`, `iso2god_titles.jsonl` e dicionário curado), permitindo resolver Title IDs exatos (ex: `545408A7` para GTA V / GTA 5, `545407F2` para GTA IV / GTA 4 / EFLC, `545408B8` para GTA San Andreas, `425307E6` para Skyrim, etc.) e priorizá-los nas consultas de capas.
+  - Implementada conversão bidirecional de algarismos romanos para arábicos (`V` <-> `5`, `IV` <-> `4`, `III` <-> `3`, etc.) e expansões de franquias (`GTA` <-> `Grand Theft Auto`, `COD` <-> `Call of Duty`, `MW3` <-> `Modern Warfare 3`, etc.).
+  - Adicionado tratamento para erros ortográficos comuns (`Grand Thief Auto` -> `Grand Theft Auto`).
+  - Implementada validação de falsos positivos no retorno da API do XboxUnity para buscas textuais (filtrando itens com nomes de jogos diferentes dentro da mesma franquia).
+  - Implementada purga automática de arquivos de cache em disco legados/corrompidos (`purgeCorruptedLegacyCoverCache`) para garantir que capas previamente gravadas de forma incorreta sejam substituídas pelas artes autênticas.
+
+### Added
+- **Suite de Testes Unitários para Resolução de Capas (`coverArtService.test.cjs`)**:
+  - Testes cobrindo normalização de títulos, remoção de idiomas/regiões compostas, geração de candidatos e resolução determinística de Title IDs para franquias populares (GTA 5, GTA 4, Grand Thief Auto, Skyrim, Minecraft, Call of Duty, Bully, Far Cry, etc.).
+
+## [2.12.54] - 2026-09-01
+
+### Added
+- **Rótulos e Badges em Todos os Itens da Barra Superior (`MainNav.tsx`, `App.tsx`, `HomePage.tsx`, `LibraryPage.tsx`)**:
+  - Adicionados rótulos de texto descritivos em todos os botões de navegação da barra superior (Início, Jogos Instalados, Fila, Baixar Jogos, Configurações, Biblioteca Xbox, Terminal, Ferramentas e Reconectar), padronizando a experiência visual iniciada no botão "Jogos Instalados".
+  - Ícones com acentuação de cor temática (Início em azul celeste, Jogos Instalados em esmeralda, Fila em âmbar, Baixar Jogos em azul, Biblioteca em roxo, Ferramentas em laranja, Configurações em ardósia).
+  - Badge em pílula integrado no botão "Fila" para exibir a quantidade de tarefas em processamento em tempo real.
+  - Sincronização completa das propriedades de navegação entre `App.tsx`, `HomePage.tsx` e `LibraryPage.tsx`.
+
+## [2.12.53] - 2026-09-01
+
+### Fixed
+- **Carregamento e Exibição das Capas 2D dos Jogos Instalados (`UsbGamesPage.tsx`, `coverArtService.ts`, `browseHandlers.ts`)**:
+  - Corrigida a propriedade de leitura da capa no retorno da IPC `browseFetchCover` em `UsbGamesPage.tsx` (estava lendo `cRes.cover` em vez de `cRes.dataUrl`), fazendo com que as capas nunca fossem renderizadas.
+  - Implementado carregamento sob demanda com `IntersectionObserver` e debounce para cada card de jogo instalado (`InstalledGameCard`), garantindo fluidez e renderização imediata das artes oficiais 2D em proporção 3/4 idêntica ao catálogo (`BrowsePage.tsx`).
+  - Adicionado suporte a busca dupla de capas (por nome amigável e fallback por Title ID hexadecimal no XboxUnity).
+  - Adicionada etapa `stripVersion` em `coverArtService.ts` (`generateSearchCandidates`) para remoção de sufixos numéricos de versão (ex: `DashLaunch 3.21` ➔ `DashLaunch`), possibilitando encontrar as capas de homebrews no XboxUnity com 100% de sucesso.
+  - Identificação aprimorada de arquivos internos em pastas GOD (`scanContentDirectory`): quando o nome for o código hex, descobre automaticamente nomes amigáveis embutidos (ex: identifica `DashLaunch` para `10102001`).
+
+### Changed
+- **Renomeação de "Jogos no Pendrive" para "Jogos Instalados" (`MainNav.tsx`, `App.tsx`, `HomePage.tsx`, `UsbGamesPage.tsx`)**:
+  - Atualizado o rótulo do botão na barra superior (`MainNav.tsx`) para "Jogos Instalados".
+  - Atualizado o título da rota em `App.tsx` (`PAGE_TITLES`) para "Jogos Instalados".
+  - Atualizado o cabeçalho e descrições na página `UsbGamesPage.tsx` para "Jogos Instalados".
+  - Atualizado o botão de ação na tela inicial (`HomePage.tsx`) para "Ver Jogos Instalados (X)".
+
+## [2.12.52] - 2026-09-01
+
+### Added
+- **Aba dedicada "Jogos no Pendrive" (`UsbGamesPage.tsx`, `MainNav.tsx`, `App.tsx`)**:
+  - Implementada aba permanente "Jogos no Pendrive" na barra de navegação principal (`MainNav.tsx`), visível tanto no Modo Simples quanto no Modo Avançado, independente de conexão FTP com o console.
+  - Exibe badge com contador dinâmico de jogos instalados na unidade USB detectada (ex: 7 jogos).
+  - Desenvolvida a página `UsbGamesPage.tsx` com visual 3D em caixas de Xbox 360 (`XboxBoxCover.tsx`), listando todos os jogos nos formatos XEX e GOD presentes no pendrive.
+  - Adicionado seletor de unidades USB com métricas de espaço ocupado, espaço livre e sistema de arquivos (FAT32).
+  - Incluídos filtros por formato (`Todos`, `XEX`, `GOD`), ordenação (Nome, Tamanho, Formato) e campo de busca em tempo real por título ou Title ID.
+  - Adicionadas ações rápidas por jogo: botão para abrir a pasta do jogo diretamente no Windows Explorer (`tools:open-folder`) e botão de exclusão segura com modal de confirmação (`tools:delete-local-game`).
+  - Na tela inicial (`HomePage.tsx`), quando um pendrive preparado com jogos é detectado, um botão de destaque "Ver Jogos no Pendrive (X)" direciona o usuário imediatamente para a visualização dos títulos instalados.
+
+### Enhanced
+- **Resolução e Detecção Avançada de Jogos Instalados (`localGameScannerService.ts`, `auroraLibraryService.ts`)**:
+  - `localGameScannerService.ts`: Adicionada inspeção recursiva de cabeçalhos STFS/LIVE/PIRS/CON em subpastas de jogos GOD para identificação precisa do Title ID (ex: reconhece `4D5308AB` para Gears of War 3).
+  - Adicionada detecção de Title ID em subdiretórios hexadecimais (ex: `Street Fighter II' HF/584107F4`).
+  - Adicionado cálculo recursivo do tamanho em bytes de cada pasta de jogo (`sizeBytes`), exibido formatado em MB/GB nos cards.
+  - Sanitização automática de nomes de releases de cena (ex: `Gears.of.War.1.USA.X360-ZTM` formatado para `Gears of War 1`).
+  - `auroraLibraryService.ts`: `xboxBuildGameNameMap` agora inclui os bancos de dados estendidos `title_id_datasets/gist_title_ids.json` e `title_id_datasets/xboxdb_browse_pairs.json`, garantindo tradução imediata de Title IDs hexadecimais (como `C0DE9999` para Xexmenu e `394707D1` para Netflix) para títulos amigáveis.
+
+## [2.12.51] - 2026-09-01
+
+### Fixed
+- **Isolamento de staging temporário no PC e conversão de ISOs para XEX (`workspace.go`, `huggingface.go`, `app.go`)**:
+  - `workspace.go`: Atualizado `outputRoot` para utilizar sempre `s.App.TempDir` (no PC, em volume NTFS/exFAT com suporte a arquivos grandes e alta velocidade). Nenhuma extração de arquivo compactado intermediário ou conversão ocorre mais diretamente dentro da pasta temporária oculta do pendrive (`.xbox-360-companion-temp`), prevenindo falhas de gravação em pendrives FAT32.
+  - `huggingface.go`: Quando o arquivo compactado do HuggingFace contiver um arquivo `.iso` (como no caso de Battlefield Bad Company 1), a estrutura XEX é extraída diretamente da ISO via `extractXEXResilient` (`ExtractXEXFolderFromISO`) para a pasta de destino (`Games/`), garantindo que a ISO seja convertida para XEX conforme requerido.
+  - `app.go`: O padrão de `LookupInstallType` agora é `"xex"`, garantindo que downloads e conversões de mídias ISO sejam processados diretamente para o formato XEX legível pela dashboard Aurora.
+- **Tratamento de arquivos maiores que 4 GB no FAT32 e continuidade de fallback (`local_resilient.go`, `fallback.go`, `huggingface.go`)**:
+  - `local_resilient.go`: Adicionada verificação preventiva do limite de 4 GB (`4.294.967.295 bytes`) de unidades FAT32 em `copyTreeLocal` e `copyLocalEntry`. Se um jogo em formato XEX contiver um arquivo individual $\ge 4\text{ GB}$ (como `data1.big` de ~4,58 GB no FIFA 19), o sistema emite um erro explícito informando a limitação do FAT32.
+  - `fallback.go`: Erros decorrentes da limitação de arquivo de 4 GB do FAT32 no formato XEX agora são tratados como incompatibilidade do formato do provedor atual (e não como falha de hardware do dispositivo local), permitindo que o fallback continue automaticamente para outros provedores disponíveis no catálogo (como Internet Archive e Minerva) para obtenção em formato compatível (GOD).
+  - `helpers/freespace_windows.go`: Adicionadas funções `VolumeFileSystem` e `IsFATVolume` via API Win32 (`GetVolumeInformationW`) para inspeção precisa do sistema de arquivos das unidades de destino.
+
+## [2.12.50] - 2026-09-01
+
+### Fixed
+- **Detecção e exibição de jogos instalados no pendrive na pasta Games e Content (`localGameScannerService.ts`, `scanner.go`, `BrowsePage.tsx`, `HomePage.tsx`)**:
+  - Implementado o serviço `localGameScannerService` no Electron e enriquecido o escaneador nativo em Go para inspecionar unidades USB e pastas locais.
+  - Reconhece jogos no formato GOD (`Games/<Nome> - <TitleID>/00007000`, `Games/<TitleID>/00007000` e `Content/0000000000000000/<TitleID>/00007000`) e formato XEX (`Games/<Nome>/default.xex`), além de manifestos `godsend.ini`.
+  - No **Catálogo Online**, os jogos gravados no pendrive conectado agora exibem o selo `✓ Baixado` e destaque visual de confirmação.
+  - Na aba **Biblioteca Local**, os jogos do pendrive USB agora aparecem na grade com capas, formato (`GOD` / `XEX` / `ISO`) e indicação da unidade.
+  - No diálogo de enfileiramento (`QueueDialog`), caso o destino selecionado já possua o jogo gravado, um aviso amigável é exibido e o botão se adapta para "Adicionar à fila novamente".
+  - Na tela inicial (**HomePage**), o assistente informa a contagem de jogos já gravados na pasta Games do pendrive.
+  - Adicionados testes unitários em `localGameScannerService.test.cjs` cobrindo a detecção de estruturas GOD, XEX, Content, manifestos e ISOs.
+
+## [2.12.49] - 2026-09-01
+
+### Fixed
+- **Cross-provider fallback for multilingual catalog titles (`matching.go`)**:
+  - Recognizes every two-letter language code currently used by the packaged Xbox 360 catalogs, including Japanese (`Ja`) and Chinese (`Zh`).
+  - Treats the Minerva selection `Forza Horizon 2 (Europe) (...,Ja,...,Zh,...) (En,Ja,Pl,Ru)` as the same release as the Internet Archive entry without the redundant final language group, allowing the faster fallback to resolve instead of ending after Minerva's low-speed abort.
+  - Added an exact Forza regression test and a catalog-wide audit of 9,444 packaged entries that fails when a multilingual metadata group contains an unrecognized language code.
+
+## [2.12.48] - 2026-08-31
+
+### Fixed
+- **All-title GOD/content safety audit (`compat.go`, `disc_layout.go`, `iso2god.go`)**:
+  - Removed a corrupted compatibility table in which 18 of 36 IDs were absent from the bundled title catalog and several existing IDs belonged to unrelated games.
+  - Rebuilt the table as disc-specific, source-backed exceptions and changed unknown continuation discs from the unsafe `Content` assumption to `GOD`.
+  - Made the downloaded ISO authoritative: populated XDVDFS `00000002`/`FFFFFFFF` installer trees are detected automatically, regardless of title, region, revision, or catalog filename.
+  - Resolves the destination Title ID from embedded STFS packages and now stops instead of writing unresolved placeholder content to `FFED2000`.
+  - Added the documented TGM ACE padding exception so full trimming cannot make that title unbootable.
+  - Added post-upload FTP size verification and catalog-wide tests covering every Disc 2+ row in all three packaged Xbox 360 catalogs.
+  - Routes Assassin's Creed IV's No-GOD multiplayer disc to XEX and blocks Watch Dogs' unsupported isolated-disc layout before it can produce a non-bootable result.
+
+## [2.12.47] - 2026-08-31
+
+### Fixed
+- **Forza Disc 2 installation and unreadable GOD prevention (`compat.go`, `god_validate.go`)**:
+  - Corrected the real Title IDs for Forza Motorsport 2, 3, and 4 and now recommends `Content` for their bonus/content-install discs instead of presenting Disc 2 as a playable GOD.
+  - Added filename-based recognition for the Forza NTSC/PAL catalog names used before a local ISO is available.
+  - Added full semantic validation of generated GOD packages, including the LIVE header digest, declared block/part counts, every SHT data-block hash, the inter-part MHT chain, and the root hash.
+  - Rejects truncated ISOs whose XDVDFS file extents point beyond the available image and trims unused disc padding using the same safe default as the reference converter.
+  - Invalid or incomplete GOD output can no longer be checkpointed and reported as ready for the USB; old conversion checkpoints are invalidated and rebuilt once.
+  - Added focused tests for valid/corrupt GOD packages and Forza multi-disc recommendations.
+
 ## [2.12.46] - 2026-08-30
 
 ### Fixed

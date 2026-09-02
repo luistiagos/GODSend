@@ -342,16 +342,24 @@ func (s *IAService) FindEntry(gameName, platform string) (models.IAGameEntry, er
 
 	// Fuzzy matching handles source-specific region and language suffixes.
 	s.App.GameEntryMapMu.RLock()
+	var bestEntry models.IAGameEntry
+	bestKey := ""
+	bestScore := -1
 	for k, e := range s.App.GameEntryMap {
 		if strings.Contains(k, "\x00") {
 			continue
 		}
-		if TitleMatches(k, gameName) {
-			s.App.GameEntryMapMu.RUnlock()
-			return e, nil
+		score := titleMatchScore(k, gameName)
+		if score > bestScore || (score == bestScore && score >= 0 && k < bestKey) {
+			bestEntry = e
+			bestKey = k
+			bestScore = score
 		}
 	}
 	s.App.GameEntryMapMu.RUnlock()
+	if bestScore >= 0 {
+		return bestEntry, nil
+	}
 
 	// Live fetch from the relevant collection page(s)
 	entry, err := s.LiveSearchIA(gameName, platform)
@@ -386,6 +394,9 @@ func (s *IAService) LiveSearchIA(gameName, platform string) (models.IAGameEntry,
 		}
 	}
 
+	var bestEntry models.IAGameEntry
+	bestName := ""
+	bestScore := -1
 	for _, coll := range candidates {
 		entries, err := s.DoIAMetaFetch(coll)
 		if err != nil {
@@ -393,10 +404,16 @@ func (s *IAService) LiveSearchIA(gameName, platform string) (models.IAGameEntry,
 		}
 		for _, e := range entries {
 			name := strings.TrimSuffix(filepath.Base(e.FileName), filepath.Ext(e.FileName))
-			if TitleMatches(name, gameName) {
-				return e, nil
+			score := titleMatchScore(name, gameName)
+			if score > bestScore || (score == bestScore && score >= 0 && name < bestName) {
+				bestEntry = e
+				bestName = name
+				bestScore = score
 			}
 		}
+	}
+	if bestScore >= 0 {
+		return bestEntry, nil
 	}
 	return models.IAGameEntry{}, fmt.Errorf("no match for '%s'", gameName)
 }

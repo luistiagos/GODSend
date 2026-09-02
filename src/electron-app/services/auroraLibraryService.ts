@@ -207,7 +207,8 @@ export async function probeScanPathDrives(
 
 export function xboxBuildGameNameMap(): Map<string, string> {
   const map      = new Map<string, string>();
-  const cacheDir = app.isPackaged
+  const isPackaged = typeof app !== "undefined" && app ? Boolean(app.isPackaged) : false;
+  const cacheDir = isPackaged
     ? path.join(process.resourcesPath, "cache")
     : path.join(__dirname, "..", "..", "..", "cache");
 
@@ -224,5 +225,42 @@ export function xboxBuildGameNameMap(): Map<string, string> {
       }
     } catch { /* cache file absent or unparseable — skip */ }
   }
+
+  // Also include extensive Title ID datasets (gist_title_ids and xboxdb_browse_pairs)
+  for (const sub of ["title_id_datasets/gist_title_ids.json", "title_id_datasets/xboxdb_browse_pairs.json"]) {
+    try {
+      const p = path.join(cacheDir, sub);
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, "utf8");
+        const data = JSON.parse(raw);
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            const tid = String(item.titleid || item.titleId || item.id || "").toUpperCase().trim();
+            const name = String(item.title || item.name || "").trim();
+            if (tid && name && /^[0-9A-F]{8}$/.test(tid) && !map.has(tid)) {
+              map.set(tid, name);
+            }
+          }
+        }
+      }
+    } catch { /* skip */ }
+  }
+
+  // Common homebrew, utility and flagship title IDs fallback
+  const wellKnown: Record<string, string> = {
+    "10102001": "DashLaunch",
+    "C0DE9999": "Xexmenu",
+    "584107F4": "Street Fighter II' HF",
+    "394707D1": "Netflix",
+    "4D5309C9": "Forza Horizon",
+    "4D5308AB": "Gears of War 3",
+    "4D5307D5": "Gears of War",
+  };
+  for (const [tid, name] of Object.entries(wellKnown)) {
+    if (!map.has(tid)) {
+      map.set(tid, name);
+    }
+  }
+
   return map;
 }

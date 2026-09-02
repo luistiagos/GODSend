@@ -17,9 +17,22 @@ import {
   fetchXboxUnityCoverWithMeta,
   tryXboxCdnFromMicrosoftStoreSearch,
   fetchWikipediaCover,
+  getCachedCoverFromDisk,
+  saveCoverToDisk,
 } from "../services/coverArtService";
+import { scanUsbAndLocalGames } from "../services/localGameScannerService";
 
 export function register(ipcMain: IpcMain): void {
+
+  // ── Get games installed on connected USB drives and local storage ──────────
+  ipcMain.handle("browse:get-installed-games", async () => {
+    try {
+      const games = await scanUsbAndLocalGames();
+      return { ok: true, games };
+    } catch (err: any) {
+      return { ok: false, error: err.message, games: [] };
+    }
+  });
 
   // ── Get game list from Go backend ──────────────────────────────────────────
   ipcMain.handle("browse:get-games", async (_event, { platform, source }) => {
@@ -95,12 +108,21 @@ export function register(ipcMain: IpcMain): void {
     }
   });
 
-  // ── Fetch cover art for a game name (multi-source cascade, memory-cached) ──
+  // ── Fetch cover art for a game name (multi-source cascade, memory + disk cached) ──
   ipcMain.handle("browse:fetch-cover", async (_event, gameName: string) => {
     try {
       const base = baseTitleForCover(gameName);
 
+      // 1. In-memory cache check
       if (browseCoverCache.has(base)) return browseCoverCache.get(base);
+
+      // 2. Persistent disk cache check
+      const diskDataUrl = getCachedCoverFromDisk(base);
+      if (diskDataUrl) {
+        const result = { ok: true, dataUrl: diskDataUrl };
+        browseCoverCache.set(base, result);
+        return result;
+      }
 
       // Generate search queries
       const candidates = generateSearchCandidates(gameName);
@@ -152,6 +174,7 @@ export function register(ipcMain: IpcMain): void {
         (imgBuf[0] === 0x89 && imgBuf[1] === 0x50) ? "image/png"  : "image/jpeg";
       const result = { ok: true, dataUrl: `data:${mime};base64,${imgBuf.toString("base64")}` };
       browseCoverCache.set(base, result);
+      saveCoverToDisk(base, imgBuf, mime);
       return result;
     } catch {
       return { ok: false };

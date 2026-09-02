@@ -87,6 +87,7 @@ contextBridge.exposeInMainWorld("godsendApi", {
   listXboxDrives:           () => ipcRenderer.invoke("xbox:list-drives"),
 
   browseGetGames:           (payload: any) => ipcRenderer.invoke("browse:get-games", payload),
+  browseGetInstalledGames:  () => ipcRenderer.invoke("browse:get-installed-games"),
   browseFetchCover:         (name: string) => ipcRenderer.invoke("browse:fetch-cover", name),
   browseQueueGame:          (payload: any) => ipcRenderer.invoke("browse:queue-game", payload),
   browseGetDiscInfo:        (game: string) => ipcRenderer.invoke("browse:get-disc-info", game),
@@ -109,6 +110,8 @@ contextBridge.exposeInMainWorld("godsendApi", {
   decodeAsset:              (payload: any) => ipcRenderer.invoke("xbox:decode-asset", payload),
   encodeAsset:              (payload: any) => ipcRenderer.invoke("xbox:encode-asset", payload),
 
+  toolsOpenFolder:          (folderPath: string) => ipcRenderer.invoke("tools:open-folder", folderPath),
+  toolsDeleteLocalGame:     (gamePath: string) => ipcRenderer.invoke("tools:delete-local-game", gamePath),
   toolsChooseIsoFiles:      () => ipcRenderer.invoke("tools:choose-iso-files"),
   toolsChooseOutputFolder:  () => ipcRenderer.invoke("tools:choose-output-folder"),
   toolsProbeIso:            (isoPath: string) => ipcRenderer.invoke("tools:probe-iso", isoPath),

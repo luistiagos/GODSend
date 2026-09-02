@@ -222,3 +222,73 @@ func TestLocalStageScratchIsPreservedUntilInstallReady(t *testing.T) {
 		}
 	}
 }
+
+func TestOptimizedStreamingLocalCopyAndManifest(t *testing.T) {
+	srcDir := filepath.Join(t.TempDir(), "src_game")
+	if err := os.MkdirAll(filepath.Join(srcDir, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	f1 := filepath.Join(srcDir, "Data0000")
+	f2 := filepath.Join(srcDir, "sub", "default.xex")
+	if err := os.WriteFile(f1, []byte("large-test-data-block-123456789"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f2, []byte("xex-header-bytes-987654321"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, totalSize, err := buildLocalCopyManifest(srcDir)
+	if err != nil {
+		t.Fatalf("buildLocalCopyManifest falhou: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("esperava 2 entradas, obteve %d", len(entries))
+	}
+	if totalSize != int64(len("large-test-data-block-123456789")+len("xex-header-bytes-987654321")) {
+		t.Fatalf("totalSize incorreto: %d", totalSize)
+	}
+	for _, entry := range entries {
+		if entry.sha256 != "" {
+			t.Fatalf("manifesto deveria conter sha256 lazy (vazio) para evitar pre-leitura: %q", entry.sha256)
+		}
+	}
+
+	destRoot := t.TempDir()
+	deviceID, err := PrepareLocalDevice(destRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := app.NewApp()
+	a.XboxConnections.Store("StreamTest", models.XboxConnection{
+		Mode: "local", LocalRoot: destRoot, LocalDeviceID: deviceID,
+	})
+	svc := &Service{App: a}
+	targetDir := filepath.Join(destRoot, "Games", "StreamTest")
+	if err := svc.copyTreeLocal(srcDir, targetDir, destRoot, "StreamTest", "GOD"); err != nil {
+		t.Fatalf("copyTreeLocal falhou: %v", err)
+	}
+
+	out1, err := os.ReadFile(filepath.Join(targetDir, "Data0000"))
+	if err != nil || string(out1) != "large-test-data-block-123456789" {
+		t.Fatalf("arquivo Data0000 gravado incorretamente: %s, err: %v", out1, err)
+	}
+	out2, err := os.ReadFile(filepath.Join(targetDir, "sub", "default.xex"))
+	if err != nil || string(out2) != "xex-header-bytes-987654321" {
+		t.Fatalf("arquivo default.xex gravado incorretamente: %s, err: %v", out2, err)
+	}
+
+	// Test copyFileLocal
+	singleSrc := filepath.Join(srcDir, "single.bin")
+	if err := os.WriteFile(singleSrc, []byte("single-file-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	singleDst := filepath.Join(destRoot, "Content", "0000000000000000", "12345678", "00000002", "single.bin")
+	if err := svc.copyFileLocal(singleSrc, singleDst, destRoot, "StreamTest", "Gravando..."); err != nil {
+		t.Fatalf("copyFileLocal falhou: %v", err)
+	}
+	singleOut, err := os.ReadFile(singleDst)
+	if err != nil || string(singleOut) != "single-file-content" {
+		t.Fatalf("single.bin gravado incorretamente: %s, err: %v", singleOut, err)
+	}
+}
+

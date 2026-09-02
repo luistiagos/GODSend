@@ -19,7 +19,7 @@ import (
 	"godsend/utils"
 )
 
-const stageCheckpointVersion = 1
+const stageCheckpointVersion = 2
 
 type stageCheckpointFile struct {
 	Path   string `json:"path"`
@@ -343,7 +343,10 @@ func (s *Service) convertGODResilient(gameName, isoPath, godDir string) error {
 		if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
 			return err
 		}
-		_, _, err := helpers.DetectGodStructure(godDir)
+		// Needs proper testing on physical Xbox 360 storage too; this semantic
+		// validation prevents a filename-complete but hash-invalid GOD from being
+		// checkpointed and reported as ready.
+		_, _, err := helpers.ValidateGodStructure(godDir)
 		return err
 	})
 }

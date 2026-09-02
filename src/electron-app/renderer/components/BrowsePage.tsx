@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Search, Loader2, WifiOff, Gamepad2, Download,
   RefreshCw, ChevronDown, X, HardDrive, Usb,
-  Wifi, CheckCircle2, AlertTriangle,
+  Wifi, CheckCircle2, AlertTriangle, Check,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -148,6 +148,15 @@ function buildDestinations(localDrives: LocalDrive[], defaultDrive: string, ftpD
   return dests;
 }
 
+interface InstalledGame {
+  name: string;
+  titleId?: string;
+  path: string;
+  drive: string;
+  format: "god" | "xex" | "iso";
+  folderName: string;
+}
+
 interface QueueDialogProps {
   game: string;
   platform: string;
@@ -157,6 +166,7 @@ interface QueueDialogProps {
   defaultDrive: string;
   drives: string[];
   localDrives: LocalDrive[];
+  installedGames?: InstalledGame[];
   onClose: () => void;
   onQueue?: () => void;
   simpleMode?: boolean;
@@ -169,6 +179,7 @@ function QueueDialog({
   defaultDrive,
   drives,
   localDrives,
+  installedGames = [],
   onClose,
   simpleMode = true,
   onXboxConfigured,
@@ -181,6 +192,21 @@ function QueueDialog({
   const [result,  setResult]    = useState<any>(null);
   const [discRec, setDiscRec]   = useState<string | null>(null);
   const selectedDest = destinations.find((d) => d.value === destValue) ?? destinations[0];
+
+  // Check if this game is already installed on the selected destination drive
+  const isAlreadyOnSelectedDest = useMemo(() => {
+    if (!selectedDest || selectedDest.kind !== "local" || !selectedDest.rootPath || !installedGames || installedGames.length === 0) {
+      return false;
+    }
+    const destLetter = selectedDest.rootPath.replace(/[/\\]+$/, "").toUpperCase();
+    const gameKey = getComparisonKey(getBaseTitle(game));
+    return installedGames.some((g) => {
+      const gDrive = g.drive.replace(/[/\\]+$/, "").toUpperCase();
+      const matchDrive = gDrive.startsWith(destLetter) || destLetter.startsWith(gDrive);
+      if (!matchDrive) return false;
+      return getComparisonKey(g.name) === gameKey || (g.titleId && game.toUpperCase().includes(g.titleId));
+    });
+  }, [installedGames, selectedDest, game]);
 
   const [destType, setDestType] = useState<"local" | "ftp">("local");
   const [showDiscovery, setShowDiscovery] = useState(false);
@@ -401,6 +427,14 @@ function QueueDialog({
           </div>
         )}
 
+        {/* Already downloaded notice */}
+        {isAlreadyOnSelectedDest && !queued && (
+          <div className="flex items-center gap-2 p-2.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] leading-tight">
+            <Check className="h-4 w-4 shrink-0 stroke-[2.5]" />
+            <span>Este jogo já está gravado nesta unidade ({selectedDest.label ? `${selectedDest.label} - ${selectedDest.rootPath}` : selectedDest.rootPath}). Você pode reinstalá-lo se desejar.</span>
+          </div>
+        )}
+
         {/* Result message */}
         {result && (
           <p className={cn(
@@ -424,7 +458,9 @@ function QueueDialog({
           >
             {queuing
               ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Enfileirando…</>
-              : <><Download className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila</>
+              : isAlreadyOnSelectedDest
+                ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila novamente</>
+                : <><Download className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila</>
             }
           </Button>
         ) : (
@@ -817,9 +853,11 @@ function useIntersectionObserver<T extends HTMLElement>(): [React.RefObject<T | 
 interface LocalGameCardProps {
   name: string;
   onClick: () => void;
+  isDownloaded?: boolean;
+  installedInfo?: InstalledGame;
 }
 
-function LocalGameCard({ name, onClick }: LocalGameCardProps) {
+function LocalGameCard({ name, onClick, isDownloaded, installedInfo }: LocalGameCardProps) {
   const [cover, setCover] = useState<string | null | undefined>(undefined);
   const [ref, isVisible] = useIntersectionObserver<HTMLButtonElement>();
 
@@ -849,7 +887,7 @@ function LocalGameCard({ name, onClick }: LocalGameCardProps) {
     <button
       ref={ref}
       onClick={onClick}
-      className="group flex flex-col gap-1 rounded-lg p-1.5 hover:bg-accent/40 active:bg-accent transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="group flex flex-col gap-1 rounded-lg p-1.5 hover:bg-accent/40 active:bg-accent transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring text-left"
     >
       <div
         className="relative w-full rounded-lg overflow-hidden border border-border bg-muted"
@@ -869,13 +907,43 @@ function LocalGameCard({ name, onClick }: LocalGameCardProps) {
             <Gamepad2 className="h-7 w-7 text-border" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-2">
-          <Download className="h-4 w-4 text-white/80" />
+
+        {/* Downloaded badge in top-right */}
+        {isDownloaded && (
+          <div className="absolute top-1 right-1 z-10 pointer-events-none">
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-600 text-white shadow-sm">
+              <Check className="h-2.5 w-2.5 stroke-[3]" /> Baixado
+            </span>
+          </div>
+        )}
+
+        {/* Format badge in bottom-left if local */}
+        {installedInfo && (
+          <div className="absolute bottom-1 left-1 z-10 pointer-events-none">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-black/75 text-white/90 uppercase backdrop-blur-xs">
+              {installedInfo.format}
+            </span>
+          </div>
+        )}
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-2">
+          {isDownloaded ? (
+            <span className="flex items-center gap-1 text-[10px] text-emerald-300 font-semibold px-2 py-0.5 rounded bg-black/60 backdrop-blur-xs">
+              <Check className="h-3 w-3 stroke-[3]" /> Baixado
+            </span>
+          ) : (
+            <Download className="h-4 w-4 text-white/80" />
+          )}
         </div>
       </div>
-      <span className="text-[10px] leading-tight text-foreground/80 group-hover:text-foreground text-center line-clamp-2 min-h-[2lh]">
+      <span className="text-[10px] leading-tight text-foreground/80 group-hover:text-foreground text-center line-clamp-2 min-h-[2lh] w-full">
         {name}
       </span>
+      {installedInfo && (
+        <span className="text-[9px] text-muted-foreground/70 text-center truncate px-0.5 -mt-1 w-full">
+          {installedInfo.drive}
+        </span>
+      )}
     </button>
   );
 }
@@ -899,11 +967,13 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
   const [cover,        setCover]        = useState<string | null | undefined>(undefined);
   const [drives,       setDrives]       = useState<string[]>([]);
   const [localDrives,  setLocalDrives]  = useState<LocalDrive[]>([]);
+  const [installedGames, setInstalledGames] = useState<InstalledGame[]>([]);
   const filterRef = useRef<HTMLInputElement>(null);
 
   const isLocal = source === "local";
 
-  // Load local prepared drives (primary), plus default + FTP drives (secondary).
+  // Load local prepared drives (primary), plus default + FTP drives (secondary),
+  // and scan for installed games on USB drives/local storage.
   const refreshDestinations = useCallback(() => {
     window.godsendApi.toolsBadAvatarListDrives().then((r: any) => {
       const list = (r?.ok && Array.isArray(r.drives)) ? r.drives : [];
@@ -913,6 +983,13 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
         freeBytes: typeof d.freeBytes === "number" ? d.freeBytes : undefined,
       })).filter((d: LocalDrive) => d.rootPath));
     }).catch(() => setLocalDrives([]));
+
+    window.godsendApi.browseGetInstalledGames().then((r: any) => {
+      if (r?.ok && Array.isArray(r.games)) {
+        setInstalledGames(r.games);
+      }
+    }).catch(() => setInstalledGames([]));
+
     window.godsendApi.getDefaultXboxDrive().then((d: string) => {
       if (d) setDefaultDrive(d);
     }).catch(() => {});
@@ -939,11 +1016,21 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
     setGames([]);
     setFilter("");
     setCacheProgress(null);
+
+    let localInstalled: InstalledGame[] = [];
+    try {
+      const instRes = await window.godsendApi.browseGetInstalledGames();
+      if (instRes?.ok && Array.isArray(instRes.games)) {
+        localInstalled = instRes.games;
+        setInstalledGames(instRes.games);
+      }
+    } catch {}
+
     const browsePayload = isLocal
       ? { platform: "local", source: "local" }
       : { platform, source };
     const r = await window.godsendApi.browseGetGames(browsePayload);
-    if (!r.ok) {
+    if (!r.ok && !isLocal) {
       setStatus("error");
       return;
     }
@@ -952,7 +1039,19 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
       setStatus("cache-building");
       return;
     }
-    const list = Array.isArray(r.games) ? r.games : [];
+    const backendList = Array.isArray(r.games) ? r.games : [];
+    let list: string[] = backendList;
+    if (isLocal) {
+      const combined = new Set<string>();
+      for (const g of localInstalled) {
+        combined.add(g.name);
+      }
+      for (const b of backendList) {
+        combined.add(b);
+      }
+      list = Array.from(combined).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    }
+
     setGames(list);
     setStatus(list.length === 0 ? "empty" : "ready");
     setTimeout(() => filterRef.current?.focus(), 50);
@@ -1005,6 +1104,32 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
       return item.versions.some((v) => v.toLowerCase().includes(f));
     });
   }, [uniqueBaseTitles, filter]);
+
+  const { installedComparisonKeys, installedGameMap } = useMemo(() => {
+    const keys = new Set<string>();
+    const byKey = new Map<string, InstalledGame>();
+    for (const g of installedGames) {
+      const k = getComparisonKey(g.name);
+      keys.add(k);
+      byKey.set(k, g);
+      if (g.titleId) {
+        const tid = g.titleId.toUpperCase();
+        keys.add(tid);
+        byKey.set(tid, g);
+      }
+    }
+    return { installedComparisonKeys: keys, installedGameMap: byKey };
+  }, [installedGames]);
+
+  const getInstalledInfo = useCallback((item: { displayTitle: string; versions: string[] }) => {
+    const baseKey = getComparisonKey(item.displayTitle);
+    if (installedGameMap.has(baseKey)) return installedGameMap.get(baseKey);
+    for (const v of item.versions) {
+      const vk = getComparisonKey(v);
+      if (installedGameMap.has(vk)) return installedGameMap.get(vk);
+    }
+    return undefined;
+  }, [installedGameMap]);
 
   function handleGameClick(item: { displayTitle: string; versions: string[] }) {
     if (item.versions.length === 1) {
@@ -1099,10 +1224,9 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
           {isLocal ? (
             <>
               <HardDrive className="h-7 w-7 text-muted-foreground" />
-              <p className="text-[13px]">Nenhuma ISO encontrada na pasta Transfer.</p>
-              <p className="text-[11px] text-muted-foreground/60 max-w-[260px] text-center">
-                Coloque arquivos ISO do Xbox 360 na sua pasta Transfer para vê-los aqui.
-                O caminho da pasta pode ser alterado em Configurações.
+              <p className="text-[13px]">Nenhum jogo encontrado no pendrive ou na pasta Transfer.</p>
+              <p className="text-[11px] text-muted-foreground/60 max-w-[280px] text-center">
+                Conecte um pendrive preparado com jogos na pasta Games ou adicione arquivos ISO à pasta Transfer para vê-los aqui.
               </p>
             </>
           ) : (
@@ -1167,13 +1291,18 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
                 className="grid gap-2 pb-4 pr-1"
                 style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))" }}
               >
-                {filteredBaseTitles.map((item) => (
-                  <LocalGameCard
-                    key={item.displayTitle}
-                    name={item.displayTitle}
-                    onClick={() => handleGameClick(item)}
-                  />
-                ))}
+                {filteredBaseTitles.map((item) => {
+                  const inst = getInstalledInfo(item);
+                  return (
+                    <LocalGameCard
+                      key={item.displayTitle}
+                      name={item.displayTitle}
+                      onClick={() => handleGameClick(item)}
+                      isDownloaded={Boolean(inst)}
+                      installedInfo={isLocal ? inst : undefined}
+                    />
+                  );
+                })}
               </div>
             )}
           </ScrollArea>
@@ -1203,6 +1332,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
           defaultDrive={defaultDrive}
           drives={drives}
           localDrives={localDrives}
+          installedGames={installedGames}
           onClose={closeDialog}
           simpleMode={simpleMode}
           onXboxConfigured={refreshDestinations}

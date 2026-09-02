@@ -201,14 +201,15 @@ func (a *App) IsGameJobCancelled(gameName string) bool {
 	return !queued || current.(uint64) != active.(uint64)
 }
 
-// LookupInstallType returns the install type for a game: "god", "content", or "xex".
+// LookupInstallType returns the install type for a game: "xex", "god", or "content".
+// Defaults to "xex" for ISO and archive conversions unless specified otherwise.
 func (a *App) LookupInstallType(gameName string) string {
-	it := "god"
+	it := "xex"
 	if v, ok := a.InstallTypeMap.Load(gameName); ok {
 		it = strings.ToLower(strings.TrimSpace(v.(string)))
 	}
 	if it != "god" && it != "content" && it != "xex" {
-		return "god"
+		return "xex"
 	}
 	return it
 }

@@ -67,6 +67,11 @@ func TestFindEntryMatchesGOTYAliasAndPrefersDiscOne(t *testing.T) {
 	if !strings.Contains(entry.FileName, "Disc 1") {
 		t.Fatalf("expected deterministic Disc 1 fallback, got %q", entry.FileName)
 	}
+
+	discTwo, ok := svc.FindEntry("Batman Arkham City GOTY (Disc 2)", "xbox360")
+	if !ok || !strings.Contains(discTwo.FileName, "Disc 2") {
+		t.Fatalf("expected requested Disc 2 variant, got %#v, %v", discTwo, ok)
+	}
 }
 
 func TestLoadCacheFromDiskMigratesSchema2(t *testing.T) {

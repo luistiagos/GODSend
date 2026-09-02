@@ -2489,7 +2489,10 @@ interface LibraryPageProps {
   ftpStatus: string;
   libraryLoading: boolean;
   queueJobs: any[];
+  usbGamesCount?: number;
   onReconnect: () => void;
+  onNavigateHome?: () => void;
+  onNavigateUsbGames?: () => void;
   onNavigateQueue: () => void;
   onNavigateBrowse: () => void;
   onNavigateSettings: () => void;
@@ -2497,6 +2500,7 @@ interface LibraryPageProps {
   onNavigateIso2Xex: () => void;
   onNavigateFtpManager: () => void;
   onNavigateBadAvatarUsb: () => void;
+  simpleMode?: boolean;
 }
 
 export default function LibraryPage({
@@ -2511,7 +2515,10 @@ export default function LibraryPage({
   ftpStatus,
   libraryLoading,
   queueJobs,
+  usbGamesCount,
   onReconnect,
+  onNavigateHome,
+  onNavigateUsbGames,
   onNavigateQueue,
   onNavigateBrowse,
   onNavigateSettings,
@@ -2519,6 +2526,7 @@ export default function LibraryPage({
   onNavigateIso2Xex,
   onNavigateFtpManager,
   onNavigateBadAvatarUsb,
+  simpleMode = true,
 }: LibraryPageProps) {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [rxeaCovers, setRxeaCovers] = useState<Record<string, string>>({});
@@ -2667,8 +2675,11 @@ export default function LibraryPage({
               libraryAvailable={true}
               libraryLoading={libraryLoading}
               queueJobs={queueJobs}
+              usbGamesCount={usbGamesCount}
               onReconnect={onReconnect}
               onLibraryToggle={onToggle}
+              onNavigateHome={onNavigateHome}
+              onNavigateUsbGames={onNavigateUsbGames}
               onNavigateQueue={onNavigateQueue}
               onNavigateBrowse={onNavigateBrowse}
               onNavigateSettings={onNavigateSettings}
@@ -2676,6 +2687,7 @@ export default function LibraryPage({
               onNavigateIso2Xex={onNavigateIso2Xex}
               onNavigateFtpManager={onNavigateFtpManager}
               onNavigateBadAvatarUsb={onNavigateBadAvatarUsb}
+              simpleMode={simpleMode}
             />
           </div>
         </div>

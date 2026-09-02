@@ -369,6 +369,10 @@ func (d *Deps) handleRegister(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		jsonError(w, 400, "Missing game parameter")
 		return
 	}
+	if reason := models.UnsupportedMultiDiscReason(gameName); reason != "" {
+		jsonError(w, 422, reason)
+		return
+	}
 	if mode == "local" {
 		// Local writes target a mounted drive on this PC; no console IP needed.
 		if localRoot == "" {
@@ -426,6 +430,10 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	source := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source"))) // "minerva", "ia", or ""
 	if gameName == "" {
 		jsonError(w, 400, "Missing game parameter")
+		return
+	}
+	if reason := models.UnsupportedMultiDiscReason(gameName); reason != "" {
+		jsonError(w, 422, reason)
 		return
 	}
 	if platform == "" {
@@ -637,15 +645,32 @@ func (d *Deps) handleDiscInfo(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			jsonError(w, 500, fmt.Sprintf("Disc probe failed: %v", err))
 			return
 		}
-		rec := models.DiscCompat(info.TitleID, info.DiscNumber)
+		compatTitleID := info.TitleID
+		if guessed := models.GuessTitleIDFromMultiDiscName(gameName); (compatTitleID == 0 || models.IsContentDiscPlaceholderTitleID(compatTitleID)) && guessed != 0 {
+			compatTitleID = guessed
+		}
+		compatDiscNumber := info.DiscNumber
+		if compatDiscNumber == 0 {
+			compatDiscNumber = models.DiscNumberFromName(gameName)
+		}
+		rec := models.DiscCompat(compatTitleID, compatDiscNumber)
+		layout, err := utils.ProbeISOInstallLayout(iso, info)
+		if err != nil {
+			jsonError(w, 500, fmt.Sprintf("Disc layout probe failed: %v", err))
+			return
+		}
+		if layout.HasInstallableContent && !(compatTitleID == 0x555308B6 && compatDiscNumber == 2) {
+			rec = models.DiscCompatRec{InstallType: "content", Notes: "ISO contem pacotes STFS de instalacao; estrutura detectada no proprio disco"}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"disc_number":    info.DiscNumber,
-			"disc_count":     info.DiscCount,
-			"title_id":       fmt.Sprintf("%08X", info.TitleID),
-			"recommendation": rec.InstallType,
-			"notes":          rec.Notes,
-			"probed":         true,
+			"disc_number":      info.DiscNumber,
+			"disc_count":       info.DiscCount,
+			"title_id":         fmt.Sprintf("%08X", info.TitleID),
+			"recommendation":   rec.InstallType,
+			"notes":            rec.Notes,
+			"probed":           true,
+			"content_title_id": fmt.Sprintf("%08X", layout.ContentTitleID),
 		})
 		return
 	}
@@ -655,7 +680,8 @@ func (d *Deps) handleDiscInfo(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	tid := models.GuessTitleIDFromMultiDiscName(gameName)
-	rec := models.DiscCompat(tid, 2)
+	discNumber := models.DiscNumberFromName(gameName)
+	rec := models.DiscCompat(tid, discNumber)
 	note := rec.Notes
 	if tid == 0 {
 		note = note + " (Title ID unknown from name — optional: copy ISO to PC Transfer for an exact probe)"
@@ -664,7 +690,7 @@ func (d *Deps) handleDiscInfo(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"disc_number":    2,
+		"disc_number":    discNumber,
 		"disc_count":     0,
 		"title_id":       fmt.Sprintf("%08X", tid),
 		"recommendation": rec.InstallType,

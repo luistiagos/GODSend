@@ -10,7 +10,9 @@
  * All FTP operations are proxied through the Go backend for centralised tracking.
  */
 
-import { dialog, BrowserWindow, IpcMain } from "electron";
+import fs from "fs";
+import path from "path";
+import { dialog, BrowserWindow, IpcMain, shell } from "electron";
 
 import { getConfiguredXboxIP } from "../services/settingsService";
 import { addOutputLine } from "../services/backendClient";
@@ -19,6 +21,39 @@ import { getMainWindow } from "../app/window";
 import { doAuroraLibrarySync } from "../services/autoSyncService";
 
 export function register(ipcMain: IpcMain): void {
+
+  // ── Open folder in Explorer / Finder ────────────────────────────────────────
+  ipcMain.handle("tools:open-folder", async (_event, folderPath: string) => {
+    if (!folderPath) return { ok: false, error: "Caminho não fornecido" };
+    try {
+      if (fs.existsSync(folderPath)) {
+        await shell.openPath(folderPath);
+        return { ok: true };
+      }
+      return { ok: false, error: "Caminho não encontrado" };
+    } catch (err: any) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── Delete local game folder from USB / disk safely ─────────────────────────
+  ipcMain.handle("tools:delete-local-game", async (_event, gamePath: string) => {
+    if (!gamePath || typeof gamePath !== "string") return { ok: false, error: "Caminho inválido" };
+    const cleaned = path.normalize(gamePath);
+    // Disallow deleting root drive
+    if (cleaned.length <= 4 || /^[A-Za-z]:\\?$/.test(cleaned)) {
+      return { ok: false, error: "Operação não permitida na raiz da unidade" };
+    }
+    try {
+      if (fs.existsSync(cleaned)) {
+        fs.rmSync(cleaned, { recursive: true, force: true });
+        return { ok: true };
+      }
+      return { ok: false, error: "Pasta não encontrada" };
+    } catch (err: any) {
+      return { ok: false, error: err.message };
+    }
+  });
 
   // ── File pickers ────────────────────────────────────────────────────────────
   ipcMain.handle("tools:choose-iso-files", async () => {
