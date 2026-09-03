@@ -29,6 +29,7 @@ export interface GodsendConfig {
   providerPriority?: string[];
   errorReporting?: boolean;
   errorReportingEndpoint?: string;
+  minDownloadSpeed?: string;
   autoCheckUpdates?: boolean;
   lastUpdateCheck?: number;
   skippedUpdateVersion?: string;
@@ -212,6 +213,11 @@ export function getConfiguredCustomXexPath(): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+export function getConfiguredMinDownloadSpeed(): string {
+  const v = readConfig().minDownloadSpeed;
+  return typeof v === "string" ? v.trim() : "";
+}
+
 export function buildGodsendEnv(writableRoot: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, GODSEND_HOME: writableRoot };
   const torrentTemp = getConfiguredTorrentTempPath();
@@ -239,6 +245,9 @@ export function buildGodsendEnv(writableRoot: string): NodeJS.ProcessEnv {
   if (customGodPath) env.GODSEND_CUSTOM_GOD_PATH = customGodPath;
   const customXexPath = getConfiguredCustomXexPath();
   if (customXexPath) env.GODSEND_CUSTOM_XEX_PATH = customXexPath;
+
+  const minSpeed = getConfiguredMinDownloadSpeed();
+  if (minSpeed) env.GODSEND_MIN_DOWNLOAD_SPEED = minSpeed;
 
   const errorReporting = getConfiguredErrorReporting();
   env.GODSEND_ERROR_REPORTING = errorReporting ? "1" : "0";

@@ -211,4 +211,21 @@ export function register(ipcMain: IpcMain): void {
       req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false }); });
     });
   });
+
+  ipcMain.handle("xbox:retry-queue-item", (_event, game: string) => {
+    return new Promise((resolve) => {
+      const port = getConfiguredServerPort();
+      const enc  = encodeURIComponent(game);
+      const req  = http.get(`http://localhost:${port}/queue/retry?game=${enc}`, (res) => {
+        let data = "";
+        res.on("data",  (chunk) => { data += chunk; });
+        res.on("end", () => {
+          try { resolve({ ok: true, ...JSON.parse(data) }); }
+          catch { resolve({ ok: true, data }); }
+        });
+      });
+      req.on("error", (err: Error) => resolve({ ok: false, error: err.message }));
+      req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false }); });
+    });
+  });
 }

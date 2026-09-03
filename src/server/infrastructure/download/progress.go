@@ -17,6 +17,7 @@ type ProgressWriter struct {
 	LastLog       time.Time // logStatus cadence (500 ms — feeds Lua progress)
 	LastConsole   time.Time // logf cadence (15 s — feeds Electron terminal)
 	StartTime     time.Time
+	FirstByteTime time.Time
 	LowSpeedStart time.Time
 	App           *app.App
 }
@@ -28,23 +29,29 @@ func (pw *ProgressWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	pw.Written += int64(n)
 	now := time.Now()
+	if n > 0 && pw.FirstByteTime.IsZero() {
+		pw.FirstByteTime = now
+	}
 
-	// Speed monitoring: check if download speed is below threshold (1 MB/s)
-	if now.Sub(pw.StartTime) > app.LowSpeedGracePeriod && pw.Total > 0 {
+	// Speed monitoring: check if download speed is below threshold
+	threshold := pw.App.MinDownloadSpeedThreshold
+	if threshold > 0 && !pw.App.IsSpeedCheckBypassed(pw.GameName) && !pw.FirstByteTime.IsZero() && now.Sub(pw.FirstByteTime) > app.LowSpeedGracePeriod && pw.Total > 0 {
 		pct := float64(pw.Written) / float64(pw.Total) * 100
 		if pct < 95 {
-			elapsed := now.Sub(pw.StartTime).Seconds()
-			speedBytesPerSec := float64(pw.Written-pw.ResumeOffset) / elapsed
-			if speedBytesPerSec < float64(app.MinDownloadSpeedThreshold) {
-				if pw.LowSpeedStart.IsZero() {
-					pw.LowSpeedStart = now
-				} else if now.Sub(pw.LowSpeedStart) >= app.LowSpeedSustainedDuration {
-					pw.App.Logf("WARN [%s]: Download speed sustained below 1.0 MB/s (%.2f MB/s) — aborting for provider switch",
-						pw.GameName, speedBytesPerSec/1048576)
-					return 0, app.ErrDownloadTooSlow
+			activeElapsed := now.Sub(pw.FirstByteTime).Seconds()
+			if activeElapsed >= 1.0 {
+				speedBytesPerSec := float64(pw.Written-pw.ResumeOffset) / activeElapsed
+				if speedBytesPerSec < float64(threshold) {
+					if pw.LowSpeedStart.IsZero() {
+						pw.LowSpeedStart = now
+					} else if now.Sub(pw.LowSpeedStart) >= app.LowSpeedSustainedDuration {
+						pw.App.Logf("WARN [%s]: Download speed sustained below threshold (%.2f MB/s < %.2f MB/s) — aborting for provider switch",
+							pw.GameName, speedBytesPerSec/1048576, float64(threshold)/1048576)
+						return 0, app.ErrDownloadTooSlow
+					}
+				} else {
+					pw.LowSpeedStart = time.Time{}
 				}
-			} else {
-				pw.LowSpeedStart = time.Time{}
 			}
 		}
 	}

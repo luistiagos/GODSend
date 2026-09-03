@@ -9,6 +9,37 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.61] - 2026-09-03
+
+### Fixed
+- **Filtro Defensivo contra Corrupção no Scanner de Jogos Locais/USB (`localGameScannerService.ts`, `localGameScannerService.test.cjs`)**:
+  - Implementada função `isCorruptedFolderName` para detectar e ignorar diretórios e arquivos contendo caracteres de controle ASCII (`\x00` a `\x1F`, `\x7F` a `\x9F`), caracteres de substituição Unicode (`\uFFFD`) e nomes vazios resultantes de corrupção do sistema de arquivos FAT32.
+  - Validação estrutural estrita: diretórios escaneados só são reconhecidos como jogos legítimos se possuírem assinatura de executável (`default.xex`), estrutura de contêiner GOD (`00007000`, `000D0000`, `.data`), contêiner STFS LIVE/PIRS válido com Title ID, ou manifesto `godsend.ini`.
+  - Eliminado o fallback permissivo que rotulava qualquer pasta corrompida ou vazia de 0 MB como formato GOD com caracteres ilegíveis na aba *Jogos Instalados*.
+
+## [2.12.60] - 2026-09-03
+
+### Added
+- **Botão de Retry (Tentar Novamente) na Fila de Tarefas (`QueuePage.tsx`, `handlers.go`, `router.go`, `browseHandlers.ts`, `preload.ts`)**:
+  - Adicionado botão de Retry com ícone `RotateCcw` e destaque visual nas tarefas da fila em estado de erro, permitindo ao usuário reiniciar ou retomar instantaneamente o processo a partir da interface.
+  - Criado endpoint HTTP `GET/POST /queue/retry?game=GameName` no backend Go, que limpa o status de erro e reexecuta o pipeline reaproveitando os arquivos baixados mantidos em cache.
+  - Implementada revalidação automática de identidade do pendrive/disco local (`PrepareLocalDevice`) ao tentar novamente caso o dispositivo USB tenha sido reconectado pelo usuário.
+  - Adicionado handler IPC `xbox:retry-queue-item` e exposto `window.godsendApi.retryQueueItem` no preload do Electron.
+
+### Fixed
+- **Resiliência a Travas Temporárias na Renomeação Atômica Local (`local_resilient.go`)**:
+  - Implementada micro-retentativa defensiva com backoff em `copyLocalEntry` ao renomear arquivos recém-gravados (`os.Rename`), prevenindo erros transitórios de travamento causados por antivírus, Windows Defender ou indexadores de arquivo.
+
+## [2.12.59] - 2026-09-02
+
+### Fixed
+- **Resiliência de Downloads e Prevenção de Falhas por Velocidade Baixa (`fallback.go`, `config.go`, `progress.go`, `ia.go`, `torrent.go`, `settingsService.ts`)**:
+  - **Amortecimento de Carência e Inicialização:** Aumentado o período de carência de monitoramento de velocidade de 15s para 45s (`LowSpeedGracePeriod`) e duração sustentada de 10s para 20s (`LowSpeedSustainedDuration`), impedindo falsos positivos causados por conexões em estágio inicial (handshakes TLS, redirecionamentos de CDN do HuggingFace e alocação de faixas).
+  - **Medição Apenas Após Primeiro Byte:** Adicionado `FirstByteTime` no `ProgressWriter` e no download chunked do Internet Archive para que o tempo decorrido seja medido apenas após o início da transferência efetiva de dados, evitando divisão prematura por tempo de espera de resposta HTTP.
+  - **Fallback Não-Destrutivo com Retomada Irrestrita:** Caso todos os provedores operem abaixo da velocidade esperada ou ocorra timeout de velocidade, o pipeline de fallback não descarta o jogo; ele seleciona a fonte preferencial e retoma o download aproveitando os checkpoints existentes (`.part`/markers) com monitoramento de velocidade liberado (`SetSpeedCheckBypass`), garantindo a conclusão de downloads em conexões mais lentas ou servidores congestionados.
+  - **Configuração de Velocidade Mínima Personalizável (`GODSEND_MIN_DOWNLOAD_SPEED`):** Adicionado suporte para configuração da taxa mínima ou desativação completa (`0`) via variável de ambiente e configuração no Electron.
+  - **Redução do Threshold Padrão:** Ajustado o threshold padrão de velocidade mínima de 1.0 MB/s para 512 KB/s (`MinDownloadSpeedThreshold = 512 KB/s`).
+
 ## [2.12.58] - 2026-09-02
 
 ### Performance

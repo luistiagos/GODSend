@@ -358,6 +358,7 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 		defer ticker.Stop()
 		lastConsole := time.Time{}
 		var lowSpeedStart time.Time
+		var firstDataTime time.Time
 		for {
 			select {
 			case <-progressDone:
@@ -377,6 +378,9 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 					elapsed = 0.001
 				}
 				sessionWritten := w - initialWritten
+				if sessionWritten > 0 && firstDataTime.IsZero() {
+					firstDataTime = now
+				}
 				speedMBs := float64(sessionWritten) / elapsed / 1048576
 				wMB := float64(w) / 1048576
 				tMB := float64(totalSize) / 1048576
@@ -394,23 +398,27 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 					lastConsole = now
 				}
 
-				// Speed monitoring: check if download speed is sustained below 1.0 MB/s
-				if now.Sub(startTime) > app.LowSpeedGracePeriod && pct < 95 {
-					currentSpeedBytesPerSec := float64(sessionWritten) / elapsed
-					if currentSpeedBytesPerSec < float64(app.MinDownloadSpeedThreshold) {
-						if lowSpeedStart.IsZero() {
-							lowSpeedStart = now
-						} else if now.Sub(lowSpeedStart) >= app.LowSpeedSustainedDuration {
-							s.App.Logf("WARN [%s]: Download speed sustained below 1.0 MB/s (%.2f MB/s) — aborting for provider switch",
-								name, speedMBs)
-							lowSpeedErrMu.Lock()
-							lowSpeedErr = app.ErrDownloadTooSlow
-							lowSpeedErrMu.Unlock()
-							cancel()
-							return
+				// Speed monitoring: check if download speed is sustained below threshold
+				threshold := s.App.MinDownloadSpeedThreshold
+				if threshold > 0 && !s.App.IsSpeedCheckBypassed(name) && !firstDataTime.IsZero() && now.Sub(firstDataTime) > app.LowSpeedGracePeriod && pct < 95 {
+					activeElapsed := now.Sub(firstDataTime).Seconds()
+					if activeElapsed >= 1.0 {
+						currentSpeedBytesPerSec := float64(sessionWritten) / activeElapsed
+						if currentSpeedBytesPerSec < float64(threshold) {
+							if lowSpeedStart.IsZero() {
+								lowSpeedStart = now
+							} else if now.Sub(lowSpeedStart) >= app.LowSpeedSustainedDuration {
+								s.App.Logf("WARN [%s]: Download speed sustained below threshold (%.2f MB/s < %.2f MB/s) — aborting for provider switch",
+									name, speedMBs, float64(threshold)/1048576)
+								lowSpeedErrMu.Lock()
+								lowSpeedErr = app.ErrDownloadTooSlow
+								lowSpeedErrMu.Unlock()
+								cancel()
+								return
+							}
+						} else {
+							lowSpeedStart = time.Time{}
 						}
-					} else {
-						lowSpeedStart = time.Time{}
 					}
 				}
 			}

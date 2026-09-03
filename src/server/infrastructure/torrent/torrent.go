@@ -558,12 +558,14 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 				speedBps := parseSpeedBytesPerSec(dl)
 				var pctVal int
 				fmt.Sscanf(pct, "%d", &pctVal)
-				if now.Sub(startTime) > app.LowSpeedGracePeriod && pctVal < 95 {
-					if speedBps < float64(app.MinDownloadSpeedThreshold) {
+				threshold := s.App.MinDownloadSpeedThreshold
+				if threshold > 0 && !s.App.IsSpeedCheckBypassed(gameName) && now.Sub(startTime) > app.LowSpeedGracePeriod && pctVal < 95 {
+					if speedBps < float64(threshold) {
 						if lowSpeedStart.IsZero() {
 							lowSpeedStart = now
 						} else if now.Sub(lowSpeedStart) >= app.LowSpeedSustainedDuration {
-							s.App.Logf("WARN [%s]: Minerva torrent speed sustained below 1.0 MB/s (%s/s) — aborting for provider switch", gameName, dl)
+							s.App.Logf("WARN [%s]: Minerva torrent speed sustained below threshold (%s/s < %.2f MB/s) — aborting for provider switch",
+								gameName, dl, float64(threshold)/1048576)
 							tailMu.Lock()
 							abortError = app.ErrDownloadTooSlow
 							tailMu.Unlock()

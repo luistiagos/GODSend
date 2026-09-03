@@ -358,11 +358,17 @@ func copyLocalEntry(entry *localCopyEntry, dst string, onProgress func(bytesCopi
 		}
 	}
 
-	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
-		_ = os.Remove(partial)
-		return err
+	var renameErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		_ = os.Remove(dst)
+		renameErr = os.Rename(partial, dst)
+		if renameErr == nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return os.Rename(partial, dst)
+	_ = os.Remove(partial)
+	return renameErr
 }
 
 // copyTreeLocal resumes at file granularity. Completed files are hash checked

@@ -777,6 +777,103 @@ func (d *Deps) handleQueueRemove(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	jsonSuccess(w, map[string]string{"status": "removed", "game": game})
 }
 
+// handleQueueRetry re-triggers a failed or interrupted job in the queue.
+func (d *Deps) handleQueueRetry(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if r.Method != stdhttp.MethodPost && r.Method != stdhttp.MethodGet {
+		jsonError(w, 405, "Use GET or POST /queue/retry?game=GameName")
+		return
+	}
+	game := local.NormalizeClientGameName(r.URL.Query().Get("game"))
+	if game == "" {
+		jsonError(w, 400, "Missing game parameter")
+		return
+	}
+
+	d.App.SuppressedJobs.Delete(game)
+
+	var conn models.XboxConnection
+	hasConn := false
+	if v, ok := d.App.XboxConnections.Load(game); ok {
+		conn = v.(models.XboxConnection)
+		hasConn = true
+	}
+
+	if hasConn && conn.Mode == "local" && conn.LocalRoot != "" {
+		if id, err := pipelineService.PrepareLocalDevice(conn.LocalRoot); err == nil {
+			conn.LocalDeviceID = id
+			d.App.XboxConnections.Store(game, conn)
+		}
+	}
+
+	platform := "xbox360"
+	if hasConn && conn.Platform != "" {
+		platform = conn.Platform
+	}
+
+	installType := "god"
+	if it, ok := d.App.InstallTypeMap.Load(game); ok {
+		installType = it.(string)
+	} else {
+		d.App.InstallTypeMap.Store(game, installType)
+	}
+
+	// Delete from JobQueue so it can restart cleanly
+	d.App.JobQueue.Delete(game)
+
+	launcher := func(fn func()) {
+		jobToken := d.App.RegisterGameJob(game)
+		go func() {
+			if !d.App.AcquireGameJob(game, jobToken) {
+				return
+			}
+			defer d.App.ReleaseGameJob(game, jobToken)
+			defer func() {
+				if rec := recover(); rec != nil {
+					d.App.Logf("PANIC retrying %s: %v", game, rec)
+					buf := make([]byte, 4096)
+					n := runtime.Stack(buf, false)
+					d.App.Logf("STACK: %s", string(buf[:n]))
+					d.App.LogStatus(game, "Error", "Server crashed during processing")
+				}
+			}()
+			fn()
+		}()
+	}
+
+	// Check local ISO
+	if (platform == "xbox360" || platform == "xbox" || platform == "local") && d.Local != nil {
+		if iso := d.Local.FindLocalISO(game); iso != "" {
+			d.App.Logf("RETRY: Local ISO found for '%s'", game)
+			launcher(func() { d.Pipeline.ProcessLocalISO(game, iso) })
+			jsonSuccess(w, map[string]string{"status": "triggered", "source": "local", "game": game})
+			return
+		}
+	}
+
+	// ROM
+	if strings.HasPrefix(platform, "rom_") {
+		sysid := strings.TrimPrefix(platform, "rom_")
+		if _, ok := app.ROMSystems[sysid]; ok {
+			d.App.Logf("RETRY: ROM system %s for '%s'", sysid, game)
+			launcher(func() { d.Pipeline.ProcessROM(game, sysid) })
+			jsonSuccess(w, map[string]string{"status": "triggered", "source": "edgeemu", "game": game})
+			return
+		}
+	}
+
+	priorityParam := r.URL.Query().Get("priority")
+	var providers []string
+	if priorityParam != "" {
+		providers = strings.Split(priorityParam, ",")
+	} else {
+		providers = []string{"huggingface", "ia", "minerva"}
+	}
+
+	d.App.Logf("RETRY: Game fallback pipeline for '%s' (%s, installType=%s)", game, platform, installType)
+	launcher(func() { d.Pipeline.ProcessGameWithFallback(game, platform, providers) })
+	jsonSuccess(w, map[string]string{"status": "triggered", "source": "retry", "game": game})
+}
+
 func (d *Deps) handleDataStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	var activeJobs int
 	d.App.JobQueue.Range(func(k, v interface{}) bool {

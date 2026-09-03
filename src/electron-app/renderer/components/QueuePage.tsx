@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, Loader2, X, Upload, HardDrive } from "lucide-react";
+import { RefreshCw, Loader2, X, Upload, HardDrive, RotateCcw } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 
@@ -70,12 +70,15 @@ function sourceIcon(source: "pipeline" | "ftp") {
 interface JobRowProps {
   job: UnifiedJob;
   onRemove: (job: UnifiedJob) => void;
+  onRetry: (job: UnifiedJob) => void;
   removing: boolean;
+  retrying: boolean;
 }
 
-function JobRow({ job, onRemove, removing }: JobRowProps) {
+function JobRow({ job, onRemove, onRetry, removing, retrying }: JobRowProps) {
   const pct = job.progress;
   const isFinished = job.state === "Ready" || job.state === "Error";
+  const isError = job.state === "Error";
 
   return (
     <div className="flex items-start gap-2 py-2 border-b border-[#1e242e] last:border-0">
@@ -85,7 +88,7 @@ function JobRow({ job, onRemove, removing }: JobRowProps) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="text-[13px] font-medium text-foreground truncate">{job.name}</span>
-          <span className={cn("text-[11px] shrink-0", stateColor(job.state))}>{stateLabel(job.state)}</span>
+          <span className={cn("text-[11px] shrink-0 font-medium", stateColor(job.state))}>{stateLabel(job.state)}</span>
           {!isFinished && pct !== null && pct > 0 && (
             <span className="text-[11px] text-muted-foreground shrink-0">{pct}%</span>
           )}
@@ -111,12 +114,24 @@ function JobRow({ job, onRemove, removing }: JobRowProps) {
           </div>
         )}
       </div>
+      {isError && (
+        <Button
+          size="icon"
+          className="shrink-0 h-6 w-6 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10 border border-yellow-500/30"
+          title="Tentar novamente (repetir processo)"
+          aria-label="Tentar novamente"
+          disabled={retrying || removing}
+          onClick={() => onRetry(job)}
+        >
+          {retrying ? <Loader2 className="h-3 w-3 animate-spin text-yellow-400" /> : <RotateCcw className="h-3 w-3 text-yellow-400" />}
+        </Button>
+      )}
       <Button
         size="icon"
         className="shrink-0 h-6 w-6"
         title="Remover da fila"
         aria-label="Remover da fila"
-        disabled={removing}
+        disabled={removing || retrying}
         onClick={() => onRemove(job)}
       >
         {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
@@ -131,6 +146,7 @@ export default function QueuePage() {
   const [jobs, setJobs]           = useState<UnifiedJob[]>([]);
   const [loading, setLoading]     = useState(true);
   const [removing, setRemoving]   = useState<Record<string, boolean>>({});
+  const [retrying, setRetrying]   = useState<Record<string, boolean>>({});
 
   const fetchAll = useCallback(async () => {
     // Fetch both sources in parallel
@@ -206,6 +222,20 @@ export default function QueuePage() {
     }
   }
 
+  async function handleRetry(job: UnifiedJob) {
+    setRetrying((prev) => ({ ...prev, [job.key]: true }));
+    try {
+      if (job.source === "pipeline") {
+        await window.godsendApi.retryQueueItem(job.name);
+      }
+      await fetchAll();
+    } catch (err) {
+      console.error("Retry failed:", err);
+    } finally {
+      setRetrying((prev) => ({ ...prev, [job.key]: false }));
+    }
+  }
+
   const pipelineJobs   = jobs.filter(j => j.source === "pipeline");
   const ftpJobs        = jobs.filter(j => j.source === "ftp");
   const activeCount    = jobs.filter(j => j.state === "Processing" || j.state === "Queued").length;
@@ -253,7 +283,9 @@ export default function QueuePage() {
                 key={job.key}
                 job={job}
                 onRemove={handleRemove}
+                onRetry={handleRetry}
                 removing={!!removing[job.key]}
+                retrying={!!retrying[job.key]}
               />
             ))}
           </div>

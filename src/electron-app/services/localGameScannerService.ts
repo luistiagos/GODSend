@@ -85,12 +85,25 @@ function readGodsendIni(dirPath: string): { titleName?: string; titleId?: string
 }
 
 /**
+ * Checks whether a folder/file name contains corrupted characters or unprintable control codes.
+ */
+export function isCorruptedFolderName(name: string): boolean {
+  if (!name || typeof name !== "string") return true;
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return true;
+  // Non-printable control characters (0x00-0x1F, 0x7F-0x9F) or Unicode replacement character (\uFFFD)
+  if (/[\x00-\x1F\x7F-\x9F\uFFFD]/.test(name)) return true;
+  return false;
+}
+
+/**
  * Checks whether a folder has a standard GOD subfolder or any known Xbox content structure.
  */
 function hasGodOrContentSubfolder(dirPath: string): boolean {
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const entry of entries) {
+      if (isCorruptedFolderName(entry.name)) continue;
       const lower = entry.name.toLowerCase();
       if (entry.isDirectory()) {
         if (KNOWN_CONTENT_TYPES.has(entry.name.toUpperCase()) || lower.endsWith(".data")) {
@@ -117,7 +130,7 @@ function hasDefaultXex(dirPath: string): boolean {
     if (fs.existsSync(directCase)) return true;
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && !isCorruptedFolderName(entry.name)) {
         const subXex = path.join(dirPath, entry.name, "default.xex");
         if (fs.existsSync(subXex)) return true;
         const subXexCase = path.join(dirPath, entry.name, "Default.xex");
@@ -139,6 +152,7 @@ function parseGameFolder(
   driveLabel: string,
   nameMap?: Map<string, string>
 ): InstalledGameInfo | null {
+  if (isCorruptedFolderName(folderName)) return null;
   const lower = folderName.toLowerCase();
   if (SYSTEM_CONTAINER_NAMES.has(lower)) return null;
 
@@ -147,7 +161,10 @@ function parseGameFolder(
     const ini = readGodsendIni(fullPath);
     let titleName: string | undefined = ini?.titleName;
     let titleId: string | undefined = ini?.titleId;
-    let format: "god" | "xex" = ini?.type === "xex" ? "xex" : "god";
+    let format: "god" | "xex" | undefined = ini?.type === "xex" ? "xex" : ini?.type === "god" ? "god" : undefined;
+
+    const isDefaultXex = hasDefaultXex(fullPath);
+    const isGodSub = hasGodOrContentSubfolder(fullPath);
 
     // Pattern: "Game Name - 4D5307E6"
     const match = folderName.match(NAME_TITLE_ID_REGEX);
@@ -166,23 +183,12 @@ function parseGameFolder(
       try {
         const subs = fs.readdirSync(fullPath, { withFileTypes: true });
         for (const sub of subs) {
-          if (sub.isDirectory() && HEX_8_REGEX.test(sub.name)) {
+          if (sub.isDirectory() && !isCorruptedFolderName(sub.name) && HEX_8_REGEX.test(sub.name)) {
             titleId = sub.name.toUpperCase();
             break;
           }
         }
       } catch {}
-    }
-
-    // Detect format if not specified by godsend.ini
-    if (!ini?.type) {
-      if (hasDefaultXex(fullPath)) {
-        format = "xex";
-      } else if (hasGodOrContentSubfolder(fullPath)) {
-        format = "god";
-      } else {
-        format = "god";
-      }
     }
 
     // Probe STFS LIVE/PIRS header if Title ID is still unknown
@@ -195,6 +201,26 @@ function parseGameFolder(
       return null;
     }
 
+    // Determine format
+    if (!format) {
+      if (isDefaultXex) {
+        format = "xex";
+      } else if (isGodSub || titleId) {
+        format = "god";
+      }
+    }
+
+    // STRICT VALIDATION:
+    // If it has NO godsend.ini, NO default.xex, NO GOD/Content subfolders, and NO valid titleId/STFS container,
+    // then this is NOT an Xbox 360 game (it's a random, non-game, or corrupted folder).
+    if (!ini && !isDefaultXex && !isGodSub && !titleId) {
+      return null;
+    }
+
+    if (!format) {
+      format = "god";
+    }
+
     // Lookup name by Title ID if name is missing or is just the hex TitleID
     if ((!titleName || titleName === titleId) && titleId && nameMap) {
       const mapped = nameMap.get(titleId);
@@ -203,6 +229,10 @@ function parseGameFolder(
 
     if (!titleName) {
       titleName = folderName;
+    }
+
+    if (isCorruptedFolderName(titleName)) {
+      return null;
     }
 
     // Clean up scene/release names (e.g. "Gears.of.War.1.USA.X360-ZTM" -> "Gears of War 1")
@@ -220,6 +250,11 @@ function parseGameFolder(
     try {
       sizeBytes = getDirectorySizeBytes(fullPath);
     } catch {}
+
+    // Reject empty folders with 0 bytes that have no actual executable or valid ini
+    if (sizeBytes === 0 && !ini && !isDefaultXex && !isGodSub) {
+      return null;
+    }
 
     const localCoverUrl = findLocalCoverDataUrl(fullPath);
 
@@ -258,6 +293,7 @@ export function scanGamesDirectory(
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
+    if (isCorruptedFolderName(entry.name)) continue;
     const fullPath = path.join(gamesDir, entry.name);
     const game = parseGameFolder(fullPath, entry.name, driveLabel, nameMap);
     if (game) {
@@ -273,6 +309,7 @@ function getDirectorySizeBytes(dirPath: string): number {
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const entry of entries) {
+      if (isCorruptedFolderName(entry.name)) continue;
       const full = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
         total += getDirectorySizeBytes(full);
@@ -315,6 +352,7 @@ function probeStfsTitleId(dirPath: string, depth = 0): string | null {
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const entry of entries) {
+      if (isCorruptedFolderName(entry.name)) continue;
       const full = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
         const sub = probeStfsTitleId(full, depth + 1);
@@ -364,6 +402,7 @@ export function scanContentDirectory(
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
+    if (isCorruptedFolderName(entry.name)) continue;
     const tid = entry.name.toUpperCase();
     if (!HEX_8_REGEX.test(tid)) continue;
 
@@ -381,6 +420,7 @@ export function scanContentDirectory(
 
       let hasValidContent = false;
       for (const sub of subdirs) {
+        if (isCorruptedFolderName(sub.name)) continue;
         if (sub.isDirectory()) {
           const subUpper = sub.name.toUpperCase();
           if (KNOWN_CONTENT_TYPES.has(subUpper) || subUpper.startsWith("000")) {
@@ -402,9 +442,11 @@ export function scanContentDirectory(
       if (titleName === tid) {
         try {
           for (const sub of subdirs) {
+            if (isCorruptedFolderName(sub.name)) continue;
             if (sub.isDirectory()) {
               const files = fs.readdirSync(path.join(fullPath, sub.name), { withFileTypes: true });
               for (const f of files) {
+                if (isCorruptedFolderName(f.name)) continue;
                 if (f.isFile() && !/^[0-9A-F]{40}$/i.test(f.name) && !/^\d+$/.test(f.name) && !f.name.endsWith(".data")) {
                   titleName = f.name;
                   break;
@@ -415,6 +457,8 @@ export function scanContentDirectory(
           }
         } catch {}
       }
+
+      if (isCorruptedFolderName(titleName)) continue;
 
       let sizeBytes = 0;
       try {
@@ -452,9 +496,11 @@ export function scanIsoDirectory(isoDir: string, driveLabel: string): InstalledG
     const entries = fs.readdirSync(isoDir, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory()) continue;
+      if (isCorruptedFolderName(entry.name)) continue;
       const n = entry.name;
       if (n.toLowerCase().endsWith(".iso")) {
         const name = path.basename(n, path.extname(n));
+        if (isCorruptedFolderName(name)) continue;
         games.push({
           name,
           path: path.join(isoDir, n),
@@ -523,6 +569,7 @@ function scanDriveRoot(
     const rootEntries = fs.readdirSync(driveRoot, { withFileTypes: true });
     for (const entry of rootEntries) {
       if (!entry.isDirectory()) continue;
+      if (isCorruptedFolderName(entry.name)) continue;
       const lower = entry.name.toLowerCase();
       if (SYSTEM_CONTAINER_NAMES.has(lower) || candidateFolderNames.some((c) => c.toLowerCase() === lower)) {
         continue;

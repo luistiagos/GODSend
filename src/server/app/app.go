@@ -37,6 +37,10 @@ type App struct {
 	TelemetryEnabled  bool
 	TelemetryEndpoint string
 
+	// ── Download speed & fallback settings ────────────────────────────
+	MinDownloadSpeedThreshold int64
+	speedBypassGames          sync.Map
+
 	// ── IA auth & download settings ───────────────────────────────────
 	IACookieHeader         string
 	IAAuthorizationHeader  string
@@ -212,6 +216,21 @@ func (a *App) LookupInstallType(gameName string) string {
 		return "xex"
 	}
 	return it
+}
+
+// SetSpeedCheckBypass enables or disables speed threshold aborts for a specific game.
+func (a *App) SetSpeedCheckBypass(gameName string, bypass bool) {
+	if bypass {
+		a.speedBypassGames.Store(gameName, true)
+	} else {
+		a.speedBypassGames.Delete(gameName)
+	}
+}
+
+// IsSpeedCheckBypassed returns true if speed threshold checking is bypassed for the game.
+func (a *App) IsSpeedCheckBypassed(gameName string) bool {
+	v, ok := a.speedBypassGames.Load(gameName)
+	return ok && v.(bool)
 }
 
 // FmtDuration formats a duration in seconds as "1m23s" (or "45s" for < 60s).

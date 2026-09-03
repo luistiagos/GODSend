@@ -45,13 +45,14 @@ const (
 	IAParallelMaxCap     = 32               // upper bound for env-tuned parallelism
 
 	// Download speed monitoring & fallback thresholds
-	MinDownloadSpeedThreshold = 1024 * 1024      // 1.0 MB/s (1048576 B/s)
-	LowSpeedGracePeriod       = 15 * time.Second // Grace period before enforcing speed limit
-	LowSpeedSustainedDuration = 10 * time.Second // Duration speed must remain under threshold
+	MinDownloadSpeedThreshold        = 512 * 1024       // 512 KB/s default fallback threshold
+	MinDownloadSpeedThresholdDefault = 512 * 1024       // 512 KB/s default fallback threshold
+	LowSpeedGracePeriod              = 45 * time.Second // Grace period before enforcing speed limit (allows TLS & CDN startup)
+	LowSpeedSustainedDuration        = 20 * time.Second // Duration speed must remain under threshold
 )
 
 // ErrDownloadTooSlow is returned when download speed stays under MinDownloadSpeedThreshold.
-var ErrDownloadTooSlow = fmt.Errorf("download muito lento (abaixo de 1.0 MB/s), alternando para o próximo provedor")
+var ErrDownloadTooSlow = fmt.Errorf("download muito lento, alternando para o próximo provedor")
 
 // ErrJobCancelled is returned when the user removes a running queue item.
 var ErrJobCancelled = fmt.Errorf("tarefa cancelada pelo usuario")
@@ -486,9 +487,19 @@ func (a *App) SetupPaths() error {
 	if v := strings.TrimSpace(os.Getenv("GODSEND_ERROR_REPORTING")); v != "" {
 		a.TelemetryEnabled = v == "1" || strings.ToLower(v) == "true" || strings.ToLower(v) == "yes"
 	}
-	a.TelemetryEndpoint = "https://digitalstoregames.pythonanywhere.com/logErr"
-	if v := strings.TrimSpace(os.Getenv("GODSEND_ERROR_REPORTING_ENDPOINT")); v != "" {
-		a.TelemetryEndpoint = v
+	a.MinDownloadSpeedThreshold = MinDownloadSpeedThresholdDefault
+	if v := strings.TrimSpace(os.Getenv("GODSEND_MIN_DOWNLOAD_SPEED")); v != "" {
+		if parsed, err := ParseSpeedBytes(v); err == nil {
+			a.MinDownloadSpeedThreshold = parsed
+		} else if num, err := strconv.ParseInt(v, 10, 64); err == nil {
+			a.MinDownloadSpeedThreshold = num
+		}
+	}
+	if a.MinDownloadSpeedThreshold <= 0 {
+		a.Logf("[INFO] Download speed threshold monitoring: disabled")
+	} else {
+		a.Logf("[INFO] Download speed threshold monitoring: %d B/s (%.2f MB/s, grace period %s)",
+			a.MinDownloadSpeedThreshold, float64(a.MinDownloadSpeedThreshold)/1048576, LowSpeedGracePeriod)
 	}
 
 	a.CleanupEmptyReadyDirs()
@@ -603,3 +614,30 @@ func (a *App) CleanupEmptyReadyDirs() {
 		}
 	}
 }
+
+// ParseSpeedBytes parses speed strings like "500K", "1.5M", "1024", "0" into bytes/sec.
+func ParseSpeedBytes(s string) (int64, error) {
+	s = strings.TrimSpace(strings.ToUpper(s))
+	if s == "" || s == "0" || s == "NONE" || s == "OFF" || s == "DISABLE" || s == "DISABLED" {
+		return 0, nil
+	}
+	var val float64
+	var unit string
+	n, _ := fmt.Sscanf(s, "%f%s", &val, &unit)
+	if n < 1 || val < 0 {
+		return 0, fmt.Errorf("invalid speed value: %q", s)
+	}
+	switch {
+	case strings.HasPrefix(unit, "GIB") || strings.HasPrefix(unit, "GB") || strings.HasPrefix(unit, "G"):
+		return int64(val * 1024 * 1024 * 1024), nil
+	case strings.HasPrefix(unit, "MIB") || strings.HasPrefix(unit, "MB") || strings.HasPrefix(unit, "M"):
+		return int64(val * 1024 * 1024), nil
+	case strings.HasPrefix(unit, "KIB") || strings.HasPrefix(unit, "KB") || strings.HasPrefix(unit, "K"):
+		return int64(val * 1024), nil
+	case unit == "" || strings.HasPrefix(unit, "B"):
+		return int64(val), nil
+	default:
+		return int64(val), nil
+	}
+}
+

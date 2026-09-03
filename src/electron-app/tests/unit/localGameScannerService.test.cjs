@@ -128,3 +128,42 @@ test("scanGamesDirectory: calcula sizeBytes e detecta TitleID em subpastas", () 
   }
 });
 
+test("isCorruptedFolderName & scanGamesDirectory: ignora pastas corrompidas ou sem assinatura de jogo", () => {
+  const { isCorruptedFolderName } = require("../../services/localGameScannerService.js");
+
+  assert.equal(isCorruptedFolderName(""), true);
+  assert.equal(isCorruptedFolderName("   "), true);
+  assert.equal(isCorruptedFolderName("s\x7Fτqv"), true);
+  assert.equal(isCorruptedFolderName("!\x0B¿y╥5╡k.è¢d"), true);
+  assert.equal(isCorruptedFolderName("Normal Game Name"), false);
+  assert.equal(isCorruptedFolderName("Halo 3 - 4D5307E6"), false);
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-corrupt-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    fs.mkdirSync(gamesDir, { recursive: true });
+
+    // 1. Pasta aleatória vazia sem assinatura de jogo
+    fs.mkdirSync(path.join(gamesDir, "PastaAleatoriaSemJogo"));
+
+    // 2. Pasta com caracteres de controle (simulando corrupção de FAT)
+    const corruptName = "s\x1Ftest";
+    try {
+      fs.mkdirSync(path.join(gamesDir, corruptName));
+    } catch {}
+
+    // 3. Jogo real válido
+    const validGameDir = path.join(gamesDir, "Gears of War 2 - 4D53082D");
+    fs.mkdirSync(path.join(validGameDir, "00007000"), { recursive: true });
+    fs.writeFileSync(path.join(validGameDir, "00007000", "data.bin"), Buffer.alloc(1024));
+
+    const results = scanGamesDirectory(gamesDir, "E:");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].name, "Gears of War 2");
+    assert.equal(results[0].titleId, "4D53082D");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+
