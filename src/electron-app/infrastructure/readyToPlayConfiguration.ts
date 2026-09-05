@@ -1,4 +1,4 @@
-export const READY_TO_PLAY_CONFIGURATION_VERSION = "3";
+export const READY_TO_PLAY_CONFIGURATION_VERSION = "4";
 export const AURORA_READY_TO_PLAY_FILTER_PATH =
   "Aurora/User/Scripts/Content/Filters/XboxCompanionReady.lua";
 export const READY_TO_PLAY_MARKER_PATH =
@@ -28,6 +28,7 @@ export function generateAuroraReadyToPlayFilterLua(): string {
   return [
     "-- Xbox 360 Companion: configuracao automatica para conectar e jogar.",
     "-- Este arquivo e carregado automaticamente pelo Aurora como Content Filter.",
+    "-- Roda durante a inicializacao do Aurora: nao reinicie a dashboard daqui.",
     'scriptPermissions = { "filesystem", "sql" }',
     "",
     `local MARKER_PATH = ".xbox-downloader\\\\ready-to-play-v${READY_TO_PLAY_CONFIGURATION_VERSION}.marker"`,
@@ -142,8 +143,7 @@ export function generateAuroraReadyToPlayFilterLua(): string {
     "    end",
     "",
     "    if changed then",
-    '        print("Xbox 360 Companion: caminhos configurados; reiniciando Aurora.")',
-    "        if Aurora ~= nil and Aurora.Restart ~= nil then Aurora.Restart() end",
+    '        print("Xbox 360 Companion: caminhos registrados; o Aurora os varre neste boot ou no proximo.")',
     "        return",
     "    end",
     '    print("Xbox 360 Companion: pronto para conectar e jogar.")',

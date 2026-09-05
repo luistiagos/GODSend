@@ -9,6 +9,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.69] - 2026-09-05
+
+### Changed
+- **O hook `XboxCompanionReady.lua` não reinicia mais o Aurora durante a própria inicialização (`readyToPlayConfiguration.ts`)**:
+  - O script é gravado em `Aurora/User/Scripts/Content/Filters/` e, portanto, é executado pelo Aurora na fase `ContentScripts` do boot — junto de `HideBackups.lua`, `HideKinect.lua` e `HideMultiDisc.lua`, que são predicados puros (`GameListFilterCategories.User[...] = function(Content) ... end`). Depois de registrar os caminhos de varredura, ele chamava `Aurora.Restart()`, ou seja, reiniciava a dashboard no meio da inicialização dela. Se o `INSERT` em `scanpaths` não fosse reconhecido na leitura seguinte (por divergência de `deviceid`, por exemplo), `ensureScanPath` voltaria a reportar mudança a cada boot e o reinício viraria um laço.
+  - A chamada foi removida. Os caminhos continuam sendo registrados; o Aurora os varre no mesmo boot ou no próximo, sem reinício forçado. `Aurora.Restart` também não consta da lista de API do Aurora em [`docs/reference/aurora.md`](docs/reference/aurora.md), que se declara completa.
+  - **Pendente de validação em hardware**: confirmar no console que os jogos aparecem já no primeiro boot após a preparação. Se só aparecerem no segundo, é regressão de UX (não de estabilidade) e o registro de caminhos precisa de outro gatilho — em script `Utility/`, não em `Content/Filters/`.
+  - `READY_TO_PLAY_CONFIGURATION_VERSION` passa de `3` para `4` pelo mesmo motivo da versão anterior: o conteúdo do plano transacional mudou.
+
 ## [2.12.68] - 2026-09-05
 
 ### Fixed
