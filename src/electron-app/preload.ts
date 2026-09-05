@@ -135,11 +135,27 @@ contextBridge.exposeInMainWorld("godsendApi", {
   toolsBadAvatarPreview:    (payload: any) => ipcRenderer.invoke("tools:badavatar-preview", payload),
   toolsBadAvatarPreviewCancel: () => ipcRenderer.invoke("tools:badavatar-preview-cancel"),
   toolsBadAvatarPrepare:    (payload: any) => ipcRenderer.invoke("tools:badavatar-prepare", payload),
+  toolsDriveDiagnose:       (rootPath: string) => ipcRenderer.invoke("tools:drive-diagnose", rootPath),
+  toolsDriveRepair:         (rootPath: string) => ipcRenderer.invoke("tools:drive-repair", rootPath),
+  toolsDriveProbeFake:      (rootPath: string, fastMode?: boolean) => ipcRenderer.invoke("tools:drive-probe-fake", rootPath, fastMode),
+  toolsDriveProbeFakeCancel: () => ipcRenderer.invoke("tools:drive-probe-fake-cancel"),
+  toolsDriveEject:          (rootPath: string) => ipcRenderer.invoke("tools:drive-eject", rootPath),
+  onDriveRepairProgress: (callback: (data: { rootPath: string; line: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on("tools:drive-repair-progress", handler);
+    return () => ipcRenderer.removeListener("tools:drive-repair-progress", handler);
+  },
+  onDriveProbeProgress: (callback: (data: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on("tools:drive-probe-progress", handler);
+    return () => ipcRenderer.removeListener("tools:drive-probe-progress", handler);
+  },
   onBadAvatarPrepareProgress: (callback: (data: any) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
     ipcRenderer.on("tools:badavatar-prepare-progress", handler);
     return () => ipcRenderer.removeListener("tools:badavatar-prepare-progress", handler);
   },
+
   onBadAvatarPreviewProgress: (callback: (data: any) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
     ipcRenderer.on("tools:badavatar-preview-progress", handler);

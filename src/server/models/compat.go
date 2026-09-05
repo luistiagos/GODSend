@@ -61,24 +61,144 @@ func DiscCompat(titleID uint32, discNumber byte) DiscCompatRec {
 	return DiscCompatRec{InstallType: "god", Notes: "Default seguro; a estrutura da ISO sera validada apos o download"}
 }
 
-var multiDiscNumberPattern = regexp.MustCompile(`(?i)(?:disc|disk|dvd|cd)\s*([2-9])\b`)
+var (
+	// Matches (Disc 1), [Disc 2], (DVD 1), (CD 2), (Disk 1), (Disc 1 of 2), etc.
+	discTagPattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:disc|disk|dvd|cd)\s*([0-9]+)(?:\s*(?:of|\/)\s*([0-9]+))?\s*[\)\]]`)
+	// Matches trailing Disc 1, DVD 2, CD 3 without parens (e.g. "Game Disc 1")
+	discTrailingPattern = regexp.MustCompile(`(?i)\s+[-_]?\s*\b(?:disc|disk|dvd|cd)\s*([0-9]+)\b`)
+	// Matches known disc subtitle/role tags attached to multi-disc games
+	discSubtitlePattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:game\s+disc|installation\s+disc|install\s+disc|install\s+multiplayer|install[- ]coop|install|play\s+disc|single[- ]?player|multiplayer(?:[- ]co-?op)?|multiplay-coop|content\s+install\s+disc|content\s+disc|bonus\s+disc|dysk\s+z\s+gra|spieldisc|disque\s+de\s+jeu|fukikaeban|jimakuban|igrovoj)\s*[\)\]]`)
+)
 
-// DiscNumberFromName extracts Redump-style Disc/Disk/DVD/CD numbering.
-func DiscNumberFromName(name string) byte {
-	match := multiDiscNumberPattern.FindStringSubmatch(name)
-	if len(match) != 2 {
-		return 0
-	}
-	n, err := strconv.Atoi(match[1])
-	if err != nil {
-		return 0
-	}
-	return byte(n)
+// DiscInfo represents parsed disc metadata from a catalog title.
+type DiscInfo struct {
+	OriginalName string `json:"original_name"`
+	ReleaseTitle string `json:"release_title"`
+	DiscNumber   byte   `json:"disc_number"`
+	DiscCount    byte   `json:"disc_count"`
+	Subtitle     string `json:"subtitle,omitempty"`
+	IsMultiDisc  bool   `json:"is_multi_disc"`
 }
 
-// IsMultiDiscGameName returns true for Disc 2+ catalog entries.
+// ExtractDiscInfo parses Redump and custom game names into disc number, count, subtitle and clean release title.
+func ExtractDiscInfo(name string) DiscInfo {
+	info := DiscInfo{
+		OriginalName: name,
+		ReleaseTitle: strings.TrimSpace(name),
+		DiscNumber:   0,
+		DiscCount:    0,
+		IsMultiDisc:  false,
+	}
+
+	// 1. Check for disc tag with parens/brackets
+	if m := discTagPattern.FindStringSubmatch(name); len(m) > 1 {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 && n <= 20 {
+			info.DiscNumber = byte(n)
+			info.IsMultiDisc = true
+			if len(m) > 2 && m[2] != "" {
+				if total, err := strconv.Atoi(m[2]); err == nil {
+					info.DiscCount = byte(total)
+				}
+			}
+		}
+	} else if m := discTrailingPattern.FindStringSubmatch(name); len(m) > 1 {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 && n <= 20 {
+			info.DiscNumber = byte(n)
+			info.IsMultiDisc = true
+		}
+	}
+
+	// 2. Check for disc subtitle
+	if m := discSubtitlePattern.FindString(name); m != "" {
+		sub := strings.TrimSpace(m)
+		sub = strings.Trim(sub, "()[]")
+		info.Subtitle = strings.TrimSpace(sub)
+	}
+
+	// 3. Compute ReleaseTitle by removing disc tag and disc subtitle
+	rel := name
+	rel = discTagPattern.ReplaceAllString(rel, "")
+	rel = discSubtitlePattern.ReplaceAllString(rel, "")
+	if info.DiscNumber > 0 && discTrailingPattern.MatchString(rel) {
+		rel = discTrailingPattern.ReplaceAllString(rel, "")
+	}
+	// Normalize spacing
+	fields := strings.Fields(rel)
+	info.ReleaseTitle = strings.Join(fields, " ")
+
+	return info
+}
+
+// ExtractReleaseTitle returns the edition/region title with disc tags stripped.
+func ExtractReleaseTitle(name string) string {
+	return ExtractDiscInfo(name).ReleaseTitle
+}
+
+// DiscNumberFromName extracts Redump-style Disc/Disk/DVD/CD numbering (1-9).
+func DiscNumberFromName(name string) byte {
+	return ExtractDiscInfo(name).DiscNumber
+}
+
+// IsMultiDiscGameName returns true for any disc-numbered catalog entries.
 func IsMultiDiscGameName(name string) bool {
-	return DiscNumberFromName(name) >= 2
+	return ExtractDiscInfo(name).IsMultiDisc
+}
+
+// IsSecondaryDisc returns true for Disc 2+ entries.
+func IsSecondaryDisc(name string) bool {
+	return ExtractDiscInfo(name).DiscNumber >= 2
+}
+
+// FindCompanionDiscs finds all discs in a catalog list that belong to the same release title.
+func FindCompanionDiscs(gameName string, catalog []string) []string {
+	targetInfo := ExtractDiscInfo(gameName)
+	targetRel := strings.ToLower(targetInfo.ReleaseTitle)
+	if targetRel == "" {
+		return []string{gameName}
+	}
+
+	type matchItem struct {
+		name string
+		disc byte
+	}
+	var matches []matchItem
+
+	for _, g := range catalog {
+		info := ExtractDiscInfo(g)
+		if strings.ToLower(info.ReleaseTitle) == targetRel {
+			matches = append(matches, matchItem{
+				name: g,
+				disc: info.DiscNumber,
+			})
+		}
+	}
+
+	if len(matches) <= 1 {
+		return []string{gameName}
+	}
+
+	// Sort by disc number ascending
+	for i := 0; i < len(matches); i++ {
+		for j := i + 1; j < len(matches); j++ {
+			di := matches[i].disc
+			dj := matches[j].disc
+			if di == 0 {
+				di = 1
+			}
+			if dj == 0 {
+				dj = 1
+			}
+			if di > dj || (di == dj && matches[i].name > matches[j].name) {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	result := make([]string, len(matches))
+	for i, m := range matches {
+		result[i] = m.name
+	}
+	return result
 }
 
 type titleNameHint struct {
@@ -154,7 +274,7 @@ func IsContentDiscPlaceholderTitleID(tid uint32) bool {
 // GOD that appears ready.
 func UnsupportedMultiDiscReason(name string) string {
 	lower := strings.ToLower(name)
-	if IsMultiDiscGameName(name) && (strings.Contains(lower, "watch dogs") || strings.Contains(lower, "watch_dogs")) {
+	if IsSecondaryDisc(name) && (strings.Contains(lower, "watch dogs") || strings.Contains(lower, "watch_dogs")) {
 		return "Watch Dogs requer combinar os arquivos installation1/installation2 dos dois discos; a instalacao automatica de um disco isolado foi bloqueada"
 	}
 	return ""

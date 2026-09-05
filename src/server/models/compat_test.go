@@ -165,11 +165,118 @@ func TestDiscNumberFromName(t *testing.T) {
 		"Game (Disc 2)": 2,
 		"Game [DVD3]":   3,
 		"Game CD 4":     4,
-		"Game Disc 1":   0,
+		"Game Disc 1":   1,
+		"Game (Disc 1)": 1,
+		"Single Disc Game": 0,
 	} {
 		if got := DiscNumberFromName(name); got != want {
 			t.Errorf("%q: got %d, want %d", name, got, want)
 		}
+	}
+}
+
+func TestExtractDiscInfoAndReleaseTitle(t *testing.T) {
+	tests := []struct {
+		name         string
+		wantRel      string
+		wantDisc     byte
+		wantCount    byte
+		wantSub      string
+		wantMulti    bool
+	}{
+		{
+			name:      "Alien - Isolation (USA, Europe) (En,Fr,De,Es,It,Pt,Pl,Ru) (Disc 1) (Installation Disc)",
+			wantRel:   "Alien - Isolation (USA, Europe) (En,Fr,De,Es,It,Pt,Pl,Ru)",
+			wantDisc:  1,
+			wantSub:   "Installation Disc",
+			wantMulti: true,
+		},
+		{
+			name:      "Alien - Isolation (USA, Europe) (En,Fr,De,Es,It,Pt,Pl,Ru) (Disc 2) (Game Disc)",
+			wantRel:   "Alien - Isolation (USA, Europe) (En,Fr,De,Es,It,Pt,Pl,Ru)",
+			wantDisc:  2,
+			wantSub:   "Game Disc",
+			wantMulti: true,
+		},
+		{
+			name:      "Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 1)",
+			wantRel:   "Dead Space 2 (USA, Europe) (En,Fr,Es)",
+			wantDisc:  1,
+			wantMulti: true,
+		},
+		{
+			name:      "Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 2)",
+			wantRel:   "Dead Space 2 (USA, Europe) (En,Fr,Es)",
+			wantDisc:  2,
+			wantMulti: true,
+		},
+		{
+			name:      "Lost Odyssey (USA) (Disc 4 of 4)",
+			wantRel:   "Lost Odyssey (USA)",
+			wantDisc:  4,
+			wantCount: 4,
+			wantMulti: true,
+		},
+		{
+			name:      "Halo 3 (USA)",
+			wantRel:   "Halo 3 (USA)",
+			wantDisc:  0,
+			wantMulti: false,
+		},
+	}
+
+	for _, tt := range tests {
+		info := ExtractDiscInfo(tt.name)
+		if info.ReleaseTitle != tt.wantRel {
+			t.Errorf("%q: ReleaseTitle got %q, want %q", tt.name, info.ReleaseTitle, tt.wantRel)
+		}
+		if info.DiscNumber != tt.wantDisc {
+			t.Errorf("%q: DiscNumber got %d, want %d", tt.name, info.DiscNumber, tt.wantDisc)
+		}
+		if tt.wantCount > 0 && info.DiscCount != tt.wantCount {
+			t.Errorf("%q: DiscCount got %d, want %d", tt.name, info.DiscCount, tt.wantCount)
+		}
+		if tt.wantSub != "" && info.Subtitle != tt.wantSub {
+			t.Errorf("%q: Subtitle got %q, want %q", tt.name, info.Subtitle, tt.wantSub)
+		}
+		if info.IsMultiDisc != tt.wantMulti {
+			t.Errorf("%q: IsMultiDisc got %v, want %v", tt.name, info.IsMultiDisc, tt.wantMulti)
+		}
+	}
+}
+
+func TestFindCompanionDiscs(t *testing.T) {
+	catalog := []string{
+		"Dead Space 2 (Germany) (En,De) (Disc 1)",
+		"Dead Space 2 (Germany) (En,De) (Disc 2)",
+		"Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 1)",
+		"Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 2)",
+		"Halo 3 (USA)",
+		"Lost Odyssey (USA) (Disc 1)",
+		"Lost Odyssey (USA) (Disc 2)",
+		"Lost Odyssey (USA) (Disc 3)",
+		"Lost Odyssey (USA) (Disc 4)",
+	}
+
+	companionsDS2 := FindCompanionDiscs("Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 1)", catalog)
+	if len(companionsDS2) != 2 {
+		t.Fatalf("Dead Space 2 USA: expected 2 discs, got %d: %v", len(companionsDS2), companionsDS2)
+	}
+	if companionsDS2[0] != "Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 1)" || companionsDS2[1] != "Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 2)" {
+		t.Errorf("Dead Space 2 USA: unexpected discs %v", companionsDS2)
+	}
+
+	companionsLO := FindCompanionDiscs("Lost Odyssey (USA) (Disc 3)", catalog)
+	if len(companionsLO) != 4 {
+		t.Fatalf("Lost Odyssey: expected 4 discs, got %d: %v", len(companionsLO), companionsLO)
+	}
+	if companionsLO[0] != "Lost Odyssey (USA) (Disc 1)" || companionsLO[3] != "Lost Odyssey (USA) (Disc 4)" {
+		t.Errorf("Lost Odyssey: unexpected discs %v", companionsLO)
+	}
+
+	single := FindCompanionDiscs("Halo 3 (USA)", catalog)
+	if len(single) != 1 || single[0] != "Halo 3 (USA)" {
+		t.Errorf("Halo 3: unexpected companions %v", single)
 	}
 }
 
@@ -180,3 +287,4 @@ func TestNameHintsDoNotMatchSequelsAccidentally(t *testing.T) {
 		}
 	}
 }
+

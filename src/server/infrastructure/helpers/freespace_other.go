@@ -24,3 +24,9 @@ func VolumeFileSystem(path string) string {
 func IsFATVolume(path string) bool {
 	return false
 }
+
+// FlushVolumeBuffers is a no-op on non-Windows platforms.
+func FlushVolumeBuffers(path string) error {
+	return nil
+}
+

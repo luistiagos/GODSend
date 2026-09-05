@@ -89,3 +89,26 @@ test("calcula tolerancia sem overflow de Int32 em unidades de grande capacidade 
   assert.equal(executed.status, 0, executed.stderr || executed.stdout);
   assert.match(executed.stdout, /OK/);
 });
+
+test("gera script com Format-Volume nativo e fallback de diskpart e fat32format para unidades pequenas (<= 32 GB)", () => {
+  const smallGuard = {
+    expectedVolumeGuid: "\\\\?\\Volume{975884d1-9cfc-11f1-bba6-bcf171ac5412}\\",
+    expectedVolumeBytes: 1_998_782_464, // ~1.86 GB
+  };
+  const script = buildGuardedWindowsFat32Script(
+    "E",
+    "C:\\dist\\tools\\fat32format.exe",
+    "C:\\Temp\\fat32_small.log",
+    smallGuard,
+    "XBOX360USB",
+  );
+  assert.ok(script.includes("$partition.Size -le $limit32GB"));
+  assert.ok(script.includes("Close-ExplorerWindows"));
+  assert.ok(script.includes("Format-Volume -DriveLetter 'E' -FileSystem FAT32"));
+  assert.ok(script.includes("Invoke-Fat32FormatTool"));
+  assert.ok(script.includes("Invoke-DiskpartScript"));
+  assert.ok(script.includes('format fs=fat32 quick label=""$targetLabel"""'));
+  assert.ok(script.includes("$targetLabel = 'XBOX360USB'"));
+});
+
+

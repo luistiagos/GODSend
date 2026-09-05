@@ -119,6 +119,11 @@ foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
         $allocationUnitBytes = [int64]$sectorsPerCluster * [int64]$bytesPerSector
       }
     } catch {}
+    $vol = Get-Volume -DriveLetter $root[0] -ErrorAction SilentlyContinue
+    $health = if ($vol.HealthStatus) { [string]$vol.HealthStatus } else { 'Healthy' }
+    $op = if ($vol.OperationalStatus) { (@($vol.OperationalStatus) -join ',') } else { 'OK' }
+    $needsFix = [bool]($health -match 'Warning|Unhealthy' -or $op -match 'Repair|Need|Corrupt')
+
     $rows += [PSCustomObject]@{
       RootPath = $root
       Label = if ($drive.VolumeLabel) { [string]$drive.VolumeLabel } else { 'Sem nome' }
@@ -138,7 +143,9 @@ foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
       PartitionStyle = ''
       DriveType = 'Removable'
       DiskPath = $volumeGuid
-      OperationalStatus = 'Online (fallback nativo)'
+      OperationalStatus = $op
+      HealthStatus = $health
+      NeedsRepair = $needsFix
       IsBoot = $false
       IsSystem = $false
       IsReadOnly = $false
@@ -164,6 +171,9 @@ try {
       $volume = Get-Volume -Partition $partition -ErrorAction SilentlyContinue
       $rootPath = $partition.DriveLetter.ToString().ToUpperInvariant() + ':\'
       $volumeGuid = ((& $mountvol $rootPath '/L' 2>$null) -join '').Trim()
+      $health = if ($volume.HealthStatus) { [string]$volume.HealthStatus } else { 'Healthy' }
+      $op = if ($volume.OperationalStatus) { (@($volume.OperationalStatus) -join ',') } else { (@($disk.OperationalStatus) -join ',') }
+      $needsFix = [bool]($health -match 'Warning|Unhealthy' -or $op -match 'Repair|Need|Corrupt')
       $rows += [PSCustomObject]@{
         RootPath = $rootPath
         Label = if ($volume.FileSystemLabel) { [string]$volume.FileSystemLabel } else { 'Sem nome' }
@@ -183,7 +193,9 @@ try {
         PartitionStyle = [string]$disk.PartitionStyle
         DriveType = if ($volume.DriveType) { [string]$volume.DriveType } else { '' }
         DiskPath = [string]$disk.Path
-        OperationalStatus = (@($disk.OperationalStatus) -join ',')
+        OperationalStatus = $op
+        HealthStatus = $health
+        NeedsRepair = $needsFix
         IsBoot = [bool]($disk.IsBoot -or $partition.IsBoot)
         IsSystem = [bool]($disk.IsSystem -or $partition.IsSystem)
         IsReadOnly = [bool]$disk.IsReadOnly
@@ -224,7 +236,9 @@ if ($rows.Count -eq 0) {
           PartitionStyle = ''
           DriveType = 'Removable'
           DiskPath = [string]$disk.DeviceID
-          OperationalStatus = ''
+          OperationalStatus = 'OK'
+          HealthStatus = 'Healthy'
+          NeedsRepair = $false
           IsBoot = $false
           IsSystem = $false
           IsReadOnly = $false
@@ -273,6 +287,8 @@ function parsePhysicalDevice(row: any): PhysicalUsbDevice {
     driveType: asString(row.DriveType),
     diskPath: asString(row.DiskPath),
     operationalStatus: asString(row.OperationalStatus),
+    healthStatus: asString(row.HealthStatus) || "Healthy",
+    needsRepair: asBoolean(row.NeedsRepair),
     isBoot: asBoolean(row.IsBoot),
     isSystem: asBoolean(row.IsSystem),
     isReadOnly: asBoolean(row.IsReadOnly),
@@ -327,6 +343,46 @@ export async function enumerateSafeWindowsUsbDevices(): Promise<SafeUsbDevice[]>
   return devices;
 }
 
+export async function safelyEjectWindowsDrive(rootPath: string): Promise<{ ok: boolean; error?: string }> {
+  if (process.platform !== "win32") {
+    return { ok: false, error: "A ejeção de dispositivos só é suportada no Windows." };
+  }
+  const driveLetter = rootPath.trim().replace(/[:\\\/]/g, "").toUpperCase();
+  if (!driveLetter || driveLetter.length !== 1) {
+    return { ok: false, error: "Letra da unidade inválida para ejeção." };
+  }
+  const script = String.raw`
+$ErrorActionPreference = 'SilentlyContinue'
+$letter = '${driveLetter}'
+try {
+  $vol = Get-Volume -DriveLetter $letter -ErrorAction SilentlyContinue
+  if ($vol) {
+    $vol | Optimize-Volume -Analyze -ErrorAction SilentlyContinue
+  }
+  $shell = New-Object -ComObject Shell.Application
+  $drive = $shell.Namespace(17).ParseName("${driveLetter}:")
+  if ($drive) {
+    $drive.InvokeVerb("E&ject")
+    Write-Output "OK"
+  } else {
+    Write-Output "FAIL: Dispositivo não encontrado no Shell"
+  }
+} catch {
+  Write-Output "FAIL: $($_.Exception.Message)"
+}
+`;
+  try {
+    const res = await runPowerShell(script, 10_000);
+    if (res.includes("OK")) {
+      appendAppEvent("usb", `Dispositivo ${driveLetter}: ejetado com sucesso.`);
+      return { ok: true };
+    }
+    return { ok: false, error: res.trim().replace(/^FAIL:\s*/i, "") || "Não foi possível ejetar a unidade." };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
 export async function requireSafeWindowsUsbTarget(
   rootPath: string,
   expectedFingerprint: string,
@@ -372,4 +428,5 @@ export async function requireSafeWindowsUsbTarget(
     throw initialError;
   }
 }
+
 

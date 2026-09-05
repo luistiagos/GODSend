@@ -168,6 +168,9 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 					}
 					for _, g := range hfCached {
 						key := cacheService.NormalizeTitleForMatching(g)
+						if disc := models.DiscNumberFromName(g); disc > 0 {
+							key = fmt.Sprintf("%s:disc%d", key, disc)
+						}
 						if !seen[key] {
 							seen[key] = true
 							merged = append(merged, g)
@@ -183,6 +186,9 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 				}
 				for _, g := range iaCached {
 					key := cacheService.NormalizeTitleForMatching(g)
+					if disc := models.DiscNumberFromName(g); disc > 0 {
+						key = fmt.Sprintf("%s:disc%d", key, disc)
+					}
 					if !seen[key] {
 						seen[key] = true
 						merged = append(merged, g)
@@ -198,6 +204,9 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 				for _, g := range minervaCached {
 					decodedName := helpers.DecodeMinervaName(g)
 					key := cacheService.NormalizeTitleForMatching(decodedName)
+					if disc := models.DiscNumberFromName(decodedName); disc > 0 {
+						key = fmt.Sprintf("%s:disc%d", key, disc)
+					}
 					if !seen[key] {
 						seen[key] = true
 						merged = append(merged, decodedName)
@@ -600,6 +609,7 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			return
 		}
 		launcher(func() { d.Pipeline.ProcessHuggingFaceGame(gameName, entry.FileName) })
+		d.enqueueCompanions(gameName, platform, source, installType, r.URL.Query().Get("priority"))
 		jsonSuccess(w, map[string]string{"status": "triggered", "source": "huggingface"})
 		return
 	}
@@ -613,7 +623,99 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	default: // xbox360, xbox
 		launcher(func() { d.Pipeline.ProcessGame(gameName, platform) })
 	}
+	d.enqueueCompanions(gameName, platform, source, installType, r.URL.Query().Get("priority"))
 	jsonSuccess(w, map[string]string{"status": "triggered", "source": "internet_archive"})
+}
+
+func (d *Deps) enqueueCompanions(primaryGame, plat, src, inst, priorityParam string) {
+	go func() {
+		var catalog []string
+		d.App.IAGameCacheMu.RLock()
+		if list, ok := d.App.IAGameCache["hf_"+plat]; ok && len(list) > 0 {
+			catalog = append(catalog, list...)
+		}
+		if list, ok := d.App.IAGameCache[plat]; ok && len(list) > 0 {
+			catalog = append(catalog, list...)
+		}
+		d.App.IAGameCacheMu.RUnlock()
+
+		d.App.MinervaGameCacheMu.RLock()
+		if list, ok := d.App.MinervaGameCache[plat]; ok && len(list) > 0 {
+			for _, mName := range list {
+				catalog = append(catalog, helpers.DecodeMinervaName(mName))
+			}
+		}
+		d.App.MinervaGameCacheMu.RUnlock()
+
+		if plat == "local" || plat == "xbox360" || plat == "xbox" {
+			catalog = append(catalog, d.Local.ScanTransferFolder()...)
+		}
+
+		companions := models.FindCompanionDiscs(primaryGame, catalog)
+		if len(companions) <= 1 {
+			return
+		}
+
+		for _, cGame := range companions {
+			if cGame == primaryGame {
+				continue
+			}
+			if _, exists := d.App.JobQueue.Load(cGame); exists {
+				continue
+			}
+			// Inherit xbox connection settings
+			if conn, ok := d.App.XboxConnections.Load(primaryGame); ok {
+				d.App.XboxConnections.Store(cGame, conn)
+			}
+			d.App.InstallTypeMap.Store(cGame, inst)
+			d.App.SuppressedJobs.Delete(cGame)
+
+			cSafe := cGame
+			d.App.Logf("TRIGGER MULTI-DISC: Auto-enqueuing companion disc '%s' for '%s'", cSafe, primaryGame)
+			cLauncher := func(fn func()) {
+				token := d.App.RegisterGameJob(cSafe)
+				go func() {
+					if !d.App.AcquireGameJob(cSafe, token) {
+						return
+					}
+					defer d.App.ReleaseGameJob(cSafe, token)
+					defer func() {
+						if rec := recover(); rec != nil {
+							d.App.Logf("PANIC processing %s: %v", cSafe, rec)
+							d.App.LogStatus(cSafe, "Error", "Server crashed during processing")
+						}
+					}()
+					fn()
+				}()
+			}
+
+			if plat == "local" || plat == "xbox360" || plat == "xbox" {
+				if iso := d.Local.FindLocalISO(cSafe); iso != "" {
+					cLauncher(func() { d.Pipeline.ProcessLocalISO(cSafe, iso) })
+					continue
+				}
+			}
+			if src == "" || src == "unified" {
+				var providers []string
+				if priorityParam != "" {
+					providers = strings.Split(priorityParam, ",")
+				} else {
+					providers = []string{"huggingface", "ia", "minerva"}
+				}
+				cLauncher(func() { d.Pipeline.ProcessGameWithFallback(cSafe, plat, providers) })
+			} else if src == "huggingface" {
+				if entry, ok := cacheService.FindHuggingFaceEntry(d.App, cSafe, plat); ok {
+					cLauncher(func() { d.Pipeline.ProcessHuggingFaceGame(cSafe, entry.FileName) })
+				}
+			} else if src == "minerva" {
+				if mEntry, ok := d.Minerva.FindEntry(cSafe, plat); ok {
+					cLauncher(func() { d.Pipeline.ProcessMinervaGame(cSafe, mEntry, plat) })
+				}
+			} else {
+				cLauncher(func() { d.Pipeline.ProcessGame(cSafe, plat) })
+			}
+		}
+	}()
 }
 
 func (d *Deps) handleStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -622,12 +724,23 @@ func (d *Deps) handleStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		jsonError(w, 400, "Missing game parameter")
 		return
 	}
-	status := models.GameStatus{State: "Missing", Message: "Not Found"}
-	if s, exists := d.App.JobQueue.Load(gameName); exists {
-		status = s.(models.GameStatus)
-	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	val, ok := d.App.JobQueue.Load(gameName)
+	if !ok {
+		// Suppressed jobs (explicitly removed via /queue/remove) must NOT resurrect
+		// as Ready even if output files linger on disk.
+		if _, suppressed := d.App.SuppressedJobs.Load(gameName); suppressed {
+			json.NewEncoder(w).Encode(models.GameStatus{State: "None", Message: "Job removed"})
+			return
+		}
+		if d.Local.IsGameReadyLocally(gameName) {
+			json.NewEncoder(w).Encode(models.GameStatus{State: "Ready", Message: "Ready to Install"})
+			return
+		}
+		json.NewEncoder(w).Encode(models.GameStatus{State: "None", Message: "Not in queue"})
+		return
+	}
+	json.NewEncoder(w).Encode(val.(models.GameStatus))
 }
 
 // handleDiscInfo probes a local ISO in the Transfer folder and returns disc
@@ -680,8 +793,8 @@ func (d *Deps) handleDiscInfo(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	tid := models.GuessTitleIDFromMultiDiscName(gameName)
-	discNumber := models.DiscNumberFromName(gameName)
-	rec := models.DiscCompat(tid, discNumber)
+	discInfo := models.ExtractDiscInfo(gameName)
+	rec := models.DiscCompat(tid, discInfo.DiscNumber)
 	note := rec.Notes
 	if tid == 0 {
 		note = note + " (Title ID unknown from name — optional: copy ISO to PC Transfer for an exact probe)"
@@ -690,8 +803,11 @@ func (d *Deps) handleDiscInfo(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"disc_number":    discNumber,
-		"disc_count":     0,
+		"disc_number":    discInfo.DiscNumber,
+		"disc_count":     discInfo.DiscCount,
+		"release_title":  discInfo.ReleaseTitle,
+		"is_multi_disc":  discInfo.IsMultiDisc,
+		"subtitle":       discInfo.Subtitle,
 		"title_id":       fmt.Sprintf("%08X", tid),
 		"recommendation": rec.InstallType,
 		"notes":          note,

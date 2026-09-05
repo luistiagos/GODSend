@@ -93,6 +93,7 @@ import * as auroraAssetHandlers   from "../ipc/auroraAssetHandlers";
 import * as browseHandlers        from "../ipc/browseHandlers";
 import * as toolsHandlers         from "../ipc/toolsHandlers";
 import * as badAvatarHandlers     from "../ipc/badAvatarHandlers";
+import * as driveMaintenanceHandlers from "../ipc/driveMaintenanceHandlers";
 import * as contentHandlers       from "../ipc/contentHandlers";
 import * as saveHandlers          from "../ipc/saveHandlers";
 import * as updateHandlers        from "../ipc/updateHandlers";
@@ -133,10 +134,12 @@ function registerIpcHandlers(): void {
   browseHandlers.register(ipcMain);
   toolsHandlers.register(ipcMain);
   badAvatarHandlers.register(ipcMain);
+  driveMaintenanceHandlers.register(ipcMain);
   contentHandlers.register(ipcMain);
   saveHandlers.register(ipcMain);
   updateHandlers.register(ipcMain);
 }
+
 
 export function bootstrapApp(): void {
   app.whenReady().then(() => {

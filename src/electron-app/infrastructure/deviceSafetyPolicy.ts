@@ -31,6 +31,8 @@ export interface PhysicalUsbDevice {
   driveType: string;
   diskPath: string;
   operationalStatus: string;
+  healthStatus?: string;
+  needsRepair?: boolean;
   isBoot: boolean;
   isSystem: boolean;
   isReadOnly: boolean;
@@ -55,10 +57,11 @@ function normalized(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function normalizeDriveRoot(value: string): string {
+export function normalizeDriveRoot(value: string): string {
   const match = value.trim().match(/^([a-z]):/i);
   return match ? `${match[1].toUpperCase()}:\\` : value.trim();
 }
+
 
 export function createDeviceFingerprint(device: PhysicalUsbDevice): string {
   const identity = [

@@ -43,22 +43,78 @@ export function buildGuardedWindowsFat32Script(
   executablePath: string,
   logPath: string,
   guard: WindowsFormatGuard,
+  label = "BADAVATAR",
 ): string {
   const letter = driveLetterFromRoot(`${driveLetter}:`);
   const { expectedVolumeGuid, expectedVolumeBytes } = validateWindowsFormatGuard(guard);
   const escapedExe = executablePath.replace(/'/g, "''");
   const escapedLog = logPath.replace(/'/g, "''");
   const escapedExpectedVolumeGuid = expectedVolumeGuid.replace(/'/g, "''");
+  const escapedLabel = label.replace(/'/g, "''");
   return String.raw`$ErrorActionPreference = 'Continue'
 $log = '${escapedLog}'
 $expectedVolumeGuid = '${escapedExpectedVolumeGuid}'
 $expectedVolumeBytes = [int64]${expectedVolumeBytes}
+$targetLabel = '${escapedLabel}'
+$limit32GB = [int64]34359738368
+$exePath = '${escapedExe}'
 '=== fat32format ${letter}: ===' | Out-File -FilePath $log -Encoding utf8
+
 function Normalize-VolumeGuid([string]$value) {
   if (-not $value) { return '' }
   return $value.Trim().TrimEnd('\').ToLowerInvariant()
 }
+
+function Close-ExplorerWindows([string]$drvLetter) {
+  try {
+    $pfx = $drvLetter + ':'
+    $enc = $drvLetter + '%3A'
+    $shell = New-Object -ComObject Shell.Application
+    foreach ($win in $shell.Windows()) {
+      $loc = [string]$win.LocationURL
+      $name = [string]$win.LocationName
+      if ($loc -like "*$pfx*" -or $loc -like "*$enc*" -or $name -like "$pfx*") {
+        $win.Quit()
+      }
+    }
+  } catch {}
+}
+
+function Invoke-DiskpartScript([string[]]$commands) {
+  $dpScript = [System.IO.Path]::GetTempFileName()
+  try {
+    $commands | Out-File -FilePath $dpScript -Encoding ascii
+    $dpExe = Join-Path $env:SystemRoot 'System32\diskpart.exe'
+    $dpOut = & $dpExe /s $dpScript 2>&1
+    $dpCode = $LASTEXITCODE
+    ($dpOut | Out-String).Trim() | Out-File -FilePath $log -Append -Encoding utf8
+    return ($dpCode -eq 0)
+  } finally {
+    Remove-Item -Path $dpScript -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Invoke-Fat32FormatTool([string]$drvLetter, [string]$fatExe) {
+  if (-not $fatExe -or -not (Test-Path $fatExe)) {
+    return $false
+  }
+  for ($attempt = 1; $attempt -le 5; $attempt++) {
+    Close-ExplorerWindows $drvLetter
+    Start-Sleep -Milliseconds (400 * $attempt)
+    $out = "Y" | & $fatExe "$($drvLetter):" 2>&1
+    $ec = $LASTEXITCODE
+    $outStr = ($out | Out-String).Trim()
+    $outStr | Out-File -FilePath $log -Append -Encoding utf8
+    if ($ec -eq 0 -and $outStr -notmatch 'Failed to open device|GetLastError\(\)=32') {
+      return $true
+    }
+    "fat32format tentativa $attempt falhou (codigo $ec). Fechando bloqueios e aguardando liberacao da unidade..." | Out-File -FilePath $log -Append -Encoding utf8
+  }
+  return $false
+}
+
 try {
+  Close-ExplorerWindows '${letter}'
   $mountvol = Join-Path $env:SystemRoot 'System32\mountvol.exe'
   $currentVolumeGuid = ((& $mountvol '${letter}:\' '/L' 2>$null) -join '').Trim()
   if ((Normalize-VolumeGuid $currentVolumeGuid) -ne (Normalize-VolumeGuid $expectedVolumeGuid)) {
@@ -82,25 +138,173 @@ try {
   }
   "Volume GUID validado: $currentVolumeGuid" | Out-File -FilePath $log -Append -Encoding utf8
   "Disco USB validado: $diskNo ($($disk.FriendlyName))" | Out-File -FilePath $log -Append -Encoding utf8
+
+  $success = $false
+
+  if ($partition.Size -le $limit32GB) {
+    "Formatando unidade (<= 32 GB) diretamente..." | Out-File -FilePath $log -Append -Encoding utf8
+    try {
+      Close-ExplorerWindows '${letter}'
+      Format-Volume -DriveLetter '${letter}' -FileSystem FAT32 -NewFileSystemLabel $targetLabel -Force -Confirm:$false -ErrorAction Stop | Out-Null
+      $success = $true
+      "Format-Volume FAT32 realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
+    } catch {
+      "Format-Volume direto falhou ($($_.Exception.Message)). Tentando fat32format.exe ou format.com..." | Out-File -FilePath $log -Append -Encoding utf8
+    }
+
+    if (-not $success -and $exePath -and (Test-Path $exePath)) {
+      if (Invoke-Fat32FormatTool '${letter}' $exePath) {
+        $success = $true
+        "fat32format.exe realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
+      }
+    }
+
+    if (-not $success) {
+      try {
+        Close-ExplorerWindows '${letter}'
+        $fmtExe = Join-Path $env:SystemRoot 'System32\format.com'
+        $fmtOut = "Y" | & $fmtExe '${letter}:' /FS:FAT32 "/V:$targetLabel" /Q /X /Y 2>&1
+        $fmtCode = $LASTEXITCODE
+        ($fmtOut | Out-String).Trim() | Out-File -FilePath $log -Append -Encoding utf8
+        if ($fmtCode -eq 0) {
+          $success = $true
+          "format.com /FS:FAT32 realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
+        }
+      } catch {
+        "format.com direto falhou ($($_.Exception.Message))." | Out-File -FilePath $log -Append -Encoding utf8
+      }
+    }
+
+    if (-not $success) {
+      "Tentando recriar particao primaria limpa (MBR) via diskpart..." | Out-File -FilePath $log -Append -Encoding utf8
+      Close-ExplorerWindows '${letter}'
+      & $mountvol '${letter}:\' '/D' 2>$null
+      $dpCmds = @(
+        "select disk $diskNo",
+        "clean",
+        "convert mbr",
+        "create partition primary",
+        "active",
+        "format fs=fat32 quick label=""$targetLabel""",
+        "assign letter=${letter}"
+      )
+      $dpOk = Invoke-DiskpartScript $dpCmds
+      if ($dpOk) {
+        Start-Sleep -Milliseconds 500
+        $chkVol = Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue
+        if ($chkVol -and $chkVol.FileSystem -and $chkVol.FileSystem.ToUpperInvariant() -eq 'FAT32') {
+          $success = $true
+          "diskpart format FAT32 realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
+        }
+      }
+
+      if (-not $success) {
+        "Recriando particao via diskpart com format NTFS e convertendo para FAT32..." | Out-File -FilePath $log -Append -Encoding utf8
+        Close-ExplorerWindows '${letter}'
+        & $mountvol '${letter}:\' '/D' 2>$null
+        $dpCmdsNtfs = @(
+          "select disk $diskNo",
+          "clean",
+          "convert mbr",
+          "create partition primary",
+          "active",
+          "format fs=ntfs quick label=""$targetLabel""",
+          "assign letter=${letter}"
+        )
+        $dpNtfsOk = Invoke-DiskpartScript $dpCmdsNtfs
+        if ($dpNtfsOk) {
+          Start-Sleep -Milliseconds 500
+          if ($exePath -and (Test-Path $exePath)) {
+            $success = Invoke-Fat32FormatTool '${letter}' $exePath
+          }
+          if (-not $success) {
+            try {
+              Close-ExplorerWindows '${letter}'
+              Format-Volume -DriveLetter '${letter}' -FileSystem FAT32 -NewFileSystemLabel $targetLabel -Force -Confirm:$false -ErrorAction Stop | Out-Null
+              $success = $true
+            } catch {
+              $fmtExe = Join-Path $env:SystemRoot 'System32\format.com'
+              $fmtOut = "Y" | & $fmtExe '${letter}:' /FS:FAT32 "/V:$targetLabel" /Q /X /Y 2>&1
+              if ($LASTEXITCODE -eq 0) { $success = $true }
+            }
+          }
+        }
+      }
+
+      if (-not $success) {
+        throw "Nao foi possivel formatar a particao recriada em FAT32."
+      }
+    }
+  } else {
+    "Formatando unidade (> 32 GB) usando fat32format.exe..." | Out-File -FilePath $log -Append -Encoding utf8
+    if (-not $exePath -or -not (Test-Path $exePath)) {
+      throw "Para unidades maiores que 32 GB é necessário o utilitário fat32format.exe."
+    }
+
+    $vol = Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue
+    if (-not $vol) {
+      "Volume não encontrado; inicializando particao limpa via diskpart..." | Out-File -FilePath $log -Append -Encoding utf8
+      Close-ExplorerWindows '${letter}'
+      & $mountvol '${letter}:\' '/D' 2>$null
+      $dpCmds = @(
+        "select disk $diskNo",
+        "clean",
+        "convert mbr",
+        "create partition primary",
+        "active",
+        "format fs=ntfs quick label=""$targetLabel""",
+        "assign letter=${letter}"
+      )
+      $dpOk = Invoke-DiskpartScript $dpCmds
+      if (-not $dpOk) {
+        throw "Falha ao recriar particao no disco $diskNo via diskpart."
+      }
+      Start-Sleep -Milliseconds 500
+    }
+
+    $success = Invoke-Fat32FormatTool '${letter}' $exePath
+    if (-not $success) {
+      "Tentativa inicial com fat32format falhou. Recriando estrutura da particao via diskpart..." | Out-File -FilePath $log -Append -Encoding utf8
+      Close-ExplorerWindows '${letter}'
+      & $mountvol '${letter}:\' '/D' 2>$null
+      $dpCmds = @(
+        "select disk $diskNo",
+        "clean",
+        "convert mbr",
+        "create partition primary",
+        "active",
+        "format fs=ntfs quick label=""$targetLabel""",
+        "assign letter=${letter}"
+      )
+      $dpOk = Invoke-DiskpartScript $dpCmds
+      if ($dpOk) {
+        Start-Sleep -Milliseconds 500
+        $success = Invoke-Fat32FormatTool '${letter}' $exePath
+      }
+    }
+
+    if (-not $success) {
+      throw "fat32format falhou. Feche qualquer programa ou janela do Explorer e tente novamente."
+    }
+  }
+
+  Start-Sleep -Milliseconds 500
+  $verifyVol = Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue
+  if (-not $verifyVol -or -not $verifyVol.FileSystem -or $verifyVol.FileSystem.ToUpperInvariant() -ne 'FAT32') {
+    throw "A unidade foi formatada, mas o sistema de arquivos resultante foi $(if ($verifyVol) { $verifyVol.FileSystem } else { 'indeterminado' }); esperado FAT32."
+  }
+  if ($verifyVol -and $targetLabel -and ($verifyVol.FileSystemLabel -ne $targetLabel)) {
+    Set-Volume -DriveLetter '${letter}' -NewFileSystemLabel $targetLabel -ErrorAction SilentlyContinue
+  }
+  "Formatação FAT32 concluída com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
 } catch {
   ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
+  Close-ExplorerWindows '${letter}'
   exit 1
 }
-$dp = @"
-select disk $diskNo
-attributes disk clear readonly
-clean
-create partition primary
-assign letter=${letter}
-exit
-"@
-($dp | diskpart 2>&1 | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Start-Sleep -Seconds 2
-$out = "Y" | & '${escapedExe}' '${letter}:' 2>&1
-$ec = $LASTEXITCODE
-$out | Out-File -FilePath $log -Append -Encoding utf8
-exit $ec`;
+
+Close-ExplorerWindows '${letter}'
+exit 0`;
 }
 
 function runCommand(
@@ -169,7 +373,9 @@ export function resolveFat32FormatExe(): string | null {
 
   const candidates = [
     path.join(getBundledRoot(), "fat32format.exe"),
+    path.join(getBundledRoot(), "tools", "fat32format.exe"),
     path.join(getRepoRoot(), "dist", "tools", "fat32format.exe"),
+    path.join(getRepoRoot(), "dist", "win-unpacked", "fat32format.exe"),
     path.join(getRepoRoot(), "tools", "fat32format", "fat32format.exe"),
   ];
   for (const p of candidates) {
@@ -194,37 +400,18 @@ async function formatWindowsFat32(
   onProgress({ status: "Preparando dispositivo…", percent: 4 });
 
   try {
-    if (exe) {
-      onProgress({ status: "Formatting to FAT32 (large-volume tool)…", percent: 8 });
-      // diskpart clean+create operates at physical-disk level, bypassing Explorer's
-      // volume-level lock (ERROR_SHARING_VIOLATION / GetLastError()=32).
-      // After clean, fat32format.exe gets exclusive access to the fresh raw partition.
-      // Output is written to a log file because Start-Process -Verb RunAs cannot redirect I/O.
-      const innerScript = buildGuardedWindowsFat32Script(letter, exe, logPath, {
+    onProgress({ status: "Formatando para FAT32…", percent: 8 });
+    const innerScript = buildGuardedWindowsFat32Script(
+      letter,
+      exe || "",
+      logPath,
+      {
         expectedVolumeGuid,
         expectedVolumeBytes,
-      });
-      fs.writeFileSync(ps1Path, innerScript, "utf8");
-    } else {
-      onProgress({ status: "Formatting to FAT32…", percent: 8 });
-      const escapedLog = logPath.replace(/'/g, "''");
-      const escapedLabel = label.replace(/'/g, "''");
-      const innerScript = [
-        `$ErrorActionPreference = 'Continue'`,
-        `$log = '${escapedLog}'`,
-        `'=== Format-Volume FAT32 ${letter}: ===' | Out-File -FilePath $log -Encoding utf8`,
-        `try {`,
-        `  $v = Get-Volume -DriveLetter '${letter}' -ErrorAction Stop`,
-        `  $v | Format-Volume -FileSystem FAT32 -NewFileSystemLabel '${escapedLabel}' -Force -Confirm:$false -ErrorAction Stop | Out-Null`,
-        `  'OK' | Out-File -FilePath $log -Append -Encoding utf8`,
-        `  exit 0`,
-        `} catch {`,
-        `  ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8`,
-        `  exit 1`,
-        `}`,
-      ].join("\r\n");
-      fs.writeFileSync(ps1Path, innerScript, "utf8");
-    }
+      },
+      label,
+    );
+    fs.writeFileSync(ps1Path, innerScript, "utf8");
 
     const { code, cancelled } = await runPs1Elevated(ps1Path);
     const detail = readLogTail(logPath);
@@ -235,7 +422,7 @@ async function formatWindowsFat32(
     if (code !== 0) {
       if (!exe && /32\s*GB|34359738368/i.test(detail)) {
         throw new Error(
-          `${detail}\n\nRun "node scripts/download-fat32format.js" and rebuild, or place fat32format.exe next to GODsend.`,
+          `${detail}\n\nExecute "node scripts/download-fat32format.js" ou posicione fat32format.exe junto ao aplicativo.`,
         );
       }
       throw new Error(
@@ -249,10 +436,24 @@ async function formatWindowsFat32(
   }
 
   onProgress({ status: "Remounting drive…", percent: 12 });
+  const closeScript = [
+    `Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue | Out-Null;`,
+    `try {`,
+    `  $shell = New-Object -ComObject Shell.Application`,
+    `  foreach ($win in $shell.Windows()) {`,
+    `    $loc = [string]$win.LocationURL`,
+    `    $name = [string]$win.LocationName`,
+    `    if ($loc -like "*${letter}:*" -or $loc -like "*${letter}%3A*" -or $name -like "${letter}:*") {`,
+    `      $win.Quit()`,
+    `    }`,
+    `  }`,
+    `} catch {}`,
+  ].join("\r\n");
   await runCommand("powershell.exe", [
     "-NoProfile",
+    "-NonInteractive",
     "-Command",
-    `Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue | Out-Null;`,
+    closeScript,
   ]);
 }
 

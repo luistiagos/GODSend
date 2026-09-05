@@ -502,11 +502,22 @@ export default function BadAvatarUsbPage({
                 </div>
               )}
 
+              {selectedDevice && (selectedDevice.needsRepair || selectedDevice.healthStatus === "Warning" || /Repair|Need|Corrupt/i.test(selectedDevice.operationalStatus || "")) && (
+                <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/20 px-3 py-3 text-[12px] text-amber-200 flex items-center gap-2.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                  <div>
+                    <span className="font-semibold block text-amber-400">Sistema de arquivos com inconsistências</span>
+                    Recomendamos marcar &quot;Formatar antes de preparar&quot; abaixo para garantir que a partição fique limpa e sem erros.
+                  </div>
+                </div>
+              )}
+
               {selectedDevice && !deviceAllowed && (
                 <p className="mt-2 text-[11px] leading-relaxed text-red-300">
                   {blockReason(selectedDevice)}
                 </p>
               )}
+
             </>
           )}
         </section>

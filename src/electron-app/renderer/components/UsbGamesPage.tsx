@@ -2,10 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   FolderOpen, Trash2, Search, HardDrive,
   Gamepad2, AlertTriangle, X, CheckCircle2, ChevronDown,
-  RefreshCw, Filter, Check, Download
+  RefreshCw, Filter, Check, Download, Wrench, ShieldCheck, ShieldAlert, LogOut
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
+import DriveRepairModal from "./DriveRepairModal";
+import FakeDriveProbeModal from "./FakeDriveProbeModal";
 
 export interface InstalledGame {
   name: string;
@@ -217,6 +219,9 @@ export default function UsbGamesPage({
   const [deleteCandidate, setDeleteCandidate] = useState<InstalledGame | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [showRepairModal, setShowRepairModal] = useState(false);
+  const [showProbeModal, setShowProbeModal] = useState(false);
+  const [ejecting, setEjecting] = useState(false);
 
   // Load drives and installed games
   const refreshAll = useCallback(async () => {
@@ -330,6 +335,24 @@ export default function UsbGamesPage({
     }
   }
 
+  async function handleEjectDrive(rootPath: string) {
+    setEjecting(true);
+    setActionFeedback(null);
+    try {
+      const res = await window.godsendApi.toolsDriveEject(rootPath);
+      if (res && res.ok) {
+        setActionFeedback({ msg: `Unidade ${rootPath} ejetada com segurança. Você já pode desconectar o pendrive.`, type: "success" });
+        await refreshAll();
+      } else {
+        setActionFeedback({ msg: res.error || "Não foi possível ejetar a unidade.", type: "error" });
+      }
+    } catch (err: any) {
+      setActionFeedback({ msg: `Erro ao ejetar: ${err.message}`, type: "error" });
+    } finally {
+      setEjecting(false);
+    }
+  }
+
   const xexCount = games.filter((g) => g.format === "xex").length;
   const godCount = games.filter((g) => g.format === "god").length;
   const totalSizeBytes = games.reduce((acc, g) => acc + (g.sizeBytes || 0), 0);
@@ -392,21 +415,88 @@ export default function UsbGamesPage({
               <span>Atualizar</span>
             </Button>
 
-            {/* Open Drive in Explorer */}
+            {/* Drive Tools Actions */}
             {activeDriveInfo?.rootPath && (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => handleOpenFolder(activeDriveInfo.rootPath)}
-                className="gap-1.5 h-9 px-3 cursor-pointer"
-                title={`Abrir unidade ${activeDriveInfo.rootPath} no Explorer`}
-              >
-                <FolderOpen className="h-3.5 w-3.5 text-emerald-400" />
-                <span>Abrir no Explorer</span>
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowRepairModal(true)}
+                  className="gap-1.5 h-9 px-2.5 text-xs text-amber-400 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer"
+                  title="Executar verificação e reparo de sistema de arquivos FAT32 (CHKDSK)"
+                >
+                  <Wrench className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Reparar (CHKDSK)</span>
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowProbeModal(true)}
+                  className="gap-1.5 h-9 px-2.5 text-xs text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 cursor-pointer"
+                  title="Testar autenticidade e capacidade real da memória flash"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Testar Capacidade</span>
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleOpenFolder(activeDriveInfo.rootPath)}
+                  className="gap-1.5 h-9 px-3 cursor-pointer"
+                  title={`Abrir unidade ${activeDriveInfo.rootPath} no Explorer`}
+                >
+                  <FolderOpen className="h-3.5 w-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">Abrir</span>
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={ejecting}
+                  onClick={() => handleEjectDrive(activeDriveInfo.rootPath)}
+                  className="gap-1.5 h-9 px-2.5 text-xs text-muted-foreground hover:text-red-400 hover:bg-red-500/10 cursor-pointer"
+                  title={`Ejetar unidade ${activeDriveInfo.rootPath} com segurança`}
+                >
+                  <LogOut className={cn("h-3.5 w-3.5", ejecting && "animate-spin")} />
+                  <span className="hidden sm:inline">Ejetar</span>
+                </Button>
+              </>
             )}
           </div>
         </div>
+
+        {/* ── Drive Health Alert Banner ──────────────────────────────────────── */}
+        {activeDriveInfo && (activeDriveInfo.needsRepair || activeDriveInfo.healthStatus === "Warning" || /Repair|Need|Corrupt/i.test(activeDriveInfo.operationalStatus || "")) && (
+          <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-3 text-xs animate-fade-in">
+            <div className="flex items-center gap-2.5 text-amber-300">
+              <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" />
+              <div>
+                <strong>Atenção:</strong> O sistema de arquivos da unidade <code className="font-mono bg-amber-950/60 px-1 py-0.5 rounded text-amber-200">{activeDriveInfo.rootPath}</code> necessita de reparo (Status: {activeDriveInfo.operationalStatus || activeDriveInfo.healthStatus}).
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => setShowRepairModal(true)}
+                className="h-7 text-xs bg-amber-600 hover:bg-amber-500 text-white font-semibold cursor-pointer gap-1"
+              >
+                <Wrench className="h-3 w-3" />
+                <span>Reparar Agora</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowProbeModal(true)}
+                className="h-7 text-xs border-amber-500/40 text-amber-300 hover:bg-amber-500/20 cursor-pointer"
+              >
+                Testar Autenticidade
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* ── Sub-bar: Drive Metrics & Filters ──────────────────────────────── */}
         <div className="mt-4 pt-3 border-t border-border/40 flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -671,6 +761,28 @@ export default function UsbGamesPage({
           </div>
         </div>
       )}
+
+      {/* ── Drive Repair Modal (CHKDSK) ────────────────────────────────────── */}
+      {activeDriveInfo && (
+        <DriveRepairModal
+          open={showRepairModal}
+          driveRoot={activeDriveInfo.rootPath}
+          onClose={() => setShowRepairModal(false)}
+          onRepairCompleted={refreshAll}
+        />
+      )}
+
+      {/* ── Fake Drive / Capacity Authenticity Modal ───────────────────────── */}
+      {activeDriveInfo && (
+        <FakeDriveProbeModal
+          open={showProbeModal}
+          driveRoot={activeDriveInfo.rootPath}
+          driveLabel={activeDriveInfo.label}
+          driveSizeBytes={activeDriveInfo.sizeBytes}
+          onClose={() => setShowProbeModal(false)}
+        />
+      )}
     </div>
   );
 }
+

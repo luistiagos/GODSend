@@ -304,7 +304,8 @@ export function scanGamesDirectory(
   return games;
 }
 
-function getDirectorySizeBytes(dirPath: string): number {
+function getDirectorySizeBytes(dirPath: string, depth = 0): number {
+  if (depth > 3) return 0;
   let total = 0;
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -312,7 +313,7 @@ function getDirectorySizeBytes(dirPath: string): number {
       if (isCorruptedFolderName(entry.name)) continue;
       const full = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        total += getDirectorySizeBytes(full);
+        total += getDirectorySizeBytes(full, depth + 1);
       } else if (entry.isFile()) {
         try {
           total += fs.statSync(full).size;
@@ -610,76 +611,107 @@ function getWindowsCandidateDriveRoots(): string[] {
   return roots;
 }
 
+let cachedScanResult: InstalledGameInfo[] | null = null;
+let lastScanTimestamp = 0;
+let inFlightScanPromise: Promise<InstalledGameInfo[]> | null = null;
+const SCAN_CACHE_TTL_MS = 15_000;
+
+/**
+ * Invalidates the in-memory installed games cache so the next call performs a fresh scan.
+ */
+export function invalidateInstalledGamesCache(): void {
+  cachedScanResult = null;
+  lastScanTimestamp = 0;
+}
+
 /**
  * Scans all connected USB drives and configured local directories for installed games.
  */
-export async function scanUsbAndLocalGames(): Promise<InstalledGameInfo[]> {
-  const nameMap = xboxBuildGameNameMap();
-  const allGames: InstalledGameInfo[] = [];
-  const seenPaths = new Set<string>();
-  const processedRoots = new Set<string>();
-
-  // 1. Scan connected safe USB / removable drives
-  let usbDrives: UsbDriveInfo[] = [];
-  try {
-    usbDrives = await listFat32UsbDrives();
-  } catch {
-    usbDrives = [];
+export async function scanUsbAndLocalGames(forceRefresh = false): Promise<InstalledGameInfo[]> {
+  const now = Date.now();
+  if (!forceRefresh && cachedScanResult && (now - lastScanTimestamp < SCAN_CACHE_TTL_MS)) {
+    return cachedScanResult;
+  }
+  if (inFlightScanPromise) {
+    return inFlightScanPromise;
   }
 
-  for (const drive of usbDrives) {
-    if (!drive.rootPath) continue;
-    const letter = normalizeDriveLetter(drive.rootPath);
-    const driveDisplay = drive.label && drive.label !== "Sem nome" && drive.label !== "No Label"
-      ? `${letter} (${drive.label})`
-      : letter;
-    processedRoots.add(normalizeDriveLetter(drive.rootPath).toLowerCase());
+  inFlightScanPromise = (async () => {
+    try {
+      const nameMap = xboxBuildGameNameMap();
+      const allGames: InstalledGameInfo[] = [];
+      const seenPaths = new Set<string>();
+      const processedRoots = new Set<string>();
 
-    scanDriveRoot(drive.rootPath, driveDisplay, nameMap, seenPaths, allGames);
-  }
-
-  // 2. Safety fallback: scan any connected Windows drives (D: to Z:) that have Xbox game folders
-  if (process.platform === "win32") {
-    const winRoots = getWindowsCandidateDriveRoots();
-    for (const r of winRoots) {
-      const letter = normalizeDriveLetter(r);
-      if (processedRoots.has(letter.toLowerCase())) continue;
-      processedRoots.add(letter.toLowerCase());
-
-      // Only scan non-USB volume if it has an Xbox indicator folder
-      const hasXboxFolders = [
-        "Games", "games", "Jogos", "jogos", "Xbox360", "xbox360", "Aurora", "Content"
-      ].some((f) => fs.existsSync(path.join(r, f)));
-
-      if (hasXboxFolders) {
-        scanDriveRoot(r, letter, nameMap, seenPaths, allGames);
+      // 1. Scan connected safe USB / removable drives
+      let usbDrives: UsbDriveInfo[] = [];
+      try {
+        usbDrives = await listFat32UsbDrives();
+      } catch {
+        usbDrives = [];
       }
-    }
-  }
 
-  // 3. Scan configured Transfer folder (for ISOs and local transfers)
-  const config = readConfig();
-  const transferFolder = config.transferFolder;
-  if (transferFolder && fs.existsSync(transferFolder)) {
-    const isoGames = scanIsoDirectory(transferFolder, "Transfer");
-    for (const g of isoGames) {
-      if (!seenPaths.has(g.path.toLowerCase())) {
-        seenPaths.add(g.path.toLowerCase());
-        allGames.push(g);
+      for (const drive of usbDrives) {
+        if (!drive.rootPath) continue;
+        const letter = normalizeDriveLetter(drive.rootPath);
+        const driveDisplay = drive.label && drive.label !== "Sem nome" && drive.label !== "No Label"
+          ? `${letter} (${drive.label})`
+          : letter;
+        processedRoots.add(normalizeDriveLetter(drive.rootPath).toLowerCase());
+
+        scanDriveRoot(drive.rootPath, driveDisplay, nameMap, seenPaths, allGames);
       }
-    }
 
-    const gamesInTransfer = scanGamesDirectory(path.join(transferFolder, "Games"), "Transfer", nameMap);
-    for (const g of gamesInTransfer) {
-      if (!seenPaths.has(g.path.toLowerCase())) {
-        seenPaths.add(g.path.toLowerCase());
-        allGames.push(g);
+      // 2. Safety fallback: scan any connected Windows drives (D: to Z:) that have Xbox game folders
+      if (process.platform === "win32") {
+        const winRoots = getWindowsCandidateDriveRoots();
+        for (const r of winRoots) {
+          const letter = normalizeDriveLetter(r);
+          if (processedRoots.has(letter.toLowerCase())) continue;
+          processedRoots.add(letter.toLowerCase());
+
+          // Only scan non-USB volume if it has an Xbox indicator folder
+          const hasXboxFolders = [
+            "Games", "games", "Jogos", "jogos", "Xbox360", "xbox360", "Aurora", "Content"
+          ].some((f) => fs.existsSync(path.join(r, f)));
+
+          if (hasXboxFolders) {
+            scanDriveRoot(r, letter, nameMap, seenPaths, allGames);
+          }
+        }
       }
+
+      // 3. Scan configured Transfer folder (for ISOs and local transfers)
+      const config = readConfig();
+      const transferFolder = config.transferFolder;
+      if (transferFolder && fs.existsSync(transferFolder)) {
+        const isoGames = scanIsoDirectory(transferFolder, "Transfer");
+        for (const g of isoGames) {
+          if (!seenPaths.has(g.path.toLowerCase())) {
+            seenPaths.add(g.path.toLowerCase());
+            allGames.push(g);
+          }
+        }
+
+        const gamesInTransfer = scanGamesDirectory(path.join(transferFolder, "Games"), "Transfer", nameMap);
+        for (const g of gamesInTransfer) {
+          if (!seenPaths.has(g.path.toLowerCase())) {
+            seenPaths.add(g.path.toLowerCase());
+            allGames.push(g);
+          }
+        }
+      }
+
+      // Sort alphabetically by name
+      allGames.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+      cachedScanResult = allGames;
+      lastScanTimestamp = Date.now();
+      return allGames;
+    } finally {
+      inFlightScanPromise = null;
     }
-  }
+  })();
 
-  // Sort alphabetically by name
-  allGames.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-
-  return allGames;
+  return inFlightScanPromise;
 }

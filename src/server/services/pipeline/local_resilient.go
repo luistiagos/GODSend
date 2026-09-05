@@ -500,6 +500,7 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 			return fmt.Errorf("%w: gravar %s: %v", ErrLocalDelivery, filepath.Base(entry.sourcePath), copyErr)
 		}
 	}
+	_ = helpers.FlushVolumeBuffers(root)
 	return nil
 }
 
@@ -535,9 +536,11 @@ func (s *Service) copyFileLocal(src, dst, root, gameName, message string) error 
 		}
 		if matches, matchErr := localFileMatches(dst, &entry); matchErr == nil && matches {
 			_ = os.Remove(dst + ".xbox-companion-part")
+			_ = helpers.FlushVolumeBuffers(root)
 			return nil
 		}
 		if err := copyLocalEntry(&entry, dst, nil); err == nil {
+			_ = helpers.FlushVolumeBuffers(root)
 			return nil
 		} else if localDeviceMatches(root, expectedID) {
 			if transientRetries < 3 {
@@ -554,3 +557,4 @@ func (s *Service) copyFileLocal(src, dst, root, gameName, message string) error 
 		transientRetries = 0
 	}
 }
+

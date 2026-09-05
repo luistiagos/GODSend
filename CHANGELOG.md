@@ -9,7 +9,67 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.67] - 2026-09-04
+
+### Fixed
+- **Carregamento Instantâneo do Catálogo Online e Otimização do Scanner de Jogos Locais (`BrowsePage.tsx`, `localGameScannerService.ts`, `handlers.go`)**:
+  - **Desacoplamento do Carregamento Online**: O catálogo online agora é exibido instantaneamente (< 50ms) a partir da memória/cache local sem esperar pelo scan síncrono de discos e pendrives USB do PC.
+  - **Varredura Local em Background e Paralela**: A detecção de jogos locais instalados (para exibição de selos "Baixado") roda em segundo plano para o catálogo online e em paralelo (`Promise.all`) para a aba de biblioteca local, eliminando o congelamento da tela no spinner *"Carregando a lista de jogos..."*.
+  - **Cache em Memória e Deduping de Varredura**: Implementado cache de 15 segundos (`SCAN_CACHE_TTL_MS`) com reuso de promessas em voo no `scanUsbAndLocalGames`, evitando reexecução repetida de scripts PowerShell e sondagens WMI ao alternar rapidamente entre abas de plataformas.
+  - **Limite de Profundidade em `getDirectorySizeBytes`**: Limitada a recursão de cálculo de tamanho para evitar travamentos de I/O em pendrives FAT32 lentos ou diretórios com milhares de arquivos.
+  - **Preservação de Discos Secundários na Mesclagem Unificada (`handlers.go`)**: A chave de deduplicação de provedores agora inclui o número do disco (`:discN`), garantindo que lançamentos multidisco mantenham todos os discos disponíveis no catálogo unificado.
+
+## [2.12.66] - 2026-09-04
+
+### Added
+- **Agrupamento Automático e Download em Lote para Jogos Multidisco (`BrowsePage.tsx`, `browseHandlers.ts`, `compat.go`, `handlers.go`)**:
+  - **Agrupamento Visual no Catálogo**: Jogos com múltiplos discos (ex: `(Disc 1)`, `(Disc 2)`, `(Disc 1 of 4)`, `(Installation Disc)`, `(Game Disc)`) agora são consolidados em um único card de jogo na visualização da biblioteca/loja, exibindo um badge indicativo com o total de discos (ex: `2 Discos`, `4 Discos`).
+  - **Seleção de Versões Enriquecida**: No seletor de versões/edições regionais, jogos multidisco exibem o selo indicando a quantidade de discos inclusos na versão selecionada.
+  - **Download e Enfileiramento Completo de Todos os Discos**: Ao clicar para baixar ou enfileirar um jogo multidisco, todos os discos complementares pertencentes à mesma versão são adicionados à fila de download e instalados sequencialmente no destino escolhido (pendrive USB ou console via FTP).
+  - **Suporte Nativo no Backend HTTP & Scripts Aurora**: O endpoint `/trigger` do servidor Go enfileira automaticamente os discos companheiros do catálogo ativo, garantindo que instalações disparadas pelo Aurora Dashboard ou via API HTTP também baixem todos os discos de forma consistente sem duplicações de tarefas.
+  - **Extração Robusta de Título de Release (`models/compat.go`)**: Implementada lógica pura de parsing para extração de `DiscInfo`, `ExtractReleaseTitle`, `FindCompanionDiscs` e detecção de discos secundários (`IsSecondaryDisc`), suportando variações de nomenclaturas numéricas (1 a 9) e funcionais (Installation, Bonus, Data, Play, Single-player, Multiplayer).
+
+## [2.12.65] - 2026-09-03
+
+### Fixed
+- **Formatação Resiliente em Cascata para Pendrives e Mídias USB Removíveis (`fat32Format.ts`, `fat32FormatGuard.test.cjs`)**:
+  - Corrigido o erro `StorageWMI 40000: Not enough available capacity` que ocorria ao tentar recriar partição em pendrives pequenos (<= 32 GB) via PowerShell WMI (`New-Partition`).
+  - Implementado particionamento e limpeza direta via `diskpart` (`clean` + `convert mbr` + `create partition primary` + `active`), contornando limitações do subsistema WMI do Windows em mídias USB removíveis.
+  - Implementada estratégia em cascata resiliente: tenta `Format-Volume`, em seguida `fat32format.exe`, seguido de `format.com /FS:FAT32` e, se o sistema de arquivos anterior estiver danificado (ex: FAT16, mídia inválida ou trilha 0 defeituosa), recria a tabela MBR limpa via `diskpart` e formata em FAT32.
+  - Expandida a busca pelo executável `fat32format.exe` para cobrir pastas de desenvolvimento, distribuição e aplicativos empacotados.
+
+## [2.12.64] - 2026-09-03
+
+### Fixed
+- **Resolução de Conflitos de Bloqueio (`GetLastError()=32` / Acesso Negado) e Formatação FAT32 Nativa (`fat32Format.ts`, `fat32FormatGuard.test.cjs`)**:
+  - Eliminada a dependência frágil de scripts de texto do `diskpart` (que gerava erros de *Acesso negado* em partições MBR lógicas e ignorava sub-erros).
+  - Implementada formatação nativa de alta performance e compatibilidade via cmdlets de armazenamento do PowerShell (`Format-Volume -FileSystem FAT32`) para pendrives e cartões de memória de até 32 GB (ex: 2 GB, 4 GB, 8 GB, 16 GB, 32 GB), com fallback automático de reestruturação de partição caso o sistema de arquivos anterior esteja corrompido.
+  - Adicionado fechamento proativo de janelas do Explorador de Arquivos (`explorer.exe`) no início e durante todas as etapas da formatação, liberando handles e impedindo o erro de bloqueio de compartilhamento (`ERROR_SHARING_VIOLATION` / `GetLastError()=32`) no `fat32format.exe` para unidades maiores que 32 GB.
+  - Implementado loop resiliente de retentativas com backoff exponencial para liberação de dispositivos USB em uso pelo sistema antes de abortar.
+
+### Fixed
+- **Supressão do Prompt do Windows e Fechamento Automático do Explorador de Arquivos na Formatação de USB (`fat32Format.ts`)**:
+  - Adicionada pré-formatação rápida em NTFS (`format fs=ntfs quick`) no script de particionamento com `diskpart` antes da atribuição da letra de unidade (`assign letter`). Com isso, a partição nunca entra no estado RAW perante o Shell do Windows, eliminando a exibição da janela modal nativa do sistema operacional (*"Formate o disco na unidade X: para poder usá-lo"*).
+  - Implementado fechamento automático e silencioso de qualquer janela do Explorador de Arquivos (`explorer.exe`) aberta pelo AutoPlay para a unidade do pendrive durante a formatação FAT32 e remount.
+
+## [2.12.62] - 2026-09-03
+
+### Added
+- **Diagnóstico de Saúde e Reparo Automático de FAT32 com CHKDSK (`driveRepairService.ts`, `DriveRepairModal.tsx`, `driveMaintenanceHandlers.ts`, `windowsUsbDeviceService.ts`, `preload.ts`)**:
+  - Implementado serviço de diagnóstico de integridade do volume que inspeciona `HealthStatus`, `OperationalStatus` e inconsistências estruturais no FAT32 de pendrives e HDs conectados.
+  - Adicionado banner visual de alerta na aba *Jogos Instalados* e na tela de *Preparar Dispositivo* quando a unidade apresentar status `Warning`, `Full Repair Needed` ou necessidade de reparo.
+  - Integrado botão e modal interativo **"Reparar (CHKDSK)"** com execução não interativa do utilitário CHKDSK (`/f /x`), exibição de logs em tempo real em console embutido e restauração de tabelas FAT e diretórios danificados em 1 clique.
+
+- **Testador de Autenticidade e Capacidade Real contra Pendrives Falsificados (`fakeDriveProbeService.ts`, `FakeDriveProbeModal.tsx`, `fakeDriveProbeService.test.cjs`)**:
+  - Criada ferramenta integrada para detecção de pendrives falsificados com chips de memória reprogramados (ex: 8/16 GB reportando 64/128 GB).
+  - Executa testes estratégicos com blocos determinísticos assinados com hash SHA-256 ao longo de checkpoints de capacidade e monitora ativamente o bloco sentinela zero (`wrap-around detection`), alertando com precisão a capacidade física real estimada antes que o usuário perca arquivos e jogos.
+
+- **Ejeção Segura e Flush de Buffers de Volume no Windows (`freespace_windows.go`, `local_resilient.go`, `windowsUsbDeviceService.ts`)**:
+  - Implementada função nativa `FlushVolumeBuffers` no backend Go que aciona `FlushFileBuffers` no handle do volume físico (`\\.\X:`) ao concluir a transferência local de jogos, garantindo que toda a cadeia de clusters FAT32 seja gravada no chip de memória antes do desmonte.
+  - Adicionado botão **"Ejetar"** na interface para desmontagem e descarregamento seguro de pendrives no Windows.
+
 ## [2.12.61] - 2026-09-03
+
 
 ### Fixed
 - **Filtro Defensivo contra Corrupção no Scanner de Jogos Locais/USB (`localGameScannerService.ts`, `localGameScannerService.test.cjs`)**:
