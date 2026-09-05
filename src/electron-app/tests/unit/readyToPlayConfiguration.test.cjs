@@ -12,8 +12,17 @@ const {
 test("configuracao pronta para jogar gera launch.ini canonico", () => {
   assert.equal(
     generateReadyToPlayLaunchIni(),
-    "[Paths]\r\nDefault = Usb:\\Aurora\\default.xex\r\n\r\n[Settings]\r\nnoupdater = true\r\nliveblock = true\r\nlivestrong = false\r\n",
+    "[Paths]\r\nDefault = Usb:\\Aurora\\default.xex\r\nDumpfile = Usb:\\crashlog.txt\r\n\r\n[Settings]\r\nnoupdater = true\r\nliveblock = true\r\nlivestrong = false\r\n",
   );
+});
+
+test("launch.ini aponta o dump do DashLaunch para o proprio pendrive", () => {
+  const ini = generateReadyToPlayLaunchIni();
+  const paths = ini.slice(ini.indexOf("[Paths]"), ini.indexOf("[Settings]"));
+
+  // Dumpfile so vale dentro de [Paths]; fora dela o DashLaunch ignora e a excecao
+  // interceptada continua saindo apenas pela UART.
+  assert.match(paths, /^Dumpfile = Usb:\\crashlog\.txt$/m);
 });
 
 test("hook carregado pelo Aurora identifica o pendrive e registra os caminhos de jogos", () => {
@@ -23,12 +32,12 @@ test("hook carregado pelo Aurora identifica o pendrive e registra os caminhos de
     AURORA_READY_TO_PLAY_FILTER_PATH,
     "Aurora/User/Scripts/Content/Filters/XboxCompanionReady.lua",
   );
-  assert.equal(READY_TO_PLAY_MARKER_PATH, ".xbox-downloader/ready-to-play-v2.marker");
-  assert.equal(generateReadyToPlayMarker(), "xbox-companion-ready-to-play-v2\r\n");
+  assert.equal(READY_TO_PLAY_MARKER_PATH, ".xbox-downloader/ready-to-play-v3.marker");
+  assert.equal(generateReadyToPlayMarker(), "xbox-companion-ready-to-play-v3\r\n");
   assert.match(lua, /FileSystem\.GetDrives\(false\)/);
   assert.match(lua, /string\.sub\(mountPoint, 1, 5\) == "game:"/);
   assert.match(lua, /normalizedSerial/);
-  assert.match(lua, /ready-to-play-v2\.marker/);
+  assert.match(lua, /ready-to-play-v3\.marker/);
   assert.match(lua, /Aurora\\\\default\.xex/);
   assert.match(lua, /path = "\\\\games", depth = 6/);
   assert.match(lua, /path = "\\\\Content\\\\0000000000000000", depth = 5/);

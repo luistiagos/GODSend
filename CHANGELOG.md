@@ -9,6 +9,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.68] - 2026-09-05
+
+### Fixed
+- **Diagnóstico do "Fatal Crash Intercepted!" no console (`readyToPlayConfiguration.ts`)**:
+  - O banner *Fatal Crash Intercepted!* que aparece ao ligar o Xbox com o pendrive preparado é do **DashLaunch**, não do Aurora: é a opção `exchandler` (padrão `TRUE` quando ausente do `launch.ini`) capturando uma exceção não tratada. Até agora era impossível investigar, porque o `launch.ini` gerado pelo app não definia `Dumpfile` e, sem ele, o DashLaunch despeja o texto da exceção **apenas na UART** — o usuário via o aviso e não sobrava nenhum vestígio.
+  - Adicionado `Dumpfile = Usb:\crashlog.txt` à seção `[Paths]`. Na próxima ocorrência o endereço da falha e o módulo ficam legíveis em `crashlog.txt`, na raiz do próprio pendrive. Ressalvas do DashLaunch: com mais de um dispositivo USB o arquivo pode cair no primeiro enumerado, e o caminho só é resolvido no boot — no BadAvatar o pendrive já está presente ao ligar.
+
+### Removed
+- **Estado do console de origem deixa de ser replicado no pendrive (`fixedBadAvatarPreparationService.ts`)**:
+  - O pacote BadAvatar foi capturado de um console real e 26 dos seus 643 arquivos (536 KB) eram estado daquela máquina, gravados byte a byte em todo pendrive preparado: 9 crash dumps do Aurora com os respectivos `.callstack`, os `debug.log`/`debug.log.last` do Aurora e do FreeStyle, e os bancos `content.db`/`settings.db` do FreeStyle — este último descrevendo 68 jogos, 10 títulos recentes e 5 seriais de dispositivo de um **HD interno** (`Hdd1:`) que não existe no pendrive do usuário.
+  - Nada disso tem função no destino e o Aurora e o FreeStyle recriam o que precisam no primeiro boot. Os próprios crash dumps replicados documentam um loop de travamento durante o scan de USB naquele console (`ProfileMonitor: 0(0) - Corrupted profile!` → `Starting ScanPath: ...Usb0\JOGOS GOD e XEX` → exceção `0xc0000025`, repetida três vezes), ou seja, o app entregava ao usuário o diagnóstico de outra máquina como se fosse dele.
+  - O perfil corrompido em `Content/E0002FF78DFBDE7B/` **continua sendo gravado**: ele é o vetor do exploit BadAvatar, não lixo de estado.
+
+### Changed
+- **`READY_TO_PLAY_CONFIGURATION_VERSION` passa de `2` para `3`**: o diário transacional vive em `<pendrive>/.xbox-downloader/transactions/` e é identificado por um `transactionId` derivado do escopo `badavatar-ready-to-play-vN`. Como o conteúdo do plano mudou (novo `launch.ini`, 26 arquivos a menos), manter a versão faria `verifyTransactionJournalAgainstPlan` recusar o diário antigo com *"O diário transacional não pertence ao plano de escrita informado"* ao repreparar um pendrive já usado.
+
 ## [2.12.67] - 2026-09-04
 
 ### Fixed

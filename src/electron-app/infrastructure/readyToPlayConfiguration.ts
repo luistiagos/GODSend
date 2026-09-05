@@ -1,4 +1,4 @@
-export const READY_TO_PLAY_CONFIGURATION_VERSION = "2";
+export const READY_TO_PLAY_CONFIGURATION_VERSION = "3";
 export const AURORA_READY_TO_PLAY_FILTER_PATH =
   "Aurora/User/Scripts/Content/Filters/XboxCompanionReady.lua";
 export const READY_TO_PLAY_MARKER_PATH =
@@ -8,6 +8,9 @@ export function generateReadyToPlayLaunchIni(): string {
   return [
     "[Paths]",
     "Default = Usb:\\Aurora\\default.xex",
+    // Sem Dumpfile o DashLaunch despeja a excecao apenas na UART e o usuario so ve o
+    // banner "Fatal Crash Intercepted!", sem nenhum vestigio para diagnosticar.
+    "Dumpfile = Usb:\\crashlog.txt",
     "",
     "[Settings]",
     "noupdater = true",

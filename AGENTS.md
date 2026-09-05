@@ -77,10 +77,12 @@ Escrito em **TypeScript** (compilado in-place via `tsconfig.json`, mantendo arqu
   * `auroraLibraryService.ts`: Parser SQLite (`sql.js`) dos bancos de dados do Aurora (`content.db` e `settings.db`), com caching por fingerprint SHA-256 / tamanho.
   * `auroraVisualService.ts`: Sincronização de capas e artes visuais do console (RXEA `.asset`, Media JPGs, `visual-manifest.json`).
   * `badAvatarUsbService.ts`: Orquestrador de criação do pendrive BadAvatar USB (formatador FAT32 + gravação transacional do BadStick).
+  * `fixedBadAvatarPreparationService.ts`: Preparação efetiva do pendrive (`tools:badavatar-prepare`) — valida o pacote fixo contra `assets/badavatar-1.1.manifest.json`, exclui o estado do console de origem (`isForeignConsoleStatePath`) e grava via plano transacional.
   * `autoSyncService.ts`: Sincronização pós-transferência de capas e biblioteca do Aurora.
 * **`ipc/`**: Manipuladores IPC expostos ao React (`configHandlers`, `xboxFtpHandlers`, `auroraLibraryHandlers`, `auroraAssetHandlers`, `browseHandlers`, `toolsHandlers`, `contentHandlers`, `saveHandlers`, `badAvatarHandlers`).
 * **`infrastructure/`**:
   * `fat32Format.ts`: Formatação FAT32 multiplataforma para drives USB grandes (Ridgecrop `fat32format.exe` no Windows, `newfs_msdos`/`diskutil` no macOS, `mkfs.vfat`/`mkfs.fat` no Linux).
+  * `readyToPlayConfiguration.ts`: Gera o `launch.ini` do DashLaunch (inclusive `Dumpfile = Usb:\crashlog.txt`, que torna legível a exceção por trás do banner *Fatal Crash Intercepted!*), o marcador e o script Lua carregado pelo Aurora. `READY_TO_PLAY_CONFIGURATION_VERSION` precisa subir sempre que o conteúdo gerado mudar, senão o diário transacional do pendrive rejeita o novo plano.
   * `serverLog.ts`: Logs rotativos diários com timestamp ISO 8601 em `logs/`.
 * **`preload.ts`**: Ponte restrita e tipada entre o processo Main e a interface React (`window.godsendApi.*`).
 * **`renderer/`**: Interface visual construída em React 19, Vite e TailwindCSS (páginas `HomePage`, `LibraryPage`, `QueuePage`, `SettingsPage` e overlays).
