@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"godsend/app"
+	"godsend/infrastructure/telemetry"
 	"godsend/models"
 	cacheService "godsend/services/cache"
 )
@@ -28,6 +29,17 @@ func isDownloadTooSlowError(err error) bool {
 		strings.Contains(err.Error(), "muito lento")
 }
 
+// isCatalogMissError reports whether err only means the provider does not carry
+// this title (or this platform). That is the normal outcome of probing a source
+// during fallback, not a defect, so it must not raise a telemetry report.
+func isCatalogMissError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "jogo nao encontrado no catalogo") ||
+		strings.Contains(err.Error(), "nao suportada no HuggingFace")
+}
+
 // ProcessGameWithFallback sequentially tries the given providers in priority order for the game download and installation.
 func (s *Service) ProcessGameWithFallback(gameName, platform string, providers []string) {
 	s.App.Logf("=== Fallback Pipeline: %s (%s) ===", gameName, platform)
@@ -35,6 +47,9 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 	var lastErr error
 	var providerErrors []string
 	var slowProviders []string
+	// Fica verdadeiro quando ao menos um provedor falhou por algo que nao seja
+	// "o catalogo nao tem este jogo" — ou seja, quando ha defeito a reportar.
+	reportable := false
 
 	recordError := func(provider string, err error) {
 		if err == nil {
@@ -44,6 +59,9 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 		providerErrors = append(providerErrors, fmt.Sprintf("%s: %v", provider, err))
 		if isDownloadTooSlowError(err) {
 			slowProviders = append(slowProviders, provider)
+		}
+		if !isCatalogMissError(err) {
+			reportable = true
 		}
 	}
 
@@ -165,4 +183,15 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 		message = "Download falhou em todas as fontes. Erros: " + strings.Join(providerErrors, " | ")
 	}
 	s.App.LogStatus(gameName, "Error", message)
+
+	// Sem isto a causa real (ex.: "GOD convert failed: ...") existe apenas no log
+	// da maquina do usuario: a telemetria so tinha pontos de captura para panico
+	// e falha de boot, e este caminho e um `error` tratado, que nunca vira panico.
+	// providerErrors vai como `logs` porque a mensagem da fila e truncada e cada
+	// entrada carrega o erro integral de um provedor.
+	if reportable {
+		telemetry.Report("pipeline", "fallback.go", "ProcessGameWithFallback",
+			fmt.Sprintf("Download falhou em todas as fontes para %s (%s): %v", gameName, platform, lastErr),
+			"", providerErrors, false)
+	}
 }

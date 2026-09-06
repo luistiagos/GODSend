@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#020617" />
 
   <title>Privacy Policy · GODsend 360</title>
-  <meta name="description" content="GODsend 360 privacy policy: we don't collect anything. The desktop app is local-only, the marketing site has no analytics or cookies." />
+  <meta name="description" content="GODsend 360 privacy policy: the app sends automatic error reports when something fails, and nothing else. No accounts, no usage tracking; the marketing site has no analytics or cookies." />
   <meta name="robots" content="index, follow" />
   <meta name="color-scheme" content="dark" />
 
@@ -18,7 +18,7 @@
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="GODsend 360" />
   <meta property="og:title" content="Privacy Policy · GODsend 360" />
-  <meta property="og:description" content="GODsend 360 is a local-only app. We don't collect, transmit, or store any of your data." />
+  <meta property="og:description" content="GODsend 360 sends automatic error reports when something fails, and collects nothing else. No accounts, no usage tracking — and you can turn reports off." />
   <meta property="og:url" content="https://ghostyshell.github.io/GODSend-360/privacy.html" />
   <meta property="og:image" content="https://ghostyshell.github.io/GODSend-360/site/og-image.svg" />
 
@@ -79,12 +79,12 @@
     <article class="max-w-3xl mx-auto px-5 md:px-8 py-16 md:py-24">
       <p class="font-mono text-xs uppercase tracking-[0.3em] text-neon-green/80">Privacy</p>
       <h1 class="font-display text-4xl md:text-5xl mt-3">Privacy Policy</h1>
-      <p class="mt-2 text-sm text-slate-400 font-mono">Last updated: 26 May 2026</p>
+      <p class="mt-2 text-sm text-slate-400 font-mono">Last updated: 6 September 2026</p>
 
       <div class="prose prose-invert mt-10 max-w-none prose-headings:font-display prose-headings:tracking-tight prose-a:text-neon-green prose-a:no-underline hover:prose-a:underline">
 
         <h2>Short version</h2>
-        <p><strong>GODsend 360 doesn't collect anything.</strong> The desktop app runs entirely on your computer and your local network. This marketing site has no analytics, no cookies, and no tracking. We don't have a server that you talk to, and we don't have an account system to register against.</p>
+        <p><strong>GODsend 360 collects one thing: automatic error reports.</strong> When something in the app fails — it crashes, or a download fails on every source — the app sends the error message and its technical context so the bug can be fixed. There is no account system, no usage tracking, and no profiling. This marketing site has no analytics, no cookies, and no tracking. You can turn error reports off entirely — see <a href="#error-reports">section 2</a>.</p>
 
         <hr />
 
@@ -101,9 +101,21 @@
             </ul>
           </li>
         </ul>
-        <p>The app does <strong>not</strong> phone home, send crash reports, beacon usage events, or contact any server we operate. There is no telemetry of any kind.</p>
+        <p>The app does <strong>not</strong> beacon usage events, track what you browse, or run an account system. It <strong>does</strong> send automatic error reports to a server we operate when something fails — see <a href="#error-reports">section 2</a> for exactly what is sent and how to turn it off.</p>
 
-        <h2>2. What is stored locally</h2>
+        <h2 id="error-reports">2. Automatic error reports</h2>
+        <p>When the app hits an error it cannot handle, it sends a report to <code>digitalstoregames.pythonanywhere.com/logErr</code>, a server we operate, so the bug can be diagnosed and fixed. This is <strong>on by default</strong>.</p>
+        <p>A report is sent when:</p>
+        <ul>
+          <li>the Go backend or the Electron app <strong>crashes</strong> (an unhandled panic, exception, or rejection), or fails to start;</li>
+          <li>a game download <strong>fails on every source</strong> — the case that otherwise leaves you looking at an error with no explanation.</li>
+        </ul>
+        <p>Every report contains: the error message and stack trace, the name of the component, source file and function that failed, and your operating system and CPU architecture. Reports from the Electron side also carry the app version and your OS release. For a failed download, the report carries <strong>the name of the game</strong> and the individual error from each source that was tried.</p>
+        <p><strong>Crash reports additionally attach the last 256&nbsp;KB of that day's log file.</strong> That tail is a slice of the same <code>logs/</code> file described in <a href="#stored-locally">section 3</a>: it can contain local folder paths, drive letters, and the names of games being processed. Internet Archive credentials are redacted in that log before it is written.</p>
+        <p>A report does <strong>not</strong> contain your name, e-mail address, Xbox credentials, Internet Archive cookie or password, or any list of what you downloaded successfully. Identical errors are sent only once per session, and a failure to send is silently discarded — it never blocks or crashes the app.</p>
+        <p><strong>To turn it off:</strong> add <code>"errorReporting": false</code> to <code>config.json</code> in the app's user-data directory (on Windows, <code>%APPDATA%\Xbox 360 Companion\config.json</code>) and restart the app. That switch covers both halves of the app: the Electron side reads it directly, and passes it to the Go backend as <code>GODSEND_ERROR_REPORTING=0</code>. With it off, no reports of any kind are sent.</p>
+
+        <h2 id="stored-locally">3. What is stored locally</h2>
         <p>The app writes files only under its own runtime directory and your OS's user-data directory:</p>
         <ul>
           <li><code>Transfer/</code>, <code>Ready/</code>, <code>Temp/</code>, <code>cache/</code>, <code>Saves/</code>, <code>pending_ftp/</code> — game data, save-game backups, and queued FTP jobs.</li>
@@ -112,10 +124,10 @@
         </ul>
         <p>These files never leave your machine unless you copy them somewhere yourself.</p>
 
-        <h2>3. Internet Archive login (optional)</h2>
+        <h2>4. Internet Archive login (optional)</h2>
         <p>If you choose to log in to Internet Archive inside the app's Settings, the app stores the session cookie locally. Your password is <strong>never</strong> saved, transmitted, or read after the initial login request to archive.org. You can sign out at any time, which clears the cookie.</p>
 
-        <h2>4. This website (ghostyshell.github.io/GODSend-360)</h2>
+        <h2>5. This website (ghostyshell.github.io/GODSend-360)</h2>
         <p>The marketing site is a static HTML page hosted on GitHub Pages. It has:</p>
         <ul>
           <li>❌ No analytics (no Google Analytics, no Plausible, no anything).</li>
@@ -130,13 +142,13 @@
         </ul>
         <p>GitHub Pages itself logs basic access information at the server level; refer to <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener">GitHub's privacy statement</a> for details.</p>
 
-        <h2>5. Source code transparency</h2>
+        <h2>6. Source code transparency</h2>
         <p>Everything described above is verifiable. The full source code — backend, app, scripts, and site — is at <a href="https://github.com/ghostyshell/GODSend-360" rel="noopener">github.com/ghostyshell/GODSend-360</a>. If any of this looks wrong, please <a href="https://github.com/ghostyshell/GODSend-360/issues" rel="noopener">file an issue</a>.</p>
 
-        <h2>6. Changes</h2>
+        <h2>7. Changes</h2>
         <p>If this policy changes, the "Last updated" date at the top will change with it, and the diff will be in the repository's git history.</p>
 
-        <h2>7. Contact</h2>
+        <h2>8. Contact</h2>
         <p>For privacy questions, open an issue on <a href="https://github.com/ghostyshell/GODSend-360/issues" rel="noopener">the GitHub repo</a>. There's no separate contact channel — the project is maintained by one person in their spare time.</p>
 
       </div>

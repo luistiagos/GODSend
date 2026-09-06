@@ -9,6 +9,28 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.71] - 2026-09-06
+
+### Added
+- **Falha definitiva de download passa a ser reportada à telemetria (`fallback.go`)**:
+  - Relato de usuário com print: *"Download falhou em todas as fontes. Erros: HuggingFace: jogo nao encontrado no catalogo | Internet Archive: GOD conv…"* — cortado exatamente onde começaria a causa. O usuário afirmou que **todo** jogo falhava, e não havia como saber o porquê: a telemetria não tinha nenhum ponto de captura para este caminho.
+  - Os 5 pontos de captura do backend Go cobriam só **pânico** (`middleware.go::RecoverMiddleware`, `handlers.go::handleTrigger.launcher`) e **falha de boot** (`main.go`: `SetupPaths`, `Listen`, `Serve`). Todo erro de pipeline — download, extração, conversão GOD, FTP, gravação local — é um `error` **tratado**, então nunca vira pânico, então nunca era reportado. `ProcessGameWithFallback` terminava em `LogStatus(gameName, "Error", message)`, que é apenas um `JobQueue.Store` num `sync.Map` alimentando a tela ([`app.go`](src/server/app/app.go)). A causa morria ali e no stdout da máquina do usuário.
+  - Agora o funil único por onde passa toda falha definitiva de download reporta como `pipeline` / `fallback.go::ProcessGameWithFallback`, levando `providerErrors` como `logs` — cada entrada é o erro **integral** de um provedor, sem o truncamento da tela. O `Report` já é não-bloqueante (`terminal=false` envia em goroutine), guardado por `recover()`, com dedup por `component|message` e cap de 4000 chars.
+  - **Miss de catálogo não é reportado.** `isCatalogMissError()` filtra `jogo nao encontrado no catalogo` e `plataforma X nao suportada no HuggingFace`: é o resultado *normal* de sondar um provedor que não tem o título, não um defeito. Só há reporte quando ao menos um provedor falhou por outro motivo — caso contrário o painel encheria de não-bugs.
+
+### Fixed
+- **A causa do erro na fila era ilegível (`QueuePage.tsx`)**:
+  - `job.message` era renderizado com a classe `truncate` (uma linha, sem quebra, cortado com reticências). Numa mensagem agregada como a do fallback, o que sobrava na tela era a parte **inútil** (o miss de catálogo do HuggingFace) e o que sumia era a parte que importa (a falha real do Internet Archive). O texto completo só existia no atributo `title` — tooltip de hover, inacessível em tela grande ou sem mouse.
+  - Mensagens de estado `Error` agora quebram linha (`whitespace-pre-wrap break-words`) e usam a cor de erro. Mensagens de progresso continuam truncadas — são curtas e a truncagem ali é desejável.
+  - Mesma classe de defeito corrigida na 2.12.70 para o *"Erro desconhecido"*: erro que existe, mas não chega ao usuário.
+
+### Changed
+- **Política de privacidade passa a descrever a telemetria que sempre existiu (`docs/privacy.html`)**:
+  - A página afirmava, em três lugares (o `<meta name="description">`, o `og:description` e o corpo): *"The app does **not** phone home, send crash reports, beacon usage events, or contact any server we operate. **There is no telemetry of any kind.**"* e *"GODsend 360 doesn't collect anything."*
+  - Isso **já era falso** antes desta versão: o reporte de erros está em `enabled = true` por padrão ([`config.go`](src/server/app/config.go), opt-out por `errorReporting` no `config.json`) e envia pânicos e falhas de boot para `digitalstoregames.pythonanywhere.com/logErr` desde que a telemetria foi introduzida. A mudança desta versão amplia o que sai da máquina — passa a incluir o nome do jogo e o erro de cada provedor —, o que tornaria a página ainda mais incorreta.
+  - Nova **seção 2, "Automatic error reports"**, declarando: o endpoint, os dois gatilhos (crash e falha de download em todas as fontes), os campos enviados, e o fato — não documentado até aqui — de que **relatórios de crash anexam os últimos 256 KB do log do dia** (`readLogTail`, `MAX_LOG_BYTES` em `infrastructure/telemetry.ts`), que pode conter caminhos locais, letras de unidade e nomes de jogos. Também o que **não** é enviado e como desligar (`"errorReporting": false` no `config.json`, que o Electron repassa ao backend como `GODSEND_ERROR_REPORTING=0`).
+  - Seções 2–7 renumeradas para 3–8; data de "Last updated" atualizada.
+
 ## [2.12.70] - 2026-09-05
 
 ### Fixed

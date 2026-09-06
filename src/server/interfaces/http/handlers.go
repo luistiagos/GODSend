@@ -21,6 +21,7 @@ import (
 	"godsend/app"
 	"godsend/infrastructure/ftp"
 	"godsend/infrastructure/helpers"
+	"godsend/infrastructure/telemetry"
 	"godsend/models"
 	cacheService "godsend/services/cache"
 	"godsend/services/local"
@@ -487,7 +488,14 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 					buf := make([]byte, 4096)
 					n := runtime.Stack(buf, false)
 					d.App.Logf("STACK: %s", string(buf[:n]))
-					d.App.LogStatus(gameName, "Error", "Server crashed during processing")
+					// A mensagem vai crua para a fila na tela do usuario: nomear
+					// a falha em vez de so dizer que houve uma. E reportar, como
+					// o RecoverMiddleware ja faz, senao o panico so existe no
+					// log desta maquina.
+					d.App.LogStatus(gameName, "Error", fmt.Sprintf("Erro interno ao processar: %v", rec))
+					telemetry.Report("http-server", "handlers.go", "handleTrigger.launcher",
+						fmt.Sprintf("Panic processing %s: %v", gameName, rec),
+						"/trigger", []string{string(buf[:n])}, false)
 				}
 			}()
 			fn()

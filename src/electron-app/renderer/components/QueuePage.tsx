@@ -101,7 +101,18 @@ function JobRow({ job, onRemove, onRetry, removing, retrying }: JobRowProps) {
           </span>
         </div>
         {job.message && (
-          <p className="text-[11px] text-muted-foreground mt-0.5 truncate" title={job.message}>
+          // Em erro a mensagem carrega o motivo (ex.: a falha de cada provedor);
+          // truncar em uma linha escondia justamente a causa, que so aparecia no
+          // tooltip do hover. Mensagens de progresso continuam truncadas.
+          <p
+            className={cn(
+              "text-[11px] mt-0.5",
+              isError
+                ? "text-red-300 whitespace-pre-wrap break-words"
+                : "text-muted-foreground truncate"
+            )}
+            title={job.message}
+          >
             {job.message}
           </p>
         )}

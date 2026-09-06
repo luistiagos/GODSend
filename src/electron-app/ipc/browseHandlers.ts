@@ -8,7 +8,8 @@ import http from "http";
 import { IpcMain } from "electron";
 
 import { getConfiguredXboxIP, getConfiguredServerPort, getConfiguredProviderPriority } from "../services/settingsService";
-import { backendGet } from "../infrastructure/backendHttp";
+import { backendGet, backendGetWithStatus } from "../infrastructure/backendHttp";
+import { backendFailureReason, errorMessage } from "../infrastructure/backendFailure";
 import { fetchHttpImage } from "../infrastructure/httpHelper";
 import {
   browseCoverCache,
@@ -57,57 +58,62 @@ export function register(ipcMain: IpcMain): void {
   // destinationType: "local" writes directly to a mounted drive on this PC
   // (localRoot, e.g. a prepared pendrive); "ftp" (default) transfers to a console.
   ipcMain.handle("browse:queue-game", async (_event, { game, games, platform, source, drive, installType, destinationType, localRoot }) => {
-    const isLocal = destinationType === "local";
+    try {
+      const isLocal = destinationType === "local";
 
-    let xboxIp = "";
-    if (isLocal) {
-      if (!localRoot) return { ok: false, error: "Selecione um pendrive/HD preparado como destino." };
-    } else {
-      xboxIp = getConfiguredXboxIP();
-      if (!xboxIp) return { ok: false, error: "No Xbox IP configured. Check Settings → Xbox connection." };
-    }
-
-    const itemsToQueue: string[] = (Array.isArray(games) && games.length > 0)
-      ? games
-      : (game ? [game] : []);
-
-    if (itemsToQueue.length === 0) {
-      return { ok: false, error: "Nenhum jogo ou disco selecionado." };
-    }
-
-    const drv  = encodeURIComponent(drive || "Hdd1:");
-    const inst = encodeURIComponent(installType || "god");
-    const plat = encodeURIComponent(platform || "xbox360");
-    const src  = source ? `&source=${encodeURIComponent(source)}` : "";
-    const mode = isLocal ? "local" : "ftp";
-    const localParam = isLocal ? `&local_root=${encodeURIComponent(localRoot)}` : "";
-    const priority = getConfiguredProviderPriority().join(",");
-
-    let lastStatus = "triggered";
-    for (const g of itemsToQueue) {
-      const enc = encodeURIComponent(g);
-      try {
-        const regData = await backendGet(
-          `/register?game=${enc}&ip=${encodeURIComponent(xboxIp)}&drive=${drv}&platform=${plat}&mode=${mode}&install_type=${inst}${localParam}`
-        );
-        let reg: any;
-        try { reg = JSON.parse(regData); } catch { reg = {}; }
-        if (reg.error) return { ok: false, error: `Register (${g}): ${reg.error}` };
-
-        const trigData = await backendGet(
-          `/trigger?game=${enc}&platform=${plat}&install_type=${inst}${src}&priority=${encodeURIComponent(priority)}`
-        );
-        let trig: any;
-        try { trig = JSON.parse(trigData); } catch { trig = {}; }
-        if (trig.error) return { ok: false, error: `Trigger (${g}): ${trig.error}` };
-
-        lastStatus = trig.status || "triggered";
-      } catch (err: any) {
-        return { ok: false, error: `Erro ao enfileirar ${g}: ${err.message}` };
+      let xboxIp = "";
+      if (isLocal) {
+        if (!localRoot) return { ok: false, error: "Selecione um pendrive/HD preparado como destino." };
+      } else {
+        xboxIp = getConfiguredXboxIP();
+        if (!xboxIp) return { ok: false, error: "Nenhum IP do Xbox configurado. Verifique Configurações → conexão com o Xbox." };
       }
-    }
 
-    return { ok: true, status: lastStatus, queuedCount: itemsToQueue.length };
+      const itemsToQueue: string[] = (Array.isArray(games) && games.length > 0)
+        ? games
+        : (game ? [game] : []);
+
+      if (itemsToQueue.length === 0) {
+        return { ok: false, error: "Nenhum jogo ou disco selecionado." };
+      }
+
+      const drv  = encodeURIComponent(drive || "Hdd1:");
+      const inst = encodeURIComponent(installType || "god");
+      const plat = encodeURIComponent(platform || "xbox360");
+      const src  = source ? `&source=${encodeURIComponent(source)}` : "";
+      const mode = isLocal ? "local" : "ftp";
+      const localParam = isLocal ? `&local_root=${encodeURIComponent(localRoot)}` : "";
+      const priority = getConfiguredProviderPriority().join(",");
+
+      let lastStatus = "triggered";
+      for (const g of itemsToQueue) {
+        const enc = encodeURIComponent(g);
+        try {
+          const reg = await backendGetWithStatus(
+            `/register?game=${enc}&ip=${encodeURIComponent(xboxIp)}&drive=${drv}&platform=${plat}&mode=${mode}&install_type=${inst}${localParam}`
+          );
+          const regFailure = backendFailureReason(reg);
+          if (regFailure) return { ok: false, error: `Falha ao registrar "${g}": ${regFailure}` };
+
+          const trig = await backendGetWithStatus(
+            `/trigger?game=${enc}&platform=${plat}&install_type=${inst}${src}&priority=${encodeURIComponent(priority)}`
+          );
+          const trigFailure = backendFailureReason(trig);
+          if (trigFailure) return { ok: false, error: `Falha ao iniciar o download de "${g}": ${trigFailure}` };
+
+          try { lastStatus = JSON.parse(trig.body).status || "triggered"; } catch { lastStatus = "triggered"; }
+        } catch (err: unknown) {
+          return { ok: false, error: `Erro ao enfileirar "${g}": ${errorMessage(err)}` };
+        }
+      }
+
+      return { ok: true, status: lastStatus, queuedCount: itemsToQueue.length };
+    } catch (err: unknown) {
+      // Never let this handler reject: an IPC rejection reaches the renderer
+      // with no result object at all, which is what left users staring at an
+      // error box with nothing in it.
+      return { ok: false, error: `Falha inesperada ao enfileirar: ${errorMessage(err)}` };
+    }
   });
 
   // ── Disc-info recommendation (install type hint) ───────────────────────────

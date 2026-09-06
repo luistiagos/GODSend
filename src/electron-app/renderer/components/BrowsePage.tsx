@@ -108,6 +108,33 @@ interface LocalDrive {
   freeBytes?: number;
 }
 
+/**
+ * Explain a queue attempt that failed without saying why. The backend and the
+ * IPC handler both guarantee an `error` now, so reaching this means something
+ * unforeseen answered instead — report it to telemetry rather than showing the
+ * user a message that tells them nothing.
+ */
+function queueFailureReason(result: any, game: string): string {
+  if (result?.error) return String(result.error);
+
+  let detail: string;
+  try { detail = JSON.stringify(result); } catch { detail = String(result); }
+
+  try {
+    (window as any).godsendApi?.reportError?.(
+      "electron-renderer",
+      "BrowsePage.tsx",
+      "handleQueue",
+      `Queue failed with no reason for "${game}": ${detail}`,
+      window.location.href,
+      []
+    );
+  } catch { /* telemetry must never break the dialog */ }
+
+  return `O aplicativo não recebeu o motivo da falha (resposta: ${detail}). ` +
+         `Verifique se o servidor local está em execução e tente novamente.`;
+}
+
 // A unified destination shown in the queue dialog dropdown.
 interface Destination {
   value: string;          // encoded key, unique per option
@@ -299,18 +326,27 @@ function QueueDialog({
     setQueuing(true);
     setResult(null);
 
-    const r = await window.godsendApi.browseQueueGame({
-      game,
-      games: discsToQueue,
-      platform,
-      source,
-      installType: hasMethods ? method : "god",
-      destinationType: selectedDest.kind,
-      drive: selectedDest.drive,
-      localRoot: selectedDest.rootPath,
-    });
-    setQueuing(false);
-    setResult(r);
+    try {
+      const r = await window.godsendApi.browseQueueGame({
+        game,
+        games: discsToQueue,
+        platform,
+        source,
+        installType: hasMethods ? method : "god",
+        destinationType: selectedDest.kind,
+        drive: selectedDest.drive,
+        localRoot: selectedDest.rootPath,
+      });
+      setResult(r?.ok ? r : { ok: false, error: queueFailureReason(r, game) });
+    } catch (err: any) {
+      // A rejected IPC used to leave the dialog spinning forever; surface it.
+      setResult({
+        ok: false,
+        error: `Falha de comunicação com o aplicativo: ${err?.message || String(err)}`,
+      });
+    } finally {
+      setQueuing(false);
+    }
   }
 
   const queued = result?.ok;
@@ -514,7 +550,7 @@ function QueueDialog({
         {/* Result message */}
         {result && (
           <p className={cn(
-            "text-[11px] px-2 py-1.5 rounded-md text-center",
+            "text-[11px] px-2 py-1.5 rounded-md text-center leading-snug break-words",
             result.ok
               ? "bg-green-500/10 text-green-400 border border-green-500/20"
               : "bg-red-500/10 text-red-400 border border-red-500/20"
@@ -523,7 +559,7 @@ function QueueDialog({
               ? isMultiDiscGame
                 ? `Todos os ${discsToQueue.length} discos foram adicionados à fila com sucesso!`
                 : `Na fila! Status: ${result.status}`
-              : result.error || "Erro desconhecido"}
+              : result.error}
           </p>
         )}
 
