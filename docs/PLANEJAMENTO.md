@@ -69,6 +69,7 @@ Configuração-base pretendida:
 ```ini
 [Paths]
 Default = Usb:\Aurora\default.xex
+Dumpfile = Usb:\crashlog.txt
 
 [Settings]
 noupdater = true

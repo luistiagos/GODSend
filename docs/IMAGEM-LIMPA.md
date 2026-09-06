@@ -36,6 +36,7 @@ Referência primária: <https://github.com/Byrom90/XeUnshackle/pull/54>
 ```ini
 [Paths]
 Default = Usb:\Aurora\default.xex
+Dumpfile = Usb:\crashlog.txt
 
 [Settings]
 noupdater = true
@@ -50,6 +51,8 @@ A sintaxe, o caminho `Usb:\`, a seção `[Paths]` e os padrões das opções for
 <https://github.com/XeFreedom/DashLaunch/blob/main/ReadMe/info_launch.ini>
 
 `liveblock = true` bloqueia domínios LIVE. `livestrong = false` evita o bloqueio amplo de todos os domínios Microsoft, que também poderia impedir recursos como capas. `noupdater = true` mantém o bloqueador de atualização ativo.
+
+`Dumpfile` torna recuperável a exceção por trás do banner **Fatal Crash Intercepted!**. O DashLaunch intercepta exceções não tratadas por padrão (`exchandler`, que vale `TRUE` quando ausente) e, sem `Dumpfile`, despeja o texto apenas na UART — o usuário vê o aviso e não sobra nenhum vestígio para reportar. O caminho é resolvido somente no boot, então o dispositivo precisa estar conectado ao ligar; no fluxo BadAvatar isso já é o caso.
 
 Como `Usb:` representa uma classe de dispositivo, o procedimento de uso deverá instruir o usuário a deixar somente o dispositivo preparado conectado durante a ativação inicial.
 

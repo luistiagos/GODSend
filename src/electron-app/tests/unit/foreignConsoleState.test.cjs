@@ -28,6 +28,9 @@ test("estado do console de origem nao e gravado no pendrive do usuario", () => {
   assert.ok(excluded.includes("apps/FreeStyle/Data/Databases/content.db"));
   assert.ok(excluded.includes("apps/FreeStyle/Data/Databases/settings.db"));
 
+  // Tripwire proposital: se o pacote for trocado por `npm run payload:update`, esta
+  // contagem muda e o teste falha. Confira o que entrou de novo antes de ajustar o
+  // numero — o pacote anterior trouxe 536 KB de estado alheio sem ninguem notar.
   assert.equal(excluded.length, 26);
 });
 
