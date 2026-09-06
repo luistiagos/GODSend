@@ -9,14 +9,28 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.70] - 2026-09-05
+
+### Fixed
+- **"Erro desconhecido" ao adicionar um jogo à fila (`browseHandlers.ts`, `backendHttp.ts`, `BrowsePage.tsx`)**:
+  - O diálogo *Destino do jogo* podia recusar a inclusão exibindo apenas **"Erro desconhecido"**, sem nenhuma pista do motivo. Eram três defeitos somados no mesmo caminho:
+  - **1. A recusa do backend era invisível.** `middleware.go::jsonError` responde `{"state":"Error","message":"…"}` com status 4xx/5xx, mas `browse:queue-game` só testava `reg.error`/`trig.error` — chave que essa resposta **nunca** tem. Toda recusa de `/register` e `/trigger` passava batido: 400 (parâmetro ausente), 409 (`O dispositivo local nao esta pronto ou foi desconectado` — o pendrive/HD selecionado não aceitou o marcador de identidade), 422 (multidisco bloqueado) e 500 (pânico capturado). O app respondia `{ ok: true, status: "triggered" }` e o jogo simplesmente não entrava na fila. Mesma cegueira para as respostas 200 de "não achei" (`local_unavailable`, `minerva_unavailable`, `hf_unavailable`), que traziam o motivo em `message` e eram exibidas como *"Na fila! Status: hf_unavailable"*.
+  - **2. `backendGet()` descartava o código HTTP.** Resolvia com o corpo cru independentemente do status, então nem o chamador mais cuidadoso conseguia separar resposta de recusa. Agora existe `backendGetWithStatus()` devolvendo `{ status, body }`; `backendGet()` continua entregando só o corpo para os 15 chamadores que não precisam do status. As rejeições também deixaram de ser o literal `"Timeout"`: agora nomeiam o código do erro, a URL e o limite de 120 s.
+  - **3. Nada garantia uma explicação.** O `catch` do handler devolvia `err.message` puro — vazio ou `undefined` quando o que foi lançado não era um `Error` com mensagem — e a `QueueDialog` preenchia a lacuna com o literal `"Erro desconhecido"`. Pior: `handleQueue` não tinha `try/catch`, então uma rejeição do IPC deixava o botão travado em *"Enfileirando…"* para sempre, sem nunca chamar `setQueuing(false)`.
+  - Agora `backendFailureReason()` (novo `infrastructure/backendFailure.ts`, sem dependência do Electron e coberto por `tests/unit/backendFailure.test.cjs`) reconhece as três formas de falha do backend, e `errorMessage()` garante texto não vazio para qualquer valor lançado. `handleQueue` ganhou `try/catch/finally` — o botão sempre volta ao estado normal — e o literal `"Erro desconhecido"` saiu do diálogo. Se ainda assim chegar uma resposta sem motivo, a mensagem mostra a resposta recebida e o caso é reportado à telemetria (`electron-renderer`/`handleQueue`), em vez de morrer na tela do usuário.
+
+### Changed
+- **Mensagem de IP do Xbox traduzida**: `"No Xbox IP configured. Check Settings → Xbox connection."` passa a *"Nenhum IP do Xbox configurado. Verifique Configurações → conexão com o Xbox."*, alinhada ao resto do diálogo.
+- **Banner do backend Go**: `main.go` anunciava `v2.12.66` no `[INFO]` inicial e `v2.12.69` no banner — as duas linhas agora acompanham a versão do release.
+
 ## [2.12.69] - 2026-09-05
 
 ### Changed
-- **O hook `XboxCompanionReady.lua` não reinicia mais o Aurora durante a própria inicialização (`readyToPlayConfiguration.ts`)**:
-  - O script é gravado em `Aurora/User/Scripts/Content/Filters/` e, portanto, é executado pelo Aurora na fase `ContentScripts` do boot — junto de `HideBackups.lua`, `HideKinect.lua` e `HideMultiDisc.lua`, que são predicados puros (`GameListFilterCategories.User[...] = function(Content) ... end`). Depois de registrar os caminhos de varredura, ele chamava `Aurora.Restart()`, ou seja, reiniciava a dashboard no meio da inicialização dela. Se o `INSERT` em `scanpaths` não fosse reconhecido na leitura seguinte (por divergência de `deviceid`, por exemplo), `ensureScanPath` voltaria a reportar mudança a cada boot e o reinício viraria um laço.
-  - A chamada foi removida. Os caminhos continuam sendo registrados; o Aurora os varre no mesmo boot ou no próximo, sem reinício forçado. `Aurora.Restart` também não consta da lista de API do Aurora em [`docs/reference/aurora.md`](docs/reference/aurora.md), que se declara completa.
-  - **Pendente de validação em hardware**: confirmar no console que os jogos aparecem já no primeiro boot após a preparação. Se só aparecerem no segundo, é regressão de UX (não de estabilidade) e o registro de caminhos precisa de outro gatilho — em script `Utility/`, não em `Content/Filters/`.
-  - `READY_TO_PLAY_CONFIGURATION_VERSION` passa de `3` para `4` pelo mesmo motivo da versão anterior: o conteúdo do plano transacional mudou.
+- **Revertida a remoção do `Aurora.Restart()` em `XboxCompanionReady.lua` (`readyToPlayConfiguration.ts`)**:
+  - A remoção partia da suspeita de que reiniciar a dashboard durante a fase `ContentScripts` do próprio boot pudesse ser a origem do banner *Fatal Crash Intercepted!*. A suspeita estava errada quanto ao efeito: a chamada é deliberada e necessária. [`docs/READY-TO-PLAY-AURORA.md`](docs/READY-TO-PLAY-AURORA.md) descreve a sequência — os scan paths inseridos durante a carga dos Content Filters só valem na inicialização seguinte, *"quando os caminhos já existem antes de o Content Manager carregar a biblioteca"*. Sem o reinício, o usuário teria que desligar e religar o console à mão para a biblioteca aparecer.
+  - O mesmo documento aponta [XboxUnity/AuroraScripts](https://github.com/XboxUnity/AuroraScripts) como a referência de API usada no projeto, e ela documenta `Aurora.Restart()`, `Sql.Execute()` e `Sql.ExecuteFetchRows()`. A justificativa original apoiava-se em `Aurora.Restart` não constar de [`docs/reference/aurora.md`](docs/reference/aurora.md) — literal, porém enganoso: aquele arquivo é uma referência condensada, não a fonte usada para esta API.
+  - `READY_TO_PLAY_CONFIGURATION_VERSION` volta a `3`; o conteúdo gerado é de novo o da 2.12.68.
+  - A hipótese de **laço de reinício** continua de pé e não foi descartada: se `ensureScanPath` voltar a reportar mudança a cada boot (divergência de `deviceid`, por exemplo), o reinício "uma única vez" se repete indefinidamente. Fica registrada em `docs/bugs/open/` para ser conferida com o `crashlog.txt` introduzido na 2.12.68, em vez de justificar quebrar o recurso.
 
 ## [2.12.68] - 2026-09-05
 

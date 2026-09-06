@@ -32,21 +32,19 @@ test("hook carregado pelo Aurora identifica o pendrive e registra os caminhos de
     AURORA_READY_TO_PLAY_FILTER_PATH,
     "Aurora/User/Scripts/Content/Filters/XboxCompanionReady.lua",
   );
-  assert.equal(READY_TO_PLAY_MARKER_PATH, ".xbox-downloader/ready-to-play-v4.marker");
-  assert.equal(generateReadyToPlayMarker(), "xbox-companion-ready-to-play-v4\r\n");
+  assert.equal(READY_TO_PLAY_MARKER_PATH, ".xbox-downloader/ready-to-play-v3.marker");
+  assert.equal(generateReadyToPlayMarker(), "xbox-companion-ready-to-play-v3\r\n");
   assert.match(lua, /FileSystem\.GetDrives\(false\)/);
   assert.match(lua, /string\.sub\(mountPoint, 1, 5\) == "game:"/);
   assert.match(lua, /normalizedSerial/);
-  assert.match(lua, /ready-to-play-v4\.marker/);
+  assert.match(lua, /ready-to-play-v3\.marker/);
   assert.match(lua, /Aurora\\\\default\.xex/);
   assert.match(lua, /path = "\\\\games", depth = 6/);
   assert.match(lua, /path = "\\\\Content\\\\0000000000000000", depth = 5/);
   assert.match(lua, /SELECT id, path, deviceid, depth FROM scanpaths/);
   assert.match(lua, /INSERT INTO scanpaths/);
   assert.match(lua, /UPDATE scanpaths SET depth=/);
-  // O script roda como Content Filter, durante a fase ContentScripts do boot do Aurora.
-  // Reiniciar a dashboard daqui reinicia o Aurora no meio da propria inicializacao.
-  assert.doesNotMatch(lua, /Aurora\.Restart/);
+  assert.match(lua, /Aurora\.Restart\(\)/);
   assert.doesNotMatch(lua, /Content\.StartScan\(\)/);
   assert.doesNotMatch(lua, /Usb[0-9]:/);
 });

@@ -22,6 +22,8 @@ O usuário não deve precisar localizar `default.xex`, cadastrar caminhos em **C
 
 O pacote precisava de um `launch.ini` canônico na raiz do dispositivo, com o destino `Usb:\Aurora\default.xex`. A preparação agora sempre gera esse arquivo tanto no modo BadAvatar/LT quanto no modo somente RGH.
 
+O arquivo também define `Dumpfile = Usb:\crashlog.txt` na seção `[Paths]`. O DashLaunch intercepta exceções não tratadas por padrão (`exchandler`, que vale `TRUE` quando ausente) e mostra o banner **Fatal Crash Intercepted!** no console; sem `Dumpfile`, o texto da exceção sai apenas pela UART e o usuário fica sem nenhum vestígio para reportar. Duas ressalvas do próprio DashLaunch: com mais de um dispositivo USB o arquivo pode cair no primeiro enumerado, e o caminho só é resolvido no boot — no BadAvatar o pendrive já está presente ao ligar.
+
 ### Biblioteca vazia
 
 Copiar jogos para o dispositivo não cria por si só as entradas em `ScanPaths` no banco do Aurora. Os dois formatos usados pelo Companion precisam ser cadastrados com o identificador físico do dispositivo:
@@ -46,11 +48,21 @@ O escritor transacional reutilizava imediatamente um diário em estado `complete
 ## Arquivos gerados no pendrive
 
 - `launch.ini`: configura o Aurora como dashboard padrão do ambiente em memória;
-- `.xbox-downloader\ready-to-play-v2.marker`: identifica inequivocamente um dispositivo preparado por esta versão;
+- `.xbox-downloader\ready-to-play-v3.marker`: identifica inequivocamente um dispositivo preparado por esta versão;
 - `Aurora\User\Scripts\Content\Filters\XboxCompanionReady.lua`: configura os caminhos de conteúdo durante o boot do Aurora;
 - `.xbox-downloader\transactions\...`: diários de gravação retomável e verificável.
 
 Os arquivos originais do payload e os jogos continuam sendo gravados pelo mesmo plano transacional. O staging usa hard links no PC quando o sistema de arquivos permite e recorre à cópia normal quando necessário.
+
+## Arquivos do pacote que não são gravados
+
+O pacote BadAvatar foi capturado de um console real e carrega o estado daquela máquina. `isForeignConsoleStatePath`, em `fixedBadAvatarPreparationService.ts`, retira 26 dos 643 arquivos do plano:
+
+- `Aurora/Data/Logs/**` e `apps/Aurora/Data/Logs/**`: `debug.log`, `debug.log.last` e nove crash dumps com os respectivos `.callstack`;
+- `apps/FreeStyle/Data/Logs/**`;
+- `apps/FreeStyle/Data/Databases/{content,settings}.db`: descrevem 68 jogos, 10 títulos recentes e cinco seriais de dispositivo de um HD interno (`Hdd1:`) que não existe no pendrive do usuário.
+
+O Aurora e o FreeStyle recriam o que precisam no primeiro boot. Os arquivos continuam versionados em `src/electron-app/assets/` — são a evidência citada no fim deste documento —, apenas não vão para o dispositivo. O perfil corrompido em `Content/E0002FF78DFBDE7B/` **é gravado**: ele é o vetor do exploit, não estado residual.
 
 ## Sequência no console
 
@@ -74,7 +86,7 @@ Para atualizar um dispositivo criado por uma versão anterior:
 5. execute **Preparar** novamente e aguarde a verificação terminar;
 6. ejete com segurança, conecte ao Xbox 360, execute o BadAvatar e entre no perfil.
 
-A nova transação tem escopo de configuração `ready-to-play-v2`, portanto os arquivos de automação são instalados mesmo que uma preparação antiga esteja marcada como concluída. Nas execuções seguintes, qualquer arquivo ausente ou corrompido é reparado.
+A nova transação tem escopo de configuração `ready-to-play-v3`, portanto os arquivos de automação são instalados mesmo que uma preparação antiga esteja marcada como concluída. Nas execuções seguintes, qualquer arquivo ausente ou corrompido é reparado.
 
 ## Validação automatizada
 
