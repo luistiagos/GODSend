@@ -17,10 +17,25 @@ Fatal Crash Intercepted!
 Relato acompanhado de foto da tela. Não há, até agora, nenhuma informação sobre qual
 exceção ocorreu.
 
-## Origem da mensagem (confirmada)
+## Origem da mensagem — **não confirmada**
 
-O banner **não é do Aurora**. É do **DashLaunch**, opção `exchandler`. A documentação está
-dentro do próprio pacote distribuído pelo app, em
+A string `Fatal Crash Intercepted!` **não aparece em nenhum dos 643 arquivos do pacote**.
+Varredura feita em ASCII, UTF-16LE e UTF-16BE, incluindo o conteúdo dos `.zip`. Isso não a
+descarta: `Aurora/default.xex` e `apps/dash_launch_v3.21/Installer/default.xex` são
+comprimidos/criptografados e não expõem strings.
+
+Dois manipuladores de crash rodam nesse ambiente e qualquer um poderia emitir o banner:
+
+1. **DashLaunch, opção `exchandler`** — ligada por padrão quando ausente do `launch.ini`,
+   "attempts to handle last chance unhandled exceptions";
+2. **Aurora** — demonstravelmente intercepta crashes fatais: é ele quem gerou os nove
+   `Aurora/Data/Logs/*.crash.log` com os respectivos `.callstack` que vinham no pacote.
+
+O que vale para os dois: **algo lançou uma exceção não tratada e foi interceptado**. O banner
+é o sintoma, não a doença. Desligar `exchandler` apenas trocaria o aviso por um congelamento
+do console — não é solução.
+
+A documentação do lado DashLaunch está dentro do próprio pacote distribuído pelo app, em
 [`apps/dash_launch_v3.21/info_launch.ini`](../../../src/electron-app/assets/badavatar-1.1/apps/dash_launch_v3.21/info_launch.ini):
 
 ```ini
@@ -30,12 +45,8 @@ dentro do próprio pacote distribuído pelo app, em
 exchandler = true
 ```
 
-Ou seja: **algo lançou uma exceção não tratada e o DashLaunch a interceptou.** O banner é o
-sintoma, não a doença. Desligar `exchandler` apenas trocaria o aviso por um congelamento do
-console — não é solução.
-
-Padrões relacionados no mesmo arquivo, todos ausentes do `launch.ini` gerado pelo app e,
-portanto, valendo o default:
+Os defaults do DashLaunch quando as opções estão ausentes do `launch.ini` — que é o nosso
+caso, exceto pelo `Dumpfile` acrescentado na 2.12.68:
 
 | Opção | Default quando ausente | Efeito |
 |---|---|---|
@@ -49,16 +60,29 @@ portanto, valendo o default:
 
 `generateReadyToPlayLaunchIni()` em
 [`readyToPlayConfiguration.ts`](../../../src/electron-app/infrastructure/readyToPlayConfiguration.ts)
-não definia `Dumpfile`. Sem ele o DashLaunch despeja a exceção só na UART — o usuário via o
-banner e não sobrava nenhum vestígio recuperável.
+não definia `Dumpfile`. Sem ele o DashLaunch despeja a exceção só na UART — se o banner for
+dele, não sobrava nenhum vestígio recuperável.
 
 **Mitigado na 2.12.68**: o `launch.ini` gerado passa a incluir `Dumpfile = Usb:\crashlog.txt`
 na seção `[Paths]`.
 
+Se o banner for do Aurora, o vestígio já existia: ele escreve `Aurora\Data\Logs\<ts>.crash.log`
+e `.callstack` no próprio pendrive. Só que o app **semeava nove dumps de outro console** na
+mesma pasta, tornando impossível distinguir o dump do usuário dos que vieram no pacote. A
+exclusão feita na 2.12.68 (candidato 1, abaixo) resolve isso como efeito colateral: a pasta
+agora chega vazia e qualquer arquivo nela é do console do usuário.
+
 ### Próximo passo, bloqueante para fechar este bug
 
-Pedir a quem reportou que **repare o pendrive com a versão ≥ 2.12.68**, reproduza a falha e
-envie o `crashlog.txt` da raiz do dispositivo. Só ele dá endereço da falha e módulo.
+Pedir a quem reportou que **prepare o pendrive novamente com a versão ≥ 2.12.68**, reproduza a
+falha e envie **os dois artefatos**:
+
+- `crashlog.txt` na raiz do pendrive (caminho DashLaunch);
+- todo o conteúdo de `Aurora\Data\Logs\` (caminho Aurora) — `.crash.log`, `.callstack` e
+  `debug.log`.
+
+Qual dos dois aparecer já identifica o manipulador que emitiu o banner, e ambos dão endereço
+da falha e módulo.
 
 Ressalvas do DashLaunch para esse arquivo: com mais de um dispositivo USB conectado ele pode
 cair no primeiro enumerado, e o caminho é resolvido apenas no boot — no BadAvatar o pendrive
@@ -162,7 +186,8 @@ não travar, melhor que apagar sem explicação. Não foi implementado: é escol
 
 ## Critério para fechar
 
-1. `crashlog.txt` de uma reprodução real, com endereço e módulo da exceção;
+1. dump de uma reprodução real, com endereço e módulo da exceção — `crashlog.txt` na raiz ou
+   `Aurora\Data\Logs\*.crash.log`, o que também resolve qual manipulador emite o banner;
 2. causa identificada entre os candidatos acima (ou outra);
 3. correção com teste, validada em hardware conforme a lista de
    [`READY-TO-PLAY-AURORA.md`](../../READY-TO-PLAY-AURORA.md).

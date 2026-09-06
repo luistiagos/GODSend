@@ -22,7 +22,9 @@ O usuário não deve precisar localizar `default.xex`, cadastrar caminhos em **C
 
 O pacote precisava de um `launch.ini` canônico na raiz do dispositivo, com o destino `Usb:\Aurora\default.xex`. A preparação agora sempre gera esse arquivo tanto no modo BadAvatar/LT quanto no modo somente RGH.
 
-O arquivo também define `Dumpfile = Usb:\crashlog.txt` na seção `[Paths]`. O DashLaunch intercepta exceções não tratadas por padrão (`exchandler`, que vale `TRUE` quando ausente) e mostra o banner **Fatal Crash Intercepted!** no console; sem `Dumpfile`, o texto da exceção sai apenas pela UART e o usuário fica sem nenhum vestígio para reportar. Duas ressalvas do próprio DashLaunch: com mais de um dispositivo USB o arquivo pode cair no primeiro enumerado, e o caminho só é resolvido no boot — no BadAvatar o pendrive já está presente ao ligar.
+O arquivo também define `Dumpfile = Usb:\crashlog.txt` na seção `[Paths]`. O DashLaunch intercepta exceções não tratadas por padrão (`exchandler`, que vale `TRUE` quando ausente) e, sem `Dumpfile`, despeja o texto apenas pela UART — o usuário fica sem nenhum vestígio para reportar. Duas ressalvas do próprio DashLaunch: com mais de um dispositivo USB o arquivo pode cair no primeiro enumerado, e o caminho só é resolvido no boot — no BadAvatar o pendrive já está presente ao ligar.
+
+Isso foi acrescentado a partir de um relato do banner **Fatal Crash Intercepted!** no console. A autoria do texto não está confirmada — tanto o `exchandler` do DashLaunch quanto o manipulador de crash do próprio Aurora poderiam emiti-lo. Ver [`docs/bugs/open/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md`](bugs/open/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md).
 
 ### Biblioteca vazia
 
