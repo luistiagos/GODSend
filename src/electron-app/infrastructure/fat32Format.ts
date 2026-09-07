@@ -11,6 +11,7 @@ import os from "os";
 import path from "path";
 import { spawn } from "child_process";
 import { getBundledRoot, getRepoRoot } from "./fileSystem";
+import { POWERSHELL_EXE_PS_EXPRESSION, powerShellExe } from "./windowsSystemExecutables";
 
 export interface FormatProgress {
   status: string;
@@ -344,11 +345,11 @@ async function runPs1Elevated(
 ): Promise<{ code: number; stdout: string; stderr: string; cancelled: boolean }> {
   const escaped = ps1Path.replace(/'/g, "''");
   const outerScript = (
-    `try { $p = Start-Process powershell -Verb RunAs -PassThru -Wait -WindowStyle Hidden ` +
+    `try { $p = Start-Process ${POWERSHELL_EXE_PS_EXPRESSION} -Verb RunAs -PassThru -Wait -WindowStyle Hidden ` +
     `-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${escaped}'; ` +
     `Write-Output $p.ExitCode } catch { Write-Output 'CANCELLED' }`
   );
-  const result = await runCommand("powershell.exe", [
+  const result = await runCommand(powerShellExe(), [
     "-NoProfile", "-NonInteractive", "-Command", outerScript,
   ]);
   const out = result.stdout.trim();
@@ -449,7 +450,7 @@ async function formatWindowsFat32(
     `  }`,
     `} catch {}`,
   ].join("\r\n");
-  await runCommand("powershell.exe", [
+  await runCommand(powerShellExe(), [
     "-NoProfile",
     "-NonInteractive",
     "-Command",

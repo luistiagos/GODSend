@@ -2,8 +2,11 @@ package pipeline
 
 import (
 	"errors"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -292,3 +295,90 @@ func TestOptimizedStreamingLocalCopyAndManifest(t *testing.T) {
 	}
 }
 
+// Um socket abortado no Windows produz "The specified network name is no longer
+// available.", que casa a lista de fragmentos de armazenamento. Antes disso ser
+// filtrado, uma queda de conexao com o provedor virava ErrLocalDelivery e
+// abortava a cadeia inteira de fallback em vez de cair no proximo provedor.
+// Guarda do proprio discriminador. Testar a interface net.Error em vez destes
+// tipos concretos passaria despercebido aqui e desligaria a classificacao de
+// armazenamento inteira: no Windows syscall.Errno declara Timeout/Temporary,
+// entao um *os.PathError de disco cheio TAMBEM satisfaz net.Error.
+func TestIsNetworkErrorSeparatesDiskFromSocket(t *testing.T) {
+	diskFull := fmt.Errorf("write at +1024: %w",
+		&os.PathError{Op: "write", Path: "X", Err: syscall.Errno(112)})
+	if isNetworkError(diskFull) {
+		t.Fatalf("erro de disco foi tratado como erro de rede: %v", diskFull)
+	}
+
+	socket := fmt.Errorf("read after 512 bytes: %w",
+		&net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("wsarecv", syscall.Errno(64))})
+	if !isNetworkError(socket) {
+		t.Fatalf("erro de socket nao foi reconhecido como rede: %v", socket)
+	}
+}
+
+// O disco cheio real chega como *os.PathError vindo de out.WriteAt
+// (`ia.go`: "write at +%d: %w"), nao como um errors.New de texto solto. Se o
+// filtro de rede for largo demais, este erro deixa de interromper o job e a
+// cadeia baixa mais gigabytes no mesmo disco cheio, sem telemetria.
+func TestClassifyLocalStorageFailureStillHaltsOnRealDiskError(t *testing.T) {
+	connection := &models.XboxConnection{Mode: "local"}
+	diskFull := fmt.Errorf("write at +1024: %w", &os.PathError{
+		Op:   "write",
+		Path: "X",
+		Err:  errors.New("There is not enough space on the disk."),
+	})
+
+	got := classifyLocalStorageFailure(connection, "download-http", diskFull)
+	if !errors.Is(got, ErrLocalDelivery) {
+		t.Fatalf("disco cheio real deixou de interromper o job: %v", got)
+	}
+	if !errors.Is(got, ErrLocalStaging) {
+		t.Fatalf("disco cheio na fase de download deve apontar o disco do PC: %v", got)
+	}
+}
+
+func TestClassifyLocalStorageFailureIgnoresNetworkErrors(t *testing.T) {
+	connection := &models.XboxConnection{Mode: "local"}
+	netErr := &net.OpError{
+		Op:  "read",
+		Net: "tcp",
+		Err: os.NewSyscallError("wsarecv", errors.New("The specified network name is no longer available.")),
+	}
+	wrapped := fmt.Errorf("read after 1024 bytes: %w", netErr)
+
+	if !isLikelyLocalStorageError(wrapped) {
+		t.Fatal("premissa do teste mudou: o texto deixou de casar a lista de fragmentos")
+	}
+	got := classifyLocalStorageFailure(connection, "download-http", wrapped)
+	if errors.Is(got, ErrLocalDelivery) {
+		t.Fatalf("erro de rede foi classificado como falha de dispositivo local: %v", got)
+	}
+	if got != wrapped {
+		t.Fatalf("erro de rede deve passar intacto para o proximo provedor, veio: %v", got)
+	}
+}
+
+// Na fase de download nada foi gravado no destino ainda: o disco cheio e o do
+// PC. A cadeia continua parando (outro provedor tambem nao cabe no disco), mas
+// a mensagem tem de apontar o disco certo.
+func TestClassifyLocalStorageFailureSeparatesStagingFromDevice(t *testing.T) {
+	connection := &models.XboxConnection{Mode: "local"}
+	full := errors.New("espaco insuficiente no armazenamento temporario C:\\")
+
+	staging := classifyLocalStorageFailure(connection, "download-http", full)
+	if !errors.Is(staging, ErrLocalDelivery) {
+		t.Fatal("falha de armazenamento na fase de download ainda deve interromper o job")
+	}
+	if !errors.Is(staging, ErrLocalStaging) {
+		t.Fatalf("falha na fase de download deve ser marcada como staging do PC: %v", staging)
+	}
+
+	delivery := classifyLocalStorageFailure(connection, "convert-god", full)
+	if !errors.Is(delivery, ErrLocalDelivery) {
+		t.Fatal("falha de gravacao no destino deve continuar sendo ErrLocalDelivery")
+	}
+	if errors.Is(delivery, ErrLocalStaging) {
+		t.Fatalf("falha no destino nao deve ser marcada como staging do PC: %v", delivery)
+	}
+}

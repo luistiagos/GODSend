@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +25,12 @@ var (
 	ErrLocalDelivery = errors.New("falha no dispositivo local")
 	// ErrLocalSourceLost requests regeneration from the retained ISO.
 	ErrLocalSourceLost = errors.New("arquivos temporarios locais foram perdidos")
+	// ErrLocalStaging marks a storage failure on the PC's own working volume
+	// (the download/extract scratch), not on the destination device. During the
+	// download phase nothing has touched the target drive yet, so blaming "o
+	// dispositivo local" sends the user to check the wrong hardware. It is
+	// wrapped alongside ErrLocalDelivery so every existing handler still halts.
+	ErrLocalStaging = errors.New("falha no armazenamento de trabalho do PC")
 	// ErrFAT32FileSizeLimit indicates a single file exceeds FAT32's 4 GB limit.
 	// Provider fallback should switch to an ISO/GOD provider rather than halting as a hardware fault.
 	ErrFAT32FileSizeLimit = errors.New("arquivo excede o limite de 4 GB do FAT32")
@@ -178,9 +186,39 @@ func isLikelyLocalStorageError(err error) bool {
 	return false
 }
 
+// isNetworkError reports whether err came from the network stack. The storage
+// fragment lists match on text alone, and a Windows socket abort surfaces as
+// "wsarecv: The specified network name is no longer available." — which reads
+// exactly like a lost drive. A dead socket is never a storage fault: the next
+// provider can still succeed, so it must fall through instead of halting the
+// whole fallback chain.
+//
+// The test MUST be against these concrete types, never against the net.Error
+// interface: on Windows syscall.Errno declares Timeout/Temporary, so a disk-full
+// *os.PathError also satisfies net.Error and would be waved through as "network".
+func isNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var opErr *net.OpError
+	var dnsErr *net.DNSError
+	var urlErr *url.Error
+	return errors.As(err, &opErr) || errors.As(err, &dnsErr) || errors.As(err, &urlErr)
+}
+
 func classifyLocalStorageFailure(connection *models.XboxConnection, phase string, err error) error {
 	if err == nil || connection == nil || connection.Mode != "local" || !isLikelyLocalStorageError(err) {
 		return err
+	}
+	if isNetworkError(err) {
+		return err
+	}
+	// The download writes to ToolsDir/Ready (the PC), never to the target
+	// drive, so a storage failure here is about the host disk. Retrying another
+	// provider still cannot fix a full disk, so the job halts either way — but
+	// the message has to name the right disk.
+	if strings.HasPrefix(phase, "download-") {
+		return fmt.Errorf("%w: %w: fase %s: %v", ErrLocalDelivery, ErrLocalStaging, phase, err)
 	}
 	return fmt.Errorf("%w: fase %s: %v", ErrLocalDelivery, phase, err)
 }
@@ -557,4 +595,3 @@ func (s *Service) copyFileLocal(src, dst, root, gameName, message string) error 
 		transientRetries = 0
 	}
 }
-

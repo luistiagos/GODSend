@@ -14,6 +14,7 @@ import {
   setSkippedUpdateVersion,
 } from "./settingsService";
 import { appendAppEvent } from "../infrastructure/serverLog";
+import { powerShellExe } from "../infrastructure/windowsSystemExecutables";
 
 export interface VersionManifest {
   version: string;
@@ -439,7 +440,7 @@ export function applyUpdateAndRestart(downloadedFilePath?: string): boolean {
       Start-Process -FilePath $target
     `;
 
-    const child = spawn("powershell.exe", ["-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript], {
+    const child = spawn(powerShellExe(), ["-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript], {
       detached: true,
       stdio: "ignore",
     });

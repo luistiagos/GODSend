@@ -9,6 +9,11 @@ import {
   type SafeUsbDevice,
 } from "./deviceSafetyPolicy";
 import { appendAppEvent } from "./serverLog";
+import {
+  isExecutableNotFound,
+  powerShellExe,
+  powerShellMissingMessage,
+} from "./windowsSystemExecutables";
 
 const USB_ENUMERATION_TIMEOUT_MS = 12_000;
 const REMOVABLE_ENUMERATION_TIMEOUT_MS = 5_000;
@@ -31,7 +36,7 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
     }
 
     const child = spawn(
-      "powershell.exe",
+      powerShellExe(),
       ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
       { windowsHide: true },
     );
@@ -63,7 +68,10 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
     }, timeoutMs);
     child.stdout.on("data", (data) => { stdout += data.toString(); });
     child.stderr.on("data", (data) => { stderr += data.toString(); });
-    child.on("error", (error) => finish(() => { cleanup(); reject(error); }));
+    child.on("error", (error) => finish(() => {
+      cleanup();
+      reject(isExecutableNotFound(error) ? new Error(powerShellMissingMessage()) : error);
+    }));
     child.on("close", (code) => {
       finish(() => {
         cleanup();

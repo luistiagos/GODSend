@@ -38,6 +38,7 @@ interface HomePageProps {
   onAppendLine: (line: string) => void;
   queueJobs: any[];
   simpleMode?: boolean;
+  onOpenUpdateModal?: (info: any) => void;
 }
 
 export default function HomePage({
@@ -60,6 +61,7 @@ export default function HomePage({
   onAppendLine,
   queueJobs,
   simpleMode = true,
+  onOpenUpdateModal,
 }: HomePageProps) {
   const outputRef = useRef<HTMLPreElement>(null);
   
@@ -293,6 +295,41 @@ export default function HomePage({
     }
   };
 
+  // ── Aviso de atualização para quem desligou a verificação automática ──────
+  // Com a verificação automática desligada, `checkForUpdates(false)` retorna
+  // cedo (autoUpdateService.ts) e o modal de update nunca aparece sozinho — a
+  // única rota até uma versão nova ficava escondida dentro de Configurações.
+  const [autoCheckOff, setAutoCheckOff] = useState(false);
+  const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
+  const [updateCheckMsg, setUpdateCheckMsg] = useState("");
+
+  useEffect(() => {
+    window.godsendApi.getAutoCheckUpdates()
+      .then((r: any) => setAutoCheckOff(r?.ok === true && r.enabled === false))
+      .catch(() => {});
+  }, []);
+
+  async function handleManualUpdateCheck() {
+    setUpdateCheckBusy(true);
+    setUpdateCheckMsg("");
+    try {
+      // force=true: ignora tanto a preferência desligada quanto o intervalo de 12 h.
+      const res = await window.godsendApi.checkForUpdates(true);
+      if (!res?.ok) {
+        setUpdateCheckMsg(`Falha na verificação: ${res?.error || "não foi possível contatar o servidor de distribuição."}`);
+      } else if (res.updateAvailable) {
+        setUpdateCheckMsg(`Versão v${res.latestVersion} disponível.`);
+        onOpenUpdateModal?.(res);
+      } else {
+        setUpdateCheckMsg(`Você já está na versão mais recente${res.currentVersion ? ` (v${res.currentVersion})` : ""}.`);
+      }
+    } catch (err: any) {
+      setUpdateCheckMsg(`Erro ao verificar: ${err?.message || String(err)}`);
+    } finally {
+      setUpdateCheckBusy(false);
+    }
+  }
+
   async function handleOpenLogs() {
     const r = await window.godsendApi.openLogsFolder();
     if (r && !r.ok && r.error) {
@@ -381,6 +418,33 @@ export default function HomePage({
           para o seu videogame.
         </p>
       </header>
+
+      {/* Auto-update disabled notice — the only route to a new version when the
+          automatic modal is switched off. */}
+      {autoCheckOff && (
+        <div className="mx-auto -mt-2 w-full max-w-4xl">
+          <div className="flex flex-wrap items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3.5 py-2.5 text-[11px] leading-normal text-amber-300/90">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <div className="min-w-[200px] flex-1 text-left">
+              <span className="block font-semibold text-amber-200">
+                Verificação automática de atualizações desativada
+              </span>
+              {updateCheckMsg || "O aplicativo não vai avisar sozinho quando sair uma versão nova."}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              disabled={updateCheckBusy}
+              onClick={handleManualUpdateCheck}
+            >
+              {updateCheckBusy
+                ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Verificando…</>
+                : <><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Verificar agora</>}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Main Mode View */}
       <div className={wizardStep === "usb"

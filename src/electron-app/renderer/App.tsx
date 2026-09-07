@@ -369,6 +369,10 @@ export default function App() {
           onAppendLine={appendLine}
           queueJobs={queueJobs}
           simpleMode={simpleMode}
+          onOpenUpdateModal={(info) => {
+            setUpdateModalInfo(info);
+            setUpdateModalOpen(true);
+          }}
         />
         <AppUpdateModal
           isOpen={updateModalOpen}

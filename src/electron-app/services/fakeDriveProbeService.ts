@@ -14,6 +14,7 @@ import {
 import { join } from "path";
 import { normalizeDriveRoot } from "../infrastructure/deviceSafetyPolicy";
 import { appendAppEvent } from "../infrastructure/serverLog";
+import { powerShellExe } from "../infrastructure/windowsSystemExecutables";
 
 
 export interface ProbeCheckpointResult {
@@ -366,7 +367,7 @@ async function getDriveCapacityStats(rootPath: string): Promise<{ sizeBytes: num
     if (process.platform === "win32" && driveLetter.length === 1) {
       const { spawnSync } = require("child_process");
       const out = spawnSync(
-        "powershell.exe",
+        powerShellExe(),
         ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `(Get-Volume -DriveLetter '${driveLetter}' -ErrorAction SilentlyContinue) | Select-Object -Property Size, SizeRemaining | ConvertTo-Json -Compress`],
         { windowsHide: true, encoding: "utf8" },
       );

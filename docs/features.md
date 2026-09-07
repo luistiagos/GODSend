@@ -158,6 +158,12 @@ Each item is a **high-level capability**, **how you use it**, and **how it works
 - **How:** Click any of those buttons — the panel slides in over the current view. Close with the X button. No back-navigation required; the page underneath is preserved.
 - **How it works:** React overlay components mount on top of the existing route, keeping Library or Home state intact while tools are used.
 
+## In-app updates and the auto-check notice
+
+- **What:** The app checks for new versions on its own and offers the download in a modal. If you switch that automatic check off, the home page shows a notice with a **Verificar agora** button, so a new version is still reachable in one click.
+- **How:** Nothing to do by default — about 3.5 s after launch the app checks and, when a newer version exists, the update modal opens by itself. You can also check on demand in **Configurações → Verificar atualizações**. If **auto-check is disabled** in Settings, an amber bar appears at the top of the home page saying the automatic check is off; **Verificar agora** runs a forced check and opens the same modal when an update is found.
+- **How it works:** `autoUpdateService.ts::checkForUpdates(force)` compares `app.getVersion()` against the remote `version.json`. With `force=false` it returns early in two cases — the `autoCheckUpdates` preference being off, and a 12-hour throttle (`TWELVE_HOURS_MS`) since the last check — and it also suppresses a version the user dismissed (`getSkippedUpdateVersion() === latestVersion`, a single stored string, so publishing any newer version makes the modal reappear). The startup check in `App.tsx` uses `force=false`; both the Settings button and the home-page notice use `force=true`, which bypasses the preference and the throttle. All three routes open the same `AppUpdateModal` through an `onOpenUpdateModal` callback owned by `App.tsx`.
+
 ## Developer / diagnostics
 
 - **What:** Quick HTML snapshot of cache, transfer folder, ready games, and jobs.

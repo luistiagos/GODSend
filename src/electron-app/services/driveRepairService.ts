@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { normalizeDriveRoot } from "../infrastructure/deviceSafetyPolicy";
 import { appendAppEvent } from "../infrastructure/serverLog";
+import { powerShellExe, system32Exe } from "../infrastructure/windowsSystemExecutables";
 
 
 export interface DriveHealthDiagnostic {
@@ -70,7 +71,7 @@ if ($vol) {
 
   return new Promise((resolve) => {
     const child = spawn(
-      "powershell.exe",
+      powerShellExe(),
       ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
       { windowsHide: true },
     );
@@ -157,9 +158,11 @@ export async function repairDrive(
 
   return new Promise((resolve) => {
     // We execute cmd.exe /c "echo Y | chkdsk <Letter>: /f /x" to ensure non-interactive auto-confirmation.
+    // The chkdsk path goes in unquoted on purpose: Node escapes an inner `"` as `\"`, which cmd
+    // does not understand and rejects with "não é reconhecido como um comando interno ou externo".
     const child = spawn(
-      "cmd.exe",
-      ["/c", `echo Y | chkdsk ${driveLetter}: /f /x`],
+      system32Exe("cmd.exe", "cmd.exe"),
+      ["/c", `echo Y | ${system32Exe("chkdsk.exe", "chkdsk")} ${driveLetter}: /f /x`],
       { windowsHide: true },
     );
 

@@ -66,6 +66,19 @@ O pacote BadAvatar foi capturado de um console real e carrega o estado daquela m
 
 O Aurora e o FreeStyle recriam o que precisam no primeiro boot. Os arquivos continuam versionados em `src/electron-app/assets/` — são a evidência citada no fim deste documento —, apenas não vão para o dispositivo. O perfil corrompido em `Content/E0002FF78DFBDE7B/` **é gravado**: ele é o vetor do exploit, não estado residual.
 
+Desde a 2.12.74, preparar novamente um pendrive antigo também retira do local ativo as cópias
+que já haviam sido gravadas. A migração compara tamanho e SHA-256 com o manifesto validado
+e move somente arquivos idênticos para `.xbox-downloader/quarantine/foreign-console-state-<id>/`,
+preservando o caminho original dentro dessa pasta. Arquivos modificados pelo console e logs
+novos permanecem no lugar; jogos, perfis e saves não são candidatos à migração. No modo
+somente RGH, a migração se limita à pasta `Aurora/`.
+
+A quarentena usa movimentos dentro do mesmo volume e uma pasta exclusiva por execução.
+Se a preparação for interrompida, cada arquivo permanece no local original ou na quarentena;
+executar novamente continua pelos arquivos restantes sem sobrescrever backups anteriores.
+Essa verificação acontece mesmo quando o diário de cópia já está concluído. Falhas de acesso
+ou de identificação do dispositivo interrompem a preparação e são informadas ao usuário.
+
 ## Sequência no console
 
 1. O console lê o `launch.ini` da raiz e abre `Usb:\Aurora\default.xex`.
@@ -90,6 +103,11 @@ Para atualizar um dispositivo criado por uma versão anterior:
 
 A nova transação tem escopo de configuração `ready-to-play-v3`, portanto os arquivos de automação são instalados mesmo que uma preparação antiga esteja marcada como concluída. Nas execuções seguintes, qualquer arquivo ausente ou corrompido é reparado.
 
+Para remover também o estado original deixado por preparações anteriores à 2.12.68, use a
+versão 2.12.74 ou posterior. A configuração gerada continua em `ready-to-play-v3`: os bytes
+do hook, marcador e `launch.ini` não mudaram; a migração roda independentemente do diário.
+Não restaure os arquivos da quarentena às pastas ativas ao coletar uma nova reprodução.
+
 ## Validação automatizada
 
 A implementação possui testes para:
@@ -102,6 +120,9 @@ A implementação possui testes para:
 - ausência da chamada não documentada `Content.StartScan()`;
 - restauração de arquivo removido após uma transação concluída;
 - retomada segura nos pontos de interrupção já cobertos pelo escritor transacional;
+- migração de uma preparação antiga mesmo com o novo diário já concluído, preservando jogos;
+- preservação de logs e bancos alterados, inclusive quando mantêm o tamanho original;
+- retomada da migração após interrupção, quarentenas anteriores e recusa de caminhos com links;
 - sintaxe Lua 5.1 do arquivo gerado;
 - compilação TypeScript, renderer e backend Go.
 
@@ -118,6 +139,9 @@ O teste automatizado não substitui o ensaio em um Xbox 360 compatível. Em hard
 7. consulte `Aurora\Data\Logs\debug.log` e procure por `Load Success: XboxCompanionReady.lua` e por uma das mensagens `Xbox 360 Companion:`;
 8. teste com outro USB ou Aurora interno conectado para confirmar que nenhum scan path alheio é alterado;
 9. apague apenas `launch.ini`, execute a preparação sem formatar e confirme que ele é restaurado sem remover os jogos.
+10. em um pendrive de laboratório preparado antes da 2.12.68, atualize sem formatar e confirme
+    que os arquivos ainda idênticos ao pacote foram movidos para a quarentena, enquanto os
+    logs novos e os bancos modificados continuam no lugar.
 
 O fluxo só deve ser anunciado como validado em hardware depois que esses itens forem registrados. A implementação não grava NAND e não elimina as exigências próprias do exploit, da atualização de avatar e da compatibilidade do console.
 

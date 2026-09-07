@@ -60,6 +60,7 @@ export default function SettingsPage({
   onAppendLine,
   simpleMode = true,
   onSimpleModeChange,
+  onOpenUpdateModal,
 }: SettingsPageProps) {
   // Form state
   const [startup, setStartup]                   = useState(false);

@@ -68,21 +68,28 @@ na seção `[Paths]`.
 
 Se o banner for do Aurora, o vestígio já existia: ele escreve `Aurora\Data\Logs\<ts>.crash.log`
 e `.callstack` no próprio pendrive. Só que o app **semeava nove dumps de outro console** na
-mesma pasta, tornando impossível distinguir o dump do usuário dos que vieram no pacote. A
-exclusão feita na 2.12.68 (candidato 1, abaixo) resolve isso como efeito colateral: a pasta
-agora chega vazia e qualquer arquivo nela é do console do usuário.
+mesma pasta, misturando o dump do usuário com os que vieram no pacote. A exclusão feita na
+2.12.68 (candidato 1, abaixo) evita essa cópia em um dispositivo limpo, mas não removia os
+arquivos já gravados quando a preparação era repetida sem formatar.
+
+**Migração adicionada na 2.12.74:** arquivos dos caminhos excluídos que ainda correspondem
+ao tamanho e SHA-256 do manifesto são movidos para
+`.xbox-downloader/quarantine/foreign-console-state-<id>/`, conservando o caminho original.
+Logs e bancos modificados pelo console são preservados. Portanto, não se deve assumir que
+uma pasta de logs de um pendrive atualizado esteja vazia ou contenha somente a reprodução
+mais recente; devem ser conferidos os horários e o conteúdo dos registros.
 
 ### Próximo passo, bloqueante para fechar este bug
 
-Pedir a quem reportou que **prepare o pendrive novamente com a versão ≥ 2.12.68**, reproduza a
+Pedir a quem reportou que **prepare o pendrive novamente com a versão ≥ 2.12.74**, reproduza a
 falha e envie **os dois artefatos**:
 
 - `crashlog.txt` na raiz do pendrive (caminho DashLaunch);
 - todo o conteúdo de `Aurora\Data\Logs\` (caminho Aurora) — `.crash.log`, `.callstack` e
   `debug.log`.
 
-Qual dos dois aparecer já identifica o manipulador que emitiu o banner, e ambos dão endereço
-da falha e módulo.
+Os artefatos permitem identificar qual manipulador registrou a exceção e investigar endereço
+e módulo da falha. A presença de um dump, isoladamente, não prova quem desenhou o banner.
 
 Ressalvas do DashLaunch para esse arquivo: com mais de um dispositivo USB conectado ele pode
 cair no primeiro enumerado, e o caminho é resolvido apenas no boot — no BadAvatar o pendrive
@@ -90,7 +97,7 @@ já está presente ao ligar, então isso não atrapalha.
 
 ## Candidatos a causa raiz
 
-### 1. Estado de outro console replicado no pendrive — corrigido na 2.12.68
+### 1. Estado de outro console replicado no pendrive — exclusão na 2.12.68, migração na 2.12.74
 
 O pacote BadAvatar foi capturado de um console real. 26 dos seus 643 arquivos (536 KB) eram
 estado daquela máquina e eram gravados byte a byte em todo pendrive preparado:
@@ -122,6 +129,14 @@ console, não do usuário que reportou.
 remove esses arquivos do plano de escrita. O perfil corrompido em
 `Content/E0002FF78DFBDE7B/` continua sendo gravado: é o vetor do exploit, não estado residual.
 A linha `0(0) - Corrupted profile!` nos logs é justamente ele, por design.
+
+Na revisão de 2026-09-06, uma simulação reproduziu a lacuna da atualização sem formatar:
+o novo plano terminava com `completed` e atualizava `launch.ini`, mas deixava os dumps e
+bancos antigos no destino. `quarantineForeignConsoleState`, em
+[`foreignConsoleState.ts`](../../../src/electron-app/infrastructure/foreignConsoleState.ts),
+passa a migrar essas cópias antes da cópia transacional, inclusive se o diário já estiver
+concluído. A migração não apaga dados; usa quarentena e pode ser retomada após interrupção.
+Isso corrige a persistência do estado conhecido, sem demonstrar que ele era a causa do crash.
 
 ### 2. Laço de reinício do hook ready-to-play — em aberto, não descartado
 
@@ -183,6 +198,7 @@ não travar, melhor que apagar sem explicação. Não foi implementado: é escol
 | 2.12.68 | 26 arquivos de estado do console de origem removidos do plano de escrita |
 | 2.12.68 | `READY_TO_PLAY_CONFIGURATION_VERSION` 2 → 3 (o diário transacional vive no pendrive e recusaria o plano novo) |
 | 2.12.69 | Reversão da remoção do `Aurora.Restart()` |
+| 2.12.74 | Migração sem formatar das cópias antigas ainda idênticas ao manifesto para quarentena; preserva logs/bancos modificados e permite retomada |
 
 ## Critério para fechar
 

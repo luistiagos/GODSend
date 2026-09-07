@@ -65,6 +65,26 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 		}
 	}
 
+	// Uma falha de armazenamento encerra a cadeia: nenhum outro provedor
+	// resolve disco cheio ou destino indisponivel. O relato precisa sair daqui
+	// porque este caminho retorna antes do telemetry.Report do fim da funcao —
+	// era por isso que so restava a foto da tela do usuario, sem nenhum log.
+	haltOnLocalStorageFailure := func(provider string, err error) {
+		message := "Falha no dispositivo local. O download concluido foi preservado para nova tentativa: " + err.Error()
+		if errors.Is(err, ErrLocalStaging) {
+			// Na fase de download nada chegou ao destino ainda: o disco em falta
+			// e o do PC, e nada "concluiu". O texto explica o "falha no
+			// dispositivo local" que vem logo atras, na cadeia do erro, em vez
+			// de nega-lo — a causa raiz fica no fim da linha.
+			message = "Falha no armazenamento de trabalho do PC, onde o download e montado antes de ir para o dispositivo. Verifique espaco livre e permissoes no disco do aplicativo; o progresso do download foi preservado para nova tentativa: " + err.Error()
+		}
+		s.App.LogStatus(gameName, "Error", message)
+		logs := append(append([]string{}, providerErrors...), fmt.Sprintf("%s: %v", provider, err))
+		telemetry.Report("pipeline", "fallback.go", "ProcessGameWithFallback",
+			fmt.Sprintf("Falha de armazenamento local para %s (%s) em %s: %v", gameName, platform, provider, err),
+			"", logs, false)
+	}
+
 	executeProvider := func(p string) error {
 		p = strings.TrimSpace(strings.ToLower(p))
 		switch p {
@@ -138,7 +158,7 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			continue
 		}
 		if errors.Is(err, ErrLocalDelivery) {
-			s.App.LogStatus(gameName, "Error", "Falha no dispositivo local. O download concluido foi preservado para nova tentativa: "+err.Error())
+			haltOnLocalStorageFailure(p, err)
 			return
 		}
 		if isDownloadTooSlowError(err) {
@@ -170,7 +190,7 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			return
 		}
 		if errors.Is(retryErr, ErrLocalDelivery) {
-			s.App.LogStatus(gameName, "Error", "Falha no dispositivo local. O download concluido foi preservado para nova tentativa: "+retryErr.Error())
+			haltOnLocalStorageFailure(chosen+" (retry)", retryErr)
 			return
 		}
 		lastErr = retryErr

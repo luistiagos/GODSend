@@ -15,6 +15,7 @@ import {
   enumerateSafeWindowsUsbDevices,
   requireSafeWindowsUsbTarget,
 } from "../infrastructure/windowsUsbDeviceService";
+import { powerShellExe, system32Exe } from "../infrastructure/windowsSystemExecutables";
 
 // The inherited writer downloads unpinned archives and extracts them directly
 // onto the target. Keep it impossible to invoke until the trusted-manifest and
@@ -141,7 +142,7 @@ function runCommand(
 
 export function isRunningAsAdmin(): Promise<boolean> {
   if (process.platform === "win32") {
-    return runCommand("net", ["session"]).then((r) => r.code === 0);
+    return runCommand(system32Exe("net.exe", "net"), ["session"]).then((r) => r.code === 0);
   }
   if (process.platform === "linux") {
     return Promise.resolve(process.getuid?.() === 0);
@@ -170,7 +171,7 @@ async function listWindowsUsbDrives(): Promise<UsbDriveInfo[]> {
     "} | ConvertTo-Json -Compress",
   ].join(" ");
 
-  const { code, stdout } = await runCommand("powershell.exe", [
+  const { code, stdout } = await runCommand(powerShellExe(), [
     "-NoProfile",
     "-Command",
     script,
@@ -188,7 +189,7 @@ async function listWindowsUsbDrives(): Promise<UsbDriveInfo[]> {
       "  }",
       "} | ConvertTo-Json -Compress",
     ].join(" ");
-    const fb = await runCommand("powershell.exe", ["-NoProfile", "-Command", fallback]);
+    const fb = await runCommand(powerShellExe(), ["-NoProfile", "-Command", fallback]);
     if (fb.code !== 0 || !fb.stdout.trim()) return [];
     return parseDriveJson(fb.stdout);
   }
@@ -446,7 +447,7 @@ async function extractZip(
           `  if ($_.Name) { [System.IO.Compression.ZipFileExtensions]::ExtractToFile($_, $out, $false) }`,
           `}`,
         ].join(" ");
-    const { code, stderr } = await runCommand("powershell.exe", [
+    const { code, stderr } = await runCommand(powerShellExe(), [
       "-NoProfile",
       "-Command",
       script,

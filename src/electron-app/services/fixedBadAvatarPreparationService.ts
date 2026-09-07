@@ -4,6 +4,8 @@ import fs, { promises as fsPromises } from "fs";
 import path from "path";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
 import { getBundledResourcesRoot, getRepoRoot } from "../infrastructure/fileSystem";
+import { isForeignConsoleStatePath, quarantineForeignConsoleState } from "../infrastructure/foreignConsoleState";
+export { isForeignConsoleStatePath } from "../infrastructure/foreignConsoleState";
 import {
   AURORA_READY_TO_PLAY_FILTER_PATH,
   generateAuroraReadyToPlayFilterLua,
@@ -22,22 +24,6 @@ import {
 
 const PACKAGE_INDEX_FILE_NAME = "badavatar-package.json";
 const DEVICE_REVALIDATION_INTERVAL_MS = 10_000;
-
-// O pacote BadAvatar foi capturado de um console real e carrega o estado dele: logs e crash
-// dumps do Aurora e os bancos do FreeStyle, que descrevem 68 jogos num HD interno cujo serial
-// nao existe no pendrive do usuario. Nada disso tem funcao no destino e o Aurora/FreeStyle
-// recriam o que precisam, entao o estado alheio nao e replicado.
-const FOREIGN_CONSOLE_STATE_PATTERNS = [
-  /^aurora\/data\/logs\//,
-  /^apps\/aurora\/data\/logs\//,
-  /^apps\/freestyle\/data\/logs\//,
-  /^apps\/freestyle\/data\/databases\//,
-];
-
-export function isForeignConsoleStatePath(relativePath: string): boolean {
-  const key = String(relativePath || "").toLowerCase();
-  return FOREIGN_CONSOLE_STATE_PATTERNS.some((pattern) => pattern.test(key));
-}
 
 interface FixedPayloadPackageIndex {
   schemaVersion: 1;
@@ -451,6 +437,13 @@ export async function prepareFixedBadAvatarDevice(
       effectiveDeviceFingerprint,
     );
     await revalidateTarget();
+
+    onProgress({ status: "Preservando em quarentena o estado antigo do pacote…", percent: 23 });
+    await quarantineForeignConsoleState(
+      request.driveRoot,
+      request.isRghOnly ? manifest.files.filter((file) => file.path.startsWith("Aurora/")) : manifest.files,
+      revalidateTarget,
+    );
 
     const result = await executeTransactionalWriteToDevice(plan, request.driveRoot, {
       revalidateTarget,
