@@ -118,6 +118,14 @@ func PrepareLocalDevice(root string) (string, error) {
 	return ensureLocalDeviceIdentity(root, "")
 }
 
+// VerifyLocalDevice is PrepareLocalDevice for a destination that was already
+// stamped: it fails instead of adopting whatever device now answers for that
+// path. Relaunching a job must not write a game to a different stick that
+// inherited the drive letter. An empty expectedID falls back to preparing.
+func VerifyLocalDevice(root, expectedID string) (string, error) {
+	return ensureLocalDeviceIdentity(root, expectedID)
+}
+
 func localDeviceMatches(root, expectedID string) bool {
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(localDeviceIdentityFile)))
 	return err == nil && strings.TrimSpace(string(data)) == expectedID

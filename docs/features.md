@@ -147,6 +147,12 @@ Each item is a **high-level capability**, **how you use it**, and **how it works
 - **How:** Open **Job Queue** from the home page. Each job shows its source (Store vs FTP), state, progress bar, transfer speed, and current file detail. Remove completed or stuck jobs individually.
 - **How it works:** The Queue page merges jobs from `/queue` (game pipeline) and `/ftp/jobs` (FTP Manager tracked jobs) into one unified list. Progress bars and percentage hide for completed/errored jobs.
 
+## Download queue survives closing the app
+
+- **What:** Close the application in the middle of a download and the queue is still there when you reopen it — the transfer continues from where it stopped instead of starting over.
+- **How:** Nothing to enable. Queue a game, close the app, open it again: the Job Queue lists the same jobs and downloading resumes on its own. A job that had already failed comes back as **Erro** so you decide whether to press **Tentar novamente**.
+- **How it works:** `/trigger` writes a record per job under `pending_queue/` (destination, install type, provider priority) and `app.LogStatus` updates its state on every transition. At startup `Deps.ResumeQueuedJobs` reads those records, restores the destination and install type, and relaunches each unfinished job through the same path the Retry button uses. The record also names the job's partial download, which the startup scratch cleanup then preserves along with its `.xbox-companion-resume.json` marker, so `DownloadWithProgress` continues from the byte it reached. The record also stores the download URL, and `resumePriority` moves that source to the front of the provider list — otherwise a provider tried ahead of it would fail on a catalogue miss and the scratch cleanup between providers would delete the file being resumed.
+
 ## Auto Aurora sync
 
 - **What:** After a game is downloaded and transferred to the Xbox, cover art and the local library cache update automatically — no manual refresh needed.

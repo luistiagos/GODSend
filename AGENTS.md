@@ -45,8 +45,9 @@ O backend utiliza o padrão de **DDD (Domain-Driven Design)** com uma estrutura 
   * `compat.go`: Tabela de compatibilidade de discos multi-disco (`discCompatTable`) e função de busca `DiscCompat()`.
   * `game.go`: Enums de plataformas (`Platform`) e status de trabalhos (`JobStatus`).
 * **`app/`**: Container de estado central:
-  * `app.go`: Estrutura `App`, locks de concorrência (`sync.Map`, mutexes), logs formatados (`Logf`, `LogStatus`), lookup de instalações.
-  * `config.go`: Constantes globais, coleções IA/Minerva, rotas de armazenamento (`SetupPaths`), suporte a credenciais.
+  * `app.go`: Estrutura `App`, locks de concorrência (`sync.Map`, mutexes), logs formatados (`Logf`, `LogStatus`), lookup de instalações. `LogStatus` é o único ponto por onde passam **todas** as transições de estado de **todos** os pipelines: é ele que espelha a mudança no registro durável da fila (`persistJobState`). Não desvie um pipeline para gravar em `JobQueue` diretamente — a fila para de sobreviver ao fechamento do aplicativo sem que nada quebre visivelmente.
+  * `queue_store.go`: Fila de download durável em `GODSEND_HOME/pending_queue/` — um JSON por jogo com destino, tipo de instalação, prioridade de provedor e o caminho do arquivo parcial (`PersistedJob`). Registro criado pelo lançamento (`Deps.saveQueueRecord`), atualizado a cada transição de estado e apagado quando o jogo é entregue (`Ready`), passa para a fila de FTP pendente (`Pending FTP`) ou é removido da fila. Define também `DownloadResumeSuffix`/`DownloadCompleteSuffix`, usados por `infrastructure/download` e pela limpeza de scratch.
+  * `config.go`: Constantes globais, coleções IA/Minerva, rotas de armazenamento (`SetupPaths`), suporte a credenciais. `protectedScratchPaths` protege da limpeza de inicialização tanto a origem dos jobs de FTP pendentes quanto o download parcial de cada job ainda na fila (com os dois marcadores de retomada) — sem isso, reabrir o aplicativo recomeça a transferência do zero.
 * **`infrastructure/`**: Adaptadores de efeitos colaterais:
   * `download/`: Downloads via IA (chunked range requests) e EdgeEmu.
   * `ftp/`: Serviço FTP para Xbox (`client.go`), gerenciamento de conexões assíncronas, retentativas com backoff exponencial e persistência de jobs em `GODSEND_HOME/pending_ftp/`.
@@ -60,6 +61,7 @@ O backend utiliza o padrão de **DDD (Domain-Driven Design)** com uma estrutura 
 * **`interfaces/http/`**: Camada HTTP/REST:
   * `router.go`: Registro central de rotas no `*http.ServeMux`.
   * `handlers.go`, `handlers_content.go`, `handlers_saves.go`, `handlers_tools.go`, `handlers_rxea.go`, `handlers_ftp_manager.go`: Métodos HTTP expostos pela estrutura `*Deps`.
+  * `queue_resume.go`: Fila durável no lado HTTP — `saveQueueRecord` (grava o lançamento antes de `RegisterGameJob`), `relaunchGame` (despacho compartilhado por `/queue/retry` e pela retomada) e `ResumeQueuedJobs`, chamado por `main.go` na inicialização para restaurar a fila da sessão anterior.
 * **`utils/`**: Codecs e conversores puros:
   * `iso2god.go`: Conversor nativo em Go de ISO para GOD (Games On Demand), extrator de XDVDFS e probe de discos (`ProbeISODiscInfo`). Usa a semente `utils/data/empty_live.bin`.
   * `rxea.go`: Codec nativo para codificação/decodificação de capas e texturas DXT5 do Aurora (`.asset`).
@@ -128,7 +130,7 @@ O backend disponibiliza uma API REST na porta `8080` (ou `GODSEND_PORT`):
 
 | Categoria | Endpoints Princpais | Descrição |
 |---|---|---|
-| **Navegação & Fila** | `GET /browse`, `GET /status`, `GET /queue`, `GET /trigger`, `GET /register`, `POST /queue/remove` | Consulta de jogos por plataforma, polling de status, disparador de downloads e limpeza da fila. |
+| **Navegação & Fila** | `GET /browse`, `GET /status`, `GET /queue`, `GET /trigger`, `GET /register`, `POST /queue/remove`, `POST /queue/retry` | Consulta de jogos por plataforma, polling de status, disparador de downloads, limpeza da fila e relançamento de um job (`Deps.relaunchGame`, compartilhado com a restauração da fila na inicialização). |
 | **Diagnóstico & Caches** | `GET /cache-status`, `GET /cache-refresh`, `GET /disc-info`, `GET /data/status`, `GET /data/clear` | Status do cache, rebuild assíncrono, probe de ISOs e limpeza de temporários em `Ready/` e `Temp/`. |
 | **DLC & Title Updates** | `GET /content/discover`, `GET /content/tu`, `GET /content/installed`, `POST /content/queue`, `POST /content/set-active` | Descoberta e instalação de DLCs/TUs, alternância de TU ativo (renomeando inativos para `.disabled`). |
 | **Saves & Perfis** | `GET /saves/discover`, `GET /saves/list`, `POST /saves/download`, `POST /saves/delete`, `POST /saves/copy`, `POST /saves/backup-all` | Leitura de contêineres STFS, descriptografia RC4 de perfis, extração de gamertags e backup completo em 1 clique. |

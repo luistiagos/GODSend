@@ -24,6 +24,7 @@ type App struct {
 	TransferDir       string // local ISO folder
 	SaveBackupDir     string // save-game backup folder
 	PendingFTPDir     string
+	QueueDir          string // durable download-queue records (survive an app restart)
 	ServerIP          string
 	ServerPort        string
 	FTPUsername       string
@@ -130,6 +131,11 @@ func (a *App) LogStatus(game, state, msg string) {
 		return
 	}
 	a.JobQueue.Store(game, models.GameStatus{State: state, Message: msg})
+	// Every state transition of every pipeline funnels through here, so this is
+	// the one place that can keep the durable queue honest without a pipeline
+	// forgetting to report. Progress messages reuse the same state and are
+	// filtered out by persistJobState, which only writes on a real transition.
+	a.persistJobState(game, state, msg)
 }
 
 // LogFTPComplete marks a game FTP transfer as complete and emits a structured

@@ -6,11 +6,11 @@ The backend listens on port `8080` by default (configurable via Electron `Backen
 |--------|------|-------------|
 | GET | `/browse?platform=<p>` | Game list (pipe-separated); `platform` includes `xbox360`, `xbox`, `xbla`, `digital`, `dlc`, `xblig`, `games`, `local`, `rom_<sysid>`. Optional `source=minerva\|ia` limits the list to one catalog when both are merged by default. |
 | GET | `/status?game=<name>` | Poll job state: `Idle`, `Processing`, `Ready`, `Error`, `Missing` |
-| GET | `/queue` | List all active and completed jobs |
+| GET | `/queue` | List all active and completed jobs; jobs left unfinished by a previous session are restored here at startup from `pending_queue/` |
 | GET | `/trigger?game=<name>&platform=<p>` | Start processing a game (Aurora uses GET) |
 | GET | `/register?game=<name>&ip=<xbox-ip>&drive=...&platform=...` | Register the console IP and drive for FTP transfer |
 | GET | `/files/<name>/...` | Serve finished GOD/archive files to the Xbox over HTTP |
-| GET/POST | `/queue/remove?game=<name>` | Remove one job (`game` omitted clears all); Aurora uses GET |
+| GET/POST | `/queue/remove?game=<name>` | Remove one job (`game` omitted clears all); Aurora uses GET. Also drops the job's `pending_queue/` record, so it is not resumed on the next launch |
 | GET | `/cache-status` | Per-platform cache build state and counts |
 | GET | `/cache-refresh?platform=<p>` | Trigger cache rebuild (`all`, an IA platform, or `rom_<sysid>`); Electron uses GET |
 | GET | `/disc-info` | Probe a local ISO in the Transfer folder for disc compatibility metadata (used by the multi-disc install picker) |
@@ -64,6 +64,8 @@ The backend creates these under its working directory (or `GODSEND_HOME` if set)
 | `Ready/` | Staging area for GOD/archive files pending FTP transfer; also used by `pending_ftp/` job tracking |
 | `Temp/` | Working directory for FTP staging and save keyvault pulls. Per-game download/extract/ISO→GOD scratch also defaults here, but on Windows auto-relocates to the roomiest fixed NTFS/exFAT drive's `godsend-temp\proc` (see `GODSEND_TORRENT_TEMP`) |
 | `Temp/torrent-dl/` | Fallback aria2c torrent download staging (`gd-dl-*` folders); on Windows the default is the roomiest fixed NTFS/exFAT drive's `godsend-temp\torrent-dl`. Override with `GODSEND_TORRENT_TEMP` |
+| `pending_ftp/` | One JSON per game transfer waiting on the console's FTP server; resumed at startup |
+| `pending_queue/` | One JSON per queued download (destination, install type, provider priority, partial-file path and its source URL). Written when a job is queued, updated on each state change, deleted when the game is delivered or removed. Restores the queue after the app is closed mid-download, and keeps that job's partial file out of the startup scratch cleanup |
 | `cache/` | Cached Internet Archive game metadata (avoids re-fetching on each launch) |
 | `Saves/` | Local backup of Xbox profiles and save files; layout `<gamertag> (<XUID>)/<gameName> - <titleID>/<files>`, profile STFS at `<gamertag> (<XUID>)/Profile/<XUID>` |
 

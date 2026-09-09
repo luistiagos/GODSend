@@ -280,25 +280,42 @@ func protectedScratchPaths(toolsDir string) []string {
 	type pendingJob struct {
 		SourceDir string `json:"source_dir"`
 	}
-	entries, err := os.ReadDir(filepath.Join(toolsDir, "pending_ftp"))
-	if err != nil {
-		return nil
-	}
 	var protected []string
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
-			continue
+	add := func(path string) {
+		if path == "" {
+			return
 		}
-		data, readErr := os.ReadFile(filepath.Join(toolsDir, "pending_ftp", entry.Name()))
-		if readErr != nil {
-			continue
+		if abs, absErr := filepath.Abs(path); absErr == nil {
+			protected = append(protected, filepath.Clean(abs))
 		}
-		var job pendingJob
-		if json.Unmarshal(data, &job) == nil && job.SourceDir != "" {
-			if abs, absErr := filepath.Abs(job.SourceDir); absErr == nil {
-				protected = append(protected, filepath.Clean(abs))
+	}
+	if entries, err := os.ReadDir(filepath.Join(toolsDir, "pending_ftp")); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+				continue
+			}
+			data, readErr := os.ReadFile(filepath.Join(toolsDir, "pending_ftp", entry.Name()))
+			if readErr != nil {
+				continue
+			}
+			var job pendingJob
+			if json.Unmarshal(data, &job) == nil {
+				add(job.SourceDir)
 			}
 		}
+	}
+	// A download still in the queue keeps its partial file and both resume
+	// markers. Wiping them here is what forced a restarted transfer to start
+	// over from zero bytes.
+	for _, job := range queueJobsIn(filepath.Join(toolsDir, "pending_queue")) {
+		// Only a job that can still resume earns the space. A delivered or
+		// failed job keeps no claim, so its leftovers are reclaimed normally.
+		if job.Scratch == "" || job.State == "Ready" || job.State == "Error" {
+			continue
+		}
+		add(job.Scratch)
+		add(job.Scratch + DownloadResumeSuffix)
+		add(job.Scratch + DownloadCompleteSuffix)
 	}
 	return protected
 }
@@ -340,7 +357,7 @@ func (a *App) cleanupStaleScratchDir(dir string, protected []string) {
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
 		if containsProtectedScratch(path, protected) {
-			a.Logf("[INFO] Preserving scratch required by pending FTP: %s", path)
+			a.Logf("[INFO] Preserving scratch required by a pending job: %s", path)
 			continue
 		}
 		reclaimed += scratchDirSize(path)
@@ -476,6 +493,8 @@ func (a *App) SetupPaths() error {
 	}
 	a.PendingFTPDir = filepath.Join(a.ToolsDir, "pending_ftp")
 	os.MkdirAll(a.PendingFTPDir, 0755)
+	a.QueueDir = filepath.Join(a.ToolsDir, "pending_queue")
+	os.MkdirAll(a.QueueDir, 0755)
 
 	a.DefaultXboxDrive = strings.TrimSpace(os.Getenv("GODSEND_DEFAULT_DRIVE"))
 	a.CustomGodPath = strings.TrimSpace(os.Getenv("GODSEND_CUSTOM_GOD_PATH"))

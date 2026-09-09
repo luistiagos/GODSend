@@ -137,9 +137,15 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 		}
 	}
 
-	for _, p := range providers {
+	for i, p := range providers {
 		p = strings.TrimSpace(strings.ToLower(p))
-		s.cleanupGameScratch(gameName)
+		// So limpa ao TROCAR de provedor: o arquivo pela metade da fonte
+		// anterior nao serve para a proxima. Na primeira tentativa ele pode ser
+		// o download que esta sendo retomado — apagar aqui era o que fazia o
+		// aplicativo reaberto recomecar a transferencia do zero.
+		if i > 0 {
+			s.cleanupGameScratch(gameName)
+		}
 		s.App.Logf("FALLBACK: Trying provider '%s' for game '%s'", p, gameName)
 
 		err := executeProvider(p)

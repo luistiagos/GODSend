@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"godsend/app"
 )
 
 const downloadResumeVersion = 1
@@ -21,7 +23,7 @@ type downloadResumeMarker struct {
 }
 
 func resumeMarkerPath(dest string) string {
-	return dest + ".xbox-companion-resume.json"
+	return dest + app.DownloadResumeSuffix
 }
 
 func loadResumeMarker(dest, urlStr, mode string, totalSize, segmentSize int64) (*downloadResumeMarker, bool) {

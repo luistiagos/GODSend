@@ -38,7 +38,7 @@ type completedDownloadMarker struct {
 }
 
 func completedMarkerPath(dest string) string {
-	return dest + ".xbox-companion-complete.json"
+	return dest + app.DownloadCompleteSuffix
 }
 
 func reusableCompletedDownload(dest, urlStr string) bool {
@@ -155,6 +155,9 @@ func iaHTTPError(status int, urlStr string) error {
 // DownloadWithProgress downloads urlStr to dest. For Internet Archive URLs it uses a
 // Gopeed-style segment queue (fixed-size ranges, worker pool) when Range is supported.
 func (s *Service) DownloadWithProgress(urlStr, dest, name, ref string) error {
+	// Tell the durable queue which partial file this job owns, so a restart
+	// keeps it out of the scratch cleanup and resumes instead of restarting.
+	s.App.SetQueueJobDownload(name, urlStr, dest)
 	if reusableCompletedDownload(dest, urlStr) {
 		removeDownloadResume(dest)
 		s.App.Logf("DOWNLOAD CACHE [%s]: reutilizando arquivo completo %s", name, dest)

@@ -9,6 +9,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.82] - 2026-09-09
+
+### Fixed
+- **Fechar o aplicativo no meio de um download apagava a fila inteira (`app.go`, `queue_store.go`, `config.go`, `queue_resume.go`, `handlers.go`, `fallback.go`, `main.go`)**:
+  - Relato: HD preparado, catalogo aberto, download do GTA V iniciado; ao fechar e reabrir o aplicativo a fila estava vazia e nada baixava.
+  - A fila so existia em memoria. `App.JobQueue` e um `sync.Map`, e junto com ela `XboxConnections` (o destino escolhido) e `InstallTypeMap` (GOD/XEX/content) tambem morriam com o processo. O Electron encerra o backend com `godsendProcess.kill()`, sem desligamento gracioso, entao nao havia sequer o momento de gravar nada — o unico trabalho que sobrevivia a um reinicio era o de FTP pendente, que ja tinha o proprio `pending_ftp/`.
+  - A camada de download **ja sabia retomar**: `resume.go` mantem offset e hashes de segmento em `<arquivo>.xbox-companion-resume.json` e `DownloadWithProgress` reaproveita o parcial. O que faltava era alguem re-emitir o job depois do reinicio — e o arquivo parcial continuar existindo quando isso acontecesse.
+  - Dois caminhos apagavam esse parcial. `cleanupStaleScratchDir` limpa o scratch de um backend que nao esta mais rodando e so preservava a origem de jobs de FTP pendentes; e `ProcessGameWithFallback` chamava `cleanupGameScratch` **antes de cada** tentativa de provedor, inclusive a primeira, o que zerava o download que estava sendo retomado.
+  - **Correcao:** novo registro durável por jogo em `GODSEND_HOME/pending_queue/` (destino, tipo de instalacao, prioridade de provedores e caminho do parcial). O registro nasce no lancamento e e atualizado por `LogStatus` — o unico funil por onde passam todas as transicoes de estado de todos os pipelines, entao nenhum caminho pode esquecer de reportar. Mensagens de progresso reusam o mesmo estado e nao gravam. Na inicializacao, `ResumeQueuedJobs` restaura destino e tipo de instalacao e relanca cada job inacabado pelo mesmo despacho do botao **Tentar novamente** (`relaunchGame`, extraido de `handleQueueRetry`); um job que ja tinha falhado volta como **Erro**, com a mensagem original, em vez de tentar sozinho para sempre.
+  - A limpeza de inicializacao agora preserva o parcial de todo job ainda na fila junto dos dois marcadores, e o `cleanupGameScratch` do fallback passou a rodar so **ao trocar** de provedor — que e o caso em que o arquivo pela metade da fonte anterior realmente nao serve. Estagios de extracao que sobrem sao seguros: `runResilientStage` compara tamanho e mtime da origem e descarta o estagio que nao corresponde.
+  - O registro e apagado quando o jogo e entregue (`Ready`), quando passa para a fila de FTP pendente (`Pending FTP`, que tem a propria retomada e transferiria o jogo duas vezes) e quando o usuario remove o job — que e tambem o que devolve o parcial para a limpeza da proxima inicializacao, em vez de guarda-lo para sempre.
+  - O registro guarda tambem a **URL** do download, porque a ordem de provedores importa na retomada: com a prioridade padrao `huggingface,ia,minerva`, um download de IA interrompido seria precedido pelo HuggingFace, que falha por nao ter o titulo no catalogo — e a limpeza entre provedores apagaria justamente o arquivo que estava sendo retomado. `resumePriority` poe na frente o provedor dono do parcial e preserva o resto da ordem escolhida pelo usuario.
+  - `PrepareLocalDevice` adota o dispositivo que estiver montado no caminho; para relancar um job isso e perigoso, porque outro pendrive pode ter herdado a mesma letra. `relaunchGame` agora usa `VerifyLocalDevice`, que confere contra o ID com que o job foi registrado e, na divergencia, mantem o ID antigo para a guarda de dispositivo do pipeline esperar o correto. Vale tambem para o botao **Tentar novamente**, que tinha a mesma exposicao.
+  - `/data/clear` passou a apagar os registros junto com `Ready/` e `Temp/`: sem isso, "Limpar dados" seria desfeito na inicializacao seguinte, rebaixando tudo o que o usuario acabara de descartar.
+  - Fora do escopo: a fila de DLC/TU (`/content/queue`) continua so em memoria, e downloads via torrent do Minerva retomam pelo controle do proprio aria2c, nao por este registro.
+
 ## [2.12.81] - 2026-09-09
 
 ### Fixed

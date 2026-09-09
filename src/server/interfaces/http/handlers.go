@@ -475,7 +475,11 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		}
 	}
 
+	priorityParam := r.URL.Query().Get("priority")
 	launcher := func(fn func()) {
+		// Record the launch before the lane assigns a token: closing the app
+		// while this job is queued or downloading must not lose it.
+		d.saveQueueRecord(gameName, platform, installType, priorityParam)
 		jobToken := d.App.RegisterGameJob(gameName)
 		go func() {
 			if !d.App.AcquireGameJob(gameName, jobToken) {
@@ -551,7 +555,6 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			jsonSuccess(w, map[string]string{"status": "already_ready"})
 			return
 		}
-		priorityParam := r.URL.Query().Get("priority")
 		var providers []string
 		if priorityParam != "" {
 			providers = strings.Split(priorityParam, ",")
@@ -617,7 +620,7 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			return
 		}
 		launcher(func() { d.Pipeline.ProcessHuggingFaceGame(gameName, entry.FileName) })
-		d.enqueueCompanions(gameName, platform, source, installType, r.URL.Query().Get("priority"))
+		d.enqueueCompanions(gameName, platform, source, installType, priorityParam)
 		jsonSuccess(w, map[string]string{"status": "triggered", "source": "huggingface"})
 		return
 	}
@@ -631,7 +634,7 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	default: // xbox360, xbox
 		launcher(func() { d.Pipeline.ProcessGame(gameName, platform) })
 	}
-	d.enqueueCompanions(gameName, platform, source, installType, r.URL.Query().Get("priority"))
+	d.enqueueCompanions(gameName, platform, source, installType, priorityParam)
 	jsonSuccess(w, map[string]string{"status": "triggered", "source": "internet_archive"})
 }
 
@@ -681,6 +684,7 @@ func (d *Deps) enqueueCompanions(primaryGame, plat, src, inst, priorityParam str
 			cSafe := cGame
 			d.App.Logf("TRIGGER MULTI-DISC: Auto-enqueuing companion disc '%s' for '%s'", cSafe, primaryGame)
 			cLauncher := func(fn func()) {
+				d.saveQueueRecord(cSafe, plat, inst, priorityParam)
 				token := d.App.RegisterGameJob(cSafe)
 				go func() {
 					if !d.App.AcquireGameJob(cSafe, token) {
@@ -868,13 +872,23 @@ func (d *Deps) handleQueueRemove(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	game := local.NormalizeClientGameName(r.URL.Query().Get("game"))
 	if game == "" {
 		var keys []string
+		seen := map[string]bool{}
 		d.App.JobQueue.Range(func(k, _ interface{}) bool {
 			keys = append(keys, k.(string))
+			seen[k.(string)] = true
 			return true
 		})
+		// A durable record with no in-memory job would come back at the next
+		// launch, which is not what "clear all" means.
+		for _, job := range d.App.LoadQueueJobs() {
+			if !seen[job.Game] {
+				keys = append(keys, job.Game)
+			}
+		}
 		for _, k := range keys {
 			d.App.CancelGameJob(k)
 			d.App.JobQueue.Delete(k)
+			d.App.DeleteQueueJob(k)
 			d.App.SuppressedJobs.Store(k, struct{}{})
 		}
 		d.App.Logf("QUEUE: cleared %d job(s)", len(keys))
@@ -883,6 +897,7 @@ func (d *Deps) handleQueueRemove(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 	d.App.CancelGameJob(game)
 	d.App.JobQueue.Delete(game)
+	d.App.DeleteQueueJob(game)
 	d.App.SuppressedJobs.Store(game, struct{}{})
 	// Also cancel any pending FTP job for this game
 	for _, job := range d.FTP.LoadAllPendingFTPJobs() {
@@ -913,89 +928,8 @@ func (d *Deps) handleQueueRetry(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
-	d.App.SuppressedJobs.Delete(game)
-
-	var conn models.XboxConnection
-	hasConn := false
-	if v, ok := d.App.XboxConnections.Load(game); ok {
-		conn = v.(models.XboxConnection)
-		hasConn = true
-	}
-
-	if hasConn && conn.Mode == "local" && conn.LocalRoot != "" {
-		if id, err := pipelineService.PrepareLocalDevice(conn.LocalRoot); err == nil {
-			conn.LocalDeviceID = id
-			d.App.XboxConnections.Store(game, conn)
-		}
-	}
-
-	platform := "xbox360"
-	if hasConn && conn.Platform != "" {
-		platform = conn.Platform
-	}
-
-	installType := "god"
-	if it, ok := d.App.InstallTypeMap.Load(game); ok {
-		installType = it.(string)
-	} else {
-		d.App.InstallTypeMap.Store(game, installType)
-	}
-
-	// Delete from JobQueue so it can restart cleanly
-	d.App.JobQueue.Delete(game)
-
-	launcher := func(fn func()) {
-		jobToken := d.App.RegisterGameJob(game)
-		go func() {
-			if !d.App.AcquireGameJob(game, jobToken) {
-				return
-			}
-			defer d.App.ReleaseGameJob(game, jobToken)
-			defer func() {
-				if rec := recover(); rec != nil {
-					d.App.Logf("PANIC retrying %s: %v", game, rec)
-					buf := make([]byte, 4096)
-					n := runtime.Stack(buf, false)
-					d.App.Logf("STACK: %s", string(buf[:n]))
-					d.App.LogStatus(game, "Error", "Server crashed during processing")
-				}
-			}()
-			fn()
-		}()
-	}
-
-	// Check local ISO
-	if (platform == "xbox360" || platform == "xbox" || platform == "local") && d.Local != nil {
-		if iso := d.Local.FindLocalISO(game); iso != "" {
-			d.App.Logf("RETRY: Local ISO found for '%s'", game)
-			launcher(func() { d.Pipeline.ProcessLocalISO(game, iso) })
-			jsonSuccess(w, map[string]string{"status": "triggered", "source": "local", "game": game})
-			return
-		}
-	}
-
-	// ROM
-	if strings.HasPrefix(platform, "rom_") {
-		sysid := strings.TrimPrefix(platform, "rom_")
-		if _, ok := app.ROMSystems[sysid]; ok {
-			d.App.Logf("RETRY: ROM system %s for '%s'", sysid, game)
-			launcher(func() { d.Pipeline.ProcessROM(game, sysid) })
-			jsonSuccess(w, map[string]string{"status": "triggered", "source": "edgeemu", "game": game})
-			return
-		}
-	}
-
-	priorityParam := r.URL.Query().Get("priority")
-	var providers []string
-	if priorityParam != "" {
-		providers = strings.Split(priorityParam, ",")
-	} else {
-		providers = []string{"huggingface", "ia", "minerva"}
-	}
-
-	d.App.Logf("RETRY: Game fallback pipeline for '%s' (%s, installType=%s)", game, platform, installType)
-	launcher(func() { d.Pipeline.ProcessGameWithFallback(game, platform, providers) })
-	jsonSuccess(w, map[string]string{"status": "triggered", "source": "retry", "game": game})
+	source := d.relaunchGame(game, "", r.URL.Query().Get("priority"), "RETRY")
+	jsonSuccess(w, map[string]string{"status": "triggered", "source": source, "game": game})
 }
 
 func (d *Deps) handleDataStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -1047,6 +981,14 @@ func (d *Deps) handleDataClear(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		d.App.JobQueue.Delete(k)
 		return true
 	})
+	// Drop the durable queue records as well: this call deletes Ready/ and
+	// Temp/, so resuming those jobs at the next launch would re-download
+	// everything the user just discarded.
+	for _, job := range d.App.LoadQueueJobs() {
+		d.App.CancelGameJob(job.Game)
+		d.App.SuppressedJobs.Store(job.Game, true)
+		d.App.DeleteQueueJob(job.Game)
+	}
 	// Clear pending FTP jobs (goroutines will detect suppression and exit)
 	pendingJobs := d.FTP.LoadAllPendingFTPJobs()
 	for _, job := range pendingJobs {
