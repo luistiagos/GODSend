@@ -1,6 +1,6 @@
 /**
- * Resolves the Windows system executables this app shells out to: %PATH% first,
- * `%SystemRoot%\System32` as fallback.
+ * Resolves the Windows system executables this app shells out to, from the
+ * canonical `%SystemRoot%\System32` location.
  *
  * `spawn("powershell.exe", ...)` resolves the bare name through %PATH% and
  * nothing else. On installs whose PATH lost
@@ -9,12 +9,21 @@
  * one of those calls fails with `spawn powershell.exe ENOENT`, and the USB
  * screens surfaced that string verbatim as the device list error.
  *
- * The order here keeps %PATH% authoritative, so an admin who points the machine
- * at a different install still wins, and only falls back to the canonical
- * System32 location when the lookup comes up empty. The PowerShell scripts in
- * this repo resolve `diskpart.exe`, `mountvol.exe` and `format.com` through
- * `$env:SystemRoot` for the same reason; this covers the interpreter itself and
- * the other System32 tools we spawn directly.
+ * %PATH% must NOT win over the canonical location, and an earlier version of
+ * this file let it. These names — `powershell.exe`, `cmd.exe`, `net.exe`,
+ * `chkdsk.exe` — are spawned to format and repair drives, and `fat32Format.ts`
+ * hands the resolved interpreter to `Start-Process -Verb RunAs`. A
+ * user-writable directory that appears in %PATH% (`%LOCALAPPDATA%\Microsoft\
+ * WindowsApps` and per-user tool installs are the usual ones) would let
+ * anything named `powershell.exe` there run **with administrator rights**,
+ * under the UAC prompt the user approves believing it is the disk format.
+ * Reading `%SystemRoot%\System32` directly fixes the ENOENT bug just as well —
+ * those machines still have the file on disk, it is only the PATH entry that
+ * went missing — without handing a planted binary the elevation.
+ *
+ * The PowerShell scripts in this repo resolve `diskpart.exe`, `mountvol.exe`
+ * and `format.com` through `$env:SystemRoot` for the same reason; this covers
+ * the interpreter itself and the other System32 tools we spawn directly.
  */
 
 import { existsSync } from "fs";
@@ -28,34 +37,29 @@ export function windowsSystemRoot(): string {
 }
 
 /**
- * First match for `name` in %PATH% — the same lookup `spawn` would do, minus the
- * current directory, and without paying a failed spawn to find out. Returns the
- * resolved absolute path so callers and logs can see which one was picked.
- */
-function resolveOnPath(name: string): string | null {
-  const raw = process.env.PATH || process.env.Path || "";
-  for (const entry of raw.split(";")) {
-    // PATH entries may be quoted, and unexpanded ones simply will not exist.
-    const dir = entry.trim().replace(/^"+|"+$/g, "");
-    if (!dir) continue;
-    const candidate = path.join(dir, name);
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-/**
- * Resolves a System32 executable: %PATH% first, then the canonical
- * `%SystemRoot%\System32` location, then `fallbackName` so the OS still gets its
- * own attempt (it also searches the app and current directories, which the PATH
- * scan above deliberately does not).
+ * Resolves a System32 executable to its absolute `%SystemRoot%\System32` path,
+ * falling back to `fallbackName` only when the file is not there at all — a
+ * machine genuinely missing the tool, which then fails with the ENOENT that
+ * `powerShellMissingMessage` explains.
+ *
+ * On a 32-bit build running on 64-bit Windows, WOW64 redirects this path to
+ * `SysWOW64`, which carries the same tools — the same binary the bare-name
+ * spawn would have reached.
  */
 export function system32Exe(relativePath: string, fallbackName: string): string {
   if (process.platform !== "win32") return fallbackName;
-  const onPath = resolveOnPath(path.basename(relativePath));
-  if (onPath) return onPath;
   const absolute = path.join(windowsSystemRoot(), "System32", relativePath);
   return existsSync(absolute) ? absolute : fallbackName;
+}
+
+/**
+ * True when `exe` is a verified absolute path rather than a bare name left to
+ * %PATH%. Callers that elevate must check this: `Start-Process -Verb RunAs` on
+ * a bare name repeats the %PATH% lookup inside the elevated child, which is the
+ * one place a planted binary would gain administrator rights.
+ */
+export function isResolvedSystemExe(exe: string): boolean {
+  return path.isAbsolute(exe) && existsSync(exe);
 }
 
 /** Windows PowerShell 5.1 interpreter. */
@@ -81,10 +85,12 @@ function maskUserProfile(value: string): string {
 
 /**
  * What the OS actually exposes to `spawn`, for triaging the ENOENT class of
- * failure. It separates the two causes that need opposite fixes: the file is
- * gone (Windows "debloatado" — `powershellNoDisco=false`) versus the file is
- * there and the %PATH% lost the folder (`pathTemWindowsPowerShell=false`), with
- * `pathChars` near 1024 or 2047 apontando truncamento em vez de edição manual.
+ * failure. Resolution no longer depends on %PATH%, so `powershellNoDisco=false`
+ * is now the whole diagnosis (Windows "debloatado" — the file is gone); the
+ * PATH fields stay because they tell the *user's* story: a machine that reached
+ * support with `pathTemWindowsPowerShell=false` and the file present is one this
+ * version already fixed, and `pathChars` near 1024 or 2047 aponta truncamento em
+ * vez de edição manual.
  *
  * Goes to the session log, whose tail telemetry ships — por isso o PATH vai com
  * a pasta do perfil mascarada.
@@ -117,7 +123,7 @@ export function powerShellMissingMessage(): string {
     "O Windows PowerShell não foi encontrado neste computador " +
     `(procurado em ${expected}). ` +
     "Ele é necessário para listar e preparar pendrives e HDs com segurança. " +
-    "Verifique se a variável PATH inclui %SystemRoot%\\System32\\WindowsPowerShell\\v1.0 " +
-    "ou restaure o PowerShell do Windows."
+    "Restaure o PowerShell do Windows — por segurança o aplicativo só usa a " +
+    "cópia oficial em System32 e não procura o interpretador no PATH."
   );
 }

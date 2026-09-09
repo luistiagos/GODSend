@@ -11,7 +11,11 @@ import os from "os";
 import path from "path";
 import { spawn } from "child_process";
 import { getBundledRoot, getRepoRoot } from "./fileSystem";
-import { powerShellExe } from "./windowsSystemExecutables";
+import {
+  isResolvedSystemExe,
+  powerShellExe,
+  powerShellMissingMessage,
+} from "./windowsSystemExecutables";
 
 export interface FormatProgress {
   status: string;
@@ -360,6 +364,13 @@ async function runPs1Elevated(
   ps1Path: string,
 ): Promise<{ code: number; stdout: string; stderr: string; cancelled: boolean }> {
   const psExe = powerShellExe();
+  // Elevation only ever runs the verified copy in System32. A bare name here
+  // would send the nested Start-Process back to %PATH% inside the elevated
+  // child, where a planted powershell.exe would gain administrator rights from
+  // a UAC prompt the user approved for the format.
+  if (!isResolvedSystemExe(psExe)) {
+    throw new Error(powerShellMissingMessage());
+  }
   const outerScript = buildElevationScript(ps1Path, psExe);
   const result = await runCommand(psExe, [
     "-NoProfile", "-NonInteractive", "-Command", outerScript,

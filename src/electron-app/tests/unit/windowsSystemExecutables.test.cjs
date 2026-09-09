@@ -1,12 +1,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { existsSync } = require("node:fs");
+const os = require("node:os");
+const { existsSync, mkdtempSync, writeFileSync, rmSync } = require("node:fs");
 
 const {
   windowsSystemRoot,
   system32Exe,
   powerShellExe,
+  isResolvedSystemExe,
   isExecutableNotFound,
   powerShellMissingMessage,
   describeWindowsExecutableEnvironment,
@@ -27,22 +29,52 @@ function withEnv(overrides, fn) {
   }
 }
 
-test("prefere o PowerShell do PATH quando o PATH tem um", (t) => {
+test("ignora um powershell.exe plantado no PATH e usa o de System32", (t) => {
   if (process.platform !== "win32") {
     t.skip("resolucao de System32 disponivel somente no Windows");
     return;
   }
-  // Uma pasta que existe e nao contem powershell.exe, seguida da que contem:
-  // a resolucao tem de pular a primeira e devolver a segunda, nao a primeira.
-  const real = path.join(windowsSystemRoot(), "System32", "WindowsPowerShell", "v1.0");
-  const resolved = withEnv({ PATH: `${windowsSystemRoot()};${real}`, Path: `${windowsSystemRoot()};${real}` }, () =>
-    powerShellExe(),
-  );
-  assert.equal(resolved.toLowerCase(), path.join(real, "powershell.exe").toLowerCase());
-  assert.ok(existsSync(resolved), `PowerShell nao encontrado em ${resolved}`);
+  // Qualquer pasta gravavel pelo usuario que esteja no PATH serve de vetor:
+  // o binario plantado seria lancado, e em fat32Format.ts com direitos de
+  // administrador, sob o UAC que o usuario aprova achando ser a formatacao.
+  const plantado = mkdtempSync(path.join(os.tmpdir(), "godsend-path-"));
+  try {
+    writeFileSync(path.join(plantado, "powershell.exe"), "nao sou o PowerShell");
+    const resolvido = withEnv({ PATH: plantado, Path: plantado }, () => powerShellExe());
+    assert.equal(
+      resolvido.toLowerCase(),
+      path
+        .join(windowsSystemRoot(), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+        .toLowerCase(),
+      `resolucao caiu no binario plantado: ${resolvido}`,
+    );
+    // Mesmo vetor para as outras ferramentas de System32 que o app dispara.
+    writeFileSync(path.join(plantado, "net.exe"), "nao sou o net");
+    const net = withEnv({ PATH: plantado, Path: plantado }, () => system32Exe("net.exe", "net"));
+    assert.equal(
+      net.toLowerCase(),
+      path.join(windowsSystemRoot(), "System32", "net.exe").toLowerCase(),
+      `resolucao caiu no binario plantado: ${net}`,
+    );
+  } finally {
+    rmSync(plantado, { recursive: true, force: true });
+  }
 });
 
-test("cai para System32 quando o PATH nao resolve", (t) => {
+test("so aceita elevar um caminho absoluto verificado", (t) => {
+  if (process.platform !== "win32") {
+    t.skip("resolucao de System32 disponivel somente no Windows");
+    return;
+  }
+  // O guarda de runPs1Elevated: nome simples volta a depender do %PATH% dentro
+  // do processo elevado, que e exatamente onde o binario plantado ganharia
+  // administrador.
+  assert.equal(isResolvedSystemExe("powershell.exe"), false);
+  assert.equal(isResolvedSystemExe(path.join(windowsSystemRoot(), "System32", "nao-existe.exe")), false);
+  assert.equal(isResolvedSystemExe(powerShellExe()), true);
+});
+
+test("resolve em System32 mesmo com o PATH quebrado", (t) => {
   if (process.platform !== "win32") {
     t.skip("resolucao de System32 disponivel somente no Windows");
     return;
@@ -73,7 +105,9 @@ test("ENOENT vira mensagem explicativa em portugues", () => {
 
   const message = powerShellMissingMessage();
   assert.ok(message.includes("PowerShell"));
-  assert.ok(message.includes("PATH"));
+  // A saida acionavel agora e restaurar o arquivo: mandar consertar o PATH
+  // deixou de resolver, porque a resolucao nao olha mais para o PATH.
+  assert.ok(message.includes("System32"));
   assert.ok(!/ENOENT/.test(message));
 });
 

@@ -9,6 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.83] - 2026-09-09
+
+### Security
+- **`%PATH%` deixou de decidir qual `powershell.exe` o aplicativo executa como administrador (`windowsSystemExecutables.ts`, `fat32Format.ts`)**:
+  - A 2.12.78 inverteu a ordem de resolucao para `%PATH%` → `System32` a pedido, para que um admin pudesse apontar a maquina para outra instalacao, e registrou a exposicao que isso reintroduzia: *"um PATH de usuario e gravavel sem elevacao, entao isso converte 'escrever no PATH do usuario' em 'obter elevacao pelo nosso prompt'"*. A mesma entrada dizia como desfazer: *"a volta e uma linha em `system32Exe()`"*. Esta versao faz essa volta — a exposicao pesou mais que a flexibilidade.
+  - Cadeia de ataque concreta: qualquer pasta gravavel pelo usuario que apareca no `%PATH%` (`%LOCALAPPDATA%\Microsoft\WindowsApps` e instaladores de ferramentas por usuario sao as comuns) recebe um `powershell.exe` qualquer; `powerShellExe()` o elege; `runPs1Elevated` o passa para `Start-Process -Verb RunAs`. O usuario aprova o UAC acreditando ser a formatacao do pendrive e o binario plantado ganha administrador. Escrita sem privilegio vira execucao com privilegio, sem nenhum aviso que denuncie a troca. Vale tambem para `cmd.exe`, `net.exe` e `chkdsk.exe`, que passam pelo mesmo `system32Exe()`.
+  - **Correcao:** `system32Exe()` le direto `%SystemRoot%\System32\<relativo>` e so cai no nome simples quando o arquivo nao esta la. O bug de ENOENT que originou toda essa sequencia (2.12.76) continua corrigido: naquelas maquinas o PowerShell **esta** no disco — `powershellNoDisco=true` no diagnostico — e apenas a entrada do PATH sumiu, entao o caminho canonico resolve sozinho, sem consultar o PATH. `resolveOnPath()` foi removido: nao havia mais chamador.
+  - **Defesa em profundidade:** `isResolvedSystemExe()` e o novo guarda de `runPs1Elevated`, que recusa elevar um nome simples. So o caminho absoluto verificado chega ao `Start-Process -Verb RunAs`; caso contrario a formatacao para com a mensagem de PowerShell ausente em vez de deixar o processo elevado refazer a busca no `%PATH%`. Isto **nao** substitui a correcao da ordem — como a 2.12.78 ja observava, fixar so o `Start-Process` interno nao resolveria, porque o pai ja seria o interpretador sequestrado.
+  - **O que se perde:** apontar a maquina para outro PowerShell pelo `%PATH%` deixou de funcionar. Era a flexibilidade pedida em 2.12.78 e e exatamente o mesmo mecanismo do ataque — nao da para manter um sem o outro.
+  - `powerShellMissingMessage()` parou de mandar o usuario conferir o `%PATH%`, conselho que agora nao resolve nada: se o ENOENT aparece, o arquivo realmente nao esta em System32. O texto pede restaurar o PowerShell do Windows e diz por que o PATH nao e consultado.
+  - Testes: o caso que fixava a ordem antiga foi trocado por um que planta um `powershell.exe` numa pasta temporaria no inicio do `%PATH%` e exige que a resolucao devolva o de System32 (mesmo para `net.exe`), mais um para o guarda de elevacao. Suite: 164 testes, 0 falhas.
+
 ## [2.12.82] - 2026-09-09
 
 ### Fixed
