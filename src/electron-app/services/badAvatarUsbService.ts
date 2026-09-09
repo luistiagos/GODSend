@@ -363,7 +363,8 @@ function checkExistingXboxFolders(driveRoot: string): boolean {
 export async function listFat32UsbDrives(): Promise<UsbDriveInfo[]> {
   let drives: UsbDriveInfo[] = [];
   if (process.platform === "win32") {
-    drives = await enumerateSafeWindowsUsbDevices();
+    // The only consumer of the health/repair hints is the device list this feeds.
+    drives = await enumerateSafeWindowsUsbDevices(true);
   } else if (process.platform === "darwin") {
     drives = await listDarwinUsbDrives();
   } else if (process.platform === "linux") {

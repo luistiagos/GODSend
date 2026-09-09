@@ -194,6 +194,7 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 		} else {
 			return fmt.Errorf("XEX install needs a loose game folder in the archive. Try GOD (ISO) or DLC (Disc 2 content ISO).")
 		}
+		folderName = helpers.XEXFolderName(xexFolder, folderName)
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {

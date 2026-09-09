@@ -70,7 +70,7 @@ func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 
 		gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
 		os.MkdirAll(gameDir, 0755)
-		folderName := safeName
+		folderName := helpers.XEXFolderName(xexDir, safeName)
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexDir, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -221,6 +221,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		} else {
 			return fmt.Errorf("No default.xex in archive — XEX needs a loose folder rip. Use GOD or DLC for ISO-only Redump releases.")
 		}
+		folderName = helpers.XEXFolderName(xexFolder, folderName)
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {

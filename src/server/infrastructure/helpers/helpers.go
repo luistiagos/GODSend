@@ -255,6 +255,39 @@ func FindXEXFolder(dir string) string {
 	return xexFolder
 }
 
+// SystemTitleID is the dashboard/system title that every Kinect and speech package bundled
+// inside an ordinary game is signed under. It identifies system data, never a game.
+const SystemTitleID = "FFFE07DF"
+
+// fatxMaxNameLen is the FATX filename limit on the console's internal HDD. A XEX destination
+// name has to fit it: TransferXEX discards the MkdirAll result, so a name the console refuses
+// becomes an FTP job that fails identically on every retry instead of reporting the cause.
+const fatxMaxNameLen = 42
+
+// XEXFolderName builds the destination folder name for a XEX install by appending the
+// TitleID to the folder name that came out of the archive, mirroring the "<name> - <titleID>"
+// layout the GOD path already produces. Rips of multi-disc games ship a generic top-level
+// folder ("Disc2"), so without the TitleID two different titles resolve to the same
+// destination and silently overwrite each other's default.xex.
+func XEXFolderName(xexFolder, folderName string) string {
+	titleID := FindTitleIDInDir(xexFolder)
+	// SystemTitleID means the probe hit a bundled Kinect/speech package instead of the game
+	// itself — FindTitleIDInDir walks lexically, and names like "Database.xmplr" sort ahead of
+	// "default.xex". Suffixing it would produce a folder the installed-games scan discards as
+	// system data, so keep the archive name and accept the rarer collision instead.
+	if titleID == "" || titleID == SystemTitleID || strings.HasSuffix(strings.ToUpper(folderName), titleID) {
+		return folderName
+	}
+	suffix := " - " + titleID
+	if name := []rune(folderName); len(name)+len(suffix) > fatxMaxNameLen {
+		folderName = strings.TrimRight(string(name[:fatxMaxNameLen-len(suffix)]), " .")
+	}
+	if folderName == "" {
+		return titleID
+	}
+	return folderName + suffix
+}
+
 // FindTitleIDInDir attempts to detect the 8-character hex TitleID of a game in dir (GOD, XEX, or STFS).
 func FindTitleIDInDir(dir string) string {
 	if dir == "" {

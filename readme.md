@@ -254,6 +254,7 @@ The backend listens on port `8080` by default. Key endpoints: `/browse`, `/trigg
 
 - **Desktop app:** 64‑bit **Windows 10/11**, **macOS** (Intel or Apple Silicon), or **64‑bit Linux** (x64 or arm64 AppImage). **Headless backend only:** same platforms plus any OS the Go toolchain targets — see [headless setup](docs/headless-setup.md).
 - At least **500MB** free for the app, plus **15–25GB** recommended for temp + ready game data
+- **USB drive: 2 TB is the usable ceiling per disk.** The Xbox 360 reads FAT32 on MBR, and both of those cap a volume at 2 TiB — so a 4 TB drive formats to ~2 TB and the rest is unreachable (a second partition cannot recover it; MBR cannot address past 2 TiB). Buy 2 TB, or use more than one disk. The app warns you on the device-selection screen before formatting anything larger. Details in [capacity and free space](docs/CAPACIDADE-E-ESPACO.md#teto-de-2-tib-por-volume).
 - Xbox 360 running Aurora (or another compatible dashboard) with FTP server enabled
 - Computer and Xbox on the same local network
 - Free archive.org account only if you use **Internet Archive** as a source (Minerva Archive needs no account)

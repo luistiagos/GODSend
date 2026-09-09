@@ -11,7 +11,7 @@ import os from "os";
 import path from "path";
 import { spawn } from "child_process";
 import { getBundledRoot, getRepoRoot } from "./fileSystem";
-import { POWERSHELL_EXE_PS_EXPRESSION, powerShellExe } from "./windowsSystemExecutables";
+import { powerShellExe } from "./windowsSystemExecutables";
 
 export interface FormatProgress {
   status: string;
@@ -339,17 +339,29 @@ function readLogTail(logPath: string, limit = 1500): string {
   }
 }
 
+/**
+ * Builds the outer script that relaunches `ps1Path` elevated. `psExe` is the
+ * interpreter already resolved by the caller, so the elevated child is the same
+ * PowerShell the unelevated parent is running — the nested `Start-Process` must
+ * not repeat the %PATH% lookup on its own.
+ */
+export function buildElevationScript(ps1Path: string, psExe: string): string {
+  const escapedPs1 = ps1Path.replace(/'/g, "''");
+  const escapedExe = psExe.replace(/'/g, "''");
+  return (
+    `try { $p = Start-Process '${escapedExe}' -Verb RunAs -PassThru -Wait -WindowStyle Hidden ` +
+    `-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${escapedPs1}'; ` +
+    `Write-Output $p.ExitCode } catch { Write-Output 'CANCELLED' }`
+  );
+}
+
 /** Runs a .ps1 file elevated (UAC). Returns exit code and whether UAC was cancelled. */
 async function runPs1Elevated(
   ps1Path: string,
 ): Promise<{ code: number; stdout: string; stderr: string; cancelled: boolean }> {
-  const escaped = ps1Path.replace(/'/g, "''");
-  const outerScript = (
-    `try { $p = Start-Process ${POWERSHELL_EXE_PS_EXPRESSION} -Verb RunAs -PassThru -Wait -WindowStyle Hidden ` +
-    `-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${escaped}'; ` +
-    `Write-Output $p.ExitCode } catch { Write-Output 'CANCELLED' }`
-  );
-  const result = await runCommand(powerShellExe(), [
+  const psExe = powerShellExe();
+  const outerScript = buildElevationScript(ps1Path, psExe);
+  const result = await runCommand(psExe, [
     "-NoProfile", "-NonInteractive", "-Command", outerScript,
   ]);
   const out = result.stdout.trim();

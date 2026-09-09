@@ -84,6 +84,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 		} else {
 			return fmt.Errorf("No default.xex found in Minerva archive")
 		}
+		folderName = helpers.XEXFolderName(xexFolder, folderName)
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -202,7 +203,7 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 	if xexFolder == "" {
 		return fmt.Errorf("No ISO or XEX found in Minerva archive")
 	}
-	folderName := filepath.Base(xexFolder)
+	folderName := helpers.XEXFolderName(xexFolder, filepath.Base(xexFolder))
 	if xboxConn != nil && xboxConn.Mode == "ftp" {
 		if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 			s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)

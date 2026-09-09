@@ -6,6 +6,7 @@ const {
   createDeviceFingerprint,
   enrichDeviceSafety,
   assertDeviceStillMatches,
+  planRevalidationRetry,
 } = require("../../infrastructure/deviceSafetyPolicy.js");
 
 function usb(overrides = {}) {
@@ -81,6 +82,10 @@ test("a impressão digital é estável para a mesma identidade", () => {
   assert.equal(createDeviceFingerprint(usb()), createDeviceFingerprint(usb()));
 });
 
+// Atenção ao montar este caso: os dois lados usam o MESMO número de bytes, o que
+// só acontece em teste. Na máquina real o lado sintético carrega
+// DriveInfo.TotalSize e o lado físico carrega Get-Partition.Size, que diferem —
+// ver o teste "tamanhos reais" logo abaixo.
 test("a revalidação aceita transição de dispositivo removível sintético para dispositivo físico", () => {
   const volumeGuid = "\\\\?\\Volume{abcdef01-2345-6789-abcd-ef0123456789}\\";
   const sizeBytes = 32 * 1024 ** 3;
@@ -146,6 +151,99 @@ test("a revalidação aceita transição de dispositivo removível sintético pa
     () => assertDeviceStillMatches(syntheticSelection.fingerprint, swappedDevice),
     /mudou desde a seleção/,
   );
+});
+
+test("com tamanhos reais, a tolerância sintética não cobre a troca de caminho de enumeração", () => {
+  // O mesmo pendrive, descrito pelos dois scripts de enumeração. Os tamanhos são
+  // os de um pendrive de 64 GB medido no Windows: DriveInfo.TotalSize (script
+  // nativo), Get-Partition.Size e Get-Disk.Size (script físico) são três números
+  // diferentes — em volumes NTFS reais a diferença medida foi de 3 a 4 KB, e em
+  // FAT32 é maior, porque TotalSize exclui FATs e setores reservados.
+  //
+  // createSyntheticRemovableFingerprint só tenta partitionSizeBytes e sizeBytes do
+  // dispositivo ATUAL, então nenhum dos candidatos reproduz o TotalSize que ficou
+  // no fingerprint sintético. É por isso que requireSafeWindowsUsbTarget precisa
+  // reexecutar o script de origem em vez de confiar nesta tolerância.
+  const volumeGuid = "\\\\?\\Volume{7f8a1b2c-3d4e-5f60-7182-93a4b5c6d7e8}\\";
+  const DRIVEINFO_SIZE = 61850222592;
+  const PARTITION_SIZE = 61855465472;
+  const DISK_SIZE = 61872242688;
+
+  const nativeSelection = enrichDeviceSafety(
+    usb({
+      rootPath: "F:\\",
+      diskNumber: -1,
+      partitionNumber: -1,
+      diskUniqueId: volumeGuid,
+      serialNumber: volumeGuid,
+      volumeGuid: volumeGuid,
+      friendlyName: "Dispositivo USB removivel",
+      manufacturer: "",
+      sizeBytes: DRIVEINFO_SIZE,
+      partitionSizeBytes: DRIVEINFO_SIZE,
+    }),
+  );
+
+  const physicalCurrent = enrichDeviceSafety(
+    usb({
+      rootPath: "F:\\",
+      diskNumber: 2,
+      partitionNumber: 1,
+      diskUniqueId: "SCSI\\Disk&Ven_SanDisk&Prod_Cruzer\\5&1c2a3b4c&0&000000",
+      serialNumber: "4C530001120830108462",
+      volumeGuid: volumeGuid,
+      friendlyName: "SanDisk Cruzer Blade USB Device",
+      manufacturer: "(Unidades de disco padrao)",
+      sizeBytes: DISK_SIZE,
+      partitionSizeBytes: PARTITION_SIZE,
+    }),
+  );
+
+  assert.throws(
+    () => assertDeviceStillMatches(nativeSelection.fingerprint, physicalCurrent),
+    /mudou desde a seleção/,
+  );
+  assert.throws(
+    () => assertDeviceStillMatches(physicalCurrent.fingerprint, nativeSelection),
+    /mudou desde a seleção/,
+  );
+});
+
+test("linha nativa sempre pede a segunda opinião do caminho físico", () => {
+  const native = enrichDeviceSafety(
+    usb({ diskNumber: -1, partitionNumber: -1, driveType: "Removable" }),
+  );
+  assert.equal(planRevalidationRetry(native), "physical");
+});
+
+test("linha física de pendrive removível pede a segunda opinião do caminho nativo", () => {
+  const physical = enrichDeviceSafety(usb({ driveType: "Removable" }));
+  assert.equal(planRevalidationRetry(physical), "native");
+});
+
+test("bloqueio do caminho físico não pode ser revertido pelo caminho nativo", () => {
+  // O script nativo fixa IsReadOnly/IsOffline/IsBoot/IsSystem em $false e
+  // MountedPartitionCount em 1. Reexecutá-lo depois de um bloqueio devolveria como
+  // segura uma unidade que a enumeração física acabou de recusar — pendrive com
+  // trava de gravação, ou que ganhou uma segunda partição montada.
+  const readOnly = enrichDeviceSafety(usb({ driveType: "Removable", isReadOnly: true }));
+  assert.equal(readOnly.safety.allowed, false);
+  assert.equal(planRevalidationRetry(readOnly), "none");
+
+  const multiPartition = enrichDeviceSafety(
+    usb({ driveType: "Removable", mountedPartitionCount: 2 }),
+  );
+  assert.equal(multiPartition.safety.allowed, false);
+  assert.equal(planRevalidationRetry(multiPartition), "none");
+});
+
+test("HD USB não paga retentativa por um caminho que nunca o lista", () => {
+  // O script nativo pula tudo que não é DriveType.Removable, e HD USB aparece
+  // como Fixed: a retentativa não produziria linha nenhuma, só um processo e um
+  // timeout antes do mesmo erro.
+  const usbHardDrive = enrichDeviceSafety(usb({ driveType: "Fixed" }));
+  assert.equal(usbHardDrive.safety.allowed, true);
+  assert.equal(planRevalidationRetry(usbHardDrive), "none");
 });
 
 test("a revalidação recusa troca de dispositivo", () => {

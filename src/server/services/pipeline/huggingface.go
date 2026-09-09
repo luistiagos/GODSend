@@ -65,7 +65,7 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	xexFolder := helpers.FindXEXFolder(extDir)
 	folderName := ""
 	if xexFolder != "" {
-		folderName = filepath.Base(xexFolder)
+		folderName = helpers.XEXFolderName(xexFolder, filepath.Base(xexFolder))
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
@@ -121,7 +121,7 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 		}
 		defer s.cleanupStageAfterRun(gameName, isoXexDir, xboxConn)
 		xexFolder = isoXexDir
-		folderName = safeName
+		folderName = helpers.XEXFolderName(xexFolder, safeName)
 
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
 		if xboxConn != nil && xboxConn.Mode == "ftp" {

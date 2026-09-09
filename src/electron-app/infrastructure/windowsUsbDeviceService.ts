@@ -5,6 +5,7 @@ import { join } from "path";
 import {
   assertDeviceStillMatches,
   enrichDeviceSafety,
+  planRevalidationRetry,
   type PhysicalUsbDevice,
   type SafeUsbDevice,
 } from "./deviceSafetyPolicy";
@@ -17,6 +18,7 @@ import {
 
 const USB_ENUMERATION_TIMEOUT_MS = 12_000;
 const REMOVABLE_ENUMERATION_TIMEOUT_MS = 5_000;
+const HEALTH_PROBE_TIMEOUT_MS = 3_000;
 
 function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -82,9 +84,14 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
   });
 }
 
-// Storage Management (Get-Disk/Get-CimInstance) can block indefinitely after
-// a flaky USB disconnect. DriveInfo + mountvol use independent Win32 paths and
-// keep ordinary removable pendrives selectable while that service recovers.
+// Storage Management (Get-Disk/Get-Volume/Get-CimInstance) can block indefinitely
+// after a flaky USB disconnect. DriveInfo + mountvol use independent Win32 paths
+// and keep ordinary removable pendrives selectable while that service recovers.
+//
+// Nothing in this script may call Storage Management, or the fallback stops being
+// a fallback. Health/repair hints used to be read here with Get-Volume, which cost
+// 1.2 s on a healthy machine and hung on exactly the machines this script exists
+// for; they now come from annotateRemovableHealth(), out of band.
 const ENUMERATE_REMOVABLE_SCRIPT = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 $rows = @()
@@ -127,10 +134,6 @@ foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
         $allocationUnitBytes = [int64]$sectorsPerCluster * [int64]$bytesPerSector
       }
     } catch {}
-    $vol = Get-Volume -DriveLetter $root[0] -ErrorAction SilentlyContinue
-    $health = if ($vol.HealthStatus) { [string]$vol.HealthStatus } else { 'Healthy' }
-    $op = if ($vol.OperationalStatus) { (@($vol.OperationalStatus) -join ',') } else { 'OK' }
-    $needsFix = [bool]($health -match 'Warning|Unhealthy' -or $op -match 'Repair|Need|Corrupt')
 
     $rows += [PSCustomObject]@{
       RootPath = $root
@@ -151,9 +154,9 @@ foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
       PartitionStyle = ''
       DriveType = 'Removable'
       DiskPath = $volumeGuid
-      OperationalStatus = $op
-      HealthStatus = $health
-      NeedsRepair = $needsFix
+      OperationalStatus = 'OK'
+      HealthStatus = 'Healthy'
+      NeedsRepair = $false
       IsBoot = $false
       IsSystem = $false
       IsReadOnly = $false
@@ -310,7 +313,74 @@ function normalizeRoot(rootPath: string): string {
   return match ? `${match[1].toUpperCase()}:\\` : rootPath.trim();
 }
 
-export async function enumerateSafeWindowsUsbDevices(): Promise<SafeUsbDevice[]> {
+/**
+ * Fills in the health/repair hints that ENUMERATE_REMOVABLE_SCRIPT deliberately
+ * leaves out, in a process of its own.
+ *
+ * These hints only drive the "sistema de arquivos com inconsistências" banner —
+ * they are read by neither `createDeviceFingerprint` nor `assessDeviceSafety`, so
+ * losing them costs a suggestion, not a safety check. Reading them costs a call to
+ * Get-Volume, which is Storage Management: the service that wedges after a flaky
+ * USB disconnect and the reason the native enumeration exists at all. Probing it
+ * separately means a wedged service degrades the banner instead of taking the
+ * whole device list down with it.
+ */
+async function annotateRemovableHealth(devices: SafeUsbDevice[]): Promise<void> {
+  const byLetter = new Map<string, SafeUsbDevice[]>();
+  for (const device of devices) {
+    const letter = normalizeRoot(device.rootPath)[0];
+    if (!/^[A-Z]$/.test(letter)) continue;
+    const bucket = byLetter.get(letter);
+    if (bucket) bucket.push(device);
+    else byLetter.set(letter, [device]);
+  }
+  if (byLetter.size === 0) return;
+
+  const letters = [...byLetter.keys()].map((letter) => `'${letter}'`).join(",");
+  const script = String.raw`
+$ErrorActionPreference = 'SilentlyContinue'
+$rows = @()
+foreach ($letter in @(${letters})) {
+  $vol = Get-Volume -DriveLetter $letter -ErrorAction SilentlyContinue
+  if (-not $vol) { continue }
+  $rows += [PSCustomObject]@{
+    DriveLetter = $letter
+    HealthStatus = [string]$vol.HealthStatus
+    OperationalStatus = (@($vol.OperationalStatus) -join ',')
+  }
+}
+if ($rows.Count -eq 0) { '[]' } else { @($rows) | ConvertTo-Json -Compress -Depth 3 }
+`;
+
+  const output = (await runPowerShell(script, HEALTH_PROBE_TIMEOUT_MS)).trim();
+  if (!output) return;
+  const parsed = JSON.parse(output);
+  const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+  for (const row of rows) {
+    const targets = byLetter.get(asString(row?.DriveLetter).toUpperCase());
+    if (!targets) continue;
+    const health = asString(row.HealthStatus) || "Healthy";
+    const operational = asString(row.OperationalStatus) || "OK";
+    for (const device of targets) {
+      device.healthStatus = health;
+      device.operationalStatus = operational;
+      device.needsRepair =
+        /Warning|Unhealthy/i.test(health) || /Repair|Need|Corrupt/i.test(operational);
+    }
+  }
+}
+
+/**
+ * @param includeHealth Probe the health/repair hints too. Off by default: this
+ * function is also the revalidation path, which `createThrottledUsbTargetRevalidator`
+ * fires every 10 s for the whole write phase, and the hints are read only by the
+ * device list in the UI. Probing them there as well would spawn a Get-Volume every
+ * 10 s throughout a preparation — putting Storage Management back on the hot path
+ * that ENUMERATE_REMOVABLE_SCRIPT exists to keep clear of it.
+ */
+export async function enumerateSafeWindowsUsbDevices(
+  includeHealth = false,
+): Promise<SafeUsbDevice[]> {
   if (process.platform !== "win32") return [];
   const systemDrive = process.env.SystemDrive || "C:";
   const parseOutput = (rawOutput: string): SafeUsbDevice[] => {
@@ -333,6 +403,17 @@ export async function enumerateSafeWindowsUsbDevices(): Promise<SafeUsbDevice[]>
       await runPowerShell(ENUMERATE_REMOVABLE_SCRIPT, REMOVABLE_ENUMERATION_TIMEOUT_MS),
     );
     if (removable.length > 0) {
+      if (includeHealth) {
+        try {
+          await annotateRemovableHealth(removable);
+        } catch (error: any) {
+          // Best-effort: the rows keep the neutral Healthy/OK they were built with.
+          appendAppEvent(
+            "usb",
+            `diagnóstico de integridade indisponível: ${error?.message || String(error)}`,
+          );
+        }
+      }
       appendAppEvent(
         "usb",
         `enumeração nativa encontrou ${removable.length} unidade(s): ${removable.map((device) => device.rootPath).join(", ")}`,
@@ -413,28 +494,61 @@ export async function requireSafeWindowsUsbTarget(
     assertDeviceStillMatches(expectedFingerprint, matches[0]);
     return matches[0];
   } catch (initialError: any) {
-    if (matches[0].diskNumber === -1 && process.platform === "win32") {
+    // A fingerprint minted by one enumeration script is never reproduced by the
+    // other, and which script answers is decided at runtime — so retry against the
+    // path the user's fingerprint must have come from before accusing them of
+    // swapping a device that never left the port. See planRevalidationRetry() for
+    // why the retry is deliberately asymmetric.
+    const retry = planRevalidationRetry(matches[0]);
+    if (retry !== "none") {
+      const [fallbackScript, fallbackTimeout] =
+        retry === "physical"
+          ? ([ENUMERATE_USB_SCRIPT, USB_ENUMERATION_TIMEOUT_MS] as const)
+          : ([ENUMERATE_REMOVABLE_SCRIPT, REMOVABLE_ENUMERATION_TIMEOUT_MS] as const);
       try {
-        const systemDrive = process.env.SystemDrive || "C:";
-        const rawPhysical = await runPowerShell(ENUMERATE_USB_SCRIPT);
-        const output = rawPhysical.trim();
-        if (output) {
-          const parsed = JSON.parse(output);
-          const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
-          const physicalMatches = rows
-            .filter((row) => row?.RootPath)
-            .map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive))
-            .filter((device) => normalizeRoot(device.rootPath) === normalizedRoot);
-
-          if (physicalMatches.length === 1) {
-            assertDeviceStillMatches(expectedFingerprint, physicalMatches[0]);
-            return physicalMatches[0];
-          }
-        }
-      } catch {}
+        const recovered = await revalidateWithScript(
+          fallbackScript,
+          fallbackTimeout,
+          normalizedRoot,
+          expectedFingerprint,
+        );
+        if (recovered) return recovered;
+      } catch {
+        // The other path cannot confirm it either; report the original failure.
+      }
     }
     throw initialError;
   }
+}
+
+/**
+ * Re-runs one specific enumeration script and revalidates the selection against
+ * whatever it reports for `normalizedRoot`.
+ *
+ * Returns null when that script cannot single out the drive; throws when it can
+ * but the device does not match. Either way the caller falls back to the error
+ * from the first attempt.
+ */
+async function revalidateWithScript(
+  script: string,
+  timeoutMs: number,
+  normalizedRoot: string,
+  expectedFingerprint: string,
+): Promise<SafeUsbDevice | null> {
+  const systemDrive = process.env.SystemDrive || "C:";
+  const output = (await runPowerShell(script, timeoutMs)).trim();
+  if (!output) return null;
+
+  const parsed = JSON.parse(output);
+  const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+  const candidates = rows
+    .filter((row: any) => row?.RootPath)
+    .map((row: any) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive))
+    .filter((device) => normalizeRoot(device.rootPath) === normalizedRoot);
+  if (candidates.length !== 1) return null;
+
+  assertDeviceStillMatches(expectedFingerprint, candidates[0]);
+  return candidates[0];
 }
 
 

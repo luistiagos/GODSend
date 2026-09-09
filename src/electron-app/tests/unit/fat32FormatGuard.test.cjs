@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 
 const {
+  buildElevationScript,
   buildGuardedWindowsFat32Script,
   validateWindowsFormatGuard,
 } = require("../../infrastructure/fat32Format.js");
@@ -109,6 +110,36 @@ test("gera script com Format-Volume nativo e fallback de diskpart e fat32format 
   assert.ok(script.includes("Invoke-DiskpartScript"));
   assert.ok(script.includes('format fs=fat32 quick label=""$targetLabel"""'));
   assert.ok(script.includes("$targetLabel = 'XBOX360USB'"));
+});
+
+test("script de elevacao cita o interpretador ja resolvido e escapa aspas simples", (t) => {
+  const script = buildElevationScript(
+    "C:\\Temp\\It's Here\\fat32.ps1",
+    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  );
+  // O caminho resolvido pelo processo pai entra literal: o Start-Process aninhado
+  // nao pode repetir a busca no %PATH% e acabar noutro PowerShell.
+  assert.ok(script.includes("Start-Process 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'"));
+  // Aspas simples no caminho do .ps1 viram '' — senao o script quebra ou muda de alvo.
+  assert.ok(script.includes("It''s Here"));
+
+  if (process.platform !== "win32") {
+    t.skip("validador de sintaxe PowerShell disponível somente no Windows");
+    return;
+  }
+  const parserCommand = [
+    "$source=[Console]::In.ReadToEnd()",
+    "$tokens=$null",
+    "$errors=$null",
+    "[void][System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)",
+    "if($errors.Count -gt 0){$errors | ForEach-Object { Write-Error $_.Message }; exit 1}",
+    "Write-Output 'OK'",
+  ].join("; ");
+  const parsed = spawnSync("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", parserCommand,
+  ], { input: script, encoding: "utf8", timeout: 10_000 });
+  assert.equal(parsed.status, 0, parsed.stderr || parsed.stdout);
+  assert.match(parsed.stdout, /OK/);
 });
 
 

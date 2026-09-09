@@ -66,15 +66,25 @@ resolviam `diskpart.exe`, `mountvol.exe` e `format.com` via `$env:SystemRoot`
 
 Novo [`infrastructure/windowsSystemExecutables.ts`](../../../src/electron-app/infrastructure/windowsSystemExecutables.ts):
 
-- `powerShellExe()` → `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`
-- `system32Exe(rel, fallback)` → qualquer executável de `System32` (`cmd.exe`, `net.exe`, `chkdsk.exe`)
-- `POWERSHELL_EXE_PS_EXPRESSION` → `(Join-Path $env:SystemRoot …)` para o `Start-Process
-  powershell -Verb RunAs` **aninhado** do script de elevação do formatador, que tinha a mesma exposição
+- `powerShellExe()` / `system32Exe(rel, fallback)` → resolvem na ordem **`%PATH%` →
+  `%SystemRoot%\System32\…` → nome simples**. A varredura do PATH usa `existsSync` em vez de
+  gastar um `spawn` que falha, como o backend Go já faz para o `aria2c`
+  ([`torrent.go:142`](../../../src/server/infrastructure/torrent/torrent.go#L142))
+- `buildElevationScript(ps1Path, psExe)` (em `fat32Format.ts`) → o `Start-Process … -Verb RunAs`
+  **aninhado** recebe o interpretador já resolvido pelo pai, em vez de repetir a busca por conta
+  própria; pai e filho elevado são sempre o mesmo PowerShell
 - `isExecutableNotFound()` / `powerShellMissingMessage()` → traduzem o ENOENT residual
 
-Fora do Windows, ou quando o arquivo realmente não está lá, as funções devolvem o nome
-simples de antes: um Windows sem PowerShell degrada como degradava, e não numa falha em
+Fora do Windows, ou quando nem o PATH nem o `System32` têm o arquivo, as funções devolvem o
+nome simples de antes: um Windows sem PowerShell degrada como degradava, e não numa falha em
 caminho inventado.
+
+**A ordem mudou depois da correção original.** A v2.12.76 fixou `System32` primeiro; a
+v2.12.78 inverteu, a pedido, para o `%PATH%` continuar autoritativo. O que resolve o bug é o
+*fallback* existir — em qualquer ordem, um PATH quebrado deixa de ser fatal. A inversão tem um
+custo registrado: com o PATH na frente, um `powershell.exe` plantado numa pasta anterior da
+lista roda no nosso lugar, inclusive no caminho elevado. Detalhes na entrada 2.12.78 do
+`CHANGELOG.md`.
 
 Sites atualizados: `windowsUsbDeviceService.ts`, `badAvatarUsbService.ts` (3 chamadas +
 `net session`), `fat32Format.ts` (2 + o `Start-Process` interno), `driveRepairService.ts`
@@ -114,10 +124,40 @@ arquivo não existe; barras preservadas na expressão de elevação (o mesmo err
 `System32mountvol.exe` que `fat32FormatGuard.test.cjs` já vigia); tradução do ENOENT.
 Suíte completa: 150 testes, 0 falhas.
 
+## Por que só soubemos por uma foto (resolvido na v2.12.77)
+
+A telemetria só dispara em `uncaughtException` / `unhandledRejection`
+([`bootstrap.ts:25,55`](../../../src/electron-app/app/bootstrap.ts#L25)) e no `window.onerror`
+do renderer. Esta falha é capturada pelo `try/catch` do handler e devolvida como
+`{ ok:false }` — comportamento correto, e exatamente por isso ela nunca chegou ao painel de
+erros. Não havia log, versão, nem build do Windows: só a foto do monitor.
+
+Na v2.12.77 o `catch` de `tools:badavatar-list-drives` passou a chamar `reportError`, e
+`describeWindowsExecutableEnvironment()` anexa a linha que decide entre as hipóteses:
+
+```
+arch=x64 systemRoot=C:\WINDOWS powershellNoDisco=true pathTemSystem32=false
+pathTemWindowsPowerShell=false pathEntradas=2 pathChars=37 path=C:\NaoExiste;…
+```
+
+| Campo | O que responde |
+|---|---|
+| `powershellNoDisco=false` | Windows "debloatado" — o arquivo sumiu; PATH nenhum resolve |
+| `pathTemWindowsPowerShell=false` com `powershellNoDisco=true` | **a assinatura deste bug**: arquivo lá, PATH sem a pasta |
+| `pathChars` perto de 1024 ou 2047 | truncamento (`setx`, diálogo antigo) em vez de edição manual |
+| `arch=ia32` | build 32-bit sobre Windows 64-bit, onde `System32` é redirecionado para `SysWOW64` |
+
+O PATH vai com a pasta do perfil mascarada (`%USERPROFILE%`) — o nome da conta do Windows
+costuma ser o nome real da pessoa, e o log inteiro é anexado a todo reporte.
+
 ## O que continua aberto
 
 A causa **na máquina do usuário** — PATH quebrado ou Windows modificado — não foi
-diagnosticada; o app apenas deixou de depender dela. Se o print vier de um Windows com o
-`powershell.exe` removido de fato, o sintoma vira a nova mensagem explicativa, e aí a
-enumeração de USB precisará de um caminho sem PowerShell (hoje não existe: a política de
-segurança do dispositivo depende de `Get-Disk`/`Get-Volume`).
+diagnosticada; o app apenas deixou de depender dela. O próximo caso chega com a linha de
+diagnóstico acima, mas o usuário do print (Windows 10) usa uma build anterior à v2.12.77 e
+não vai reportar retroativamente: para esse, o caminho continua sendo o log local em
+`%APPDATA%\Xbox 360 Companion\logs\`.
+
+Se o `powershell.exe` tiver sido removido de fato, o sintoma vira a nova mensagem
+explicativa, e aí a enumeração de USB precisará de um caminho sem PowerShell — hoje não
+existe: a política de segurança do dispositivo depende de `Get-Disk`/`Get-Volume`.

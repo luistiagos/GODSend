@@ -237,6 +237,36 @@ Utilize as respostas prontas abaixo para enviar diretamente ao cliente quando el
 
 ---
 
+#### ❓ 7. "Formatei meu HD de 4 TB e ele ficou só com 2 TB. O programa estragou meu HD?"
+
+> **⚠️ Atenção do atendente:** isto **não é defeito** — nem do HD, nem do programa. É limite
+> do formato que o Xbox 360 consegue ler. Não existe conserto, não adianta reformatar, e
+> criar uma segunda partição com o espaço restante **não funciona**. Se o cliente insistir,
+> a explicação técnica está em `docs/CAPACIDADE-E-ESPACO.md`.
+>
+> A partir da **v2.12.80** o programa avisa disso na tela de seleção, antes de formatar: se o
+> cliente está numa versão anterior, ele não teve como saber — vale sugerir a atualização.
+>
+> **Resposta Pronta:**
+> *"Fica tranquilo, seu HD está perfeito e o programa funcionou certinho! 😊*
+>
+> *O Xbox 360 é um console de 2005 e só consegue ler HD no formato antigo (FAT32/MBR). Esse
+> formato tem um limite de fábrica de **2 TB por disco** — não tem configuração que aumente
+> isso, é limitação do próprio videogame, vale para qualquer programa.*
+>
+> *Por isso qualquer HD acima de 2 TB vai aparecer como 2 TB no Xbox. O espaço que 'sumiu'
+> não foi perdido nem danificado: ele volta inteiro se você um dia formatar esse HD para
+> usar no computador.*
+>
+> **O que dá para fazer:**
+> *• 2 TB já guardam cerca de 250 a 400 jogos de Xbox 360 — na prática é bastante coisa;*
+> *• se precisar de mais, o caminho é usar **dois HDs** de 2 TB, e não um de 4 TB.*
+>
+> *Dica pra próxima compra: pra Xbox 360, HD de 2 TB é o melhor custo-benefício — acima
+> disso você paga a mais por um espaço que o console não consegue enxergar!"*
+
+---
+
 ## 📌 MÓDULO 6: Resumo de Decisão Rápida para o Atendente (Cheat Sheet)
 
 ```

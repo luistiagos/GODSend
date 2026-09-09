@@ -18,6 +18,11 @@ export interface InstalledGameInfo {
 const HEX_8_REGEX = /^[0-9A-F]{8}$/i;
 const NAME_TITLE_ID_REGEX = /^(.+?)\s*-\s*([0-9A-F]{8})$/i;
 
+const MAX_SIZE_SCAN_DEPTH = 16;
+
+/** Dashboard/system title. Identifies Xbox update data — and every Kinect and speech package bundled inside a game. */
+const SYSTEM_TITLE_ID = "FFFE07DF";
+
 const KNOWN_CONTENT_TYPES = new Set([
   "00007000", // Games on Demand (GOD)
   "000D0000", // Xbox Live Arcade (XBLA)
@@ -196,9 +201,14 @@ function parseGameFolder(
       titleId = probeStfsTitleId(fullPath) || undefined;
     }
 
-    // Skip Xbox 360 system/dashboard update data
-    if (titleId === "FFFE07DF") {
-      return null;
+    // Skip Xbox 360 system/dashboard update data. Such data carries no executable of its own,
+    // so a folder that has one is a game that merely bundles Kinect/speech packages signed
+    // under the system title — drop the misleading ID rather than the game.
+    if (titleId === SYSTEM_TITLE_ID) {
+      if (!isDefaultXex && !ini) {
+        return null;
+      }
+      titleId = undefined;
     }
 
     // Determine format
@@ -305,7 +315,9 @@ export function scanGamesDirectory(
 }
 
 function getDirectorySizeBytes(dirPath: string, depth = 0): number {
-  if (depth > 3) return 0;
+  // Xbox game trees nest deeply (media/tracks/<track>/<asset>, Content/0000000000000000/
+  // <titleID>/<type>/), so a shallow cap silently reports multi-GB titles as a few MB.
+  if (depth > MAX_SIZE_SCAN_DEPTH) return 0;
   let total = 0;
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -350,6 +362,10 @@ function findLocalCoverDataUrl(dirPath: string): string | undefined {
 
 function probeStfsTitleId(dirPath: string, depth = 0): string | null {
   if (depth > 4) return null;
+  // A game's own container wins over any system package bundled inside it, but a folder that
+  // holds nothing but system packages still reports SYSTEM_TITLE_ID, so parseGameFolder can
+  // recognise it as dashboard data rather than listing it as a game.
+  let systemOnly: string | null = null;
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const entry of entries) {
@@ -357,7 +373,8 @@ function probeStfsTitleId(dirPath: string, depth = 0): string | null {
       const full = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
         const sub = probeStfsTitleId(full, depth + 1);
-        if (sub) return sub;
+        if (sub && sub !== SYSTEM_TITLE_ID) return sub;
+        if (sub) systemOnly = sub;
       } else {
         try {
           const s = fs.statSync(full);
@@ -371,7 +388,11 @@ function probeStfsTitleId(dirPath: string, depth = 0): string | null {
               if (magic === "LIVE" || magic === "PIRS" || magic === "CON ") {
                 const tid = buf.toString("hex", 0x360, 0x364).toUpperCase();
                 if (HEX_8_REGEX.test(tid) && tid !== "00000000" && tid !== "FFFFFFFF") {
-                  return tid;
+                  // Kinect and speech packages that ship inside ordinary games
+                  // (Database.xmplr, NuiIdentity.bin.be, nuisp*) carry the system title, so
+                  // they must not decide the folder's identity — keep looking for the game.
+                  if (tid !== SYSTEM_TITLE_ID) return tid;
+                  systemOnly = tid;
                 }
               }
             }
@@ -380,7 +401,7 @@ function probeStfsTitleId(dirPath: string, depth = 0): string | null {
       }
     }
   } catch {}
-  return null;
+  return systemOnly;
 }
 
 /**
@@ -408,7 +429,7 @@ export function scanContentDirectory(
     if (!HEX_8_REGEX.test(tid)) continue;
 
     // Skip system dashboard/avatar updates
-    if (tid === "FFFE07DF") {
+    if (tid === SYSTEM_TITLE_ID) {
       continue;
     }
 

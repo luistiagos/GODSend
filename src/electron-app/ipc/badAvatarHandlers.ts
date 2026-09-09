@@ -22,6 +22,8 @@ import {
   type FixedPreparationRequest,
 } from "../services/fixedBadAvatarPreparationService";
 import { appendAppEvent } from "../infrastructure/serverLog";
+import { reportError } from "../infrastructure/telemetry";
+import { describeWindowsExecutableEnvironment } from "../infrastructure/windowsSystemExecutables";
 
 let previewInProgress = false;
 let previewAbortController: AbortController | null = null;
@@ -37,8 +39,24 @@ export function register(ipcMain: IpcMain): void {
       );
       return { ok: true, drives };
     } catch (err: any) {
-      appendAppEvent("usb", `falha ao listar unidades: ${err?.message || String(err)}`);
-      return { ok: false, drives: [], error: err.message || String(err) };
+      // This failure is caught, so it never reaches the uncaughtException /
+      // unhandledRejection hooks in bootstrap.ts — the only telemetry sources.
+      // That is why the `spawn powershell.exe ENOENT` of v2.12.76 only ever
+      // existed as a photo of a screen. Report it explicitly.
+      const message = err?.message || String(err);
+      const environment = describeWindowsExecutableEnvironment();
+      appendAppEvent("usb", `falha ao listar unidades: ${message}`);
+      appendAppEvent("usb", `ambiente de execução: ${environment}`);
+      reportError(
+        "electron-main",
+        "badAvatarHandlers.ts",
+        "tools:badavatar-list-drives",
+        message,
+        "",
+        [environment],
+        false,
+      );
+      return { ok: false, drives: [], error: message };
     }
   });
 

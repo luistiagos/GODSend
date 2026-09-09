@@ -61,8 +61,15 @@ interface BadAvatarUsbPageProps {
   embedded?: boolean;
 }
 
+// Teto de um volume que o Xbox 360 consegue ler: a tabela MBR guarda a contagem
+// de setores em 32 bits (2³² × 512 B) e o campo BPB_TotSec32 do FAT32 também é de
+// 32 bits — os dois limites caem em 2 TiB. Ver docs/CAPACIDADE-E-ESPACO.md.
+const MBR_MAX_VOLUME_BYTES = 2 * 1024 ** 4;
+
 function formatBytes(bytes?: number): string {
   if (!bytes || bytes <= 0) return "";
+  const tb = bytes / (1024 ** 4);
+  if (tb >= 1) return `${tb.toFixed(1)} TB`;
   const gb = bytes / (1024 ** 3);
   if (gb >= 1) return `${gb.toFixed(1)} GB`;
   return `${Math.round(bytes / (1024 ** 2))} MB`;
@@ -508,6 +515,25 @@ export default function BadAvatarUsbPage({
                   <div>
                     <span className="font-semibold block text-amber-400">Sistema de arquivos com inconsistências</span>
                     Recomendamos marcar &quot;Formatar antes de preparar&quot; abaixo para garantir que a partição fique limpa e sem erros.
+                  </div>
+                </div>
+              )}
+
+              {selectedDevice && selectedDevice.sizeBytes > MBR_MAX_VOLUME_BYTES && (
+                <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/20 px-3 py-3 text-[12px] text-amber-200 flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+                  <div>
+                    <span className="font-semibold block text-amber-400">
+                      Só 2 TB deste disco ficarão acessíveis
+                    </span>
+                    Este disco tem {formatBytes(selectedDevice.sizeBytes)}, mas o Xbox 360 lê FAT32 em
+                    MBR, e esse formato não endereça mais de 2 TB — cerca de{" "}
+                    {formatBytes(selectedDevice.sizeBytes - MBR_MAX_VOLUME_BYTES)} não poderão ser
+                    usados no console, nem criando uma segunda partição.{" "}
+                    <span className="text-amber-300/80">
+                      Não é defeito do disco: o espaço volta inteiro se você reformatá-lo para uso no
+                      computador.
+                    </span>
                   </div>
                 </div>
               )}

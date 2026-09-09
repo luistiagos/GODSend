@@ -167,3 +167,106 @@ test("isCorruptedFolderName & scanGamesDirectory: ignora pastas corrompidas ou s
 });
 
 
+
+/** Monta um container STFS sintetico (magic + TitleID em 0x360), como os pacotes que acompanham jogos. */
+function makeStfsPackage(titleId) {
+  const buf = Buffer.alloc(0x400);
+  buf.write("PIRS", 0, "ascii");
+  buf.write(titleId, 0x360, "hex");
+  return buf;
+}
+
+test("scanGamesDirectory: nao descarta jogo que carrega pacotes Kinect assinados como FFFE07DF", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-kinect-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const gameDir = path.join(gamesDir, "Forza.Horizon.2.Presents.Fast.&.Furious.USA.X360-ZTM");
+    fs.mkdirSync(gameDir, { recursive: true });
+    fs.writeFileSync(path.join(gameDir, "default.xex"), "fake-xex-binary");
+    // Pacotes de fala/Kinect que a Microsoft assina sob o TitleID de sistema.
+    fs.writeFileSync(path.join(gameDir, "Database.xmplr"), makeStfsPackage("FFFE07DF"));
+    fs.writeFileSync(path.join(gameDir, "NuiIdentity.bin.be"), makeStfsPackage("FFFE07DF"));
+
+    const results = scanGamesDirectory(gamesDir, "E:");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].name, "Forza Horizon 2 Presents Fast & Furious");
+    assert.equal(results[0].format, "xex");
+    assert.notEqual(results[0].titleId, "FFFE07DF");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanGamesDirectory: prefere o TitleID do jogo ao de um pacote de sistema na mesma pasta", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-tid-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const gameDir = path.join(gamesDir, "Jogo Com Kinect");
+    fs.mkdirSync(gameDir, { recursive: true });
+    fs.writeFileSync(path.join(gameDir, "default.xex"), "fake-xex-binary");
+    fs.writeFileSync(path.join(gameDir, "AAA_pacote_sistema"), makeStfsPackage("FFFE07DF"));
+    fs.writeFileSync(path.join(gameDir, "nxeart"), makeStfsPackage("4D530AA4"));
+
+    const results = scanGamesDirectory(gamesDir, "E:");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].titleId, "4D530AA4");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanGamesDirectory: soma arquivos aninhados alem de tres niveis no tamanho do jogo", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-size-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const gameDir = path.join(gamesDir, "Jogo Profundo");
+    fs.mkdirSync(gameDir, { recursive: true });
+    fs.writeFileSync(path.join(gameDir, "default.xex"), Buffer.alloc(1024));
+
+    // media/tracks/<track>/<asset>/ — quatro niveis abaixo da raiz do jogo.
+    const deepDir = path.join(gameDir, "media", "tracks", "circuito", "assets");
+    fs.mkdirSync(deepDir, { recursive: true });
+    fs.writeFileSync(path.join(deepDir, "dados.bin"), Buffer.alloc(500000));
+
+    const results = scanGamesDirectory(gamesDir, "E:");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].sizeBytes, 1024 + 500000);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanGamesDirectory: lista jogo cujos unicos containers sao pacotes de sistema", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-sysonly-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const gameDir = path.join(gamesDir, "Jogo So Com Kinect");
+    fs.mkdirSync(gameDir, { recursive: true });
+    fs.writeFileSync(path.join(gameDir, "default.xex"), "fake-xex-binary");
+    // Nenhum container do proprio jogo — so pacotes assinados sob o titulo de sistema.
+    fs.writeFileSync(path.join(gameDir, "Database.xmplr"), makeStfsPackage("FFFE07DF"));
+
+    const results = scanGamesDirectory(gamesDir, "E:");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].name, "Jogo So Com Kinect");
+    assert.equal(results[0].titleId, undefined);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanGamesDirectory: continua descartando dados de atualizacao do sistema", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-sysdata-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    // Dados de dashboard: containers de sistema com companheiro .data e nenhum executavel.
+    const sysDir = path.join(gamesDir, "AtualizacaoDoPainel");
+    fs.mkdirSync(path.join(sysDir, "pacote.data"), { recursive: true });
+    fs.writeFileSync(path.join(sysDir, "pacote"), makeStfsPackage("FFFE07DF"));
+
+    const results = scanGamesDirectory(gamesDir, "E:");
+    assert.equal(results.length, 0);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

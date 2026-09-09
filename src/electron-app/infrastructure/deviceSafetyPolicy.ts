@@ -209,3 +209,34 @@ export function assertDeviceStillMatches(
   }
 }
 
+export type RevalidationRetryPath = "physical" | "native" | "none";
+
+/**
+ * Which enumeration script, if any, is worth re-running after a failed revalidation.
+ *
+ * The native script (DriveInfo + mountvol) and the physical one (Get-Disk) mint
+ * different fingerprints for the same stick, and which one answers is decided at
+ * runtime. So a mismatch often means "the other path answered this time" rather
+ * than "the device changed" — but retrying is **not** symmetric:
+ *
+ * - Native row → retry physical. The physical script reports the real `isReadOnly`,
+ *   `isOffline`, `isBoot`/`isSystem` and mounted-partition count, so a second
+ *   opinion from it can only tighten the verdict. Always worth it.
+ * - Physical row → retry native only when the physical verdict was `allowed`. The
+ *   native rows hardcode those flags to their permissive value and the partition
+ *   count to 1, so retrying after a block would hand back as safe a device that
+ *   the physical enumeration had just refused — a write-protected stick, or one
+ *   that grew a second mounted partition.
+ *
+ * The `Removable` requirement is about cost, not safety: the native script skips
+ * anything that is not `DriveType.Removable`, so for a USB HDD (reported as
+ * `Fixed`) the retry cannot produce a row at all and would only spend a process
+ * and a timeout before the same error is raised.
+ */
+export function planRevalidationRetry(current: SafeUsbDevice): RevalidationRetryPath {
+  if (current.diskNumber === -1) return "physical";
+  if (!current.safety.allowed) return "none";
+  if (normalized(current.driveType) !== "removable") return "none";
+  return "native";
+}
+
