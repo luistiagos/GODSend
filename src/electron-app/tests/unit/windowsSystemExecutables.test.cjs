@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const os = require("node:os");
-const { existsSync, mkdtempSync, writeFileSync, rmSync } = require("node:fs");
+const { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } = require("node:fs");
 
 const {
   windowsSystemRoot,
@@ -58,6 +58,57 @@ test("ignora um powershell.exe plantado no PATH e usa o de System32", (t) => {
     );
   } finally {
     rmSync(plantado, { recursive: true, force: true });
+  }
+});
+
+test("ignora um System32 plantado via %SystemRoot% e usa a instalacao padrao", (t) => {
+  if (process.platform !== "win32") {
+    t.skip("resolucao de System32 disponivel somente no Windows");
+    return;
+  }
+  // Segundo vetor para o mesmo alvo: %SystemRoot% tambem e variavel de ambiente,
+  // e o valor escolhido aqui decide qual binario o Start-Process -Verb RunAs
+  // eleva. So vale enquanto o Windows desta maquina estiver em C:\Windows.
+  if (path.resolve(windowsSystemRoot()).toLowerCase() !== "c:\\windows") {
+    t.skip("maquina com Windows fora de C:\\Windows: o candidato fixo nao se aplica");
+    return;
+  }
+  const falso = mkdtempSync(path.join(os.tmpdir(), "godsend-root-"));
+  try {
+    const plantado = path.join(falso, "System32", "WindowsPowerShell", "v1.0");
+    mkdirSync(plantado, { recursive: true });
+    writeFileSync(path.join(plantado, "powershell.exe"), "nao sou o PowerShell");
+    const resolvido = withEnv({ SystemRoot: falso, windir: falso }, () => powerShellExe());
+    assert.equal(
+      resolvido.toLowerCase(),
+      path
+        .join("C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+        .toLowerCase(),
+      `resolucao seguiu o %SystemRoot% adulterado: ${resolvido}`,
+    );
+  } finally {
+    rmSync(falso, { recursive: true, force: true });
+  }
+});
+
+test("usa o %SystemRoot% quando a instalacao nao esta no lugar padrao", (t) => {
+  if (process.platform !== "win32") {
+    t.skip("resolucao de System32 disponivel somente no Windows");
+    return;
+  }
+  // Instalacao legitima fora de C:\Windows tem de continuar funcionando: nao ha
+  // C:\Windows\System32\<ferramenta> para achar, entao cai na variavel.
+  const raiz = mkdtempSync(path.join(os.tmpdir(), "godsend-root-"));
+  try {
+    const dir = path.join(raiz, "System32");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "godsend-ferramenta-fake.exe"), "ferramenta");
+    const resolvido = withEnv({ SystemRoot: raiz, windir: raiz }, () =>
+      system32Exe("godsend-ferramenta-fake.exe", "fallback.exe"),
+    );
+    assert.equal(resolvido, path.join(dir, "godsend-ferramenta-fake.exe"));
+  } finally {
+    rmSync(raiz, { recursive: true, force: true });
   }
 });
 

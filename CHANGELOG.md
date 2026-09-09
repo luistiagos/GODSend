@@ -9,6 +9,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.84] - 2026-09-09
+
+### Security
+- **`%SystemRoot%` deixou de decidir sozinho qual binário de System32 e elevado (`windowsSystemExecutables.ts`)**:
+  - A 2.12.83 tirou o `%PATH%` da escolha do interpretador que vai para o `Start-Process -Verb RunAs`. Sobrou o segundo lever com a mesma natureza: `system32Exe()` montava o caminho com `windowsSystemRoot()`, que le `%SystemRoot%`/`%windir%`. Sao variaveis de ambiente, e um usuario comum consegue semear uma para os proprios processos futuros — `<plantado>\System32\WindowsPowerShell1.0\powershell.exe` existe, e absoluto, e passa pelo `isResolvedSystemExe`. A correcao da 2.12.83 ficava incompleta enquanto esse caminho continuasse aberto.
+  - **O que nao deu para fazer:** o primitivo correto e `GetSystemDirectoryW`, que nao tem binding no Node e exigiria um modulo nativo — o projeto nao carrega nenhum (sem `ffi`, sem `node-gyp`, sem leitura de registro). **Toda** fonte do diretorio do sistema visivel ao Node e variavel de ambiente, entao "fixar" aqui so pode significar candidato fixo, nao consulta ao SO.
+  - **Correcao:** `systemRootCandidates()` poe `C:\Windows` fixo na frente e so recorre ao `%SystemRoot%` quando o arquivo nao esta no lugar padrao. Numa maquina que mantem o Windows onde o Windows se instala — praticamente todas — o binario elevado sai do alcance da variavel. Numa instalacao legitima fora do padrao nao ha `C:\Windows\System32\<ferramenta>` para achar, entao ela cai na variavel e continua funcionando; ambos os casos tem teste.
+  - **Limite conhecido, registrado de proposito:** uma maquina com Windows fora de `C:\Windows` que ainda carregue um `C:\Windows` de instalacao anterior usaria a ferramenta daquela copia. Continua sendo binário de System32 assinado pela Microsoft — risco de versao velha, nao de seguranca. Foi preferido a alternativa, que seria rejeitar o `%SystemRoot%` legitimo e quebrar essas instalacoes.
+  - `describeWindowsExecutableEnvironment()` ganhou `system32Fonte=padrao|env|nenhum`, que separa na triagem a instalacao fora do lugar padrao da variavel adulterada; `powerShellMissingMessage()` passou a listar os dois caminhos procurados.
+  - O teste novo foi verificado contra a versao antiga da funcao: com o comportamento anterior ele falha apontando o caminho plantado. Suite: 166 testes, 0 falhas.
+
 ## [2.12.83] - 2026-09-09
 
 ### Security
