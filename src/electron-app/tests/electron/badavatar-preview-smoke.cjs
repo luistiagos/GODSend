@@ -40,20 +40,44 @@ async function main() {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.waitForLoadState("domcontentloaded");
 
-    // Click "Mais opções" and select "Preparar dispositivo" to navigate to badavatarusb page
-    const toolboxBtn = page.getByRole("button", { name: "Mais opções", exact: true });
+    // Click the toolbox menu and select "Preparar dispositivo" to navigate to
+    // badavatarusb page. The accessible name comes from MainNav's aria-label in
+    // advanced mode (config.json above forces simpleMode: false).
+    const toolboxBtn = page.getByRole("button", { name: "Mais opções e ferramentas", exact: true });
     await toolboxBtn.waitFor({ state: "visible" });
     await toolboxBtn.click();
     await page.getByText("Preparar dispositivo", { exact: true }).click();
 
-    // Handle step wizard navigation to reach the final preparation page
+    // Navigate the step wizard to the final preparation page. Which step opens
+    // first depends on the machine — with a prepared drive plugged in the page
+    // offers to skip, otherwise it starts on the mode step — and either way it
+    // renders only once the USB scan resolves, so wait for whichever arrives.
+    // The detect step is also not a state that holds still: BadAvatarUsbPage
+    // leaves it on its own when a rescan stops reporting the drive as prepared,
+    // so a button handle resolved there can be stale by the time the click
+    // lands. Aim at the mode step and keep nudging the detect CTA until it is
+    // up, instead of betting the run on a single click winning that race.
     const detectHeading = page.getByRole("heading", { name: "Dispositivo Xbox 360 detectado!", exact: true });
-    if (await detectHeading.count() > 0) {
-      await page.getByRole("button", { name: "Preparar pendrive/HD", exact: true }).click();
-    }
-
     const modeButton = page.getByRole("button", { name: "Xbox Bloqueado ou LT", exact: true });
-    await modeButton.waitFor({ state: "visible" });
+    const detectCta = page.getByRole("button", { name: "Preparar pendrive/HD", exact: true });
+    await Promise.race([
+      detectHeading.waitFor({ state: "visible" }).catch(() => {}),
+      modeButton.waitFor({ state: "visible" }).catch(() => {}),
+    ]);
+    const modeDeadline = Date.now() + 60_000;
+    while (!(await modeButton.isVisible())) {
+      if (Date.now() > modeDeadline) {
+        // Say what the wizard was showing instead: which step it got stuck on
+        // is the whole diagnosis, and it is gone by the time anyone looks.
+        const onScreen = await page.$$eval("h1,h2,h3", (els) =>
+          els.map((el) => (el.textContent || "").trim()).filter(Boolean));
+        throw new Error(
+          `O passo de modo de instalação nunca apareceu após a varredura de dispositivos. Na tela: ${JSON.stringify(onScreen)}`,
+        );
+      }
+      await detectCta.click({ timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(200);
+    }
     await modeButton.click();
     await page.getByRole("button", { name: "Avançar", exact: true }).click();
 
@@ -68,7 +92,11 @@ async function main() {
     const otherFunctions = page.getByRole("button", { name: "Outras funções", exact: true });
     assert.equal(await otherFunctions.count(), 1, "advanced functions are collapsed into one entry");
     await otherFunctions.click();
-    const jog = page.getByText("Jogos e downloads", { exact: true });
+    // The dropdown mounts a tick after the click and fades in, so wait for the
+    // entry instead of counting it straight away — a bare count() here reads
+    // zero and fails on timing rather than on content.
+    const jog = page.getByText("Baixar Jogos", { exact: true });
+    await jog.first().waitFor({ state: "visible" });
     assert.ok(await jog.count() >= 1);
     assert.ok(await page.getByText("Configurações", { exact: true }).count() >= 1);
 
