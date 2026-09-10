@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`badavatar-preview-smoke` nao passava, travado em timeout de 30 s (`tests/electron/badavatar-preview-smoke.cjs`, commit `787f065`)**: tres defeitos no proprio teste, nenhum no aplicativo, e nenhuma asserticao de conteudo precisou ser afrouxada.
+  - O botao do `MainNav` em modo avancado tem `aria-label="Mais opcoes e ferramentas"`; o teste procurava `"Mais opcoes"` com `exact: true` e nunca casava. Falha **deterministica** — era 100% das execucoes. Diagnosticado subindo o aplicativo e listando os botoes reais, o que de passagem provou que o `config.json` escrito pelo teste funciona e o modo avancado e aplicado.
+  - No menu, `"Jogos e downloads"` nao existe mais em lugar nenhum do renderer: virou `"Baixar Jogos"` (`MainNav.tsx:93`). O item tambem era contado no mesmo tick do clique, antes de o dropdown montar.
+  - `BadAvatarUsbPage` tem um efeito que **sai sozinho** do passo `detect` quando uma revarredura deixa de reportar o dispositivo como preparado, entao o handle do botao resolvido ali podia estar morto quando o clique chegava — e o clique ficava 30 s esperando um elemento que sumiu. Trocado por um laco que mira o passo de modo e insiste no CTA, com prazo de 60 s; o prazo estourado passou a dizer **o que estava na tela**, que e o diagnostico inteiro e desaparece antes de alguem olhar.
+  - Verificado por repeticao, porque uma passada nao prova nada num teste que era flaky: 8 execucoes diretas e 6 pelo `npm run test:electron-security`, 14 seguidas sem falha. Resta uma intermitencia rara e anterior a esta correcao, ~2 falhas em ~20 execucoes completas, cuja assinatura nao foi capturada; se voltar, a mensagem agora nomeia o passo que travou.
+  - Sem bump de versao: mudanca so de teste, sem efeito no que o usuario recebe.
+
 ## [2.12.86] - 2026-09-09
 
 ### Fixed
