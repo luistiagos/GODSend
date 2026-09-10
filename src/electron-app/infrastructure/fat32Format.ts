@@ -63,6 +63,9 @@ $expectedVolumeBytes = [int64]${expectedVolumeBytes}
 $targetLabel = '${escapedLabel}'
 $limit32GB = [int64]34359738368
 $exePath = '${escapedExe}'
+$script:lastFat32Error = ''
+$script:cfaAllowlistAdded = $false
+$script:cfaManualAllowNeeded = $false
 '=== fat32format ${letter}: ===' | Out-File -FilePath $log -Encoding utf8
 
 function Normalize-VolumeGuid([string]$value) {
@@ -99,6 +102,87 @@ function Invoke-DiskpartScript([string[]]$commands) {
   }
 }
 
+# Acesso controlado a pastas (protecao contra ransomware do Defender): 0 desligado,
+# 1 ligado, 2 auditoria, 3 so bloqueio de disco, 4 auditoria de disco. Os modos 1 e 3
+# barram a escrita bruta de setores que o fat32format faz em \.\X: e aparecem para o
+# usuario como "Alteracoes nao autorizadas bloqueadas ... de fazer alteracoes na memoria";
+# 2 e 4 apenas registram no log do Defender e deixam a escrita passar.
+function Get-ControlledFolderAccessMode {
+  try {
+    return [int](Get-MpPreference -ErrorAction Stop).EnableControlledFolderAccess
+  } catch {
+    return -1
+  }
+}
+
+function Test-Fat32Allowlisted([string]$fatExe) {
+  try {
+    $allowed = @((Get-MpPreference -ErrorAction Stop).ControlledFolderAccessAllowedApplications)
+  } catch {
+    return $false
+  }
+  foreach ($entry in $allowed) {
+    if (([string]$entry).Trim() -eq $fatExe) { return $true }
+  }
+  return $false
+}
+
+function Unblock-Fat32RawWrite([string]$fatExe) {
+  if (-not $fatExe -or -not (Test-Path $fatExe)) { return }
+  $mode = Get-ControlledFolderAccessMode
+  if ($mode -ne 1 -and $mode -ne 3) { return }
+  "Acesso controlado a pastas ativo (modo $mode); ele barra a escrita bruta do fat32format." | Out-File -FilePath $log -Append -Encoding utf8
+  if (Test-Fat32Allowlisted $fatExe) {
+    'O fat32format.exe ja constava na lista de aplicativos permitidos; nada a alterar.' | Out-File -FilePath $log -Append -Encoding utf8
+    return
+  }
+  try {
+    Add-MpPreference -ControlledFolderAccessAllowedApplications $fatExe -ErrorAction Stop
+    $script:cfaAllowlistAdded = $true
+    'fat32format.exe liberado temporariamente; sera retirado da lista ao final desta formatacao.' | Out-File -FilePath $log -Append -Encoding utf8
+  } catch {
+    $script:cfaManualAllowNeeded = $true
+    "Nao foi possivel liberar o fat32format.exe no acesso controlado a pastas: $($_.Exception.Message)" | Out-File -FilePath $log -Append -Encoding utf8
+  }
+}
+
+function Restore-Fat32RawWriteProtection([string]$fatExe) {
+  if (-not $script:cfaAllowlistAdded) { return }
+  try {
+    Remove-MpPreference -ControlledFolderAccessAllowedApplications $fatExe -ErrorAction Stop
+    $script:cfaAllowlistAdded = $false
+    'fat32format.exe retirado da lista de permitidos; a protecao voltou ao estado anterior.' | Out-File -FilePath $log -Append -Encoding utf8
+  } catch {
+    "Nao foi possivel retirar o fat32format.exe da lista de permitidos: $($_.Exception.Message)" | Out-File -FilePath $log -Append -Encoding utf8
+  }
+}
+
+function Write-Fat32AccessDiagnostics([string]$drvLetter) {
+  '--- acesso negado na escrita bruta: diagnostico ---' | Out-File -FilePath $log -Append -Encoding utf8
+  try {
+    $p = Get-Partition -DriveLetter $drvLetter -ErrorAction Stop
+    $d = Get-Disk -Number $p.DiskNumber -ErrorAction Stop
+    "Disco $($d.Number): IsReadOnly=$($d.IsReadOnly) IsOffline=$($d.IsOffline) BusType=$($d.BusType) Modelo=$($d.FriendlyName)" | Out-File -FilePath $log -Append -Encoding utf8
+  } catch {
+    "Estado do disco indisponivel: $($_.Exception.Message)" | Out-File -FilePath $log -Append -Encoding utf8
+  }
+  try {
+    $denyKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}'
+    $deny = (Get-ItemProperty -Path $denyKey -Name 'Deny_Write' -ErrorAction Stop).Deny_Write
+    "Politica 'Discos removiveis: negar acesso de escrita' ativa (Deny_Write=$deny)." | Out-File -FilePath $log -Append -Encoding utf8
+  } catch {
+    'Politica de bloqueio de escrita em discos removiveis: ausente.' | Out-File -FilePath $log -Append -Encoding utf8
+  }
+  $cfaMode = Get-ControlledFolderAccessMode
+  if ($cfaMode -eq 1 -or $cfaMode -eq 3) {
+    "Acesso controlado a pastas ATIVO (modo $cfaMode) e o fat32format continua barrado." | Out-File -FilePath $log -Append -Encoding utf8
+  } elseif ($cfaMode -lt 0) {
+    'Estado do acesso controlado a pastas indisponivel (Get-MpPreference falhou).' | Out-File -FilePath $log -Append -Encoding utf8
+  } else {
+    "Acesso controlado a pastas nao bloqueia (modo $cfaMode)." | Out-File -FilePath $log -Append -Encoding utf8
+  }
+}
+
 function Invoke-Fat32FormatTool([string]$drvLetter, [string]$fatExe) {
   if (-not $fatExe -or -not (Test-Path $fatExe)) {
     return $false
@@ -106,13 +190,27 @@ function Invoke-Fat32FormatTool([string]$drvLetter, [string]$fatExe) {
   for ($attempt = 1; $attempt -le 5; $attempt++) {
     Close-ExplorerWindows $drvLetter
     Start-Sleep -Milliseconds (400 * $attempt)
-    $out = "Y" | & $fatExe "$($drvLetter):" 2>&1
+    # Sem o ForEach-Object o 2>&1 entrega ErrorRecord, e o Out-String despeja o bloco
+    # NativeCommandError/CategoryInfo/FullyQualifiedErrorId por cima da mensagem real
+    # do fat32format — foi assim que o erro chegou ilegivel ao usuario.
+    $out = "Y" | & $fatExe "$($drvLetter):" 2>&1 | ForEach-Object { [string]$_ }
     $ec = $LASTEXITCODE
-    $outStr = ($out | Out-String).Trim()
+    $outStr = ($out -join [Environment]::NewLine).Trim()
     $outStr | Out-File -FilePath $log -Append -Encoding utf8
     if ($ec -eq 0 -and $outStr -notmatch 'Failed to open device|GetLastError\(\)=32') {
+      $script:lastFat32Error = ''
       return $true
     }
+    if ($outStr -match 'GetLastError\(\)=5:') {
+      # Acesso negado numa escrita bruta nao se resolve repetindo: o volume ja foi
+      # aberto e travado com sucesso (nenhum 'Failed to lock device' no log), entao
+      # o bloqueio nao e um handle que vai ser liberado — repetir so gasta tempo.
+      $script:lastFat32Error = 'ACESSO_NEGADO'
+      "fat32format tentativa $attempt falhou com acesso negado; repetir nao muda o resultado." | Out-File -FilePath $log -Append -Encoding utf8
+      Write-Fat32AccessDiagnostics $drvLetter
+      return $false
+    }
+    $script:lastFat32Error = "codigo $ec"
     "fat32format tentativa $attempt falhou (codigo $ec). Fechando bloqueios e aguardando liberacao da unidade..." | Out-File -FilePath $log -Append -Encoding utf8
   }
   return $false
@@ -143,6 +241,8 @@ try {
   }
   "Volume GUID validado: $currentVolumeGuid" | Out-File -FilePath $log -Append -Encoding utf8
   "Disco USB validado: $diskNo ($($disk.FriendlyName))" | Out-File -FilePath $log -Append -Encoding utf8
+
+  Unblock-Fat32RawWrite $exePath
 
   $success = $false
 
@@ -246,55 +346,82 @@ try {
       throw "Para unidades maiores que 32 GB é necessário o utilitário fat32format.exe."
     }
 
+    # A particao entregue ao fat32format e criada SEM sistema de arquivos, de proposito.
+    # O fat32format escreve setores direto no volume (\\.\X:), e o Windows so libera essa
+    # escrita quando nenhum sistema de arquivos esta montado ali. A pre-formatacao NTFS que
+    # existia aqui foi acrescentada na 2.12.62 apenas para suprimir o modal "Formate o disco
+    # na unidade X:" e devolvia justamente o estado que bloqueia a gravacao com
+    # GetLastError()=5. O modal volta a ser possivel por alguns segundos; formatar e o que
+    # o usuario pediu, o modal e so ruido.
+    $recreated = $false
+    $rawPartitionCmds = @(
+      "select disk $diskNo",
+      "clean",
+      "convert mbr",
+      "create partition primary",
+      "active",
+      "assign letter=${letter}"
+    )
+
     $vol = Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue
     if (-not $vol) {
       "Volume não encontrado; inicializando particao limpa via diskpart..." | Out-File -FilePath $log -Append -Encoding utf8
       Close-ExplorerWindows '${letter}'
       & $mountvol '${letter}:\' '/D' 2>$null
-      $dpCmds = @(
-        "select disk $diskNo",
-        "clean",
-        "convert mbr",
-        "create partition primary",
-        "active",
-        "format fs=ntfs quick label=""$targetLabel""",
-        "assign letter=${letter}"
-      )
-      $dpOk = Invoke-DiskpartScript $dpCmds
+      $dpOk = Invoke-DiskpartScript $rawPartitionCmds
       if (-not $dpOk) {
         throw "Falha ao recriar particao no disco $diskNo via diskpart."
       }
-      Start-Sleep -Milliseconds 500
+      $recreated = $true
+      Start-Sleep -Milliseconds 1500
     }
 
     $success = Invoke-Fat32FormatTool '${letter}' $exePath
-    if (-not $success) {
-      "Tentativa inicial com fat32format falhou. Recriando estrutura da particao via diskpart..." | Out-File -FilePath $log -Append -Encoding utf8
+    if (-not $success -and -not $recreated) {
+      "Tentativa inicial com fat32format falhou. Recriando a particao sem sistema de arquivos via diskpart..." | Out-File -FilePath $log -Append -Encoding utf8
       Close-ExplorerWindows '${letter}'
       & $mountvol '${letter}:\' '/D' 2>$null
-      $dpCmds = @(
-        "select disk $diskNo",
-        "clean",
-        "convert mbr",
-        "create partition primary",
-        "active",
-        "format fs=ntfs quick label=""$targetLabel""",
-        "assign letter=${letter}"
-      )
-      $dpOk = Invoke-DiskpartScript $dpCmds
+      $dpOk = Invoke-DiskpartScript $rawPartitionCmds
       if ($dpOk) {
-        Start-Sleep -Milliseconds 500
+        $recreated = $true
+        Start-Sleep -Milliseconds 1500
         $success = Invoke-Fat32FormatTool '${letter}' $exePath
       }
     }
 
     if (-not $success) {
+      if ($recreated) {
+        # Nos deixamos a particao sem sistema de arquivos; nao devolver o HD ao usuario
+        # em estado RAW, que o Windows mostra como "precisa ser formatado".
+        "Formatacao FAT32 falhou; devolvendo a particao a NTFS para a unidade continuar utilizavel..." | Out-File -FilePath $log -Append -Encoding utf8
+        Invoke-DiskpartScript @(
+          "select disk $diskNo",
+          "select partition 1",
+          "format fs=ntfs quick label=""$targetLabel""",
+          "assign letter=${letter}"
+        ) | Out-Null
+      }
+      if ($script:lastFat32Error -eq 'ACESSO_NEGADO') {
+        $cfaHint = ''
+        if ($script:cfaManualAllowNeeded) {
+          $cfaHint = " O acesso controlado a pastas (protecao contra ransomware do Windows) esta ligado e nao foi possivel liberar o fat32format.exe automaticamente, o que costuma indicar Defender gerenciado por politica. Abra Seguranca do Windows > Protecao contra virus e ameacas > Protecao contra ransomware > Permitir um aplicativo pelo acesso controlado a pastas e adicione: $exePath"
+        }
+        throw "O Windows negou a escrita direta na unidade ${letter}: (acesso negado). Nao e janela do Explorer aberta: o volume chegou a ser aberto e travado. Verifique se o disco tem chave de protecao contra gravacao no gabinete, se ha politica de bloqueio de escrita em discos removiveis nesta maquina, ou se um antivirus esta protegendo o volume. O diagnostico do disco esta no log acima.$cfaHint"
+      }
       throw "fat32format falhou. Feche qualquer programa ou janela do Explorer e tente novamente."
     }
   }
 
-  Start-Sleep -Milliseconds 500
-  $verifyVol = Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue
+  # O fat32format desmonta o volume no fim e quem remonta e o Windows; uma unica espera
+  # de 500 ms acusava "sistema de arquivos indeterminado" em disco que formatou certo.
+  $verifyVol = $null
+  for ($wait = 1; $wait -le 10; $wait++) {
+    Start-Sleep -Milliseconds 500
+    $verifyVol = Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue
+    if ($verifyVol -and $verifyVol.FileSystem -and $verifyVol.FileSystem.ToUpperInvariant() -eq 'FAT32') {
+      break
+    }
+  }
   if (-not $verifyVol -or -not $verifyVol.FileSystem -or $verifyVol.FileSystem.ToUpperInvariant() -ne 'FAT32') {
     throw "A unidade foi formatada, mas o sistema de arquivos resultante foi $(if ($verifyVol) { $verifyVol.FileSystem } else { 'indeterminado' }); esperado FAT32."
   }
@@ -306,6 +433,10 @@ try {
   ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
   Close-ExplorerWindows '${letter}'
   exit 1
+} finally {
+  # O PowerShell roda o finally antes de efetivar o 'exit 1' do catch, entao a liberacao
+  # no Defender tambem e desfeita quando a formatacao falha.
+  Restore-Fat32RawWriteProtection $exePath
 }
 
 Close-ExplorerWindows '${letter}'

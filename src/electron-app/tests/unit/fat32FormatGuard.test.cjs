@@ -143,3 +143,96 @@ test("script de elevacao cita o interpretador ja resolvido e escapa aspas simple
 });
 
 
+
+const bigDriveGuard = {
+  expectedVolumeGuid: "\\\\?\\Volume{3dbb510f-622c-11f0-9508-bcf171ac5412}\\",
+  expectedVolumeBytes: 2_199_022_206_976, // 2 TiB, o HD do relato de acesso negado
+};
+
+function bigDriveScript() {
+  return buildGuardedWindowsFat32Script(
+    "D",
+    "C:\\dist\\tools\\fat32format.exe",
+    "C:\\Temp\\fat32_big.log",
+    bigDriveGuard,
+  );
+}
+
+test("a particao entregue ao fat32format nao tem sistema de arquivos montado (> 32 GB)", () => {
+  const script = bigDriveScript();
+  const rawCmds = script.slice(
+    script.indexOf("$rawPartitionCmds"),
+    script.indexOf("$vol = Get-Volume"),
+  );
+  assert.ok(rawCmds.includes("create partition primary"));
+  assert.ok(rawCmds.includes("convert mbr"), "o Xbox 360 le FAT32 em MBR");
+  assert.ok(rawCmds.includes("assign letter=D"));
+  // O fat32format escreve setores direto em \\.\D:; com NTFS montado o Windows
+  // recusa a escrita com GetLastError()=5 e nenhuma repeticao resolve.
+  assert.ok(
+    !/format fs=ntfs/.test(rawCmds),
+    "pre-formatar NTFS antes do fat32format reintroduz o acesso negado",
+  );
+});
+
+test("acesso negado para de repetir, diagnostica e nao culpa o Explorer", () => {
+  const script = bigDriveScript();
+  assert.ok(script.includes("GetLastError\\(\\)=5:"));
+  assert.ok(script.includes("Write-Fat32AccessDiagnostics"));
+  assert.ok(script.includes("Deny_Write"), "o log precisa dizer se a politica bloqueia escrita");
+  assert.ok(script.includes("negou a escrita direta na unidade D:"));
+  // A saida nativa passa por [string] para nao virar o bloco NativeCommandError.
+  assert.ok(script.includes("ForEach-Object { [string]$_ }"));
+});
+
+test("falha na formatacao devolve a particao a NTFS em vez de deixar o HD em RAW", () => {
+  const script = bigDriveScript();
+  assert.ok(script.includes("select partition 1"));
+  assert.ok(script.includes("devolvendo a particao a NTFS"));
+});
+
+
+test("libera o fat32format no acesso controlado a pastas e desfaz a liberacao no fim", () => {
+  const script = bigDriveScript();
+  // O print do usuario e o bloqueio do Defender: "Alteracoes nao autorizadas bloqueadas ...
+  // de fazer alteracoes na memoria". Sem a liberacao, a escrita bruta volta GetLastError()=5.
+  assert.ok(script.includes("Add-MpPreference -ControlledFolderAccessAllowedApplications $fatExe"));
+  assert.ok(script.includes("Remove-MpPreference -ControlledFolderAccessAllowedApplications $fatExe"));
+  assert.ok(script.includes("Unblock-Fat32RawWrite $exePath"));
+  // A restauracao fica no finally porque o catch faz 'exit 1': sem isso, uma formatacao
+  // que falha deixaria o exe permanentemente liberado na maquina do usuario.
+  const tail = script.slice(script.indexOf("} catch {"));
+  assert.match(tail, /\} finally \{[\s\S]*Restore-Fat32RawWriteProtection \$exePath/);
+});
+
+test("nao desliga o acesso controlado a pastas nem mexe fora dos modos que bloqueiam", () => {
+  const script = bigDriveScript();
+  // Desligar a protecao inteira seria desproporcional; so o nosso exe e liberado.
+  assert.ok(!/Set-MpPreference/.test(script), "a protecao nunca e desligada globalmente");
+  // Modos 2 e 4 sao auditoria e deixam a escrita passar; 0 esta desligado.
+  assert.ok(script.includes("if ($mode -ne 1 -and $mode -ne 3) { return }"));
+});
+
+test("nao retira do Defender uma liberacao que ja existia antes", () => {
+  const script = bigDriveScript();
+  const restore = script.slice(
+    script.indexOf("function Restore-Fat32RawWriteProtection"),
+    script.indexOf("function Write-Fat32AccessDiagnostics"),
+  );
+  assert.ok(restore.includes("if (-not $script:cfaAllowlistAdded) { return }"));
+  const unblock = script.slice(
+    script.indexOf("function Unblock-Fat32RawWrite"),
+    script.indexOf("function Restore-Fat32RawWriteProtection"),
+  );
+  assert.ok(unblock.includes("if (Test-Fat32Allowlisted $fatExe) {"));
+  assert.ok(unblock.includes("ja constava na lista de aplicativos permitidos"));
+});
+
+test("Defender gerenciado por politica vira passo a passo manual com o caminho do exe", () => {
+  const script = bigDriveScript();
+  assert.ok(script.includes("$script:cfaManualAllowNeeded = $true"));
+  assert.ok(script.includes("Permitir um aplicativo pelo acesso controlado a pastas e adicione: $exePath"));
+  assert.ok(script.includes("$cfaHint"));
+  // O estado do acesso controlado tem de aparecer no log de acesso negado.
+  assert.ok(script.includes("Acesso controlado a pastas ATIVO (modo $cfaMode)"));
+});
