@@ -511,6 +511,7 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if iso := d.Local.FindLocalISO(gameName); iso != "" {
 			d.App.Logf("TRIGGER: Local ISO found for '%s'", gameName)
 			launcher(func() { d.Pipeline.ProcessLocalISO(gameName, iso) })
+			d.enqueueCompanions(gameName, platform, source, installType, priorityParam)
 			jsonSuccess(w, map[string]string{"status": "triggered", "source": "local"})
 			return
 		}
@@ -563,6 +564,7 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		}
 
 		launcher(func() { d.Pipeline.ProcessGameWithFallback(gameName, platform, providers) })
+		d.enqueueCompanions(gameName, platform, source, installType, priorityParam)
 		jsonSuccess(w, map[string]string{"status": "triggered", "source": "unified"})
 		return
 	}
@@ -584,6 +586,7 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 				default: // xbox360, xbox
 					launcher(func() { d.Pipeline.ProcessMinervaGame(gameName, mEntry, effPlatform) })
 				}
+				d.enqueueCompanions(gameName, platform, source, installType, priorityParam)
 				jsonSuccess(w, map[string]string{"status": "triggered", "source": "minerva"})
 				return
 			}
@@ -663,6 +666,7 @@ func (d *Deps) enqueueCompanions(primaryGame, plat, src, inst, priorityParam str
 		}
 
 		companions := models.FindCompanionDiscs(primaryGame, catalog)
+		d.recordReleaseCompleteness(primaryGame, companions)
 		if len(companions) <= 1 {
 			return
 		}
@@ -728,6 +732,64 @@ func (d *Deps) enqueueCompanions(primaryGame, plat, src, inst, priorityParam str
 			}
 		}
 	}()
+}
+
+// recordReleaseCompleteness marks every disc of a multi-disc release when the catalogs cannot
+// supply the whole set. Around a third of the multi-disc rows in the packaged catalogs have no
+// sibling under a matching release title — most often a region variant whose companion was
+// never listed, such as "Alien - Isolation (USA) (Disc 2)", whose Disc 1 exists only as
+// "(USA, Europe)". Nothing here can conjure the missing disc, and matching across regions would
+// install the wrong one; the point is that the user is told, instead of finding out on the
+// console. LogStatus appends the warning to whatever message reports the delivery.
+func (d *Deps) recordReleaseCompleteness(primaryGame string, companions []string) {
+	info := models.ExtractDiscInfo(primaryGame)
+	if !info.IsMultiDisc {
+		return
+	}
+	found := map[byte]bool{}
+	if info.DiscNumber > 0 {
+		found[info.DiscNumber] = true
+	}
+	for _, name := range companions {
+		if n := models.ExtractDiscInfo(name).DiscNumber; n > 0 {
+			found[n] = true
+		}
+	}
+	expected := info.DiscCount
+	for n := range found {
+		if n > expected {
+			expected = n
+		}
+	}
+	// A catalog row labelled "Disc 1" is never a one-disc release, so a lone Disc 1 is just as
+	// incomplete as a lone Disc 2 — it simply cannot say how many discs are missing.
+	if expected < 2 {
+		expected = 2
+	}
+	var missing []string
+	for n := byte(1); n <= expected; n++ {
+		if !found[n] {
+			missing = append(missing, strconv.Itoa(int(n)))
+		}
+	}
+	if len(missing) == 0 {
+		d.App.IncompleteRelease.Delete(primaryGame)
+		for _, name := range companions {
+			d.App.IncompleteRelease.Delete(name)
+		}
+		return
+	}
+	warning := fmt.Sprintf("ATENCAO: faltou o disco %s deste lancamento, que nao esta em nenhum catalogo disponivel. O jogo pode nao iniciar sem ele.",
+		strings.Join(missing, " e o "))
+	if info.DiscCount > 0 {
+		warning = fmt.Sprintf("ATENCAO: este lancamento tem %d discos e faltou o disco %s, que nao esta em nenhum catalogo disponivel. O jogo pode nao iniciar sem ele.",
+			info.DiscCount, strings.Join(missing, " e o "))
+	}
+	d.App.Logf("MULTI-DISC INCOMPLETO [%s]: discos encontrados=%v, faltando=%v", primaryGame, found, missing)
+	d.App.IncompleteRelease.Store(primaryGame, warning)
+	for _, name := range companions {
+		d.App.IncompleteRelease.Store(name, warning)
+	}
 }
 
 func (d *Deps) handleStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -889,6 +951,7 @@ func (d *Deps) handleQueueRemove(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			d.App.CancelGameJob(k)
 			d.App.JobQueue.Delete(k)
 			d.App.DeleteQueueJob(k)
+			d.App.IncompleteRelease.Delete(k)
 			d.App.SuppressedJobs.Store(k, struct{}{})
 		}
 		d.App.Logf("QUEUE: cleared %d job(s)", len(keys))
@@ -898,6 +961,7 @@ func (d *Deps) handleQueueRemove(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	d.App.CancelGameJob(game)
 	d.App.JobQueue.Delete(game)
 	d.App.DeleteQueueJob(game)
+	d.App.IncompleteRelease.Delete(game)
 	d.App.SuppressedJobs.Store(game, struct{}{})
 	// Also cancel any pending FTP job for this game
 	for _, job := range d.FTP.LoadAllPendingFTPJobs() {

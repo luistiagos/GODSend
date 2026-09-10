@@ -270,3 +270,39 @@ test("scanGamesDirectory: continua descartando dados de atualizacao do sistema",
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("scanGamesDirectory: resolve o nome real quando a pasta so diz qual disco era", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-disc-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    // Rip de dois discos: a pasta que veio dentro do arquivo se chama "Disc2".
+    const gameDir = path.join(gamesDir, "Disc2 - 545408A7");
+    fs.mkdirSync(gameDir, { recursive: true });
+    fs.writeFileSync(path.join(gameDir, "default.xex"), "fake-xex-binary");
+
+    const nameMap = new Map([["545408A7", "Grand Theft Auto V"]]);
+    const results = scanGamesDirectory(gamesDir, "E:", nameMap);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].name, "Grand Theft Auto V");
+    assert.equal(results[0].titleId, "545408A7");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanGamesDirectory: nome de jogo que comeca com 'Disc' nao e tratado como marcador", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-discname-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const gameDir = path.join(gamesDir, "Discworld Noir - 4D5307E6");
+    fs.mkdirSync(gameDir, { recursive: true });
+    fs.writeFileSync(path.join(gameDir, "default.xex"), "fake-xex-binary");
+
+    const nameMap = new Map([["4D5307E6", "Halo 3"]]);
+    const results = scanGamesDirectory(gamesDir, "E:", nameMap);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].name, "Discworld Noir");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

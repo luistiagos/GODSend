@@ -65,8 +65,11 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	xexFolder := helpers.FindXEXFolder(extDir)
 	folderName := ""
 	if xexFolder != "" {
-		folderName = helpers.XEXFolderName(xexFolder, filepath.Base(xexFolder))
+		folderName = xexDestinationName(xexFolder, filepath.Base(xexFolder), gameName)
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
+		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
+			return err
+		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -124,6 +127,9 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 		folderName = helpers.XEXFolderName(xexFolder, safeName)
 
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
+		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
+			return err
+		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -176,6 +182,11 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 		if resolvedName == "" {
 			resolvedName = gameName
 		}
+		// After FindGODPackage the package itself lives under godDir, so excluding godDir
+		// leaves only the other discs of the release for the companion install.
+		if err := s.installCompanionDiscContent(gameName, extDir, godDir, xboxConn); err != nil {
+			return err
+		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferGame(godDir, xboxConn, gameName, titleID, mediaID, resolvedName); err != nil {
 				s.App.Logf("FTP: initial GOD transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -217,8 +228,11 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 
 	if contentFile, titleID, typeDir, err := helpers.FindContentPackage(extDir); err == nil && contentFile != "" {
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Content package detected (TitleID: %s, Type: %s)", titleID, typeDir))
+		if err := s.installCompanionDiscContent(gameName, extDir, filepath.Dir(contentFile), xboxConn); err != nil {
+			return err
+		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
-			if err := s.FTP.TransferContent(filepath.Dir(contentFile), xboxConn, gameName, titleID); err != nil {
+			if err := s.FTP.TransferContent(filepath.Dir(contentFile), xboxConn, gameName, titleID, typeDir); err != nil {
 				s.App.Logf("FTP: initial Content transfer failed for %s: %v", gameName, err)
 				return fmt.Errorf("FTP Content transfer failed: %w", err)
 			}

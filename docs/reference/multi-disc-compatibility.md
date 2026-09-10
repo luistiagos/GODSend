@@ -22,6 +22,31 @@ the server inspects its XDVDFS tree:
 This structure-based decision covers catalog titles that are not present in a
 manual table and protects region/revision variants with different filenames.
 
+## Releases that ship as one archive
+
+A XEX rip usually packs the whole release into a single archive, with one folder per
+disc (`Disc1`, `Disc2`). The playable folder is the one holding `default.xex`; every
+`Content/0000000000000000/<TitleID>/<type>` tree beside it is an install disc and is
+written to the destination as well, before the game. The parent Title ID comes from the
+package header rather than the folder name, because a retail installer addresses its own
+tree under `FFED2000`.
+
+Because such a folder is named after the disc and not the game, the destination folder
+takes the release title instead — otherwise the console lists the title as `Disc2`.
+
+## When the set cannot be completed
+
+Discs of one release are recognised as siblings by release title, after the disc number
+and the disc-role group are stripped. Role groups are free text in the catalogs
+(`(Single-Player Campaign)`, `(Install-Multiplayer)`, `[DLC]`), so a group is treated as a
+role whenever it contains a role keyword; the region, language and edition groups that tell
+two releases apart carry none and stay in the title.
+
+About a third of the multi-disc rows still have no sibling: the companion exists only under
+a different region variant, or not at all. `Alien - Isolation (USA) (Disc 2)` has its Disc 1
+only as `(USA, Europe)`. Matching across those would install the wrong disc, so the queue
+flags every disc of that release instead and the delivery message names the missing disc.
+
 ## Verified content/install discs
 
 | Game | Title ID | Disc installed as Content |

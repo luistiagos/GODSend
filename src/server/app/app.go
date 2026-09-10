@@ -94,6 +94,10 @@ type App struct {
 	GamePartsMap    sync.Map
 	XboxConnections sync.Map
 	InstallTypeMap  sync.Map
+	// IncompleteRelease carries, per game, why the release this disc belongs to could not be
+	// assembled in full. LogStatus appends it to the delivery message so no pipeline can
+	// report a half release as simply done.
+	IncompleteRelease sync.Map
 
 	gameProcessingMu sync.Mutex
 	gameJobSequence  atomic.Uint64
@@ -129,6 +133,16 @@ func (a *App) Logf(format string, args ...interface{}) {
 func (a *App) LogStatus(game, state, msg string) {
 	if _, suppressed := a.SuppressedJobs.Load(game); suppressed {
 		return
+	}
+	// A disc whose release could not be assembled in full must never read as simply done.
+	// Every pipeline funnels its delivery through here, so attaching the warning at this one
+	// point covers all of them — GOD, XEX, content, FTP and local alike.
+	if state == "Ready" {
+		if warning, ok := a.IncompleteRelease.Load(game); ok {
+			if text, _ := warning.(string); text != "" && !strings.Contains(msg, text) {
+				msg = msg + " — " + text
+			}
+		}
 	}
 	a.JobQueue.Store(game, models.GameStatus{State: state, Message: msg})
 	// Every state transition of every pipeline funnels through here, so this is

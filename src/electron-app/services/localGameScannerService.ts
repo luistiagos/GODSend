@@ -18,6 +18,13 @@ export interface InstalledGameInfo {
 const HEX_8_REGEX = /^[0-9A-F]{8}$/i;
 const NAME_TITLE_ID_REGEX = /^(.+?)\s*-\s*([0-9A-F]{8})$/i;
 
+/**
+ * Multi-disc rips name their top-level folder after the disc ("Disc2", "DVD 1"), so an install
+ * made from one carries a folder that says which disc it was, not which game it is. Such a name
+ * has to give way to the Title ID lookup, or the library lists "Disc2" instead of the game.
+ */
+const GENERIC_DISC_NAME_REGEX = /^(?:(?:game|install(?:ation)?|content|bonus|play)[ _.-]*)?(?:disc|disk|dvd|cd)[ _.-]*[0-9]*$/i;
+
 const MAX_SIZE_SCAN_DEPTH = 16;
 
 /** Dashboard/system title. Identifies Xbox update data — and every Kinect and speech package bundled inside a game. */
@@ -231,8 +238,9 @@ function parseGameFolder(
       format = "god";
     }
 
-    // Lookup name by Title ID if name is missing or is just the hex TitleID
-    if ((!titleName || titleName === titleId) && titleId && nameMap) {
+    // Lookup name by Title ID when the folder names no game: missing, the bare hex TitleID, or
+    // a rip's disc placeholder.
+    if ((!titleName || titleName === titleId || GENERIC_DISC_NAME_REGEX.test(titleName)) && titleId && nameMap) {
       const mapped = nameMap.get(titleId);
       if (mapped) titleName = mapped;
     }

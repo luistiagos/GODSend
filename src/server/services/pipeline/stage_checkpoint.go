@@ -310,20 +310,24 @@ func (s *Service) extractArchiveResilient(gameName, archivePath, destDir string)
 	})
 }
 
-func (s *Service) extractISOResilient(gameName, safeName, archivePath, tempRoot string) (string, error) {
+// extractISOResilient returns the ISO to install and the directory the archive was expanded
+// into. The caller needs that directory as well: a multi-disc release packed in one archive
+// carries the install disc beside the ISO, and it is discarded with the scratch unless
+// something installs it.
+func (s *Service) extractISOResilient(gameName, safeName, archivePath, tempRoot string) (string, string, error) {
 	destDir := filepath.Join(tempRoot, safeName+"_extracted")
 	err := s.runDirectoryStage(gameName, "extract-iso", archivePath, destDir, false, func() error {
 		_, err := utils.ExtractISO(archivePath, safeName, tempRoot)
 		return err
 	})
 	if err != nil {
-		return "", err
+		return "", destDir, err
 	}
 	isoPath := helpers.FindFileByExt(destDir, ".iso")
 	if isoPath == "" {
-		return "", fmt.Errorf("checkpoint de extracao sem ISO")
+		return "", destDir, fmt.Errorf("checkpoint de extracao sem ISO")
 	}
-	return isoPath, nil
+	return isoPath, destDir, nil
 }
 
 func (s *Service) extractXEXResilient(gameName, isoPath, destDir string) error {

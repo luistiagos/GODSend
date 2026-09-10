@@ -162,11 +162,11 @@ func TestGuessTitleIDFromCatalogNames(t *testing.T) {
 
 func TestDiscNumberFromName(t *testing.T) {
 	for name, want := range map[string]byte{
-		"Game (Disc 2)": 2,
-		"Game [DVD3]":   3,
-		"Game CD 4":     4,
-		"Game Disc 1":   1,
-		"Game (Disc 1)": 1,
+		"Game (Disc 2)":    2,
+		"Game [DVD3]":      3,
+		"Game CD 4":        4,
+		"Game Disc 1":      1,
+		"Game (Disc 1)":    1,
 		"Single Disc Game": 0,
 	} {
 		if got := DiscNumberFromName(name); got != want {
@@ -177,12 +177,12 @@ func TestDiscNumberFromName(t *testing.T) {
 
 func TestExtractDiscInfoAndReleaseTitle(t *testing.T) {
 	tests := []struct {
-		name         string
-		wantRel      string
-		wantDisc     byte
-		wantCount    byte
-		wantSub      string
-		wantMulti    bool
+		name      string
+		wantRel   string
+		wantDisc  byte
+		wantCount byte
+		wantSub   string
+		wantMulti bool
 	}{
 		{
 			name:      "Alien - Isolation (USA, Europe) (En,Fr,De,Es,It,Pt,Pl,Ru) (Disc 1) (Installation Disc)",
@@ -288,3 +288,85 @@ func TestNameHintsDoNotMatchSequelsAccidentally(t *testing.T) {
 	}
 }
 
+// TestReleaseTitleGroupsDiscsThatCarryARoleLabel locks in the grouping the disc-role pattern
+// exists for. Every pair below is two discs of ONE release that used to produce two different
+// release titles, so FindCompanionDiscs saw no sibling and only the queued disc was installed.
+func TestReleaseTitleGroupsDiscsThatCarryARoleLabel(t *testing.T) {
+	pairs := [][2]string{
+		{
+			"Battlefield 3 (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Disc 1)",
+			"Battlefield 3 (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Disc 2) (Single-Player Campaign)",
+		},
+		{
+			"Battlefield Hardline (USA, Europe) (En,Ja,Fr,De,Es,It,Pt,Pl,Ru) (Disc 1) (Install-Multiplayer)",
+			"Battlefield Hardline (USA, Europe) (En,Ja,Fr,De,Es,It,Pt,Pl,Ru) (Disc 2)",
+		},
+		{
+			"Borderlands 2 GOTY [RF][DVD1]",
+			"Borderlands 2 GOTY [RF][DVD2][DLC]",
+		},
+		{
+			"Battlefield 3 (Japan, Korea) (En,Ja,Zh,Ko) (Disc 1) (Multiplay-COOP)",
+			"Battlefield 3 (Japan, Korea) (En,Ja,Zh,Ko) (Disc 2) (Single-Play)",
+		},
+		{
+			"Forza Motorsport 3 (Europe, Australia) (En,Ja,Fr,De,Es,It) (Disc 1) (Play Disc)",
+			"Forza Motorsport 3 (Europe, Australia) (En,Ja,Fr,De,Es,It) (Disc 2) (Content Install Disc)",
+		},
+		{
+			"Grand Theft Auto 5 [RF][DVD1]",
+			"Grand Theft Auto 5 [RF][DVD2]",
+		},
+	}
+	for _, p := range pairs {
+		a, b := ExtractReleaseTitle(p[0]), ExtractReleaseTitle(p[1])
+		if a != b {
+			t.Errorf("os dois discos do mesmo lançamento não agruparam:\n  %q -> %q\n  %q -> %q", p[0], a, p[1], b)
+		}
+		if companions := FindCompanionDiscs(p[0], []string{p[0], p[1]}); len(companions) != 2 {
+			t.Errorf("FindCompanionDiscs(%q) devolveu %v; esperados os dois discos", p[0], companions)
+		}
+	}
+}
+
+// TestReleaseTitleKeepsWhatTellsReleasesApart is the other half of the pattern's job: region,
+// language and edition groups distinguish one release from another and must survive, or two
+// different products would be queued as discs of each other.
+func TestReleaseTitleKeepsWhatTellsReleasesApart(t *testing.T) {
+	distinct := [][2]string{
+		{
+			"Battlefield 3 (USA, Europe) (En,Fr,De,Es,It,Pl,Ru,Cs) (Disc 1)",
+			"Battlefield 3 (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Disc 1)",
+		},
+		{
+			"Alien - Isolation (USA) (En,Fr,De,Es,It,Pt,Pl,Ru) (Disc 2)",
+			"Alien - Isolation (USA, Europe) (En,Fr,De,Es,It,Pt,Pl,Ru) (Disc 2)",
+		},
+		{
+			"Some Game (USA) (Triple Pack) (Disc 1)",
+			"Some Game (USA) (Volume 1) (Disc 1)",
+		},
+	}
+	for _, p := range distinct {
+		if a, b := ExtractReleaseTitle(p[0]), ExtractReleaseTitle(p[1]); a == b {
+			t.Errorf("lançamentos diferentes foram fundidos em %q:\n  %q\n  %q", a, p[0], p[1])
+		}
+	}
+	// An edition group carries no disc-role keyword, so it has to stay in the release title.
+	if got := ExtractReleaseTitle("Some Game (USA) (Triple Pack) (Disc 1)"); got != "Some Game (USA) (Triple Pack)" {
+		t.Errorf("edição foi removida do título: %q", got)
+	}
+}
+
+// TestExtractDiscInfoSubtitleIsTheRoleNotTheNumber guards the order the subtitle is read in:
+// "(Disc 1)" is itself a group naming a disc role, so reading the role off the raw name would
+// report the disc number as the role.
+func TestExtractDiscInfoSubtitleIsTheRoleNotTheNumber(t *testing.T) {
+	info := ExtractDiscInfo("Forza Motorsport 3 (Europe) (Disc 2) (Content Install Disc)")
+	if info.Subtitle != "Content Install Disc" {
+		t.Errorf("Subtitle: esperado %q, obtido %q", "Content Install Disc", info.Subtitle)
+	}
+	if info.DiscNumber != 2 {
+		t.Errorf("DiscNumber: esperado 2, obtido %d", info.DiscNumber)
+	}
+}

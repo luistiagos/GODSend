@@ -7,7 +7,7 @@ The backend listens on port `8080` by default (configurable via Electron `Backen
 | GET | `/browse?platform=<p>` | Game list (pipe-separated); `platform` includes `xbox360`, `xbox`, `xbla`, `digital`, `dlc`, `xblig`, `games`, `local`, `rom_<sysid>`. Optional `source=minerva\|ia` limits the list to one catalog when both are merged by default. |
 | GET | `/status?game=<name>` | Poll job state: `Idle`, `Processing`, `Ready`, `Error`, `Missing` |
 | GET | `/queue` | List all active and completed jobs; jobs left unfinished by a previous session are restored here at startup from `pending_queue/` |
-| GET | `/trigger?game=<name>&platform=<p>` | Start processing a game (Aurora uses GET) |
+| GET | `/trigger?game=<name>&platform=<p>` | Start processing a game (Aurora uses GET). When the title is one disc of a multi-disc release, the companion discs of the same release title in the active catalog are enqueued too, on every source path (`unified`, `huggingface`, `ia`, `minerva`, local Transfer ISO). Requeueing a disc that is already queued replaces the older launch instead of duplicating it. |
 | GET | `/register?game=<name>&ip=<xbox-ip>&drive=...&platform=...` | Register the console IP and drive for FTP transfer |
 | GET | `/files/<name>/...` | Serve finished GOD/archive files to the Xbox over HTTP |
 | GET/POST | `/queue/remove?game=<name>` | Remove one job (`game` omitted clears all); Aurora uses GET. Also drops the job's `pending_queue/` record, so it is not resumed on the next launch |

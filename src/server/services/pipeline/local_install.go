@@ -115,9 +115,14 @@ func (s *Service) InstallGameLocal(godDir, root, gameName, titleID, resolvedName
 }
 
 // InstallContentLocal writes extracted content to
-// <root>/Content/0000000000000000/<titleID>/00000002/, mirroring FTP TransferContent.
-func (s *Service) InstallContentLocal(contentDir, root, gameName, titleID string) error {
-	base := filepath.Join(root, "Content", "0000000000000000", titleID, "00000002")
+// <root>/Content/0000000000000000/<titleID>/<typeDir>/, mirroring FTP TransferContent. An
+// empty typeDir means the 00000002 that secondary-disc installs use. The payload's own
+// subtree is preserved, so a GOD-shaped package keeps its "<package>.data" folder.
+func (s *Service) InstallContentLocal(contentDir, root, gameName, titleID, typeDir string) error {
+	if typeDir == "" {
+		typeDir = "00000002"
+	}
+	base := filepath.Join(root, "Content", "0000000000000000", titleID, typeDir)
 	return s.copyTreeLocal(contentDir, base, root, gameName, "Content")
 }
 

@@ -66,8 +66,15 @@ var (
 	discTagPattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:disc|disk|dvd|cd)\s*([0-9]+)(?:\s*(?:of|\/)\s*([0-9]+))?\s*[\)\]]`)
 	// Matches trailing Disc 1, DVD 2, CD 3 without parens (e.g. "Game Disc 1")
 	discTrailingPattern = regexp.MustCompile(`(?i)\s+[-_]?\s*\b(?:disc|disk|dvd|cd)\s*([0-9]+)\b`)
-	// Matches known disc subtitle/role tags attached to multi-disc games
-	discSubtitlePattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:game\s+disc|installation\s+disc|install\s+disc|install\s+multiplayer|install[- ]coop|install|play\s+disc|single[- ]?player|multiplayer(?:[- ]co-?op)?|multiplay-coop|content\s+install\s+disc|content\s+disc|bonus\s+disc|dysk\s+z\s+gra|spieldisc|disque\s+de\s+jeu|fukikaeban|jimakuban|igrovoj)\s*[\)\]]`)
+	// discSubtitlePattern matches a bracketed group that names the ROLE of a disc inside one
+	// release — "(Play Disc)", "(Single-Player Campaign)", "(Install-Multiplayer)", "[DLC]" —
+	// as opposed to the region, language and edition groups that tell two releases apart. The
+	// role has to come off before two discs of the same release can be recognised as siblings,
+	// and an exact list of phrases could not keep up: catalog rows carry free text such as
+	// "(Campaign Part 1 & Multiplayer)" and "(Additional Content Packs Install Disc)". Matching
+	// a role KEYWORD anywhere inside the group covers those; the groups that must survive
+	// ("(USA, Europe)", "(En,Fr,De)", "(Triple Pack)", "(Volume 1)") carry none of them.
+	discSubtitlePattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*[^)\]]*\b(?:disc|disk|dlc|campaign|multi-?play(?:er)?|single[- ]?play(?:er)?|co-?op|install(?:er|ation)?|bonus|voice\s*over|dysk\s+z\s+gra|spieldisc|disque\s+de\s+jeu|fukikaeban|jimakuban|igrovoj)\b[^)\]]*\s*[\)\]]`)
 )
 
 // DiscInfo represents parsed disc metadata from a catalog title.
@@ -108,16 +115,17 @@ func ExtractDiscInfo(name string) DiscInfo {
 		}
 	}
 
-	// 2. Check for disc subtitle
-	if m := discSubtitlePattern.FindString(name); m != "" {
+	// 2. Read the disc-role subtitle and the release title from the name with the disc-number
+	//    tag already removed. "(Disc 1)" is itself a group naming a disc role, so reading the
+	//    subtitle off the raw name would report the disc number as the role.
+	rel := discTagPattern.ReplaceAllString(name, "")
+	if m := discSubtitlePattern.FindString(rel); m != "" {
 		sub := strings.TrimSpace(m)
 		sub = strings.Trim(sub, "()[]")
 		info.Subtitle = strings.TrimSpace(sub)
 	}
 
-	// 3. Compute ReleaseTitle by removing disc tag and disc subtitle
-	rel := name
-	rel = discTagPattern.ReplaceAllString(rel, "")
+	// 3. Compute ReleaseTitle by removing the disc-role groups too
 	rel = discSubtitlePattern.ReplaceAllString(rel, "")
 	if info.DiscNumber > 0 && discTrailingPattern.MatchString(rel) {
 		rel = discTrailingPattern.ReplaceAllString(rel, "")

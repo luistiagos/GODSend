@@ -423,16 +423,21 @@ func (s *Service) TransferGame(godDir string, conn *models.XboxConnection, gameN
 }
 
 // TransferContent FTPs extracted content files to
-// {Drive}/Content/0000000000000000/{titleID}/00000002/ on the Xbox.
-func (s *Service) TransferContent(contentDir string, conn *models.XboxConnection, gameName, titleID string) error {
+// {Drive}/Content/0000000000000000/{titleID}/{typeDir}/ on the Xbox. typeDir is the
+// content-type folder the package header declares; an empty one means the 00000002 used by
+// secondary-disc installs.
+func (s *Service) TransferContent(contentDir string, conn *models.XboxConnection, gameName, titleID, typeDir string) error {
 	fc, err := s.ConnectWithRetry(conn.IP)
 	if err != nil {
 		return err
 	}
 	defer s.QuitConn(fc)
 
+	if typeDir == "" {
+		typeDir = "00000002"
+	}
 	drive := strings.TrimSuffix(conn.Drive, ":")
-	base := fmt.Sprintf("/%s/Content/0000000000000000/%s/00000002", drive, titleID)
+	base := fmt.Sprintf("/%s/Content/0000000000000000/%s/%s", drive, titleID, typeDir)
 	s.App.Logf("FTP Content Dest: %s", base)
 	MkdirAll(fc, base)
 
@@ -525,6 +530,7 @@ type PendingFTPJob struct {
 	MediaID      string    `json:"media_id,omitempty"`
 	ResolvedName string    `json:"resolved_name,omitempty"`
 	FolderName   string    `json:"folder_name,omitempty"` // xex only
+	TypeDir      string    `json:"type_dir,omitempty"`    // content only; empty means 00000002
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -583,7 +589,7 @@ func (s *Service) ExecutePendingFTPJob(job PendingFTPJob) error {
 			return err
 		}
 	case "content":
-		if err := s.TransferContent(job.SourceDir, conn, job.GameName, job.TitleID); err != nil {
+		if err := s.TransferContent(job.SourceDir, conn, job.GameName, job.TitleID, job.TypeDir); err != nil {
 			return err
 		}
 	default:

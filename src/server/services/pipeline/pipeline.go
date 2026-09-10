@@ -221,8 +221,11 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		} else {
 			return fmt.Errorf("No default.xex in archive — XEX needs a loose folder rip. Use GOD or DLC for ISO-only Redump releases.")
 		}
-		folderName = helpers.XEXFolderName(xexFolder, folderName)
+		folderName = xexDestinationName(xexFolder, folderName, gameName)
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
+		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
+			return err
+		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -263,13 +266,17 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	}
 
 	s.App.LogStatus(gameName, "Processing", "Extracting ISO...")
-	isoPath, err := s.extractISOResilient(gameName, safeName, archivePath, filepath.Join(s.App.TempDir))
+	isoPath, isoExtDir, err := s.extractISOResilient(gameName, safeName, archivePath, filepath.Join(s.App.TempDir))
 	if xboxConn == nil || xboxConn.Mode != "local" {
 		os.Remove(archivePath)
 	}
 	if err != nil {
 		s.App.Logf("ERROR [%s]: Extract failed: %v", gameName, err)
 		return fmt.Errorf("Extract failed: %w", err)
+	}
+	// The archive may carry the rest of the release beside the ISO; nothing below installs it.
+	if err := s.installCompanionDiscContent(gameName, isoExtDir, "", xboxConn); err != nil {
+		return err
 	}
 	installType, err = s.resolveISOInstallType(gameName, isoPath, installType)
 	if err != nil {

@@ -63,7 +63,7 @@ func (s *Service) processContentInstallFromISO(gameName, safeName, isoPath strin
 
 	if xboxConn != nil && xboxConn.Mode == "ftp" {
 		s.App.LogStatus(gameName, "Processing", "FTP Transfer starting...")
-		if err := s.FTP.TransferContent(contentDir, xboxConn, gameName, titleID); err != nil {
+		if err := s.FTP.TransferContent(contentDir, xboxConn, gameName, titleID, "00000002"); err != nil {
 			s.App.Logf("FTP: initial content transfer failed for %s: %v — scheduling for retry", gameName, err)
 			gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
 			job := ftp.PendingFTPJob{
@@ -84,7 +84,7 @@ func (s *Service) processContentInstallFromISO(gameName, safeName, isoPath strin
 		s.App.LogFTPComplete(gameName, titleID, xboxConn.IP)
 	} else if xboxConn != nil && xboxConn.Mode == "local" {
 		s.App.LogStatus(gameName, "Processing", "Gravando no dispositivo...")
-		if err := s.InstallContentLocal(contentDir, xboxConn.LocalRoot, gameName, titleID); err != nil {
+		if err := s.InstallContentLocal(contentDir, xboxConn.LocalRoot, gameName, titleID, "00000002"); err != nil {
 			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Gravação local: %v", err))
 			return fmt.Errorf("gravacao local: %w", err)
 		}
@@ -194,8 +194,11 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 		} else {
 			return fmt.Errorf("XEX install needs a loose game folder in the archive. Try GOD (ISO) or DLC (Disc 2 content ISO).")
 		}
-		folderName = helpers.XEXFolderName(xexFolder, folderName)
+		folderName = xexDestinationName(xexFolder, folderName, gameName)
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
+		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
+			return err
+		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -243,6 +246,11 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 
 	// GOD (default): ISO → Games on Demand.
 	if isoPath != "" {
+		// The archive may carry the install disc beside the ISO; the GOD conversion below
+		// only ever reads the ISO.
+		if err := s.installCompanionDiscContent(gameName, extDir, "", xboxConn); err != nil {
+			return err
+		}
 		godDir := filepath.Join(s.outputRoot(gameName), safeName+"_GOD")
 		return s.convertAndFinalizeGODResilient(gameName, safeName, gameDir, isoPath, godDir, xboxConn)
 	}
