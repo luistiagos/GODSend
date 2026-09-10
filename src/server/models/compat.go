@@ -74,7 +74,15 @@ var (
 	// "(Campaign Part 1 & Multiplayer)" and "(Additional Content Packs Install Disc)". Matching
 	// a role KEYWORD anywhere inside the group covers those; the groups that must survive
 	// ("(USA, Europe)", "(En,Fr,De)", "(Triple Pack)", "(Volume 1)") carry none of them.
-	discSubtitlePattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*[^)\]]*\b(?:disc|disk|dlc|campaign|multi-?play(?:er)?|single[- ]?play(?:er)?|co-?op|install(?:er|ation)?|bonus|voice\s*over|dysk\s+z\s+gra|spieldisc|disque\s+de\s+jeu|fukikaeban|jimakuban|igrovoj)\b[^)\]]*\s*[\)\]]`)
+	//
+	// The second branch — "play" or "game" as the WHOLE group — exists because the two words are
+	// disc roles only when they stand alone. Grand Theft Auto V ships as "(Disc 1) (Install)" and
+	// "(Disc 2) (Play)", and the keyword branch strips "(Install)" while leaving "(Play)", so the
+	// two halves of the same release produced different titles and only the clicked one was
+	// downloaded. Requiring the whole group keeps the release names that merely contain the words
+	// — "(Sega Game Toshokan)", "(Game no Kanzume Vol. 1)", "(Required for Play)" — intact; those
+	// name a product, and merging them would queue two unrelated games as discs of each other.
+	discSubtitlePattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:[^)\]]*\b(?:disc|disk|dlc|campaign|multi-?play(?:er)?|single[- ]?play(?:er)?|co-?op|install(?:er|ation)?|bonus|voice\s*over|dysk\s+z\s+gra|spieldisc|disque\s+de\s+jeu|fukikaeban|jimakuban|igrovoj)\b[^)\]]*|play|game)\s*[\)\]]`)
 )
 
 // DiscInfo represents parsed disc metadata from a catalog title.
@@ -103,7 +111,10 @@ func ExtractDiscInfo(name string) DiscInfo {
 			info.DiscNumber = byte(n)
 			info.IsMultiDisc = true
 			if len(m) > 2 && m[2] != "" {
-				if total, err := strconv.Atoi(m[2]); err == nil {
+				// Range-checked like the disc number above, and for a sharper reason: the count
+				// is the upper bound of the 1..N loop in MissingDiscNumbers, and byte(300) is
+				// 44 while byte(255) makes that loop wrap 255→0 and never end.
+				if total, err := strconv.Atoi(m[2]); err == nil && total > 0 && total <= 20 {
 					info.DiscCount = byte(total)
 				}
 			}
@@ -207,6 +218,65 @@ func FindCompanionDiscs(gameName string, catalog []string) []string {
 		result[i] = m.name
 	}
 	return result
+}
+
+// MissingDiscNumbers lists the discs of primaryGame's release that no row in companions
+// supplies — the result of FindCompanionDiscs over the catalogs actually available. It returns
+// nil for a single-disc game and for a release whose discs already form a complete 1..N.
+//
+// A catalog row labelled "Disc 1" is never a one-disc release, so a lone Disc 1 counts as
+// incomplete exactly like a lone Disc 2; it simply cannot say how many discs are missing, and
+// the floor of 2 reports the one disc that certainly exists.
+//
+// The queue path and the browse view both read completeness from here: a release the browse
+// view calls complete must be the same release the queue can finish, or the warning shown
+// before the download would contradict the one shown on delivery.
+func MissingDiscNumbers(primaryGame string, companions []string) []int {
+	info := ExtractDiscInfo(primaryGame)
+	if !info.IsMultiDisc {
+		return nil
+	}
+	found := map[byte]bool{}
+	if info.DiscNumber > 0 {
+		found[info.DiscNumber] = true
+	}
+	for _, name := range companions {
+		if n := ExtractDiscInfo(name).DiscNumber; n > 0 {
+			found[n] = true
+		}
+	}
+	// The "of N" is a property of the release, not of the disc that happens to be the primary:
+	// Redump declares it on some rows and omits it on others, so reading it off the clicked disc
+	// alone would call the same release complete or incomplete depending on which half was
+	// clicked, and the browse view cannot know in advance which one that will be.
+	expected := byte(DeclaredDiscCount(append([]string{primaryGame}, companions...)))
+	for n := range found {
+		if n > expected {
+			expected = n
+		}
+	}
+	if expected < 2 {
+		expected = 2
+	}
+	var missing []int
+	for n := byte(1); n <= expected; n++ {
+		if !found[n] {
+			missing = append(missing, int(n))
+		}
+	}
+	return missing
+}
+
+// DeclaredDiscCount returns the highest "of N" any of the names declares ("(Disc 1 of 3)"),
+// or 0 when no row in the release says how many discs it has.
+func DeclaredDiscCount(names []string) int {
+	count := 0
+	for _, name := range names {
+		if c := int(ExtractDiscInfo(name).DiscCount); c > count {
+			count = c
+		}
+	}
+	return count
 }
 
 type titleNameHint struct {

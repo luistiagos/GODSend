@@ -263,6 +263,93 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 }
 
+// handleBrowseReleases groups the catalog's multi-disc rows into releases so the browse view
+// reads disc membership from the same code the queue uses, instead of re-deriving it from the
+// names. The two used to disagree, and the view was the worse of the pair: its parser required
+// the literal word "Disc" inside the role group and never looked at bracketed tags, so it split
+// "(Disc 1) (Install)" from "(Disc 2) (Play)" and offered each half as a separate one-disc
+// version of the game — the user picked one and half the release was downloaded.
+//
+// A release is returned when the queue would treat it as more than one download; a name absent
+// from the response is a one-disc game as far as the view is concerned. Membership is whatever
+// FindCompanionDiscs answers, which matches on the release title alone — so a row with no
+// "(Disc N)" belongs to the release just the same, and filtering by the disc tag would hide
+// discs the queue goes and fetches. The view has no offline path to fall back to — the catalog
+// it is displaying came from this same server — so there is no second parser to keep in sync.
+func (d *Deps) handleBrowseReleases(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	platform := r.URL.Query().Get("platform")
+	if platform == "" {
+		jsonError(w, 400, "Missing platform parameter")
+		return
+	}
+	type discEntry struct {
+		Name       string `json:"name"`
+		DiscNumber int    `json:"disc_number"`
+		Subtitle   string `json:"subtitle,omitempty"`
+	}
+	type releaseEntry struct {
+		ReleaseTitle string      `json:"release_title"`
+		Discs        []discEntry `json:"discs"`
+		DiscCount    int         `json:"disc_count"`
+		MissingDiscs []int       `json:"missing_discs"`
+		Warning      string      `json:"warning,omitempty"`
+	}
+
+	// Grouped over the WHOLE catalog, not just the rows carrying a disc tag. FindCompanionDiscs
+	// matches on the release title alone, so a row with no "(Disc N)" — "Call of Duty - Advanced
+	// Warfare (USA, Europe) (Install Disc)" and its "(Game Disc)" sibling, or the untagged
+	// Dragon's Dogma rows beside the tagged ones — is a disc the queue will fetch. Filtering
+	// them out here made the view promise fewer discs than /trigger delivers.
+	seen := map[string]bool{}
+	var order []string
+	groups := map[string][]string{}
+	for _, name := range d.companionCatalog(platform) {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		key := strings.ToLower(models.ExtractReleaseTitle(name))
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], name)
+	}
+
+	releases := make([]releaseEntry, 0, len(order))
+	for _, key := range order {
+		names := groups[key]
+		// FindCompanionDiscs is what /trigger actually enqueues, so it decides membership and
+		// order here too: the view must never list a disc the queue would not go and fetch, nor
+		// hide one it would. Its own rules apply — an empty release title groups nothing.
+		members := models.FindCompanionDiscs(names[0], names)
+		if len(members) < 2 && !models.ExtractDiscInfo(members[0]).IsMultiDisc {
+			// One row, no disc tag: an ordinary one-disc game, which the view infers from the
+			// name's absence here.
+			continue
+		}
+		discs := make([]discEntry, 0, len(members))
+		for _, n := range members {
+			info := models.ExtractDiscInfo(n)
+			discs = append(discs, discEntry{Name: n, DiscNumber: int(info.DiscNumber), Subtitle: info.Subtitle})
+		}
+		missing := models.MissingDiscNumbers(names[0], members)
+		entry := releaseEntry{
+			ReleaseTitle: models.ExtractReleaseTitle(names[0]),
+			Discs:        discs,
+			DiscCount:    models.DeclaredDiscCount(members),
+			MissingDiscs: missing,
+		}
+		if len(missing) > 0 {
+			entry.Warning = incompleteReleaseWarning(missing, entry.DiscCount)
+		}
+		releases = append(releases, entry)
+	}
+
+	d.App.Logf("BROWSE RELEASES: %s -> %d lancamentos multidisco", platform, len(releases))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"releases": releases})
+}
+
 func (d *Deps) handleCacheStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	type platformStatus struct {
 		State  string `json:"state"`
@@ -641,29 +728,38 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	jsonSuccess(w, map[string]string{"status": "triggered", "source": "internet_archive"})
 }
 
+// companionCatalog is every game name a companion disc could be found under for one platform:
+// the three provider caches plus, for disc platforms, the ISOs already in the Transfer folder.
+// The browse view groups discs from this same list, so a release the user is shown as complete
+// is a release the queue can actually finish.
+func (d *Deps) companionCatalog(plat string) []string {
+	var catalog []string
+	d.App.IAGameCacheMu.RLock()
+	if list, ok := d.App.IAGameCache["hf_"+plat]; ok && len(list) > 0 {
+		catalog = append(catalog, list...)
+	}
+	if list, ok := d.App.IAGameCache[plat]; ok && len(list) > 0 {
+		catalog = append(catalog, list...)
+	}
+	d.App.IAGameCacheMu.RUnlock()
+
+	d.App.MinervaGameCacheMu.RLock()
+	if list, ok := d.App.MinervaGameCache[plat]; ok && len(list) > 0 {
+		for _, mName := range list {
+			catalog = append(catalog, helpers.DecodeMinervaName(mName))
+		}
+	}
+	d.App.MinervaGameCacheMu.RUnlock()
+
+	if plat == "local" || plat == "xbox360" || plat == "xbox" {
+		catalog = append(catalog, d.Local.ScanTransferFolder()...)
+	}
+	return catalog
+}
+
 func (d *Deps) enqueueCompanions(primaryGame, plat, src, inst, priorityParam string) {
 	go func() {
-		var catalog []string
-		d.App.IAGameCacheMu.RLock()
-		if list, ok := d.App.IAGameCache["hf_"+plat]; ok && len(list) > 0 {
-			catalog = append(catalog, list...)
-		}
-		if list, ok := d.App.IAGameCache[plat]; ok && len(list) > 0 {
-			catalog = append(catalog, list...)
-		}
-		d.App.IAGameCacheMu.RUnlock()
-
-		d.App.MinervaGameCacheMu.RLock()
-		if list, ok := d.App.MinervaGameCache[plat]; ok && len(list) > 0 {
-			for _, mName := range list {
-				catalog = append(catalog, helpers.DecodeMinervaName(mName))
-			}
-		}
-		d.App.MinervaGameCacheMu.RUnlock()
-
-		if plat == "local" || plat == "xbox360" || plat == "xbox" {
-			catalog = append(catalog, d.Local.ScanTransferFolder()...)
-		}
+		catalog := d.companionCatalog(plat)
 
 		companions := models.FindCompanionDiscs(primaryGame, catalog)
 		d.recordReleaseCompleteness(primaryGame, companions)
@@ -742,36 +838,10 @@ func (d *Deps) enqueueCompanions(primaryGame, plat, src, inst, priorityParam str
 // install the wrong one; the point is that the user is told, instead of finding out on the
 // console. LogStatus appends the warning to whatever message reports the delivery.
 func (d *Deps) recordReleaseCompleteness(primaryGame string, companions []string) {
-	info := models.ExtractDiscInfo(primaryGame)
-	if !info.IsMultiDisc {
+	if !models.ExtractDiscInfo(primaryGame).IsMultiDisc {
 		return
 	}
-	found := map[byte]bool{}
-	if info.DiscNumber > 0 {
-		found[info.DiscNumber] = true
-	}
-	for _, name := range companions {
-		if n := models.ExtractDiscInfo(name).DiscNumber; n > 0 {
-			found[n] = true
-		}
-	}
-	expected := info.DiscCount
-	for n := range found {
-		if n > expected {
-			expected = n
-		}
-	}
-	// A catalog row labelled "Disc 1" is never a one-disc release, so a lone Disc 1 is just as
-	// incomplete as a lone Disc 2 — it simply cannot say how many discs are missing.
-	if expected < 2 {
-		expected = 2
-	}
-	var missing []string
-	for n := byte(1); n <= expected; n++ {
-		if !found[n] {
-			missing = append(missing, strconv.Itoa(int(n)))
-		}
-	}
+	missing := models.MissingDiscNumbers(primaryGame, companions)
 	if len(missing) == 0 {
 		d.App.IncompleteRelease.Delete(primaryGame)
 		for _, name := range companions {
@@ -779,17 +849,28 @@ func (d *Deps) recordReleaseCompleteness(primaryGame string, companions []string
 		}
 		return
 	}
-	warning := fmt.Sprintf("ATENCAO: faltou o disco %s deste lancamento, que nao esta em nenhum catalogo disponivel. O jogo pode nao iniciar sem ele.",
-		strings.Join(missing, " e o "))
-	if info.DiscCount > 0 {
-		warning = fmt.Sprintf("ATENCAO: este lancamento tem %d discos e faltou o disco %s, que nao esta em nenhum catalogo disponivel. O jogo pode nao iniciar sem ele.",
-			info.DiscCount, strings.Join(missing, " e o "))
-	}
-	d.App.Logf("MULTI-DISC INCOMPLETO [%s]: discos encontrados=%v, faltando=%v", primaryGame, found, missing)
+	warning := incompleteReleaseWarning(missing, models.DeclaredDiscCount(companions))
+	d.App.Logf("MULTI-DISC INCOMPLETO [%s]: faltando=%v", primaryGame, missing)
 	d.App.IncompleteRelease.Store(primaryGame, warning)
 	for _, name := range companions {
 		d.App.IncompleteRelease.Store(name, warning)
 	}
+}
+
+// incompleteReleaseWarning phrases the missing discs of a release. The browse view shows this
+// before the download starts and LogStatus appends it on delivery; both read it from here so a
+// user who confirms the warning up front is not told something different hours later.
+func incompleteReleaseWarning(missing []int, declaredCount int) string {
+	labels := make([]string, len(missing))
+	for i, n := range missing {
+		labels[i] = strconv.Itoa(n)
+	}
+	if declaredCount > 0 {
+		return fmt.Sprintf("ATENCAO: este lancamento tem %d discos e faltou o disco %s, que nao esta em nenhum catalogo disponivel. O jogo pode nao iniciar sem ele.",
+			declaredCount, strings.Join(labels, " e o "))
+	}
+	return fmt.Sprintf("ATENCAO: faltou o disco %s deste lancamento, que nao esta em nenhum catalogo disponivel. O jogo pode nao iniciar sem ele.",
+		strings.Join(labels, " e o "))
 }
 
 func (d *Deps) handleStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {

@@ -19,6 +19,7 @@ func (d *Deps) NewRouter() *stdhttp.ServeMux {
 
 	// Core game endpoints
 	mux.HandleFunc("/browse", d.wrap(d.handleBrowse))
+	mux.HandleFunc("/browse/releases", d.wrap(d.handleBrowseReleases))
 	mux.HandleFunc("/cache-status", d.wrap(d.handleCacheStatus))
 	mux.HandleFunc("/cache-refresh", d.wrap(d.handleCacheRefresh))
 	mux.HandleFunc("/trigger", d.wrap(d.handleTrigger))

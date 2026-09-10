@@ -5,6 +5,7 @@ The backend listens on port `8080` by default (configurable via Electron `Backen
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/browse?platform=<p>` | Game list (pipe-separated); `platform` includes `xbox360`, `xbox`, `xbla`, `digital`, `dlc`, `xblig`, `games`, `local`, `rom_<sysid>`. Optional `source=minerva\|ia` limits the list to one catalog when both are merged by default. |
+| GET | `/browse/releases?platform=<p>` | Multi-disc releases of that platform's catalog, as JSON: `release_title`, the `discs` that belong to it, `disc_count`, `missing_discs` and a ready-made `warning`. Grouping comes from the same code `/trigger` uses to enqueue companion discs, so the browse view never lists a disc the queue would not fetch. Names absent from the response are one-disc games. |
 | GET | `/status?game=<name>` | Poll job state: `Idle`, `Processing`, `Ready`, `Error`, `Missing` |
 | GET | `/queue` | List all active and completed jobs; jobs left unfinished by a previous session are restored here at startup from `pending_queue/` |
 | GET | `/trigger?game=<name>&platform=<p>` | Start processing a game (Aurora uses GET). When the title is one disc of a multi-disc release, the companion discs of the same release title in the active catalog are enqueued too, on every source path (`unified`, `huggingface`, `ia`, `minerva`, local Transfer ISO). Requeueing a disc that is already queued replaces the older launch instead of duplicating it. |

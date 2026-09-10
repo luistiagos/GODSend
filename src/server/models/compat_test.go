@@ -317,6 +317,21 @@ func TestReleaseTitleGroupsDiscsThatCarryARoleLabel(t *testing.T) {
 			"Grand Theft Auto 5 [RF][DVD1]",
 			"Grand Theft Auto 5 [RF][DVD2]",
 		},
+		// The role word standing alone as the whole group. Redump names Grand Theft Auto V's two
+		// halves "(Install)" and "(Play)": the keyword branch strips the first and left the
+		// second, so the release split in two and only the clicked disc was downloaded.
+		{
+			"Grand Theft Auto V (World) (En,Fr,De,Es,It,Pt,Zh,Ko,Pl,Ru) (Disc 1) (Install)",
+			"Grand Theft Auto V (World) (En,Fr,De,Es,It,Pt,Zh,Ko,Pl,Ru) (Disc 2) (Play)",
+		},
+		{
+			"Grand Theft Auto V (Japan) (En,Ja) (Disc 1) (Install)",
+			"Grand Theft Auto V (Japan) (En,Ja) (Disc 2) (Play)",
+		},
+		{
+			"Resident Evil 6 (World) (En,Ja,Fr,De,Es,It,Pt,Pl,Ru) (Disc 1) (Game)",
+			"Resident Evil 6 (World) (En,Ja,Fr,De,Es,It,Pt,Pl,Ru) (Disc 2)",
+		},
 	}
 	for _, p := range pairs {
 		a, b := ExtractReleaseTitle(p[0]), ExtractReleaseTitle(p[1])
@@ -346,6 +361,21 @@ func TestReleaseTitleKeepsWhatTellsReleasesApart(t *testing.T) {
 			"Some Game (USA) (Triple Pack) (Disc 1)",
 			"Some Game (USA) (Volume 1) (Disc 1)",
 		},
+		// "play" and "game" name a disc role only when they are the whole group. These rows
+		// merely contain the words inside a product name, and merging them would queue two
+		// unrelated games as discs of each other.
+		{
+			"Sonic (Japan) (Sega Game Toshokan) (Disc 1)",
+			"Sonic (Japan) (Disc 1)",
+		},
+		{
+			"Kanzume (Japan) (Game no Kanzume Vol. 1) (Disc 1)",
+			"Kanzume (Japan) (Game no Kanzume Vol. 2) (Disc 1)",
+		},
+		{
+			"Shadow of Mordor - Game Data (Required For Play) (World) (Disc 1)",
+			"Shadow of Mordor - Game Data (World) (Disc 1)",
+		},
 	}
 	for _, p := range distinct {
 		if a, b := ExtractReleaseTitle(p[0]), ExtractReleaseTitle(p[1]); a == b {
@@ -368,5 +398,50 @@ func TestExtractDiscInfoSubtitleIsTheRoleNotTheNumber(t *testing.T) {
 	}
 	if info.DiscNumber != 2 {
 		t.Errorf("DiscNumber: esperado 2, obtido %d", info.DiscNumber)
+	}
+}
+
+// TestMissingDiscNumbersDoesNotDependOnWhichDiscIsPrimary is the invariant the browse view
+// relies on: it has to say "this release is incomplete" before the user picks a disc, so the
+// verdict cannot change depending on which half of the release is passed as the primary.
+// Redump declares the "of N" on some rows and omits it on others, which is exactly how that
+// used to happen.
+func TestMissingDiscNumbersDoesNotDependOnWhichDiscIsPrimary(t *testing.T) {
+	set := []string{
+		"Some Game (USA) (Disc 1 of 3)",
+		"Some Game (USA) (Disc 2)",
+	}
+	for _, primary := range set {
+		missing := MissingDiscNumbers(primary, set)
+		if len(missing) != 1 || missing[0] != 3 {
+			t.Errorf("MissingDiscNumbers(%q) = %v; esperado [3] para os dois discos", primary, missing)
+		}
+	}
+	if got := DeclaredDiscCount(set); got != 3 {
+		t.Errorf("DeclaredDiscCount = %d; esperado 3 (declarado em uma linha so)", got)
+	}
+}
+
+// TestMissingDiscNumbersOnCompleteAndLoneReleases pins the two ends of the range: a release
+// whose discs form 1..N is complete, and a single row labelled "Disc 1" is not a one-disc
+// release — a catalog never labels a lone disc.
+func TestMissingDiscNumbersOnCompleteAndLoneReleases(t *testing.T) {
+	complete := []string{
+		"Grand Theft Auto V (World) (En,Fr) (Disc 1) (Install)",
+		"Grand Theft Auto V (World) (En,Fr) (Disc 2) (Play)",
+	}
+	if missing := MissingDiscNumbers(complete[1], FindCompanionDiscs(complete[1], complete)); len(missing) != 0 {
+		t.Errorf("lançamento completo reportado incompleto: faltando=%v", missing)
+	}
+	lone1 := "Halo 3 - Essentials (Spain) (Disc 1)"
+	if missing := MissingDiscNumbers(lone1, []string{lone1}); len(missing) != 1 || missing[0] != 2 {
+		t.Errorf("MissingDiscNumbers(%q) = %v; esperado [2]", lone1, missing)
+	}
+	lone2 := "Dishonored - Game of the Year Edition (Japan) (Disc 2)"
+	if missing := MissingDiscNumbers(lone2, []string{lone2}); len(missing) != 1 || missing[0] != 1 {
+		t.Errorf("MissingDiscNumbers(%q) = %v; esperado [1]", lone2, missing)
+	}
+	if missing := MissingDiscNumbers("Halo 4 (World) (En,Ja)", nil); missing != nil {
+		t.Errorf("jogo de um disco so não pode reportar disco faltando: %v", missing)
 	}
 }

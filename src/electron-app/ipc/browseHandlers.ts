@@ -54,6 +54,22 @@ export function register(ipcMain: IpcMain): void {
     }
   });
 
+  // ── Multi-disc release grouping, computed by the Go backend ────────────────
+  // The browse view used to derive disc membership from the catalog names itself, with a
+  // parser that had drifted from the backend's: it required the literal word "Disc" inside
+  // the role group and ignored bracketed tags, so "(Disc 1) (Install)" and "(Disc 2) (Play)"
+  // became two separate one-disc versions of the same game and only the clicked half was
+  // downloaded. Grouping now comes from the same code /trigger uses to enqueue companions.
+  ipcMain.handle("browse:get-release-groups", async (_event, { platform }) => {
+    try {
+      const data = await backendGet(`/browse/releases?platform=${encodeURIComponent(platform)}`);
+      const parsed = JSON.parse(data);
+      return { ok: true, releases: Array.isArray(parsed.releases) ? parsed.releases : [] };
+    } catch (err: any) {
+      return { ok: false, error: err.message, releases: [] };
+    }
+  });
+
   // ── Queue a game or disc set (register → trigger on Go backend) ───────────
   // destinationType: "local" writes directly to a mounted drive on this PC
   // (localRoot, e.g. a prepared pendrive); "ftp" (default) transfers to a console.

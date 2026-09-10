@@ -200,7 +200,36 @@ export interface ReleaseGroup {
   discs: ParsedDiscGame[];
   isMultiDisc: boolean;
   totalDiscs: number;
+  /** Discs of this release that no catalog supplies, straight from the backend. */
+  missingDiscs: number[];
+  /** Ready-made sentence for the missing discs; the same one the delivery message carries. */
+  warning?: string;
 }
+
+/** One multi-disc release as /browse/releases describes it. */
+interface BackendRelease {
+  release_title: string;
+  discs: { name: string; disc_number: number; subtitle?: string }[];
+  disc_count: number;
+  missing_discs: number[] | null;
+  warning?: string;
+}
+
+/** What the backend knows about one catalog name that belongs to a multi-disc release. */
+interface DiscMembership {
+  releaseTitle: string;
+  discNumber: number;
+  subtitle?: string;
+  release: BackendRelease;
+}
+
+/**
+ * Whether the disc grouping for the shown catalog arrived. "failed" is not the same as "no
+ * multi-disc release here": with no grouping every name looks like a one-disc game, which is
+ * exactly the silent half-download this whole path exists to prevent — so the queue dialog
+ * refuses rather than guessing.
+ */
+type DiscMembershipState = "loading" | "ready" | "failed";
 
 export interface CatalogGameItem {
   displayTitle: string;
@@ -226,6 +255,10 @@ interface QueueDialogProps {
   onQueue?: () => void;
   simpleMode?: boolean;
   onXboxConfigured?: () => void;
+  /** Whether the disc grouping for this catalog is in yet. */
+  discInfoState: DiscMembershipState;
+  /** Re-fetch the grouping after a failure. */
+  onRetryDiscInfo: () => void;
 }
 
 function QueueDialog({
@@ -241,6 +274,8 @@ function QueueDialog({
   onClose,
   simpleMode = true,
   onXboxConfigured,
+  discInfoState,
+  onRetryDiscInfo,
 }: QueueDialogProps) {
   const hasMethods = source === "local" || (PLATFORMS.find((p) => p.id === platform)?.methods ?? false);
   const destinations = buildDestinations(localDrives, defaultDrive, drives);
@@ -259,6 +294,15 @@ function QueueDialog({
   }, [releaseGroup, game]);
 
   const isMultiDiscGame = (releaseGroup && releaseGroup.discs.length > 1) || discsToQueue.length > 1;
+
+  // A release whose missing disc no catalog carries. Around a third of the multi-disc rows are
+  // in this state — a region variant whose companion was never listed — and matching across
+  // regions would install the wrong disc, so nothing here can complete it. What it must not do
+  // is start a download of several gigabytes that ends in a game the console will not boot
+  // without saying so first.
+  const missingDiscs = releaseGroup?.missingDiscs ?? [];
+  const isIncompleteRelease = missingDiscs.length > 0;
+  const [acceptedIncomplete, setAcceptedIncomplete] = useState(false);
 
   // Check if this game is already installed on the selected destination drive
   const isAlreadyOnSelectedDest = useMemo(() => {
@@ -321,6 +365,14 @@ function QueueDialog({
   async function handleQueue() {
     if (!selectedDest) {
       setResult({ ok: false, error: "Selecione um destino (pendrive preparado ou console via FTP)." });
+      return;
+    }
+    if (discInfoState !== "ready") {
+      setResult({ ok: false, error: "Aguarde a leitura dos discos deste lançamento antes de baixar." });
+      return;
+    }
+    if (isIncompleteRelease && !acceptedIncomplete) {
+      setResult({ ok: false, error: "Confirme que entendeu o aviso sobre o disco que falta antes de baixar." });
       return;
     }
     setQueuing(true);
@@ -410,6 +462,56 @@ function QueueDialog({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* The grouping never arrived. Queueing now would send whichever single name was
+            clicked, and a two-disc release would silently arrive as one disc — the exact
+            failure this path exists to prevent, so it refuses instead of guessing. */}
+        {discInfoState === "failed" && !queued && (
+          <div className="bg-destructive/10 border border-destructive/40 rounded-lg p-2.5 flex flex-col gap-1.5">
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-destructive">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Não foi possível verificar os discos deste jogo
+            </span>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              O servidor local não respondeu quais discos formam este lançamento. Baixar agora
+              poderia trazer só um disco de um jogo que precisa de dois.
+            </p>
+            <Button variant="outline" size="sm" className="h-7 text-[10px] self-start" onClick={onRetryDiscInfo}>
+              <RefreshCw className="h-3 w-3 mr-1.5" />Tentar novamente
+            </Button>
+          </div>
+        )}
+
+        {/* Incomplete release — the missing disc is in no catalog, so this has to be said
+            before the download starts, not in the delivery message hours later. */}
+        {isIncompleteRelease && !queued && (
+          <div className="bg-destructive/10 border border-destructive/40 rounded-lg p-2.5 flex flex-col gap-1.5">
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-destructive">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Lançamento incompleto — falta o disco {missingDiscs.join(" e o ")}
+            </span>
+            <p className="text-[10px] text-foreground/80 leading-snug">
+              {releaseGroup?.warning
+                ?? `O disco ${missingDiscs.join(" e o ")} deste lançamento não está em nenhum catálogo disponível.`}
+            </p>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              Baixar só {discsToQueue.length === 1 ? "este disco" : "estes discos"} costuma resultar num jogo
+              que não inicia no console. Nenhum catálogo tem o disco que falta sob um título compatível — o de
+              outra região instalaria o jogo errado.
+            </p>
+            <label className="flex items-start gap-2 mt-0.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={acceptedIncomplete}
+                onChange={(e) => setAcceptedIncomplete(e.target.checked)}
+                className="mt-0.5 h-3 w-3 shrink-0 accent-destructive cursor-pointer"
+              />
+              <span className="text-[10px] font-medium text-foreground/90 leading-snug">
+                Entendi e quero baixar assim mesmo
+              </span>
+            </label>
           </div>
         )}
 
@@ -567,16 +669,22 @@ function QueueDialog({
         {!queued ? (
           <Button
             className="w-full font-semibold"
-            disabled={queuing}
+            disabled={queuing || discInfoState !== "ready" || (isIncompleteRelease && !acceptedIncomplete)}
             onClick={handleQueue}
           >
             {queuing
               ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Enfileirando {discsToQueue.length > 1 ? `${discsToQueue.length} discos…` : "…"}</>
-              : isAlreadyOnSelectedDest
-                ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila novamente</>
-                : isMultiDiscGame
-                  ? <><Download className="h-3.5 w-3.5 mr-1.5" />Baixar todos os {discsToQueue.length} discos</>
-                  : <><Download className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila</>
+              : discInfoState === "loading"
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Verificando os discos deste jogo…</>
+                : discInfoState === "failed"
+                ? <><AlertTriangle className="h-3.5 w-3.5 mr-1.5" />Discos não verificados</>
+                : isIncompleteRelease && !acceptedIncomplete
+                ? <><AlertTriangle className="h-3.5 w-3.5 mr-1.5" />Confirme o aviso acima para continuar</>
+                : isAlreadyOnSelectedDest
+                  ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila novamente</>
+                  : isMultiDiscGame
+                    ? <><Download className="h-3.5 w-3.5 mr-1.5" />Baixar todos os {discsToQueue.length} discos</>
+                    : <><Download className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila</>
             }
           </Button>
         ) : (
@@ -826,10 +934,13 @@ function XboxDiscoveryModal({ onClose, onSuccess }: XboxDiscoveryModalProps) {
 
 // ── Helpers & Version Selection dialog ────────────────────────────────────────
 
-const DISC_TAG_REGEX = /\s*\((?:Disc|Disk|CD|DVD)\s*(\d+)(?:\s+of\s+(\d+))?\)/i;
-const DISC_TRAILING_REGEX = /(?:[-_\s]+)?\b(?:Disc|Disk|CD|DVD)\s*(\d+)(?:\s+of\s+(\d+))?$/i;
-const DISC_SUBTITLE_REGEX = /\s*\((Installation|Install|Game|Single-player|Multiplayer|Play|Bonus|Cinematic|Data)\s*Disc\)/i;
-const DISC_SUBTITLE_TRAILING_REGEX = /(?:[-_\s]+)?\b(Installation|Install|Game|Single-player|Multiplayer|Play|Bonus|Cinematic|Data)\s*Disc$/i;
+// Disc numbers, release titles and disc membership are NOT parsed here. They come from
+// /browse/releases, which runs the same code /trigger uses to enqueue companion discs. The
+// parser that used to live here had drifted from it — it demanded the literal word "Disc"
+// inside the role group and never looked at bracketed tags — and on the packaged Xbox 360
+// catalogs it left 172 releases holding a single disc where the backend left 85. The view has
+// no offline mode to justify a second implementation: the catalog on screen came from that
+// same server.
 
 function getBaseTitle(raw: string): string {
   return raw
@@ -839,66 +950,6 @@ function getBaseTitle(raw: string): string {
     .trim();
 }
 
-export function parseDiscGame(raw: string): ParsedDiscGame {
-  let discNumber = 1;
-  let discTotal: number | undefined;
-  let subtitle: string | undefined;
-  let isMulti = false;
-
-  const m1 = raw.match(DISC_TAG_REGEX);
-  if (m1) {
-    discNumber = parseInt(m1[1], 10) || 1;
-    if (m1[2]) discTotal = parseInt(m1[2], 10);
-    isMulti = true;
-  } else {
-    const m2 = raw.match(DISC_TRAILING_REGEX);
-    if (m2) {
-      discNumber = parseInt(m2[1], 10) || 1;
-      if (m2[2]) discTotal = parseInt(m2[2], 10);
-      isMulti = true;
-    }
-  }
-
-  const mSub = raw.match(DISC_SUBTITLE_REGEX);
-  if (mSub) {
-    subtitle = mSub[1] + " Disc";
-    isMulti = true;
-    if (!m1) {
-      const lower = mSub[1].toLowerCase();
-      if (lower === "install" || lower === "installation") {
-        discNumber = 1;
-      } else if (lower === "game" || lower === "play") {
-        discNumber = 2;
-      }
-    }
-  } else {
-    const mSub2 = raw.match(DISC_SUBTITLE_TRAILING_REGEX);
-    if (mSub2) {
-      subtitle = mSub2[1] + " Disc";
-      isMulti = true;
-    }
-  }
-
-  const releaseTitle = raw
-    .replace(DISC_TAG_REGEX, "")
-    .replace(DISC_SUBTITLE_REGEX, "")
-    .replace(DISC_TRAILING_REGEX, "")
-    .replace(DISC_SUBTITLE_TRAILING_REGEX, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const baseTitle = getBaseTitle(releaseTitle);
-
-  return {
-    rawName: raw,
-    baseTitle,
-    releaseTitle,
-    discNumber,
-    discTotal,
-    subtitle,
-    isMultiDisc: isMulti,
-  };
-}
 
 function getComparisonKey(baseTitle: string): string {
   let key = baseTitle.toLowerCase();
@@ -993,9 +1044,16 @@ function VersionSelectDialog({ baseTitle, releases, onClose, onSelect }: Version
                 )}
               >
                 <span>{rel.releaseTitle}</span>
-                {rel.isMultiDisc && rel.totalDiscs > 1 && (
+                {rel.isMultiDisc && rel.totalDiscs > 1 && rel.missingDiscs.length === 0 && (
                   <span className="inline-flex items-center gap-1 text-[9.5px] text-primary font-semibold">
                     <Disc className="h-3 w-3" /> {rel.totalDiscs} Discos incluídos
+                  </span>
+                )}
+                {/* Marked here as well as in the queue dialog: the versions of a game sit side
+                    by side in this list, so a complete one is often one row away. */}
+                {rel.missingDiscs.length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[9.5px] text-destructive font-semibold">
+                    <AlertTriangle className="h-3 w-3" /> Incompleto — falta o disco {rel.missingDiscs.join(" e o ")}
                   </span>
                 )}
               </button>
@@ -1159,6 +1217,10 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
   const [platform, setPlatform] = useState("xbox360");
   const [status,   setStatus]   = useState("idle");  // idle|loading|cache-building|ready|empty|error
   const [games,    setGames]    = useState<string[]>([]);
+  // Disc membership per catalog name, as the backend groups it. A name that is absent belongs
+  // to no multi-disc release, which is the same thing as being a one-disc game.
+  const [discMembership, setDiscMembership] = useState<Map<string, DiscMembership>>(new Map());
+  const [discMembershipState, setDiscMembershipState] = useState<DiscMembershipState>("loading");
   const [cacheProgress, setCacheProgress] = useState<{ loaded: number; total: number } | null>(null);
   const [filter,   setFilter]   = useState("");
   const [defaultDrive, setDefaultDrive] = useState("");
@@ -1212,11 +1274,55 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
     loadGames();
   }, [platform, source]);
 
+  // Ask the backend how this platform's catalog splits into multi-disc releases. It is keyed by
+  // platform only — the same union of provider caches /trigger searches for companion discs —
+  // so switching between sources does not need to re-fetch it.
+  const loadDiscMembership = useCallback(async (plat: string) => {
+    setDiscMembershipState("loading");
+    const membership = new Map<string, DiscMembership>();
+    try {
+      const r = await window.godsendApi.browseGetReleaseGroups({ platform: plat });
+      // The IPC handler catches its own errors and answers { ok: false }, so a failure arrives
+      // here as a value, not as a throw. Reading only `releases` would turn every failure into
+      // "no multi-disc release on this platform" — the map would be empty, every game would
+      // look like a one-disc game, and the warning would never appear.
+      if (!r?.ok || !Array.isArray(r.releases)) {
+        setDiscMembershipState("failed");
+        setDiscMembership(membership);
+        return;
+      }
+      for (const release of r.releases as BackendRelease[]) {
+        for (const disc of release.discs || []) {
+          membership.set(disc.name, {
+            releaseTitle: release.release_title,
+            discNumber: disc.disc_number,
+            subtitle: disc.subtitle,
+            release,
+          });
+        }
+      }
+      setDiscMembership(membership);
+      setDiscMembershipState("ready");
+    } catch {
+      setDiscMembership(membership);
+      setDiscMembershipState("failed");
+    }
+  }, []);
+
   async function loadGames() {
     setStatus("loading");
     setGames([]);
+    setDiscMembership(new Map());
     setFilter("");
     setCacheProgress(null);
+
+    // Deliberately NOT awaited. It reaches into the Transfer folder and, on Windows, stats
+    // every drive letter from D to Z, so a spun-down external disk or a dead network mapping
+    // would hold the whole catalog behind a spinner. The list renders immediately; what waits
+    // on the answer is the download button, which the queue dialog keeps disabled until the
+    // grouping is in — a release the user cannot click yet is a release they cannot half
+    // download.
+    void loadDiscMembership(isLocal ? "local" : platform);
 
     if (!isLocal) {
       // Background-refresh installed games so badges update reactively without blocking catalog display
@@ -1301,14 +1407,27 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
     const map = new Map<string, CatalogGameItem>();
 
     for (const raw of games) {
-      const parsed = parseDiscGame(raw);
-      const baseKey = getComparisonKey(parsed.baseTitle);
+      // A name the backend did not place in a multi-disc release is a one-disc game, and its
+      // own name is the release title.
+      const membership = discMembership.get(raw);
+      const releaseTitle = membership?.releaseTitle ?? raw;
+      const baseTitle = getBaseTitle(releaseTitle);
+      const parsed: ParsedDiscGame = {
+        rawName: raw,
+        baseTitle,
+        releaseTitle,
+        discNumber: membership?.discNumber ?? 1,
+        discTotal: membership?.release.disc_count || undefined,
+        subtitle: membership?.subtitle,
+        isMultiDisc: membership !== undefined,
+      };
+      const baseKey = getComparisonKey(baseTitle);
 
       let catItem = map.get(baseKey);
       if (!catItem) {
         catItem = {
-          displayTitle: parsed.baseTitle,
-          baseTitle: parsed.baseTitle,
+          displayTitle: baseTitle,
+          baseTitle,
           releases: [],
           allRawNames: [],
           totalDiscs: 1,
@@ -1319,14 +1438,16 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
 
       catItem.allRawNames.push(raw);
 
-      let rel = catItem.releases.find((r) => r.releaseTitle === parsed.releaseTitle);
+      let rel = catItem.releases.find((r) => r.releaseTitle === releaseTitle);
       if (!rel) {
         rel = {
-          releaseTitle: parsed.releaseTitle,
-          baseTitle: parsed.baseTitle,
+          releaseTitle,
+          baseTitle,
           discs: [],
           isMultiDisc: false,
           totalDiscs: 1,
+          missingDiscs: membership?.release.missing_discs ?? [],
+          warning: membership?.release.warning,
         };
         catItem.releases.push(rel);
       }
@@ -1343,7 +1464,13 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
         rel.discs.sort((a, b) => a.discNumber - b.discNumber);
         if (rel.discs.length > 1 || rel.discs.some((d) => d.isMultiDisc)) {
           rel.isMultiDisc = true;
-          rel.totalDiscs = Math.max(rel.discs.length, rel.discs[0]?.discTotal || 1);
+          // Missing discs count toward the total: a release of two discs whose Disc 1 no
+          // catalog carries is still a two-disc release, and saying "1 disco" would hide it.
+          rel.totalDiscs = Math.max(
+            rel.discs.length,
+            rel.discs[0]?.discTotal || 1,
+            rel.discs.length + rel.missingDiscs.length,
+          );
         } else {
           rel.totalDiscs = 1;
         }
@@ -1355,7 +1482,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
     }
 
     return map;
-  }, [games]);
+  }, [games, discMembership]);
 
   const uniqueBaseTitles = useMemo(() => {
     const items = Array.from(groupedGames.values());
@@ -1613,6 +1740,8 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
           onClose={closeDialog}
           simpleMode={simpleMode}
           onXboxConfigured={refreshDestinations}
+          discInfoState={discMembershipState}
+          onRetryDiscInfo={() => loadDiscMembership(effectivePlatform)}
         />
       )}
     </div>
