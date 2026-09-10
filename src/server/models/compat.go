@@ -83,6 +83,18 @@ var (
 	// — "(Sega Game Toshokan)", "(Game no Kanzume Vol. 1)", "(Required for Play)" — intact; those
 	// name a product, and merging them would queue two unrelated games as discs of each other.
 	discSubtitlePattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:[^)\]]*\b(?:disc|disk|dlc|campaign|multi-?play(?:er)?|single[- ]?play(?:er)?|co-?op|install(?:er|ation)?|bonus|voice\s*over|dysk\s+z\s+gra|spieldisc|disque\s+de\s+jeu|fukikaeban|jimakuban|igrovoj)\b[^)\]]*|play|game)\s*[\)\]]`)
+	// nonRetailMediaPattern names a group that is a SEPARATE PRODUCT, not a disc of the release:
+	// a demo, beta, trial or preview ships under the retail title but is not part of it. It has
+	// to override discSubtitlePattern because that pattern matches a role keyword ANYWHERE in the
+	// group, so "(Multiplayer Demo)" and "(Campaign Beta)" were stripped as if they named a disc
+	// role. The demo row then collapsed onto the retail ReleaseTitle — "NBA 2K (USA) (Multiplayer
+	// Demo)" became "NBA 2K (USA)" — which was enough for FindCompanionDiscs to call it a sibling
+	// disc and for enqueueCompanions to download and install it without anyone asking, and enough
+	// for MissingDiscNumbers to count it toward the release.
+	//
+	// A bare "(Demo)" never had the bug: it carries no role keyword, so discSubtitlePattern never
+	// matched it and the group already survived into the title.
+	nonRetailMediaPattern = regexp.MustCompile(`(?i)\b(?:demos?|betas?|trial|preview)\b`)
 )
 
 // DiscInfo represents parsed disc metadata from a catalog title.
@@ -130,14 +142,25 @@ func ExtractDiscInfo(name string) DiscInfo {
 	//    tag already removed. "(Disc 1)" is itself a group naming a disc role, so reading the
 	//    subtitle off the raw name would report the disc number as the role.
 	rel := discTagPattern.ReplaceAllString(name, "")
-	if m := discSubtitlePattern.FindString(rel); m != "" {
+	for _, m := range discSubtitlePattern.FindAllString(rel, -1) {
+		if nonRetailMediaPattern.MatchString(m) {
+			continue
+		}
 		sub := strings.TrimSpace(m)
 		sub = strings.Trim(sub, "()[]")
 		info.Subtitle = strings.TrimSpace(sub)
+		break
 	}
 
-	// 3. Compute ReleaseTitle by removing the disc-role groups too
-	rel = discSubtitlePattern.ReplaceAllString(rel, "")
+	// 3. Compute ReleaseTitle by removing the disc-role groups too — except a group that names a
+	//    demo, beta or trial, which tells two releases apart instead of naming a role and has to
+	//    survive into the title so the demo never matches the retail row.
+	rel = discSubtitlePattern.ReplaceAllStringFunc(rel, func(m string) string {
+		if nonRetailMediaPattern.MatchString(m) {
+			return m
+		}
+		return ""
+	})
 	if info.DiscNumber > 0 && discTrailingPattern.MatchString(rel) {
 		rel = discTrailingPattern.ReplaceAllString(rel, "")
 	}

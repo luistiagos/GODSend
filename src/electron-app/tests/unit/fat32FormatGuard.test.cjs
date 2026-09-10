@@ -213,19 +213,27 @@ test("nao desliga o acesso controlado a pastas nem mexe fora dos modos que bloqu
   assert.ok(script.includes("if ($mode -ne 1 -and $mode -ne 3) { return }"));
 });
 
-test("nao retira do Defender uma liberacao que ja existia antes", () => {
+test("adota liberacao orfa de execucao anterior para ela nao virar permanente", () => {
   const script = bigDriveScript();
+  const unblock = script.slice(
+    script.indexOf("function Unblock-Fat32RawWrite"),
+    script.indexOf("function Restore-Fat32RawWriteProtection"),
+  );
+  // O flag "nos adicionamos" vive so no processo elevado. Se uma execucao morrer antes do
+  // finally (queda de energia, processo morto), a entrada fica na lista; sem adotar, toda
+  // execucao seguinte a veria como preexistente e o fat32format.exe ficaria liberado para
+  // sempre na protecao contra ransomware do usuario.
+  const alreadyBranch = unblock.slice(
+    unblock.indexOf("if (Test-Fat32Allowlisted $fatExe) {"),
+    unblock.indexOf("  try {"),
+  );
+  assert.ok(alreadyBranch.includes("sobra de execucao anterior"));
+  assert.match(alreadyBranch, /\$script:cfaAllowlistAdded = \$true/);
   const restore = script.slice(
     script.indexOf("function Restore-Fat32RawWriteProtection"),
     script.indexOf("function Write-Fat32AccessDiagnostics"),
   );
   assert.ok(restore.includes("if (-not $script:cfaAllowlistAdded) { return }"));
-  const unblock = script.slice(
-    script.indexOf("function Unblock-Fat32RawWrite"),
-    script.indexOf("function Restore-Fat32RawWriteProtection"),
-  );
-  assert.ok(unblock.includes("if (Test-Fat32Allowlisted $fatExe) {"));
-  assert.ok(unblock.includes("ja constava na lista de aplicativos permitidos"));
 });
 
 test("Defender gerenciado por politica vira passo a passo manual com o caminho do exe", () => {

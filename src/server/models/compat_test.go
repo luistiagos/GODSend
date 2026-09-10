@@ -445,3 +445,45 @@ func TestMissingDiscNumbersOnCompleteAndLoneReleases(t *testing.T) {
 		t.Errorf("jogo de um disco so não pode reportar disco faltando: %v", missing)
 	}
 }
+
+// TestDemoMediaIsNotACompanionDisc pins the reason demos stopped being auto-downloaded:
+// discSubtitlePattern matches a role keyword ANYWHERE inside a group, so "(Multiplayer Demo)"
+// was stripped like a disc role and the demo row collapsed onto the retail release title. That
+// was enough for FindCompanionDiscs to call it a sibling disc and for enqueueCompanions to
+// download and install it unasked.
+func TestDemoMediaIsNotACompanionDisc(t *testing.T) {
+	for _, name := range []string{
+		"NBA 2K (USA) (Multiplayer Demo)",
+		"Halo 3 (USA) (Multiplayer Beta)",
+		"Some Game (USA) (Single Player Demo)",
+		"Some Game (USA) (Campaign Trial)",
+	} {
+		info := ExtractDiscInfo(name)
+		if info.ReleaseTitle != name {
+			t.Errorf("%q: midia nao-retail perdeu o grupo que a distingue; ReleaseTitle=%q", name, info.ReleaseTitle)
+		}
+	}
+
+	// The whole point: the retail row must not drag the demo along.
+	catalog := []string{"NBA 2K (USA)", "NBA 2K (USA) (Multiplayer Demo)"}
+	if got := FindCompanionDiscs("NBA 2K (USA)", catalog); len(got) != 1 || got[0] != "NBA 2K (USA)" {
+		t.Errorf("o demo voltou a ser enfileirado como disco companion: %v", got)
+	}
+}
+
+// TestDiscRolesStillStrippedAlongsideDemoGuard is the other half: the demo guard must not blunt
+// the role stripping that real multi-disc releases depend on.
+func TestDiscRolesStillStrippedAlongsideDemoGuard(t *testing.T) {
+	cases := map[string]string{
+		"Grand Theft Auto V (USA) (Disc 1) (Install)": "Grand Theft Auto V (USA)",
+		"Grand Theft Auto V (USA) (Disc 2) (Play)":    "Grand Theft Auto V (USA)",
+		"Forza Motorsport 3 (Europe) (Disc 2) (Content Install Disc)": "Forza Motorsport 3 (Europe)",
+		// Edition groups keep surviving — they tell two releases apart, like a demo does.
+		"Some Game (USA) (Triple Pack) (Disc 1)": "Some Game (USA) (Triple Pack)",
+	}
+	for name, want := range cases {
+		if got := ExtractReleaseTitle(name); got != want {
+			t.Errorf("%q: ReleaseTitle got %q, want %q", name, got, want)
+		}
+	}
+}

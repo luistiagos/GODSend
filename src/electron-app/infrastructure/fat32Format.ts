@@ -104,7 +104,7 @@ function Invoke-DiskpartScript([string[]]$commands) {
 
 # Acesso controlado a pastas (protecao contra ransomware do Defender): 0 desligado,
 # 1 ligado, 2 auditoria, 3 so bloqueio de disco, 4 auditoria de disco. Os modos 1 e 3
-# barram a escrita bruta de setores que o fat32format faz em \.\X: e aparecem para o
+# barram a escrita bruta de setores que o fat32format faz em \\.\X: e aparecem para o
 # usuario como "Alteracoes nao autorizadas bloqueadas ... de fazer alteracoes na memoria";
 # 2 e 4 apenas registram no log do Defender e deixam a escrita passar.
 function Get-ControlledFolderAccessMode {
@@ -133,7 +133,13 @@ function Unblock-Fat32RawWrite([string]$fatExe) {
   if ($mode -ne 1 -and $mode -ne 3) { return }
   "Acesso controlado a pastas ativo (modo $mode); ele barra a escrita bruta do fat32format." | Out-File -FilePath $log -Append -Encoding utf8
   if (Test-Fat32Allowlisted $fatExe) {
-    'O fat32format.exe ja constava na lista de aplicativos permitidos; nada a alterar.' | Out-File -FilePath $log -Append -Encoding utf8
+    # Sobra de uma execucao que morreu antes do finally (queda de energia, processo
+    # elevado morto). O estado "nos adicionamos" vive so neste processo, entao sem adotar
+    # a sobra ela virava permanente: toda execucao seguinte veria a entrada ja na lista e
+    # nunca a retiraria, deixando um gravador bruto de disco excecionado para sempre na
+    # protecao contra ransomware. Adotando, o estado final e sempre "fora da lista".
+    $script:cfaAllowlistAdded = $true
+    'fat32format.exe ja constava na lista de permitidos (sobra de execucao anterior); sera retirado ao final.' | Out-File -FilePath $log -Append -Encoding utf8
     return
   }
   try {
