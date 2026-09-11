@@ -50,9 +50,14 @@ O escritor transacional reutilizava imediatamente um diário em estado `complete
 ## Arquivos gerados no pendrive
 
 - `launch.ini`: configura o Aurora como dashboard padrão do ambiente em memória;
-- `.xbox-downloader\ready-to-play-v3.marker`: identifica inequivocamente um dispositivo preparado por esta versão;
+- `.xbox-downloader\ready-to-play-v4.marker`: identifica inequivocamente um dispositivo preparado por esta versão;
 - `Aurora\User\Scripts\Content\Filters\XboxCompanionReady.lua`: configura os caminhos de conteúdo durante o boot do Aurora;
 - `.xbox-downloader\transactions\...`: diários de gravação retomável e verificável.
+
+Um arquivo a mais aparece no pendrive depois do primeiro boot, e quem o escreve é o console, não a
+preparação: `.xbox-downloader\ready-to-play-v4.restart`, a marca de reinício descrita em
+"Sequência no console". Ele não faz parte do plano transacional e sua presença não interfere na
+verificação nem na próxima preparação.
 
 Os arquivos originais do payload e os jogos continuam sendo gravados pelo mesmo plano transacional. O staging usa hard links no PC quando o sistema de arquivos permite e recorre à cópia normal quando necessário.
 
@@ -84,9 +89,18 @@ ou de identificação do dispositivo interrompem a preparação e são informada
 1. O console lê o `launch.ini` da raiz e abre `Usb:\Aurora\default.xex`.
 2. Durante a carga de Content Filters, o Aurora executa `XboxCompanionReady.lua`.
 3. O hook encontra o marcador, identifica o serial físico correspondente ao mount `Game:` e consulta `scanpaths`.
-4. Se necessário, insere os dois caminhos sem substituir caminhos iguais pertencentes a outros dispositivos.
-5. Quando o banco muda, o hook reinicia o Aurora uma única vez.
-6. Na segunda inicialização, os caminhos já existem antes de o Content Manager carregar a biblioteca; nenhuma nova reinicialização é solicitada.
+4. Se necessário, insere os dois caminhos sem substituir caminhos iguais pertencentes a outros dispositivos. A comparação de `deviceid` usa o serial normalizado — sem o prefixo `_` e sem caixa —, porque o mesmo pendrive é enumerado como `Usb0:` com o serial físico e como `Game:` com esse serial prefixado. Comparar cru faria a linha já gravada parecer de outro aparelho, e o hook reinseriria o caminho a cada boot.
+5. Quando o banco muda, o hook grava `.xbox-downloader\ready-to-play-v4.restart` no pendrive, confere que o arquivo ficou lá e só então reinicia o Aurora.
+6. Na segunda inicialização, os caminhos já existem antes de o Content Manager carregar a biblioteca; nenhuma nova reinicialização é solicitada, e o hook **apaga** a marca de reinício.
+
+O item 5 é o que torna o laço impossível, e não apenas improvável. Se o cadastro se repetir no boot
+seguinte — porque a linha não persistiu, porque o `deviceid` divergiu ou por qualquer causa ainda
+desconhecida —, o hook encontra a marca do reinício anterior e **desiste de reiniciar**, avisando no
+log para conferir **Content > Scan Paths**. O comportamento visível no pior caso passa a ser "os jogos
+podem não aparecer sem um reinício manual" em vez de "o console reinicia sozinho toda vez que o
+pendrive é inserido". A marca também não é gravada às cegas: se a escrita não sobreviver a uma
+releitura, o hook não reinicia, porque o banco do Aurora mora no mesmo dispositivo e um cadastro que
+não persiste não seria corrigido por um reinício.
 
 O hook não depende de `Content.StartScan()`, pois esse método não faz parte da API documentada usada como referência. A descoberta fica a cargo do fluxo normal de inicialização do Content Manager com os caminhos já persistidos.
 
@@ -101,11 +115,15 @@ Para atualizar um dispositivo criado por uma versão anterior:
 5. execute **Preparar** novamente e aguarde a verificação terminar;
 6. ejete com segurança, conecte ao Xbox 360, execute o BadAvatar e entre no perfil.
 
-A nova transação tem escopo de configuração `ready-to-play-v3`, portanto os arquivos de automação são instalados mesmo que uma preparação antiga esteja marcada como concluída. Nas execuções seguintes, qualquer arquivo ausente ou corrompido é reparado.
+A nova transação tem escopo de configuração `ready-to-play-v4`, portanto os arquivos de automação são instalados mesmo que uma preparação antiga esteja marcada como concluída. Nas execuções seguintes, qualquer arquivo ausente ou corrompido é reparado.
+
+O escopo subiu de `v3` para `v4` na 2.12.92 porque os bytes do hook mudaram, e o diário transacional
+que vive no pendrive recusa um plano com outro `planHash` sob o mesmo `transactionId`. O marcador
+gravado passa a ser `.xbox-downloader\ready-to-play-v4.marker`; o `v3` de uma preparação anterior
+continua no dispositivo sem uso e pode ser ignorado.
 
 Para remover também o estado original deixado por preparações anteriores à 2.12.68, use a
-versão 2.12.74 ou posterior. A configuração gerada continua em `ready-to-play-v3`: os bytes
-do hook, marcador e `launch.ini` não mudaram; a migração roda independentemente do diário.
+versão 2.12.74 ou posterior; a migração roda independentemente do diário.
 Não restaure os arquivos da quarentena às pastas ativas ao coletar uma nova reprodução.
 
 ## Validação automatizada
@@ -117,6 +135,8 @@ A implementação possui testes para:
 - presença e versão do marcador;
 - correlação com o mount `Game:` e ausência de `Usb0:`, `Usb1:` ou outro índice fixo;
 - cadastro dos dois scan paths e reinicialização somente após mudança;
+- reconhecimento do serial prefixado por `_` como o mesmo dispositivo;
+- ordem obrigatória do reinício: cadastro repetido sai sem reiniciar, e a marca é gravada e conferida antes de qualquer `Aurora.Restart()`;
 - ausência da chamada não documentada `Content.StartScan()`;
 - restauração de arquivo removido após uma transação concluída;
 - retomada segura nos pontos de interrupção já cobertos pelo escritor transacional;
@@ -135,8 +155,10 @@ O teste automatizado não substitui o ensaio em um Xbox 360 compatível. Em hard
 3. confirme que o login no perfil abre o Aurora sem seleção manual de XEX;
 4. aceite a reinicialização única do Aurora no primeiro boot preparado;
 5. confirme os dois caminhos em **Content > Scan Paths** e a presença dos jogos;
-6. reinicie novamente e confirme que não ocorre loop de reinicialização;
-7. consulte `Aurora\Data\Logs\debug.log` e procure por `Load Success: XboxCompanionReady.lua` e por uma das mensagens `Xbox 360 Companion:`;
+6. reinicie novamente e confirme que não ocorre loop de reinicialização; confirme também que
+   `.xbox-downloader\ready-to-play-v4.restart` **desapareceu** do pendrive — a marca sobreviver a um
+   boot em que os caminhos já existiam significa que o hook não chegou ao trecho que a apaga;
+7. consulte `Aurora\Data\Logs\debug.log` e procure por `Load Success: XboxCompanionReady.lua` e por uma das mensagens `Xbox 360 Companion:`; `caminhos configurados; reiniciando Aurora.` deve aparecer **uma vez** por preparação, e `caminhos recadastrados sem reiniciar` só deve aparecer se o cadastro não estiver persistindo — nesse caso o laço foi contido, mas a causa continua de pé e o `debug.log` é o artefato a reportar;
 8. teste com outro USB ou Aurora interno conectado para confirmar que nenhum scan path alheio é alterado;
 9. apague apenas `launch.ini`, execute a preparação sem formatar e confirme que ele é restaurado sem remover os jogos.
 10. em um pendrive de laboratório preparado antes da 2.12.68, atualize sem formatar e confirme

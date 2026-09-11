@@ -153,8 +153,32 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			providers = []string{"huggingface", "ia", "minerva"}
 		}
 
-		seen := make(map[string]bool)
+		// Cada titulo aparece uma vez, pelo primeiro provedor da prioridade que o
+		// tem. Entre as variantes desse provedor fica a que o fallback baixaria
+		// para o titulo sem regiao; antes ficava a primeira em ordem alfabetica, e
+		// "(Japan)"/"(Russia)" vem antes de "(USA)" — o jogo era listado, e
+		// baixado, na versao de outro pais com a americana no mesmo catalogo.
+		type listing struct {
+			index    int
+			provider string
+		}
+		seen := make(map[string]listing)
 		var merged []string
+		add := func(provider, g string) {
+			key := cacheService.NormalizeTitleForMatching(g)
+			if disc := models.DiscNumberFromName(g); disc > 0 {
+				key = fmt.Sprintf("%s:disc%d", key, disc)
+			}
+			shown, ok := seen[key]
+			if !ok {
+				seen[key] = listing{index: len(merged), provider: provider}
+				merged = append(merged, g)
+				return
+			}
+			if shown.provider == provider && cacheService.PreferVariant(g, merged[shown.index]) {
+				merged[shown.index] = g
+			}
+		}
 
 		for _, p := range providers {
 			p = strings.TrimSpace(strings.ToLower(p))
@@ -168,14 +192,7 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 						go d.HuggingFace.Build(platform)
 					}
 					for _, g := range hfCached {
-						key := cacheService.NormalizeTitleForMatching(g)
-						if disc := models.DiscNumberFromName(g); disc > 0 {
-							key = fmt.Sprintf("%s:disc%d", key, disc)
-						}
-						if !seen[key] {
-							seen[key] = true
-							merged = append(merged, g)
-						}
+						add(p, g)
 					}
 				}
 			case "ia", "internet_archive", "internetarchive":
@@ -186,14 +203,7 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 					go d.IA.Build(platform)
 				}
 				for _, g := range iaCached {
-					key := cacheService.NormalizeTitleForMatching(g)
-					if disc := models.DiscNumberFromName(g); disc > 0 {
-						key = fmt.Sprintf("%s:disc%d", key, disc)
-					}
-					if !seen[key] {
-						seen[key] = true
-						merged = append(merged, g)
-					}
+					add(p, g)
 				}
 			case "minerva":
 				d.App.MinervaGameCacheMu.RLock()
@@ -203,15 +213,7 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 					go d.Minerva.Build(platform)
 				}
 				for _, g := range minervaCached {
-					decodedName := helpers.DecodeMinervaName(g)
-					key := cacheService.NormalizeTitleForMatching(decodedName)
-					if disc := models.DiscNumberFromName(decodedName); disc > 0 {
-						key = fmt.Sprintf("%s:disc%d", key, disc)
-					}
-					if !seen[key] {
-						seen[key] = true
-						merged = append(merged, decodedName)
-					}
+					add(p, helpers.DecodeMinervaName(g))
 				}
 			}
 		}

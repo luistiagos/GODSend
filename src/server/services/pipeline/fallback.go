@@ -29,6 +29,15 @@ func isDownloadTooSlowError(err error) bool {
 		strings.Contains(err.Error(), "muito lento")
 }
 
+// isLocalStorageHalt reports whether the chain must stop instead of asking the
+// next provider for the same gigabytes. Two distinct disks can trigger it: the
+// destination device (ErrLocalDelivery) and the PC's own working volume
+// (ErrLocalStaging). Neither is fixed by another source, and continuing only
+// fills the failing disk again.
+func isLocalStorageHalt(err error) bool {
+	return errors.Is(err, ErrLocalDelivery) || errors.Is(err, ErrLocalStaging)
+}
+
 // isCatalogMissError reports whether err only means the provider does not carry
 // this title (or this platform). That is the normal outcome of probing a source
 // during fallback, not a defect, so it must not raise a telemetry report.
@@ -72,11 +81,12 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 	haltOnLocalStorageFailure := func(provider string, err error) {
 		message := "Falha no dispositivo local. O download concluido foi preservado para nova tentativa: " + err.Error()
 		if errors.Is(err, ErrLocalStaging) {
-			// Na fase de download nada chegou ao destino ainda: o disco em falta
-			// e o do PC, e nada "concluiu". O texto explica o "falha no
-			// dispositivo local" que vem logo atras, na cadeia do erro, em vez
-			// de nega-lo — a causa raiz fica no fim da linha.
-			message = "Falha no armazenamento de trabalho do PC, onde o download e montado antes de ir para o dispositivo. Verifique espaco livre e permissoes no disco do aplicativo; o progresso do download foi preservado para nova tentativa: " + err.Error()
+			// Download, extracao e conversao GOD rodam todas no disco do PC, e
+			// nenhuma delas chegou ao destino: nada "concluiu" e o dispositivo
+			// do usuario esta intacto. Em modo FTP nem existe dispositivo local
+			// para culpar, e e por isso que ErrLocalStaging nao vem mais
+			// embrulhado em ErrLocalDelivery — a mensagem seria falsa.
+			message = "Falha no armazenamento de trabalho do PC, onde o jogo e baixado e montado antes de ir para o destino. Verifique espaco livre e permissoes no disco do aplicativo e tente novamente: " + err.Error()
 		}
 		s.App.LogStatus(gameName, "Error", message)
 		logs := append(append([]string{}, providerErrors...), fmt.Sprintf("%s: %v", provider, err))
@@ -163,7 +173,7 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			recordError(p, err)
 			continue
 		}
-		if errors.Is(err, ErrLocalDelivery) {
+		if isLocalStorageHalt(err) {
 			haltOnLocalStorageFailure(p, err)
 			return
 		}
@@ -195,7 +205,7 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			s.App.Logf("FALLBACK SUCCESS (Unrestricted): %s for %s", chosen, gameName)
 			return
 		}
-		if errors.Is(retryErr, ErrLocalDelivery) {
+		if isLocalStorageHalt(retryErr) {
 			haltOnLocalStorageFailure(chosen+" (retry)", retryErr)
 			return
 		}

@@ -1,9 +1,10 @@
 # Bug aberto: erro de rede/disco do PC e classificado como "falha no dispositivo local" e aborta o fallback
 
 Data: 2026-09-06
-Status: parcialmente corrigido na v2.12.73 — itens 1, 2, 4 e 5 fechados; 3, 6 e 7 seguem abertos
+Status: parcialmente corrigido — itens 1, 2, 4 e 5 na v2.12.73; itens 3, 6 e 8 na v2.12.93.
+So o item 7 segue aberto.
 Area: pipeline de fallback, classificacao de erro local, telemetria
-Commits: v2.12.73
+Commits: v2.12.73, v2.12.93
 
 ## Estado por defeito
 
@@ -11,28 +12,50 @@ Commits: v2.12.73
 |---|---|---|
 | 1 | Classificacao culpa o destino, nao o sitio da falha | corrigido para as fases `download-*` (`ErrLocalStaging`) |
 | 2 | Erro de rede vira hardware local e mata o fallback | corrigido (`isNetworkError`) |
-| 3 | Assimetria: modo FTP segue na cadeia com disco cheio, modo local aborta | **aberto** |
-| 8 | `extract-*` e `convert-god` tambem rodam no `TempDir` do PC mas ainda dizem "dispositivo local" | **aberto** — ver nota abaixo |
+| 3 | Assimetria: modo FTP segue na cadeia com disco cheio, modo local aborta | corrigido na v2.12.93 |
+| 8 | `extract-*` e `convert-god` tambem rodam no `TempDir` do PC mas ainda dizem "dispositivo local" | corrigido na v2.12.93 (`hostStagedPhase`) |
 | 4 | Telemetria nao cobre este caminho | corrigido (`haltOnLocalStorageFailure`) |
 | 5 | "O download concluido foi preservado" na fase de download | corrigido |
-| 6 | `%v` achata o erro original e quebra `errors.Is` para sentinelas futuras | **aberto** (latente, nao morde hoje) |
+| 6 | `%v` achata o erro original e quebra `errors.Is` para sentinelas futuras | corrigido na v2.12.93 (`%w`) |
 | 7 | `archivePath` do modo local ignora o volume mais folgado | **aberto** — ver nota abaixo |
 
-Sobre o item 7: mover o `archivePath` para `TempDir` **quebraria a retomada**. Os sufixos de
-arquivo (`.rar`, `_hf.7z`, ...) estao em `suffixes` mas **nao** em `resumableStages`
-(`workspace.go:82-99`), entao em `TempDir` o `cleanupGameScratch` apaga o arquivo entre
-tentativas de provedor. E exatamente por isso que o modo local o coloca em
-`ToolsDir/Ready/<nome>/`, fora dos `scratchRoots`. Corrigir isso exige acrescentar os
-sufixos de arquivo a `resumableStages` ou dar ao `gameDir` um volume proprio — nao e a
-troca de uma linha que parece ser.
+Sobre o que a v2.12.93 fez nos itens 3, 6 e 8:
 
-Sobre o item 8: `outputRoot()` devolve `s.App.TempDir` incondicionalmente
-(`workspace.go:18-20`), entao extracao e conversao GOD tambem falham no disco do PC — e a
-conversao GOD e o passo que mais consome disco. Alargar o
-`strings.HasPrefix(phase, "download-")` de `classifyLocalStorageFailure` nao basta sozinho:
-`stage_checkpoint.go:287,296` constroem `ErrLocalDelivery` direto, sem passar pelo
-classificador, entao um `os.MkdirAll` com disco cheio (via classify) e a falha identica
-vinda de `action()` seguiriam caminhos diferentes.
+- `hostStagedPhase` cobre `download-*`, `extract-*` e `convert-*`. Foi confirmado que **todo**
+  `godDir`/`extDir` do projeto sai de `outputRoot()` (`pipeline.go:137,297`, `digital.go:254`,
+  `minerva.go:155,200`), ou seja, roda no `TempDir` do PC.
+- A exigencia de `Mode == "local"` saiu da primeira linha de `classifyLocalStorageFailure`:
+  o volume de trabalho e o mesmo nos dois modos, entao a cadeia para em ambos.
+- `ErrLocalStaging` **deixou de ser embrulhado em `ErrLocalDelivery`** — em modo FTP nao existe
+  dispositivo local para culpar. Quem decide a parada agora e `isLocalStorageHalt`
+  (`fallback.go`), que aceita as duas sentinelas.
+- `stage_checkpoint.go:287,296` deixaram de construir `ErrLocalDelivery` a mao e passaram a
+  chamar o classificador, de modo que o filtro de rede da 2.12.73 tambem vale ali.
+- Todas as construcoes usam `%w`; nenhuma usa `%v`.
+
+Sobre o item 7 — a estimativa do relatorio original estava **subdimensionada**. Medido em
+2026-09-11:
+
+- Nao sao 2 pontos de troca de caminho, sao **5**: `huggingface.go:47`, `pipeline.go:183`,
+  `digital.go:151`, `digital.go:299` e `rom.go:58`.
+- Mover o `archivePath` para `TempDir` **quebraria a retomada**. Os sufixos de arquivo
+  (`.rar`, `_hf.7z`, ...) estao em `suffixes` mas **nao** em `resumableStages`
+  (`workspace.go:82-99`), entao em `TempDir` o `cleanupGameScratch` apaga o arquivo entre
+  tentativas de provedor. E exatamente por isso que o modo local o coloca em
+  `ToolsDir/Ready/<nome>/`, fora dos `scratchRoots`.
+- Tirar o arquivo de `gameDir` tambem exige mexer na limpeza: sao **28** `os.RemoveAll(gameDir)`
+  no repositorio, e os pontos de entrada diretos (`ProcessHuggingFaceGame`, `ProcessDigital`,
+  `ProcessGenericGame`, chamados de `handlers.go:714-727`) **nao** passam por
+  `cleanupCompletedLocalScratch` — so o caminho do fallback passa. Mover sem isso vaza o
+  arquivo de varios GB.
+- E `protectedScratchPaths` (`config.go:310-319`) **exclui de proposito** job em estado
+  `Error` ("A delivered or failed job keeps no claim"), que e exatamente o estado em que esta
+  falha deixa a fila. Um `archivePath` em `TempDir` seria apagado na limpeza do proximo boot —
+  perdendo justamente o download que o modo local hoje preserva.
+
+Ou seja: as tres saidas possiveis (acrescentar os sufixos a `resumableStages`, dar ao `gameDir`
+um volume proprio, ou proteger o scratch de job em `Error`) sao decisoes de politica de disco,
+nao refatoracao. Continua nao sendo a troca de uma linha que parece ser.
 
 Sobre a armadilha do item 2, que quase entrou: o filtro de rede tem de testar os **tipos
 concretos** (`*net.OpError`, `*net.DNSError`, `*url.Error`), nunca a interface `net.Error`.
@@ -145,18 +168,32 @@ produzem o mesmo texto na tela e nenhum dos dois chega na telemetria.
 
 ## Direcao sugerida
 
-- Restringir `classifyLocalStorageFailure` nas fases de download a erros que comprovadamente
-  vieram do filesystem (`errors.Is(err, syscall.ENOSPC)`, `os.IsPermission`, ...) em vez de
-  adivinhar pelo texto; ou passar o sitio da falha explicitamente.
-- Checar as sentinelas de rede (`net.Error`, `*url.Error`) antes, e deixar erro de rede cair
-  para o proximo provedor.
-- Mover o `telemetry.Report` para que os `return` de `ErrLocalDelivery` tambem reportem.
-- Usar `TempDir` (volume folgado) tambem para o `archivePath` do modo local, ou ao menos
-  medir o espaco antes de fixar o caminho em `ToolsDir/Ready`.
-- Corrigir o texto da mensagem para a fase de download.
+Feito (v2.12.73 e v2.12.93):
+
+- ~~Restringir `classifyLocalStorageFailure` nas fases de download~~ — o sitio da falha passou
+  a ser explicito por fase (`hostStagedPhase`), que e a segunda alternativa listada aqui. A
+  primeira (`errors.Is(err, syscall.ENOSPC)`) foi descartada: `ensureDownloadSpace` produz um
+  erro **proprio**, de texto, que nunca carregaria `ENOSPC`.
+- ~~Checar as sentinelas de rede antes~~ — `isNetworkError`, por tipos concretos (v2.12.73).
+- ~~Mover o `telemetry.Report`~~ — `haltOnLocalStorageFailure` (v2.12.73).
+- ~~Corrigir o texto da mensagem~~ — v2.12.73, e revisto na v2.12.93 para cobrir extracao e
+  conversao GOD, nao so download.
+
+Aberto (item 7):
+
+- Usar `TempDir` (volume folgado) tambem para o `archivePath` do modo local. **Antes de tentar
+  de novo, ler a nota do item 7 no topo deste arquivo**: sao 5 pontos de troca de caminho, 28
+  pontos de limpeza, e `protectedScratchPaths` apaga scratch de job em `Error`. "Ao menos medir
+  o espaco antes de fixar o caminho" nao resolve sozinho: o tamanho do arquivo so e conhecido
+  depois do probe, dentro do `DownloadWithProgress`, e o caminho ja foi fixado nesse ponto.
 
 ## Reproducao
 
 Modo local (pendrive), deixar no drive do executavel menos que 5.3 GB livres, e enfileirar
 "Army of Two 2 The 40th Day" com a ordem padrao de provedores. Esperado: cair para `ia` e
 `minerva`. Observado: a fila para no primeiro provedor com "Falha no dispositivo local".
+
+Desde a v2.12.93 o observado passa a ser "Falha no armazenamento de trabalho do PC, onde o
+jogo e baixado e montado antes de ir para o destino...", com telemetria. A fila continua
+parando — e a parada esta correta, porque `ia` e `minerva` baixariam para o mesmo disco cheio.
+O que o item 7 ainda deve corrigir e o disco escolhido, nao a parada.

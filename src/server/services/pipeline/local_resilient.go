@@ -26,10 +26,12 @@ var (
 	// ErrLocalSourceLost requests regeneration from the retained ISO.
 	ErrLocalSourceLost = errors.New("arquivos temporarios locais foram perdidos")
 	// ErrLocalStaging marks a storage failure on the PC's own working volume
-	// (the download/extract scratch), not on the destination device. During the
-	// download phase nothing has touched the target drive yet, so blaming "o
-	// dispositivo local" sends the user to check the wrong hardware. It is
-	// wrapped alongside ErrLocalDelivery so every existing handler still halts.
+	// (the download/extract/GOD scratch), not on the destination device. In
+	// those phases nothing has touched the target drive yet, so blaming "o
+	// dispositivo local" sends the user to check the wrong hardware — and in FTP
+	// mode there is no local device to blame at all. It halts the provider chain
+	// on its own (see isLocalStorageHalt); it is deliberately NOT wrapped in
+	// ErrLocalDelivery, whose text would be a lie outside pendrive mode.
 	ErrLocalStaging = errors.New("falha no armazenamento de trabalho do PC")
 	// ErrFAT32FileSizeLimit indicates a single file exceeds FAT32's 4 GB limit.
 	// Provider fallback should switch to an ISO/GOD provider rather than halting as a hardware fault.
@@ -214,21 +216,45 @@ func isNetworkError(err error) bool {
 	return errors.As(err, &opErr) || errors.As(err, &dnsErr) || errors.As(err, &urlErr)
 }
 
+// hostStagedPhase reports whether the phase works on the PC's own volume rather
+// than on the destination device. outputRoot returns s.App.TempDir
+// unconditionally (workspace.go), so extraction and GOD conversion stage there
+// just like the download does — and GOD conversion is the hungriest of the
+// three. None of them has written a byte to the pendrive yet.
+func hostStagedPhase(phase string) bool {
+	return strings.HasPrefix(phase, "download-") ||
+		strings.HasPrefix(phase, "extract-") ||
+		strings.HasPrefix(phase, "convert-")
+}
+
+// classifyLocalStorageFailure names the disk that actually failed. Every branch
+// wraps err with %w, never %v: flattening it to text made errors.Is blind to
+// any sentinel underneath, so a cancellation or a FAT32 limit that happened to
+// carry a storage word would have been swallowed as a disk fault.
 func classifyLocalStorageFailure(connection *models.XboxConnection, phase string, err error) error {
-	if err == nil || connection == nil || connection.Mode != "local" || !isLikelyLocalStorageError(err) {
+	if err == nil || !isLikelyLocalStorageError(err) {
 		return err
 	}
 	if isNetworkError(err) {
 		return err
 	}
-	// The download writes to ToolsDir/Ready (the PC), never to the target
-	// drive, so a storage failure here is about the host disk. Retrying another
-	// provider still cannot fix a full disk, so the job halts either way — but
-	// the message has to name the right disk.
-	if strings.HasPrefix(phase, "download-") {
-		return fmt.Errorf("%w: %w: fase %s: %v", ErrLocalDelivery, ErrLocalStaging, phase, err)
+	// A full, read-only or unreachable working volume on the PC breaks every
+	// provider identically, so the chain has to stop in ALL modes. Letting FTP
+	// mode walk on was not a decision: it just filled the same disk two more
+	// times before failing anyway.
+	if hostStagedPhase(phase) {
+		return fmt.Errorf("%w: fase %s: %w", ErrLocalStaging, phase, err)
 	}
-	return fmt.Errorf("%w: fase %s: %v", ErrLocalDelivery, phase, err)
+	// Only a delivery phase touches the user's device, and only local mode has
+	// one to touch. Every phase that reaches this function today is host-staged
+	// (godDir and extDir all come from outputRoot), so this branch guards
+	// runDirectoryStage against a future stage that writes straight to the
+	// pendrive — the hand-written ErrLocalDelivery wraps in copyTreeLocal do not
+	// pass through here.
+	if connection == nil || connection.Mode != "local" {
+		return err
+	}
+	return fmt.Errorf("%w: fase %s: %w", ErrLocalDelivery, phase, err)
 }
 
 func (s *Service) waitForLocalDevice(root, expectedID, gameName string) error {

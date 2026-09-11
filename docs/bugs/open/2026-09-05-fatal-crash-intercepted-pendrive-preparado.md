@@ -81,12 +81,16 @@ mais recente; devem ser conferidos os horários e o conteúdo dos registros.
 
 ### Próximo passo, bloqueante para fechar este bug
 
-Pedir a quem reportou que **prepare o pendrive novamente com a versão ≥ 2.12.74**, reproduza a
+Pedir a quem reportou que **prepare o pendrive novamente com a versão ≥ 2.12.92**, reproduza a
 falha e envie **os dois artefatos**:
 
 - `crashlog.txt` na raiz do pendrive (caminho DashLaunch);
 - todo o conteúdo de `Aurora\Data\Logs\` (caminho Aurora) — `.crash.log`, `.callstack` e
   `debug.log`.
+
+Vale conferir junto se `.xbox-downloader\ready-to-play-v4.restart` ficou no pendrive: a marca
+sobreviver a um boot bem-sucedido é o sinal de que o cadastro dos scan paths não está
+persistindo (candidato 2 abaixo), independentemente do que causou o banner.
 
 Os artefatos permitem identificar qual manipulador registrou a exceção e investigar endereço
 e módulo da falha. A presença de um dump, isoladamente, não prova quem desenhou o banner.
@@ -138,7 +142,7 @@ passa a migrar essas cópias antes da cópia transacional, inclusive se o diári
 concluído. A migração não apaga dados; usa quarentena e pode ser retomada após interrupção.
 Isso corrige a persistência do estado conhecido, sem demonstrar que ele era a causa do crash.
 
-### 2. Laço de reinício do hook ready-to-play — em aberto, não descartado
+### 2. Laço de reinício do hook ready-to-play — contido na 2.12.92, causa não descartada
 
 `XboxCompanionReady.lua` é gravado em `Aurora/User/Scripts/Content/Filters/` e roda na fase
 `ContentScripts` do boot. Depois de registrar os scan paths, chama `Aurora.Restart()`.
@@ -147,17 +151,42 @@ Isso é **deliberado e necessário** — ver [`READY-TO-PLAY-AURORA.md`](../../R
 "Sequência no console", itens 5 e 6: os caminhos só valem na inicialização seguinte. Uma
 tentativa de remover a chamada (`6faedab`) foi revertida em `906e8c4` por quebrar o recurso.
 
-O risco que permanece: `ensureScanPath` só devolve `false` quando encontra uma linha em
+O risco era este: `ensureScanPath` só devolvia `false` quando encontrava uma linha em
 `scanpaths` com **`path` igual e `deviceid` igual**. Se o `deviceid` gravado pelo hook
-divergir do que o Aurora escreve ou lê depois — normalização de serial, prefixo `_` do mount
-`Game:`, diferença de caixa —, `changed` volta a ser `true` a cada boot e o "reinício uma
-única vez" vira laço. Para o usuário isso se parece com o console reiniciando ou travando
+divergisse do que o Aurora escreve ou lê depois — normalização de serial, prefixo `_` do mount
+`Game:`, diferença de caixa —, `changed` voltava a ser `true` a cada boot e o "reinício uma
+única vez" virava laço. Para o usuário isso se parece com o console reiniciando ou travando
 logo após inserir o pendrive.
 
-**Como conferir:** item 6 da validação física já prevista no documento ("reinicie novamente e
-confirme que não ocorre loop de reinicialização"), somado a `Aurora\Data\Logs\debug.log`
+Uma das divergências está **documentada no próprio pacote**: em
+[`Aurora/Data/Logs/debug.log`](../../../src/electron-app/assets/badavatar-1.1/Aurora/Data/Logs/debug.log),
+o mesmo dispositivo é montado duas vezes — `\??\Usb0:` com serial
+`69A7E55F1EF1514C1CAA67D220C9ACBC6B6B7784` e `\??\Game:` com
+`_69A7E55F1EF1514C1CAA67D220C9ACBC6B6B7784`. O script já tinha `normalizedSerial` (tira o `_`,
+baixa a caixa) e o usava para correlacionar o mount `Game:`, mas **não** na comparação de
+`deviceid` — inconsistência dentro do mesmo arquivo.
+
+**Corrigido na 2.12.92, em duas camadas** (`readyToPlayConfiguration.ts`):
+
+1. `ensureScanPath` compara `normalizedSerial(rowDeviceId) == normalizedSerial(deviceId)`;
+2. **o laço deixou de ser possível**, e não só improvável: antes de reiniciar, o hook grava
+   `.xbox-downloader\ready-to-play-v4.restart` no pendrive e confere a gravação relendo o
+   arquivo. Se o cadastro se repetir no boot seguinte — por essa causa ou por qualquer outra
+   ainda desconhecida —, a marca já existe e o hook **desiste do reinício**, registrando
+   `caminhos recadastrados sem reiniciar` no `debug.log`. Um boot que encontra o banco já
+   correto apaga a marca, devolvendo o direito a um reinício se o Aurora recriar o banco.
+
+O pior caso passa a ser "os jogos podem não aparecer sem um reinício manual", com rastro no
+log, em vez de "o console reinicia sozinho toda vez que o pendrive é inserido". Isso **não
+prova** que o laço era a causa do banner — nenhum dump de reprodução real existe ainda.
+
+**Como conferir:** item 6 da validação física ("reinicie novamente e confirme que não ocorre
+loop de reinicialização", agora somado ao desaparecimento da marca), e `Aurora\Data\Logs\debug.log`
 procurando por repetições de `Xbox 360 Companion: caminhos configurados; reiniciando Aurora.`
-Uma ocorrência por preparação é o esperado; duas ou mais confirmam o laço.
+Uma ocorrência por preparação é o esperado. A partir da 2.12.92 a segunda ocorrência não
+acontece mais; o sinal de que a divergência continua viva é
+`Xbox 360 Companion: caminhos recadastrados sem reiniciar`, e um `debug.log` com essa linha é
+artefato a reportar.
 
 ### 3. Multidisco com set incompleto — em aberto, provavelmente outro bug
 
@@ -180,8 +209,16 @@ passou a instalar sets multidisco em lote na 2.12.66 e já sabe, por
 [`models/compat.go`](../../../src/server/models/compat.go), que o disco 1 de GTA V
 (`0x545408A7`) é disco de conteúdo. Um set parcial no destino reproduz esse crash.
 
-**Ação sugerida:** bloquear ou avisar quando o destino ficaria com um set multidisco
-incompleto, reaproveitando `DiscCompatTable`.
+**Ação sugerida — feita, por outro caminho:** `MissingDiscNumbers`, em
+[`models/compat.go`](../../../src/server/models/compat.go), lista os discos que a release não
+tem, e `recordReleaseCompleteness` em
+[`handlers.go`](../../../src/server/interfaces/http/handlers.go) guarda o aviso em
+`App.IncompleteRelease`. O Catálogo Online mostra isso **antes** do download e o `LogStatus`
+repete na entrega, das mesmas linhas, para não dizer uma coisa na hora de baixar e outra na hora
+de instalar. É aviso, não bloqueio: um terço das linhas multidisco dos catálogos empacotados não
+tem irmão listado, e nada aqui inventa o disco que falta. Continua **em aberto** o crash em si:
+avisar não impede o usuário de gravar o set parcial, e nenhuma reprodução do 0xc0000005 em um
+pendrive nosso foi coletada.
 
 ## Decisão pendente do dono do produto
 
@@ -199,6 +236,8 @@ não travar, melhor que apagar sem explicação. Não foi implementado: é escol
 | 2.12.68 | `READY_TO_PLAY_CONFIGURATION_VERSION` 2 → 3 (o diário transacional vive no pendrive e recusaria o plano novo) |
 | 2.12.69 | Reversão da remoção do `Aurora.Restart()` |
 | 2.12.74 | Migração sem formatar das cópias antigas ainda idênticas ao manifesto para quarentena; preserva logs/bancos modificados e permite retomada |
+| 2.12.92 | `deviceid` comparado por serial normalizado e reinício do hook limitado a um por cadastro, por marca gravada e conferida no pendrive (candidato 2) |
+| 2.12.92 | `READY_TO_PLAY_CONFIGURATION_VERSION` 3 → 4 (os bytes do hook mudaram; o diário transacional recusaria o plano novo sob o mesmo `transactionId`) |
 
 ## Critério para fechar
 

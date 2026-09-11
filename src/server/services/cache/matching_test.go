@@ -84,3 +84,83 @@ func TestIAFindEntryIgnoresHuggingFaceKeys(t *testing.T) {
 		t.Fatalf("expected Internet Archive match, got %#v, %v", got, err)
 	}
 }
+
+// A region-less request is the name HuggingFace publishes. When HuggingFace failed, the
+// fallback ranked variants only by how few tags they carry, so the one-country release won:
+// "Red Dead Redemption" became the Japanese disc while the USA/Europe one sat beside it.
+func TestRegionlessRequestFallsBackToEnglishRelease(t *testing.T) {
+	a := app.NewApp()
+	want := models.IAGameEntry{CollectionID: "ia", FileName: "Red Dead Redemption (USA, Europe) (En,Fr,De,Es,It).zip"}
+	a.GameEntryMap["red dead redemption (japan)"] = models.IAGameEntry{CollectionID: "ia", FileName: "Red Dead Redemption (Japan).zip"}
+	a.GameEntryMap["red dead redemption (usa, europe) (en,fr,de,es,it)"] = want
+
+	got, err := (&IAService{App: a}).FindEntry("Red Dead Redemption", "xbox360")
+	if err != nil || got != want {
+		t.Fatalf("expected the English release, got %#v, %v", got, err)
+	}
+}
+
+func TestPinnedRequestKeepsItsRegion(t *testing.T) {
+	requested := "Red Dead Redemption (Japan)"
+	if titleMatchScore("Red Dead Redemption (Japan) (En,Ja)", requested) <= titleMatchScore("Red Dead Redemption (USA)", requested) {
+		t.Fatal("a request that names its region must keep it")
+	}
+}
+
+func TestRegionlessDiscRequestKeepsItsDisc(t *testing.T) {
+	requested := "Battlefield 4 (Disc 2)"
+	if titleMatchScore("Battlefield 4 (Japan) (Disc 2)", requested) <= titleMatchScore("Battlefield 4 (USA, Europe) (Disc 1)", requested) {
+		t.Fatal("the requested disc must outrank the preferred region")
+	}
+	if titleMatchScore("Battlefield 4 (USA, Europe) (Disc 2)", requested) <= titleMatchScore("Battlefield 4 (Japan) (Disc 2)", requested) {
+		t.Fatal("among discs with the requested number, the English release must win")
+	}
+}
+
+// Pairs that shared one key in the packaged catalogs: the browse merge listed only one of
+// each, and the fallback scored every one of them as an exact match for the other.
+func TestDottedTitlesKeepTheirDistinctGames(t *testing.T) {
+	distinct := [][2]string{
+		{"WWE SmackDown vs. Raw 2011 (USA, Europe) (En,Fr,De,Es,It)", "WWE SmackDown vs. Raw 2007 (USA, Europe)"},
+		{"F.E.A.R. 2 - Project Origin (USA, Korea) (En,Fr,De,Es,It)", "F.E.A.R. 3 (World) (En,Ja,Fr,De,Es,It,Pt,Ko,Pl,Ru)"},
+		{"Plants vs. Zombies (USA) (En,Ja,Fr,De,Es,It)", "Plants vs. Zombies - Garden Warfare (USA, Europe) (En,Ja,Fr,De,Es,It,Pt)"},
+		{"L.A. Noire (USA, Europe) (Disc 1)", "L.A. Noire - The Complete Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 1)"},
+		{"Disney Infinity 2.0 Edition (USA) (En,Fr,Es,Pt)", "Disney Infinity 3.0 Edition (USA) (En,Fr,Es)"},
+	}
+	for _, pair := range distinct {
+		if TitleMatches(pair[0], pair[1]) {
+			t.Errorf("%q and %q are different games", pair[0], pair[1])
+		}
+	}
+	if !TitleMatches("WWE SmackDown vs. Raw 2011 (USA, Europe) (En,Fr,De,Es,It)", "WWE SmackDown vs. Raw 2011") {
+		t.Error("a dotted title must still match its region-less request")
+	}
+	if !TitleMatches("007 Legends (USA, Europe) (En,Fr,De).zip", "007 Legends") {
+		t.Error("an archive extension must still be ignored")
+	}
+}
+
+// The English preference must not hand the fallback a demo or beta, nor a European release
+// whose language list leaves English out: "Conan" became "(USA) (Demo)" and "Assassins Creed
+// Brotherhood" became "(Europe) (It,Pl,Ru)" with the English releases in the same catalog.
+func TestRegionlessRequestSkipsDemosAndNonEnglishEurope(t *testing.T) {
+	if titleMatchScore("Conan (World) (En,Fr,De,Es,It)", "Conan") <= titleMatchScore("Conan (USA) (Demo)", "Conan") {
+		t.Error("the retail release must outrank the demo")
+	}
+	request := "Assassins Creed Brotherhood"
+	english := "Assassin's Creed - Brotherhood (USA, Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)"
+	if titleMatchScore(english, request) <= titleMatchScore("Assassin's Creed - Brotherhood (Europe) (It,Pl,Ru)", request) {
+		t.Error("a European release without English must not count as English")
+	}
+	if !PreferVariant("Grid (USA, Europe) (En,Fr,De,Es,It)", "Grid (USA) (En,Fr,De,Es,It) (Demo)") {
+		t.Error("the listing must show the retail release, not the demo")
+	}
+}
+
+func TestPreferVariantListsTheReleaseTheFallbackDownloads(t *testing.T) {
+	japan := "Assassin's Creed (Japan)"
+	usa := "Assassin's Creed (USA, Europe) (En,Fr,De,Es,It)"
+	if !PreferVariant(usa, japan) || PreferVariant(japan, usa) {
+		t.Fatal("the listing must show the English release")
+	}
+}

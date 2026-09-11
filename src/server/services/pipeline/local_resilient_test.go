@@ -330,11 +330,18 @@ func TestClassifyLocalStorageFailureStillHaltsOnRealDiskError(t *testing.T) {
 	})
 
 	got := classifyLocalStorageFailure(connection, "download-http", diskFull)
-	if !errors.Is(got, ErrLocalDelivery) {
+	if !isLocalStorageHalt(got) {
 		t.Fatalf("disco cheio real deixou de interromper o job: %v", got)
 	}
 	if !errors.Is(got, ErrLocalStaging) {
 		t.Fatalf("disco cheio na fase de download deve apontar o disco do PC: %v", got)
+	}
+	// %v achatava o erro original em texto e deixava errors.Is cego para
+	// qualquer sentinela abaixo — um cancelamento que carregasse uma palavra de
+	// disco seria engolido como falha de armazenamento.
+	var pathErr *os.PathError
+	if !errors.As(got, &pathErr) {
+		t.Fatalf("o erro original foi achatado em texto e deixou de ser inspecionavel: %v", got)
 	}
 }
 
@@ -359,26 +366,75 @@ func TestClassifyLocalStorageFailureIgnoresNetworkErrors(t *testing.T) {
 	}
 }
 
-// Na fase de download nada foi gravado no destino ainda: o disco cheio e o do
-// PC. A cadeia continua parando (outro provedor tambem nao cabe no disco), mas
-// a mensagem tem de apontar o disco certo.
+// Nenhuma das fases de download/extracao/conversao grava no destino: todas
+// rodam no TempDir do PC (outputRoot devolve s.App.TempDir para todas elas, e a
+// conversao GOD e a que mais consome disco). A cadeia continua parando — outro
+// provedor tambem nao cabe no mesmo disco — mas a mensagem tem de apontar o
+// disco certo, em vez de mandar conferir o pendrive.
 func TestClassifyLocalStorageFailureSeparatesStagingFromDevice(t *testing.T) {
 	connection := &models.XboxConnection{Mode: "local"}
 	full := errors.New("espaco insuficiente no armazenamento temporario C:\\")
 
-	staging := classifyLocalStorageFailure(connection, "download-http", full)
-	if !errors.Is(staging, ErrLocalDelivery) {
-		t.Fatal("falha de armazenamento na fase de download ainda deve interromper o job")
-	}
-	if !errors.Is(staging, ErrLocalStaging) {
-		t.Fatalf("falha na fase de download deve ser marcada como staging do PC: %v", staging)
+	for _, phase := range []string{"download-http", "extract-archive", "extract-iso", "convert-god"} {
+		staging := classifyLocalStorageFailure(connection, phase, full)
+		if !isLocalStorageHalt(staging) {
+			t.Fatalf("fase %s: falha de armazenamento ainda deve interromper o job", phase)
+		}
+		if !errors.Is(staging, ErrLocalStaging) {
+			t.Fatalf("fase %s roda no disco do PC e deve ser marcada como staging: %v", phase, staging)
+		}
+		if errors.Is(staging, ErrLocalDelivery) {
+			t.Fatalf("fase %s nao tocou o dispositivo do usuario: %v", phase, staging)
+		}
 	}
 
-	delivery := classifyLocalStorageFailure(connection, "convert-god", full)
+	delivery := classifyLocalStorageFailure(connection, "install-local", full)
 	if !errors.Is(delivery, ErrLocalDelivery) {
 		t.Fatal("falha de gravacao no destino deve continuar sendo ErrLocalDelivery")
 	}
 	if errors.Is(delivery, ErrLocalStaging) {
 		t.Fatalf("falha no destino nao deve ser marcada como staging do PC: %v", delivery)
+	}
+}
+
+// classifyLocalStorageFailure re-embrulhava com %v, achatando o erro original
+// em texto e deixando errors.Is cego para qualquer sentinela abaixo dele. Hoje
+// ErrJobCancelled nao casa nenhum fragmento de armazenamento, mas basta uma
+// mensagem carregar "acesso negado" para o cancelamento do usuario ser relatado
+// como disco cheio — e fallback.go decide pelo errors.Is, nao pelo texto.
+func TestClassifyLocalStorageFailureKeepsSentinelsDetectable(t *testing.T) {
+	connection := &models.XboxConnection{Mode: "local"}
+	cancelled := fmt.Errorf("acesso negado ao encerrar a tarefa: %w", app.ErrJobCancelled)
+
+	got := classifyLocalStorageFailure(connection, "download-http", cancelled)
+	if !errors.Is(got, app.ErrJobCancelled) {
+		t.Fatalf("sentinela abaixo da classificacao foi achatada em texto: %v", got)
+	}
+}
+
+// O disco de trabalho e o mesmo nos dois modos. Em modo FTP o disco cheio caia
+// no recordError e a cadeia seguia para ia e minerva, enchendo o mesmo disco
+// mais duas vezes antes de falhar igual; so o modo local parava. Nenhum dos dois
+// comportamentos foi decidido de proposito.
+func TestClassifyLocalStorageFailureHaltsInEveryMode(t *testing.T) {
+	full := errors.New("there is not enough space on the disk")
+
+	for _, connection := range []*models.XboxConnection{
+		{Mode: "ftp"},
+		{Mode: "local"},
+		nil,
+	} {
+		mode := "nil"
+		if connection != nil {
+			mode = connection.Mode
+		}
+		got := classifyLocalStorageFailure(connection, "download-http", full)
+		if !isLocalStorageHalt(got) {
+			t.Fatalf("modo %s: disco cheio do PC deve interromper a cadeia, veio: %v", mode, got)
+		}
+		// Em modo FTP nao existe dispositivo local para culpar.
+		if errors.Is(got, ErrLocalDelivery) {
+			t.Fatalf("modo %s: falha no disco do PC nao pode virar falha de dispositivo: %v", mode, got)
+		}
 	}
 }

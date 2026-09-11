@@ -4,7 +4,7 @@ The backend listens on port `8080` by default (configurable via Electron `Backen
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/browse?platform=<p>` | Game list (pipe-separated); `platform` includes `xbox360`, `xbox`, `xbla`, `digital`, `dlc`, `xblig`, `games`, `local`, `rom_<sysid>`. Optional `source=minerva\|ia` limits the list to one catalog when both are merged by default. |
+| GET | `/browse?platform=<p>` | Game list (pipe-separated); `platform` includes `xbox360`, `xbox`, `xbla`, `digital`, `dlc`, `xblig`, `games`, `local`, `rom_<sysid>`. Optional `source=huggingface\|ia\|minerva` limits the list to one catalog; without it (or with `source=unified`) the catalogs are merged in `priority` order (default `huggingface,ia,minerva`). The merge lists each title once, owned by the first provider that has it, and among that provider's variants shows the one a region-less request resolves to (an English/Portuguese release over a single-country one), so the name listed is the release `/trigger` downloads. |
 | GET | `/browse/releases?platform=<p>` | Multi-disc releases of that platform's catalog, as JSON: `release_title`, the `discs` that belong to it, `disc_count`, `missing_discs` and a ready-made `warning`. Grouping comes from the same code `/trigger` uses to enqueue companion discs, so the browse view never lists a disc the queue would not fetch. Names absent from the response are one-disc games. |
 | GET | `/status?game=<name>` | Poll job state: `Idle`, `Processing`, `Ready`, `Error`, `Missing` |
 | GET | `/queue` | List all active and completed jobs; jobs left unfinished by a previous session are restored here at startup from `pending_queue/` |

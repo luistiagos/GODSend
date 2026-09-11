@@ -80,8 +80,14 @@ func TestDirectoryStageKeepsLocalSourceOnStorageFailure(t *testing.T) {
 	err := service.runDirectoryStage("Example", "extract-test", source, dest, false, func() error {
 		return errors.New("write output: There is not enough space on the disk.")
 	})
-	if !errors.Is(err, ErrLocalDelivery) {
+	if !isLocalStorageHalt(err) {
 		t.Fatalf("falha de armazenamento local deve preservar a fonte: %v", err)
+	}
+	// A extracao roda no TempDir do PC, nunca no pendrive: quem falta e o disco
+	// do aplicativo. Marcar isto como ErrLocalDelivery mandava o usuario conferir
+	// o hardware errado.
+	if !errors.Is(err, ErrLocalStaging) {
+		t.Fatalf("falha na extracao deve apontar o disco do PC, nao o dispositivo: %v", err)
 	}
 	if _, statErr := os.Stat(source); statErr != nil {
 		t.Fatalf("fonte foi perdida depois da falha local: %v", statErr)

@@ -283,23 +283,20 @@ func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string,
 					return waitErr
 				}
 			} else if !isLikelyLocalDeviceError(err) {
-				if isLikelyLocalStorageError(err) {
-					return fmt.Errorf("%w: fase %s: %v", ErrLocalDelivery, phase, err)
-				}
-				return err
+				return classifyLocalStorageFailure(connection, phase, err)
 			}
 			s.App.Logf("STAGE RETRY [%s]: refazendo %s sem novo download (tentativa %d/4): %v", gameName, phase, attempt+2, err)
 			time.Sleep(time.Second)
 			continue
 		}
-		if connection != nil && connection.Mode == "local" && isLikelyLocalStorageError(err) {
-			return fmt.Errorf("%w: fase %s: %v", ErrLocalDelivery, phase, err)
-		}
 		if isLikelyLocalDeviceError(err) && attempt < 3 {
 			time.Sleep(time.Second)
 			continue
 		}
-		return err
+		// Both exits go through the classifier: a disk-full os.MkdirAll above
+		// and the identical failure coming out of action() used to take
+		// different paths and get different labels.
+		return classifyLocalStorageFailure(connection, phase, err)
 	}
 	return fmt.Errorf("fase %s falhou apos tentativas locais", phase)
 }

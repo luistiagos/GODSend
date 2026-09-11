@@ -1,7 +1,7 @@
 # Bug aberto: Fallback unificado ignora fontes anteriores e termina em erro Minerva
 
 Data: 2026-08-09
-Status: aberto
+Status: aberto — codigo corrigido ate a v2.12.91; falta so a confirmacao de uma instalacao real completa (Batman, 9,6 GB)
 Area: browse unificado, pipeline de fallback, cache IA/HuggingFace/Minerva
 Commits: pendente
 
@@ -123,6 +123,32 @@ recusados por schema antigo antes de receberem a migracao leve de plataforma/ali
     Ela confronta Archive e links Archive do HuggingFace com os metadados oficiais,
     executa HEAD em cada URL direta do HuggingFace e compara Minerva com o torrent.
 
+### Tratativas de 2026-09-10 (v2.12.91)
+
+Uma sonda sobre os caches empacotados simulou o merge unificado e passou cada titulo publicado
+pela cadeia inteira. O sintoma original nao se reproduz mais: nenhum titulo fica sem provedor, e
+nenhum provedor que tem o jogo deixa de resolver o nome disparado. A mesma sonda achou defeitos
+no casamento de variantes introduzido pelas tratativas 1-6:
+
+22. **Pedido sem regiao caia na release de um pais so.** `titleMatchScore` descontava 1 ponto por
+    tag, entao a variante com menos tags ganhava. O nome que o HuggingFace publica nao tem regiao,
+    e o fallback dele ia para `Red Dead Redemption (Japan)`, `Mass Effect (Germany)`,
+    `Call of Duty - Black Ops (France)`, com `(USA, Europe)` no mesmo catalogo. Eram 226 titulos no
+    IA e 269 no Minerva, incluindo `007 Legends -> (Russia)` do print. Agora um pedido que nao fixa
+    regiao nem idioma prefere release em ingles ou portugues, sem trocar de disco. Esse publico e
+    decidido pela lista de idiomas quando ela existe, e pela regiao so quando nao ha lista.
+23. **Demo, beta e promo** compartilham a chave do jogo retail e nao podem vencer um pedido que nao
+    os pede (revisao: `Conan -> (USA) (Demo)`, `Grid` listado como `(Demo)`).
+24. **O merge do Catalogo Online listava a primeira variante em ordem alfabetica.** `(Japan)` e
+    `(Russia)` vem antes de `(USA)`, e o nome listado e o que o `/trigger` recebe; eram 115 titulos.
+    Agora, dentro do provedor dono do titulo, fica a variante que o fallback baixaria
+    (`PreferVariant`). O dono continua sendo o primeiro provedor da prioridade.
+25. **`cleanTitleName` cortava o titulo no ultimo ponto** (`filepath.Ext`). `Aliens vs. Predator
+    (Russia)` virava `Aliens vs`, e 19 chaves fundiam jogos diferentes, como
+    `WWE SmackDown vs. Raw 2007...2011`, `F.E.A.R. 2`/`3`, `MX vs. ATV` (quatro jogos) e
+    `L.A. Noire` com a `Complete Edition`. O catalogo escondia todos menos um, e o fallback dava a
+    todos pontuacao de igualdade exata. Agora so `.zip`, `.7z`, `.rar` e `.iso` sao removidos.
+
 ## Testes executados
 
 - `go test ./...` - aprovado em todos os pacotes do backend.
@@ -159,11 +185,32 @@ recusados por schema antigo antes de receberem a migracao leve de plataforma/ali
 - Validacao de runtime no executavel final `2.12.30`: refresh Minerva buscou o torrent,
   publicou 4.446 jogos sem exclusoes/avisos; as quatro visoes (`huggingface`, `ia`,
   `minerva`, `unified`) ficaram prontas, continham Batman e nao continham `path`.
+- 2026-09-10, v2.12.91: `go test ./...` aprovado em todos os pacotes. Regressoes novas em
+  `matching_test.go` (Red Dead Redemption, Conan, AC Brotherhood, Grid, pedido com regiao
+  fixada, pedido so com disco, titulos com ponto) e `browse_unified_test.go`. Este ultimo foi
+  verificado por mutacao: sem a guarda de provedor no merge, ele falha.
+- Sonda final sobre os caches empacotados:
+  - nenhum titulo sem provedor;
+  - pedido sem regiao caindo em release de outro pais com a release em ingles no mesmo provedor:
+    226 -> 0 no IA e 269 -> 0 no Minerva;
+  - listagem na variante errada dentro do provedor: 115 -> 0;
+  - chaves que fundiam jogos diferentes: 19 -> 0, e o Catalogo Online passou de 2964 para 2986
+    titulos;
+  - os 9 jogos do print resolvem em todos os provedores que os tem, `Aliens vs Predator` agora
+    casa tambem no HuggingFace, e IA/Minerva entregam `(USA, Europe)` em vez de `(Russia)`.
+- Limite conhecido, por projeto: o provedor da vez decide. A listagem e o fallback nao pulam
+  para outro provedor so porque ele tem a release em ingles, porque isso reordenaria a cadeia
+  `huggingface -> ia -> minerva`. Isso afeta 20 listagens, por exemplo
+  `2010 FIFA World Cup - Minami Africa Taikai (Japan)` do IA, com `(Japan) (En,Ja)` so no
+  Minerva. No fallback, um pedido `Fallout 3` resolvido pelo IA fica com `(Asia)`, porque o IA
+  nao tem release em ingles; o Minerva, que vem depois, tem `(USA)`.
 
 ## Situacao atual
 
 A primeira correcao de merge/fallback entrou na versao `2.12.29`. A tratativa sistemica de
-armazenamento, fila e alias GOTY esta na versao `2.12.30`. O documento permanece aberto
-ate a confirmacao de uma instalacao real completa do arquivo de 9,6 GB do Batman. O
+armazenamento, fila e alias GOTY esta na versao `2.12.30`. O casamento de variantes
+(tratativas 22-25) foi corrigido na `2.12.91`. Nada mais em aberto no codigo; o documento
+permanece aberto ate a confirmacao de uma instalacao real completa do arquivo de 9,6 GB do
+Batman. O
 bloqueio original de pre-alocacao foi reproduzido e eliminado em execucao real; os testes
 automatizados, a auditoria integral dos caches e a cancelacao com limpeza estao verdes.
