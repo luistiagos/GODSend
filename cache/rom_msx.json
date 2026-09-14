@@ -87,9 +87,9 @@
     "Becky (Japan)",
     "Becky (Japan) (Alt 2)",
     "Becky (Japan) (Alt)",
-    "Bee \u0026 Flower (Japan)",
-    "Bee \u0026 Flower (Japan) (Alt 2)",
-    "Bee \u0026 Flower (Japan) (Alt)",
+    "Bee & Flower (Japan)",
+    "Bee & Flower (Japan) (Alt 2)",
+    "Bee & Flower (Japan) (Alt)",
     "Bifamu (Japan)",
     "Bifamu (Japan) (Alt)",
     "Binary Land (Japan)",
@@ -556,8 +556,8 @@
     "Kick It (Japan) (Alt)",
     "Kiki Kaikai (Japan)",
     "Kinasai (Japan) (Unl)",
-    "King \u0026 Balloon (Japan)",
-    "King \u0026 Balloon (Japan) (Alt)",
+    "King & Balloon (Japan)",
+    "King & Balloon (Japan) (Alt)",
     "King Knight (Japan)",
     "King Knight (Japan) (Alt 2)",
     "King Knight (Japan) (Alt)",
@@ -688,7 +688,6 @@
     "Metal Gear (Europe)",
     "Metal Gear (Japan)",
     "Metal Gear 2 - Solid Snake (Japan)",
-    "Metal Gear 2 - Solid Snake (Japan) (Demo)",
     "Midnight Brothers (Japan)",
     "Midnight Brothers (Japan) (Alt)",
     "Midnight Building (Japan)",
@@ -739,7 +738,6 @@
     "Nekketsu Juudou (Japan) (Alt)",
     "Nemesis (Japan, Europe) (En)",
     "Nemesis (Japan, Europe) (En) (Alt)",
-    "Nemesis 2 (Japan) (Demo)",
     "Nemesis 2 (Japan, Europe) (En) (Alt)",
     "Nemesis 2 (Japan, Europe) (En) (Beta)",
     "Nemesis 3 - The Eve of Destruction (Japan, Europe) (En)",
@@ -837,7 +835,6 @@
     "Pyramid Warp (Japan)",
     "Q-bert (Japan)",
     "Q-bert (Japan) (Alt)",
-    "Quarth (Japan) (Demo)",
     "Quarth (Japan) (Wii U Virtual Console)",
     "Quarth (Korea)",
     "Queen's Golf (Japan)",
@@ -860,7 +857,7 @@
     "Red Zone (Japan)",
     "Red Zone (Japan) (Alt)",
     "Relics (Japan)",
-    "Renju \u0026 Ojama Dogs (Japan)",
+    "Renju & Ojama Dogs (Japan)",
     "Replicart (Japan)",
     "Return of Ishtar, The (Japan)",
     "Return of Jelda (Japan)",
@@ -1031,8 +1028,8 @@
     "Toobin (Europe)",
     "Top Roller! (Japan)",
     "Topple Zip (Japan)",
-    "Track \u0026 Field 1 (Europe)",
-    "Track \u0026 Field 2 (Europe)",
+    "Track & Field 1 (Europe)",
+    "Track & Field 2 (Europe)",
     "Traffic (Japan)",
     "Traffic (Japan) (Alt)",
     "Treasure of Usas, The (Japan, Europe)",
@@ -1065,7 +1062,7 @@
     "Video Hustler (Japan)",
     "Video Hustler (Japan) (Alt)",
     "Volguard (Japan)",
-    "Warp \u0026 Warp (Japan)",
+    "Warp & Warp (Japan)",
     "Warrior (Japan)",
     "Warroid (Japan)",
     "Warroid (Japan) (Alt)",
@@ -1468,15 +1465,15 @@
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Becky%20%28Japan%29%20%28Alt%29.zip"
     },
-    "bee \u0026 flower (japan)": {
+    "bee & flower (japan)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Bee%20%26%20Flower%20%28Japan%29.zip"
     },
-    "bee \u0026 flower (japan) (alt 2)": {
+    "bee & flower (japan) (alt 2)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Bee%20%26%20Flower%20%28Japan%29%20%28Alt%202%29.zip"
     },
-    "bee \u0026 flower (japan) (alt)": {
+    "bee & flower (japan) (alt)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Bee%20%26%20Flower%20%28Japan%29%20%28Alt%29.zip"
     },
@@ -3344,11 +3341,11 @@
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Kinasai%20%28Japan%29%20%28Unl%29.zip"
     },
-    "king \u0026 balloon (japan)": {
+    "king & balloon (japan)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/King%20%26%20Balloon%20%28Japan%29.zip"
     },
-    "king \u0026 balloon (japan) (alt)": {
+    "king & balloon (japan) (alt)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/King%20%26%20Balloon%20%28Japan%29%20%28Alt%29.zip"
     },
@@ -3808,10 +3805,6 @@
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Metal%20Gear%202%20-%20Solid%20Snake%20%28Japan%29.zip"
     },
-    "metal gear 2 - solid snake (japan) (demo)": {
-      "collection_id": "msx",
-      "filename": "https://edgeemu.net/download/microsoft-msx/Metal%20Gear%202%20-%20Solid%20Snake%20%28Japan%29%20%28Demo%29.zip"
-    },
     "midi macro (japan) (program)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/MIDI%20Macro%20%28Japan%29%20%28Program%29.zip"
@@ -4075,10 +4068,6 @@
     "nemesis (japan, europe) (en) (alt)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Nemesis%20%28Japan%2C%20Europe%29%20%28En%29%20%28Alt%29.zip"
-    },
-    "nemesis 2 (japan) (demo)": {
-      "collection_id": "msx",
-      "filename": "https://edgeemu.net/download/microsoft-msx/Nemesis%202%20%28Japan%29%20%28Demo%29.zip"
     },
     "nemesis 2 (japan, europe) (en) (alt)": {
       "collection_id": "msx",
@@ -4468,10 +4457,6 @@
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Q-bert%20%28Japan%29%20%28Alt%29.zip"
     },
-    "quarth (japan) (demo)": {
-      "collection_id": "msx",
-      "filename": "https://edgeemu.net/download/microsoft-msx/Quarth%20%28Japan%29%20%28Demo%29.zip"
-    },
     "quarth (japan) (wii u virtual console)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Quarth%20%28Japan%29%20%28Wii%20U%20Virtual%20Console%29.zip"
@@ -4560,7 +4545,7 @@
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Relics%20%28Japan%29.zip"
     },
-    "renju \u0026 ojama dogs (japan)": {
+    "renju & ojama dogs (japan)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Renju%20%26%20Ojama%20Dogs%20%28Japan%29.zip"
     },
@@ -5240,11 +5225,11 @@
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Topple%20Zip%20%28Japan%29.zip"
     },
-    "track \u0026 field 1 (europe)": {
+    "track & field 1 (europe)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Track%20%26%20Field%201%20%28Europe%29.zip"
     },
-    "track \u0026 field 2 (europe)": {
+    "track & field 2 (europe)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Track%20%26%20Field%202%20%28Europe%29.zip"
     },
@@ -5380,7 +5365,7 @@
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Volguard%20%28Japan%29.zip"
     },
-    "warp \u0026 warp (japan)": {
+    "warp & warp (japan)": {
       "collection_id": "msx",
       "filename": "https://edgeemu.net/download/microsoft-msx/Warp%20%26%20Warp%20%28Japan%29.zip"
     },

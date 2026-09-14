@@ -487,3 +487,50 @@ func TestDiscRolesStillStrippedAlongsideDemoGuard(t *testing.T) {
 		}
 	}
 }
+
+func TestIsDemoTitle(t *testing.T) {
+	demos := []string{
+		"All-Pro Football 2K8 (USA) (Demo)",
+		"Banjo-Kazooie - Nuts & Bolts (USA) (Demo)",
+		"Call of Duty - Modern Warfare 2 (France) (Demo)",
+		"Call of Duty - Modern Warfare 2 (USA, Europe) (Demo)",
+		"Conan (USA) (Demo)",
+		"DJ Hero (USA) (En,Fr,De,Es,It) (Demo)",
+		"Disney Mickey 2 (World) (Demo) (XBLA)",
+		"Destiny Demo",
+		"Kinect Demo v1.3 (Europe) (Es,It,Pl,Ru)",
+		"Xbox 360 - Das Offizielle Xbox-Magazin - Demo Disk 01-2007 (Germany)",
+		"Xbox Demo Disc (USA)",
+		"Xbox Demo Disk Version 1.0 (USA)",
+		"Xbox 360 Wireless Racing Wheel Demo Disc (USA, Asia)",
+		"Tenpo-you Demo Disc for Xbox 360 - July 2006 Issue (Japan)",
+		"DSP1 Tech Demo (USA) (Tech Demo)",
+		"Sonic The Hedgehog 2 (World) (Auto Demo)",
+		"Mega Bomberman - Special 8-Player-Demo (Europe) (Proto)",
+	}
+
+	for _, d := range demos {
+		if !IsDemoTitle(d) {
+			t.Errorf("expected %q to be recognized as a demo, but was not", d)
+		}
+	}
+
+	nonDemos := []string{
+		"Demo Durb",
+		"Demo Durb (World) (XBLIG)",
+		"DemonStone",
+		"Hunted Demon's Forge",
+		"Minecraft - Xbox 360 Edition (World) (En,Ja,Fr,De,Es,It,Pt,Zh,Ko)",
+		"Minecraft - Xbox 360 Edition (World)",
+		"Minecraft [RF]",
+		"Minecraft Xbox 360 Edition",
+		"Grand Theft Auto V (USA) (Disc 1) (Install)",
+		"Demolition Racer",
+	}
+
+	for _, nd := range nonDemos {
+		if IsDemoTitle(nd) {
+			t.Errorf("expected %q NOT to be recognized as a demo, but was marked as demo", nd)
+		}
+	}
+}

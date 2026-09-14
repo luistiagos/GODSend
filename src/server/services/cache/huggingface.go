@@ -98,7 +98,7 @@ func (s *HuggingFaceService) Build(platform string) {
 			}
 		}
 		name = strings.TrimSpace(name)
-		if name == "" {
+		if name == "" || models.IsDemoTitle(name) {
 			continue
 		}
 

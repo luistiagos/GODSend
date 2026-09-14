@@ -95,7 +95,19 @@ var (
 	// A bare "(Demo)" never had the bug: it carries no role keyword, so discSubtitlePattern never
 	// matched it and the group already survived into the title.
 	nonRetailMediaPattern = regexp.MustCompile(`(?i)\b(?:demos?|betas?|trial|preview)\b`)
+	demoTitlePattern      = regexp.MustCompile(`(?i)(?:[\(\[][^\)\]]*?\b(?:demos?)\b[^\)\]]*?[\)\]]|\bdemo\s+(?:disc|disk|dvd)\b|\b(?:disc|disk|dvd)\s+de\s+demos\b|\bdemo\s+(?:v\d|vol\b|\d{1,2}-\d{4})|\b(?:kiosk|tech|auto)\s+demo\b|[\s-]demo$|\b[a-z0-9]+-demo\b|demo\s+dis[ck])`)
 )
+
+// IsDemoTitle reports whether a catalog title is a demo, kiosk demo, tech demo, or demo disc.
+// Legitimate titles that contain the word "demo" (such as the indie game "Demo Durb" or
+// words like "Demon", "Demolition") are preserved.
+func IsDemoTitle(title string) bool {
+	lower := strings.ToLower(title)
+	if strings.HasPrefix(lower, "demo durb") || strings.HasPrefix(lower, "demon") {
+		return false
+	}
+	return demoTitlePattern.MatchString(title)
+}
 
 // DiscInfo represents parsed disc metadata from a catalog title.
 type DiscInfo struct {

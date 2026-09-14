@@ -193,6 +193,9 @@ func (s *MinervaService) ScrapeMinervaPage(browseURL string, tagFilters []string
 		if ext != ".zip" && ext != ".7z" && ext != ".rar" {
 			continue
 		}
+		if models.IsDemoTitle(strings.TrimSuffix(fileName, ext)) {
+			continue
+		}
 		if len(tagFilters) > 0 {
 			match := false
 			for _, t := range tagFilters {

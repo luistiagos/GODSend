@@ -45,9 +45,15 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		cached := d.App.ROMGameCache[sysid]
 		d.App.ROMGameCacheMu.RUnlock()
 		if len(cached) > 0 {
-			d.App.Logf("BROWSE: Serving %d cached ROMs for %s", len(cached), app.ROMSystems[sysid].Name)
+			var filtered []string
+			for _, g := range cached {
+				if !models.IsDemoTitle(g) {
+					filtered = append(filtered, g)
+				}
+			}
+			d.App.Logf("BROWSE: Serving %d cached ROMs for %s", len(filtered), app.ROMSystems[sysid].Name)
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.Write([]byte(strings.Join(cached, "|")))
+			w.Write([]byte(strings.Join(filtered, "|")))
 			return
 		}
 		go d.ROM.Build(sysid)
@@ -83,9 +89,12 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 
 	if source == "minerva" {
 		if len(minervaCached) > 0 {
-			decoded := make([]string, len(minervaCached))
-			for i, g := range minervaCached {
-				decoded[i] = helpers.DecodeMinervaName(g)
+			var decoded []string
+			for _, g := range minervaCached {
+				dec := helpers.DecodeMinervaName(g)
+				if !models.IsDemoTitle(dec) {
+					decoded = append(decoded, dec)
+				}
 			}
 			d.App.Logf("BROWSE: Serving %d Minerva games for %s", len(decoded), platform)
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -101,9 +110,15 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 
 	if source == "ia" {
 		if len(iaCached) > 0 {
-			d.App.Logf("BROWSE: Serving %d IA games for %s", len(iaCached), platform)
+			var filtered []string
+			for _, g := range iaCached {
+				if !models.IsDemoTitle(g) {
+					filtered = append(filtered, g)
+				}
+			}
+			d.App.Logf("BROWSE: Serving %d IA games for %s", len(filtered), platform)
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.Write([]byte(strings.Join(iaCached, "|")))
+			w.Write([]byte(strings.Join(filtered, "|")))
 			return
 		}
 		go d.IA.Build(platform)
@@ -125,9 +140,15 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		d.App.IAGameCacheMu.RUnlock()
 
 		if len(hfCached) > 0 {
-			d.App.Logf("BROWSE: Serving %d HuggingFace games for %s", len(hfCached), platform)
+			var filtered []string
+			for _, g := range hfCached {
+				if !models.IsDemoTitle(g) {
+					filtered = append(filtered, g)
+				}
+			}
+			d.App.Logf("BROWSE: Serving %d HuggingFace games for %s", len(filtered), platform)
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.Write([]byte(strings.Join(hfCached, "|")))
+			w.Write([]byte(strings.Join(filtered, "|")))
 			return
 		}
 		go d.HuggingFace.Build(platform)
@@ -165,6 +186,9 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		seen := make(map[string]listing)
 		var merged []string
 		add := func(provider, g string) {
+			if models.IsDemoTitle(g) {
+				return
+			}
 			key := cacheService.NormalizeTitleForMatching(g)
 			if disc := models.DiscNumberFromName(g); disc > 0 {
 				key = fmt.Sprintf("%s:disc%d", key, disc)
@@ -306,7 +330,7 @@ func (d *Deps) handleBrowseReleases(w stdhttp.ResponseWriter, r *stdhttp.Request
 	var order []string
 	groups := map[string][]string{}
 	for _, name := range d.companionCatalog(platform) {
-		if seen[name] {
+		if seen[name] || models.IsDemoTitle(name) {
 			continue
 		}
 		seen[name] = true
@@ -736,25 +760,36 @@ func (d *Deps) handleTrigger(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 // is a release the queue can actually finish.
 func (d *Deps) companionCatalog(plat string) []string {
 	var catalog []string
+	addIfRetail := func(name string) {
+		if !models.IsDemoTitle(name) {
+			catalog = append(catalog, name)
+		}
+	}
 	d.App.IAGameCacheMu.RLock()
 	if list, ok := d.App.IAGameCache["hf_"+plat]; ok && len(list) > 0 {
-		catalog = append(catalog, list...)
+		for _, g := range list {
+			addIfRetail(g)
+		}
 	}
 	if list, ok := d.App.IAGameCache[plat]; ok && len(list) > 0 {
-		catalog = append(catalog, list...)
+		for _, g := range list {
+			addIfRetail(g)
+		}
 	}
 	d.App.IAGameCacheMu.RUnlock()
 
 	d.App.MinervaGameCacheMu.RLock()
 	if list, ok := d.App.MinervaGameCache[plat]; ok && len(list) > 0 {
 		for _, mName := range list {
-			catalog = append(catalog, helpers.DecodeMinervaName(mName))
+			addIfRetail(helpers.DecodeMinervaName(mName))
 		}
 	}
 	d.App.MinervaGameCacheMu.RUnlock()
 
 	if plat == "local" || plat == "xbox360" || plat == "xbox" {
-		catalog = append(catalog, d.Local.ScanTransferFolder()...)
+		for _, g := range d.Local.ScanTransferFolder() {
+			addIfRetail(g)
+		}
 	}
 	return catalog
 }

@@ -301,6 +301,9 @@ func (s *IAService) Build(platform string) {
 		for _, e := range r.entries {
 			ext := filepath.Ext(e.FileName)
 			name := strings.TrimSuffix(e.FileName, ext)
+			if models.IsDemoTitle(name) {
+				continue
+			}
 			lower := strings.ToLower(name)
 			newEntries[lower] = e
 			allGames = append(allGames, name)

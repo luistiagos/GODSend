@@ -1,5 +1,10 @@
 # Bug: retry de porta do servidor local nunca dispara — `IsTCPAddrInUse` nao reconhece erro em locale PT-BR (e possivelmente nem em ingles no Windows)
 
+- **Status:** **Resolvido** -- fechado em 2026-09-14. E o mesmo defeito ja documentado em
+  [`backend-go-bind-port-busy-portuguese-win32-error_2026-07-14T00-18.md`](backend-go-bind-port-busy-portuguese-win32-error_2026-07-14T00-18.md)
+  (v2.12.44). Conferido em `app/listen.go`: `IsTCPAddrInUse` usa `errors.As(err, &errno)`
+  (desembrulha `OpError -> SyscallError -> Errno`), trata 10048/10013/10049/5/32 e tem
+  fallback de string em PT/ES/FR/DE/IT. `go test ./app/ -run TestIsTCPAddrInUse` passando.
 - **Detectado em:** 2026-06-10 -> 2026-07-14 (telemetria de producao)
 - **Origem:** telemetria `xbox-360-companion/backend` (`main.go::main`); causa real em
   `app/listen.go::IsTCPAddrInUse`

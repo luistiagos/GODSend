@@ -138,7 +138,7 @@ func (s *ROMService) FetchEdgeEmuGames(browseURL string) ([]string, map[string]s
 			name := strings.TrimSuffix(decoded, ".zip")
 			name = strings.TrimSuffix(name, ".ZIP")
 			name = strings.TrimSpace(name)
-			if name == "" {
+			if name == "" || models.IsDemoTitle(name) {
 				continue
 			}
 
