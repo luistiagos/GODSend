@@ -9,6 +9,24 @@
   (v2.12.76/77/78 trataram `spawn powershell.exe ENOENT`, que é **outra** causa —
   ver [`electron-main-spawn-powershell-enoent-lista-dispositivos_2026-09-06T12-00.md`](electron-main-spawn-powershell-enoent-lista-dispositivos_2026-09-06T12-00.md))
 
+## Recorrência em produção depois do fix (triagem de 2026-09-15)
+
+A mensagem 1 voltou em massa na telemetria: **153 reports** entre 2026-09-10 e 2026-09-15,
+**145 deles em ElectronApp v2.12.81**, que já contém a correção acima (v2.12.79). Não é
+regressão desta correção: é **outra causa**, que ela não tinha como cobrir.
+
+Os logs anexos mostram, em 14 de 16 amostras, **várias instâncias do app vivas ao mesmo
+tempo** (pico de 17), cada uma com seu backend e seu polling de USB a cada 5 s, e os
+`powershell.exe` de todas competindo entre si até estourar o teto de 5 s. O app não tem
+`requestSingleInstanceLock` e fechar a janela só esconde na bandeja.
+
+Análise, IDs e correção proposta em
+[`electron-main-multiplas-instancias-sem-single-instance-lock_2026-09-15T14-44.md`](../open/electron-main-multiplas-instancias-sem-single-instance-lock_2026-09-15T14-44.md).
+
+Este documento continua fechado. Os 2 reports da amostra com **uma** instância só
+(5941, 6635) são o resto descrito em "O que continua aberto", abaixo; se esse resto crescer
+depois do lock de instância única, é aqui que ele reabre.
+
 ## Sintoma
 
 Print 1, na faixa de erro do card **Dispositivo conectado**:

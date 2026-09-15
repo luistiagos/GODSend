@@ -59,8 +59,9 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	extDir := filepath.Join(s.outputRoot(gameName), safeName+"_hf_ext")
 	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
 	if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
-		return fmt.Errorf("Extract failed: %w", err)
+		return fmt.Errorf("Extract failed: %w", s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "huggingface", err))
 	}
+	clearCorruptArchiveRedownloadMarker(archivePath)
 
 	xexFolder := helpers.FindXEXFolder(extDir)
 	folderName := ""

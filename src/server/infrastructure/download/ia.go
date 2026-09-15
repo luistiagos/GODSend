@@ -120,6 +120,19 @@ func markDownloadCompleted(dest, urlStr string) error {
 	return nil
 }
 
+// InvalidateCompletedDownload removes every local artifact that could make a
+// later DownloadWithProgress reuse a source archive that failed validation in a
+// downstream processing step.
+func (s *Service) InvalidateCompletedDownload(dest, name, reason string) {
+	_ = os.Remove(completedMarkerPath(dest))
+	removeDownloadResume(dest)
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+		s.App.Logf("WARN [%s]: nao foi possivel remover download invalido %s: %v", name, dest, err)
+		return
+	}
+	s.App.Logf("DOWNLOAD CACHE [%s]: arquivo local invalidado (%s): %s", name, reason, dest)
+}
+
 func ensureDownloadSpace(dest string, totalSize int64) error {
 	if totalSize <= 0 {
 		return nil

@@ -3,9 +3,18 @@
 - **Detectado em:** 2026-09-09 03:15 (telemetria de produção)
 - **Status:** **Duplicado** de [`electron-renderer-settingspage-onopenupdatemodal-referenceerror_2026-09-06T04-37.md`](electron-renderer-settingspage-onopenupdatemodal-referenceerror_2026-09-06T04-37.md) — já corrigido no commit `ea06af0`
 - **Origem:** telemetria `xbox-360-companion/electron-renderer` (`renderer-dist/assets/index-*.js::window.onerror`)
-- **Errors (serviço):** 5085, 5196, 5368 (3 ocorrências)
+- **Errors (serviço):** 5085, 5196, 5368 (3 ocorrências); **triagem de 2026-09-15:** 5994, 6211 (+2)
 - **Classe:** crash
 - **Versões:** ElectronApp v2.12.43 e v2.12.67 — ambas **anteriores** à correção
+
+## Novas ocorrências (triagem de 2026-09-15)
+
+- **5994** (2026-09-12 00:27) e **6211** (2026-09-13 07:08), duas máquinas diferentes, ambas
+  **ElectronApp v2.12.67** e o mesmo bundle `index-CHZYXPsL.js`. Stack de 5994:
+  `ReferenceError: onOpenUpdateModal is not defined at onClick (index-CHZYXPsL.js:356:1754)`.
+- Não é regressão: a versão continua anterior a `ea06af0` (v2.12.71). São clientes que ainda
+  não atualizaram — e não conseguem pelo botão de atualizar, que é justamente o que lança.
+- **Critério de reabertura:** a mesma mensagem com `user_agent` ≥ v2.12.71.
 
 ## Sintoma
 

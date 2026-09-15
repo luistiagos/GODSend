@@ -194,12 +194,14 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		extDir := filepath.Join(s.App.TempDir, safeName+"_ext")
 		s.App.LogStatus(gameName, "Processing", "Extracting archive for XEX...")
 		if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
+			err = s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "internet archive", err)
 			if xboxConn == nil || xboxConn.Mode != "local" {
 				os.Remove(archivePath)
 			}
 			s.App.Logf("ERROR [%s]: XEX extract failed: %v", gameName, err)
 			return fmt.Errorf("Extract failed: %w", err)
 		}
+		clearCorruptArchiveRedownloadMarker(archivePath)
 		if xboxConn == nil || xboxConn.Mode != "local" {
 			os.Remove(archivePath)
 		}
@@ -267,6 +269,9 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 
 	s.App.LogStatus(gameName, "Processing", "Extracting ISO...")
 	isoPath, isoExtDir, err := s.extractISOResilient(gameName, safeName, archivePath, filepath.Join(s.App.TempDir))
+	if err != nil {
+		err = s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "internet archive", err)
+	}
 	if xboxConn == nil || xboxConn.Mode != "local" {
 		os.Remove(archivePath)
 	}
@@ -274,6 +279,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		s.App.Logf("ERROR [%s]: Extract failed: %v", gameName, err)
 		return fmt.Errorf("Extract failed: %w", err)
 	}
+	clearCorruptArchiveRedownloadMarker(archivePath)
 	// The archive may carry the rest of the release beside the ISO; nothing below installs it.
 	if err := s.installCompanionDiscContent(gameName, isoExtDir, "", xboxConn); err != nil {
 		return err

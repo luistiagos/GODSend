@@ -163,8 +163,9 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 	extDir := filepath.Join(s.App.TempDir, safeName+"_ext")
 	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
 	if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
-		return fmt.Errorf("Extract failed: %w", err)
+		return fmt.Errorf("Extract failed: %w", s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "internet archive", err))
 	}
+	clearCorruptArchiveRedownloadMarker(archivePath)
 
 	installType := s.App.LookupInstallType(gameName)
 
@@ -309,8 +310,9 @@ func (s *Service) ProcessDigitalWithErr(gameName, platform string) error {
 	extDir := filepath.Join(s.App.TempDir, safeName+"_ext")
 	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
 	if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
-		return fmt.Errorf("Extract failed: %w", err)
+		return fmt.Errorf("Extract failed: %w", s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "internet archive", err))
 	}
+	clearCorruptArchiveRedownloadMarker(archivePath)
 
 	var contentFile, titleID, typeDir string
 	filepath.Walk(extDir, func(p string, i os.FileInfo, e error) error {

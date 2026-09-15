@@ -6,11 +6,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"godsend/app"
+	"godsend/infrastructure/download"
 	"godsend/models"
 )
 
@@ -435,6 +437,67 @@ func TestClassifyLocalStorageFailureHaltsInEveryMode(t *testing.T) {
 		// Em modo FTP nao existe dispositivo local para culpar.
 		if errors.Is(got, ErrLocalDelivery) {
 			t.Fatalf("modo %s: falha no disco do PC nao pode virar falha de dispositivo: %v", mode, got)
+		}
+	}
+}
+
+func TestCorruptArchiveExtractionInvalidatesRetainedDownloadOnce(t *testing.T) {
+	a := app.NewApp()
+	service := &Service{App: a, Download: &download.Service{App: a}}
+	archive := filepath.Join(t.TempDir(), ".source_hf.rar")
+	for _, path := range []string{archive, archive + app.DownloadCompleteSuffix, archive + app.DownloadResumeSuffix} {
+		if err := os.WriteFile(path, []byte("stale"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err := service.invalidateDownloadedArchiveOnCorruptExtract("Lego Batman 1", archive, "huggingface", errors.New("rardecode: bad file checksum"))
+	if err == nil || !strings.Contains(err.Error(), "baixar novamente") {
+		t.Fatalf("erro deveria orientar novo download: %v", err)
+	}
+	for _, path := range []string{archive, archive + app.DownloadCompleteSuffix, archive + app.DownloadResumeSuffix} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("artefato invalido deveria ser removido: %s (%v)", path, statErr)
+		}
+	}
+	if _, statErr := os.Stat(corruptArchiveRedownloadMarkerPath(archive)); statErr != nil {
+		t.Fatalf("marcador de rebaixada deveria ficar para limitar a uma tentativa: %v", statErr)
+	}
+
+	for _, path := range []string{archive, archive + app.DownloadCompleteSuffix, archive + app.DownloadResumeSuffix} {
+		if err := os.WriteFile(path, []byte("stale-again"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = service.invalidateDownloadedArchiveOnCorruptExtract("Lego Batman 1", archive, "huggingface", errors.New("not a valid 7-zip file"))
+	if err == nil || !strings.Contains(err.Error(), "continua invalido") {
+		t.Fatalf("segunda corrupcao deveria culpar a origem: %v", err)
+	}
+	if _, statErr := os.Stat(archive); !os.IsNotExist(statErr) {
+		t.Fatalf("arquivo repetidamente invalido tambem deve ser removido; err=%v", statErr)
+	}
+	clearCorruptArchiveRedownloadMarker(archive)
+	if _, statErr := os.Stat(corruptArchiveRedownloadMarkerPath(archive)); !os.IsNotExist(statErr) {
+		t.Fatalf("marcador deveria ser limpo apos extracao bem-sucedida; err=%v", statErr)
+	}
+}
+
+func TestStorageExtractionFailureDoesNotInvalidateRetainedDownload(t *testing.T) {
+	a := app.NewApp()
+	service := &Service{App: a, Download: &download.Service{App: a}}
+	archive := filepath.Join(t.TempDir(), ".source.zip")
+	for _, path := range []string{archive, archive + app.DownloadCompleteSuffix, archive + app.DownloadResumeSuffix} {
+		if err := os.WriteFile(path, []byte("keep"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	diskErr := errors.New("write file: there is not enough space on the disk")
+	if got := service.invalidateDownloadedArchiveOnCorruptExtract("Example", archive, "internet archive", diskErr); got != diskErr {
+		t.Fatalf("erro de armazenamento deve passar intacto: %v", got)
+	}
+	for _, path := range []string{archive, archive + app.DownloadCompleteSuffix, archive + app.DownloadResumeSuffix} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("erro local nao deve invalidar arquivo retido: %s (%v)", path, statErr)
 		}
 	}
 }

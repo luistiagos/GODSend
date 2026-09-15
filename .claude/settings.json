@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "PowerShell($line = Select-String -Path 'C:\\\\projects\\\\digitalstoregamesproject\\\\digitalstoregamesbackend\\\\.env' -Pattern '^JWT_SECRET_KEY=' | Select-Object -First 1; if \\(-not $line\\) { Write-Output 'NAO ENCONTRADO'; exit 1 }; $env:JWT_SECRET_KEY = $line.Line.Split\\('=',2\\)[1].Trim\\(\\).Trim\\('\"'\\).Trim\\(\"'\"\\); python \"$env:USERPROFILE\\\\.claude\\\\skills\\\\triagem-bugs-prod\\\\scripts\\\\triagem.py\" list --project xbox-360-companion --json \"$env:TEMP\\\\xb_errs.json\")",
+      "PowerShell(python \"C:\\\\Users\\\\luist\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--projects-Downloader-XBOX360-XEX-HDD-Games\\\\976ad595-2451-4d41-bac3-1fb1268750e8\\\\scratchpad\\\\agrupa.py\")",
+      "PowerShell($line = Select-String -Path 'C:\\\\projects\\\\digitalstoregamesproject\\\\digitalstoregamesbackend\\\\.env' -Pattern '^JWT_SECRET_KEY=' | Select-Object -First 1; $env:JWT_SECRET_KEY = $line.Line.Split\\('=',2\\)[1].Trim\\(\\).Trim\\('\"'\\).Trim\\(\"'\"\\); python \"$env:USERPROFILE\\\\.claude\\\\skills\\\\triagem-bugs-prod\\\\scripts\\\\triagem.py\" list --project xbox-360-companion --json \"C:\\\\Users\\\\luist\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--projects-Downloader-XBOX360-XEX-HDD-Games\\\\976ad595-2451-4d41-bac3-1fb1268750e8\\\\scratchpad\\\\errs.json\")"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -27,10 +35,5 @@
     "security-guidance@claude-plugins-official": true,
     "code-simplifier@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true
-  },
-  "permissions": {
-    "allow": [
-      "Bash(npx tsc *)"
-    ]
   }
 }
