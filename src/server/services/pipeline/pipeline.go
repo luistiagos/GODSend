@@ -71,7 +71,7 @@ func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 		}
 		defer s.cleanupStageAfterRun(gameName, xexDir, xboxConn)
 
-		gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+		gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 		os.MkdirAll(gameDir, 0755)
 		folderName := helpers.XEXFolderName(xexDir, safeName)
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
@@ -134,7 +134,7 @@ func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 		return
 	}
 
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	godDir := filepath.Join(s.outputRoot(gameName), safeName+"_GOD")
@@ -170,7 +170,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		cc := c.(models.XboxConnection)
 		xboxConn = &cc
 	}
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	s.App.LogStatus(gameName, "Processing", "Searching Internet Archive...")
@@ -189,7 +189,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	if xboxConn != nil && xboxConn.Mode == "local" {
 		// Keep a completed source archive outside transient scratch. If the app is
 		// restarted after a USB failure, DownloadWithProgress reuses this file.
-		archivePath = filepath.Join(gameDir, ".source"+filepath.Ext(entry.FileName))
+		archivePath = s.resolveLocalSourceArchive(gameDir, safeName, ".source"+filepath.Ext(entry.FileName))
 	}
 	s.App.LogStatus(gameName, "Processing", "Downloading from Internet Archive...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, app.IADownloadBase); err != nil {

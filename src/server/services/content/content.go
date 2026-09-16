@@ -999,7 +999,7 @@ func guessContentTypeFromName(name string) string {
 func (s *Service) QueueContentDownload(req models.ContentQueueRequest, xboxConn *models.XboxConnection) error {
 	queueKey := req.GameName + " — " + req.DisplayName
 	safeName := helpers.SanitizeFilename(req.GameName + "_" + req.DisplayName)
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	// Minerva sources expose torrent paths (e.g. "./No-Intro/.../foo.zip"),

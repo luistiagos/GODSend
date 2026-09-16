@@ -99,6 +99,33 @@ func TestProbeISOInstallLayoutFindsPlaceholderContentTree(t *testing.T) {
 	}
 }
 
+func TestProbeISOInstallLayoutAcceptsNilInfoWithoutExecutable(t *testing.T) {
+	path := buildInstallDiscTestISO(t, true)
+	// Passing nil info on an ISO without default.xex should NOT fail
+	layout, err := ProbeISOInstallLayout(path, nil)
+	if err != nil {
+		t.Fatalf("ProbeISOInstallLayout with nil info failed: %v", err)
+	}
+	if !layout.HasInstallableContent || layout.ContentTitleID != 0x4D53084D {
+		t.Fatalf("unexpected layout: %+v", layout)
+	}
+}
+
+func TestExtractXDVDFSContentToDirNilInfoSafe(t *testing.T) {
+	path := buildInstallDiscTestISO(t, true)
+	dest := filepath.Join(t.TempDir(), "extracted_content")
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExtractXDVDFSContentToDir(path, dest, nil); err != nil {
+		t.Fatalf("ExtractXDVDFSContentToDir failed with nil info: %v", err)
+	}
+	pkg := filepath.Join(dest, "PACKAGE")
+	if _, err := os.Stat(pkg); err != nil {
+		t.Fatalf("expected extracted PACKAGE file, got err: %v", err)
+	}
+}
+
 func TestProbeISOInstallLayoutDoesNotClassifyPlayableDiscAsContent(t *testing.T) {
 	path := buildInstallDiscTestISO(t, false)
 	layout, err := ProbeISOInstallLayout(path, &TitleExecInfo{TitleID: 0x4D5307FA, DiscNumber: 2, DiscCount: 4})

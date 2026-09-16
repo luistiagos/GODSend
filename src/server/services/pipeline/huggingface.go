@@ -35,7 +35,7 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 		cc := c.(models.XboxConnection)
 		xboxConn = &cc
 	}
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	ext := strings.ToLower(filepath.Ext(downloadURL))
@@ -44,7 +44,7 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	}
 	archivePath := filepath.Join(s.App.TempDir, safeName+"_hf"+ext)
 	if xboxConn != nil && xboxConn.Mode == "local" {
-		archivePath = filepath.Join(gameDir, ".source_hf"+ext)
+		archivePath = s.resolveLocalSourceArchive(gameDir, safeName, ".source_hf"+ext)
 	}
 	s.App.LogStatus(gameName, "Processing", "Downloading from HuggingFace...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, "huggingface.co"); err != nil {

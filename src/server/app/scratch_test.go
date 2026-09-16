@@ -143,3 +143,40 @@ func TestAcquireGameJobTriggersEnsureWorkingVolume(t *testing.T) {
 		t.Fatalf("AcquireGameJob did not revert unavailable TempDir: got %s, want %s", a.TempDir, expectedDefault)
 	}
 }
+
+func TestGetReadyDirDefaultsAndExplicit(t *testing.T) {
+	root := t.TempDir()
+	a := NewApp()
+	a.ToolsDir = root
+
+	// When ReadyDir is empty, defaults to ToolsDir/Ready
+	expectedDefault := filepath.Join(root, "Ready")
+	if got := a.GetReadyDir(); got != expectedDefault {
+		t.Fatalf("GetReadyDir() default: got %q, want %q", got, expectedDefault)
+	}
+
+	// When ReadyDir is explicitly set (e.g. on roomiest drive)
+	customReady := filepath.Join(root, "roomy-volume", "godsend-temp", "ready")
+	a.ReadyDir = customReady
+	if got := a.GetReadyDir(); got != customReady {
+		t.Fatalf("GetReadyDir() custom: got %q, want %q", got, customReady)
+	}
+}
+
+func TestEnsureWorkingVolumeRevertsReadyDir(t *testing.T) {
+	root := t.TempDir()
+	a := NewApp()
+	a.ToolsDir = root
+	a.TempDir = filepath.Join(root, "Temp")
+	a.TorrentTempDir = filepath.Join(a.TempDir, "torrent-dl")
+	invalidReady := "Z:\\godsend-temp-unmounted\\ready"
+	a.ReadyDir = invalidReady
+
+	_ = a.EnsureWorkingVolume()
+
+	expectedDefaultReady := filepath.Join(root, "Ready")
+	if a.ReadyDir != expectedDefaultReady {
+		t.Fatalf("EnsureWorkingVolume did not revert unavailable ReadyDir: got %s, want %s", a.ReadyDir, expectedDefaultReady)
+	}
+}
+

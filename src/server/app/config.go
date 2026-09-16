@@ -441,6 +441,7 @@ func (a *App) SetupPaths() error {
 
 	a.TempDir = filepath.Join(a.ToolsDir, "Temp")
 	a.TorrentTempDir = filepath.Join(a.TempDir, "torrent-dl")
+	a.ReadyDir = filepath.Join(a.ToolsDir, "Ready")
 
 	// When a *different* fixed NTFS/exFAT drive has more free space than the app
 	// drive, move the whole per-game working set there so multi-GB downloads and
@@ -452,6 +453,8 @@ func (a *App) SetupPaths() error {
 		base := filepath.Join(best, "godsend-temp")
 		a.TempDir = filepath.Join(base, "proc")
 		a.TorrentTempDir = filepath.Join(base, "torrent-dl")
+		a.ReadyDir = filepath.Join(base, "ready")
+		_ = os.MkdirAll(a.ReadyDir, 0755)
 		a.Logf("[INFO] Processing/torrent temp auto-selected roomiest drive: %s", base)
 		autoSelectedTemp = true
 	}
@@ -471,8 +474,11 @@ func (a *App) SetupPaths() error {
 
 	fallbackToDefaultTemp := func(failedPath string, reason error) error {
 		defaultTemp := filepath.Join(a.ToolsDir, "Temp")
+		defaultReady := filepath.Join(a.ToolsDir, "Ready")
 		a.Logf("[WARN] Auto-selected temp directory %s failed (%v); falling back to default %s", failedPath, reason, defaultTemp)
 		a.TempDir = defaultTemp
+		a.ReadyDir = defaultReady
+		_ = os.MkdirAll(defaultReady, 0755)
 		if !hasExplicitTorrentTemp {
 			a.TorrentTempDir = filepath.Join(a.TempDir, "torrent-dl")
 		}
@@ -670,27 +676,35 @@ func (a *App) ApplyArchiveOrgHeaders(req *http.Request) {
 
 // CleanupEmptyReadyDirs removes any subdirectory under Ready/ that contains no files.
 func (a *App) CleanupEmptyReadyDirs() {
-	readyDir := filepath.Join(a.ToolsDir, "Ready")
-	entries, err := os.ReadDir(readyDir)
-	if err != nil {
-		return
+	readyDirs := []string{a.GetReadyDir()}
+	if a.ToolsDir != "" {
+		legacy := filepath.Join(a.ToolsDir, "Ready")
+		if !strings.EqualFold(filepath.Clean(legacy), filepath.Clean(a.GetReadyDir())) {
+			readyDirs = append(readyDirs, legacy)
+		}
 	}
-	for _, e := range entries {
-		if !e.IsDir() {
+	for _, readyDir := range readyDirs {
+		entries, err := os.ReadDir(readyDir)
+		if err != nil {
 			continue
 		}
-		subDir := filepath.Join(readyDir, e.Name())
-		hasFiles := false
-		filepath.Walk(subDir, func(_ string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() {
-				hasFiles = true
-				return filepath.SkipAll
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
 			}
-			return nil
-		})
-		if !hasFiles {
-			a.Logf("Cleanup: removing empty Ready dir: %s", e.Name())
-			os.RemoveAll(subDir)
+			subDir := filepath.Join(readyDir, e.Name())
+			hasFiles := false
+			filepath.Walk(subDir, func(_ string, info os.FileInfo, err error) error {
+				if err == nil && !info.IsDir() {
+					hasFiles = true
+					return filepath.SkipAll
+				}
+				return nil
+			})
+			if !hasFiles {
+				a.Logf("Cleanup: removing empty Ready dir: %s", e.Name())
+				os.RemoveAll(subDir)
+			}
 		}
 	}
 }

@@ -25,6 +25,7 @@ type App struct {
 	GodsendExeDir     string // directory containing the godsend binary
 	TempDir           string // per-game processing scratch (default ToolsDir/Temp; auto-relocated to roomiest fixed drive)
 	TorrentTempDir    string // aria2c Minerva download staging (default TempDir/torrent-dl)
+	ReadyDir          string // staging for completed web installs and local retained archives (default ToolsDir/Ready; auto-relocated with TempDir to roomiest fixed drive)
 	TransferDir       string // local ISO folder
 	SaveBackupDir     string // save-game backup folder
 	PendingFTPDir     string
@@ -191,18 +192,37 @@ func (a *App) RegisterGameJob(gameName string) uint64 {
 	return token
 }
 
+// GetReadyDir returns the directory where prepared games and retained local
+// source archives live. If not explicitly initialized, it defaults to
+// ToolsDir/Ready (or exe/system temp as fallback).
+func (a *App) GetReadyDir() string {
+	if a.ReadyDir != "" {
+		return a.ReadyDir
+	}
+	if a.ToolsDir != "" {
+		return filepath.Join(a.ToolsDir, "Ready")
+	}
+	if a.GodsendExeDir != "" {
+		return filepath.Join(a.GodsendExeDir, "Ready")
+	}
+	return filepath.Join(os.TempDir(), "godsend-ready")
+}
+
 // EnsureWorkingVolume validates that TempDir exists and is writable.
 // If TempDir was placed on an auto-selected or external volume that is no longer
 // accessible (e.g. disconnected, asleep, or read-only), it reverts TempDir (and
-// TorrentTempDir if on the same volume) to ToolsDir/Temp and returns the path
+// TorrentTempDir and ReadyDir if on the same volume) to ToolsDir/Temp and returns the path
 // of the failed volume. If no reversion was needed, it returns "".
 func (a *App) EnsureWorkingVolume() string {
 	defaultTemp := filepath.Join(a.ToolsDir, "Temp")
+	defaultReady := filepath.Join(a.ToolsDir, "Ready")
 	if a.ToolsDir == "" {
 		if a.GodsendExeDir != "" {
 			defaultTemp = filepath.Join(a.GodsendExeDir, "Temp")
+			defaultReady = filepath.Join(a.GodsendExeDir, "Ready")
 		} else {
 			defaultTemp = filepath.Join(os.TempDir(), "godsend-temp")
+			defaultReady = filepath.Join(os.TempDir(), "godsend-ready")
 		}
 	}
 	defaultTorrentTemp := filepath.Join(defaultTemp, "torrent-dl")
@@ -225,6 +245,11 @@ func (a *App) EnsureWorkingVolume() string {
 			a.TorrentTempDir = defaultTorrentTemp
 			_ = markScratchOwner(a.TorrentTempDir)
 		}
+		if a.ReadyDir != "" && strings.EqualFold(filepath.VolumeName(a.ReadyDir), failedVolume) {
+			a.Logf("[WARN] Ready staging directory %s also resided on unavailable volume %s; reverting to %s", a.ReadyDir, failedVolume, defaultReady)
+			_ = os.MkdirAll(defaultReady, 0755)
+			a.ReadyDir = defaultReady
+		}
 		return failedDir
 	}
 
@@ -234,6 +259,13 @@ func (a *App) EnsureWorkingVolume() string {
 			_ = os.MkdirAll(defaultTorrentTemp, 0755)
 			a.TorrentTempDir = defaultTorrentTemp
 			_ = markScratchOwner(a.TorrentTempDir)
+		}
+	}
+	if a.ReadyDir != "" && !strings.EqualFold(filepath.Clean(a.ReadyDir), filepath.Clean(defaultReady)) {
+		if err := validateDirWritable(a.ReadyDir); err != nil {
+			a.Logf("[WARN] Ready directory %s unavailable (%v); reverting to %s", a.ReadyDir, err, defaultReady)
+			_ = os.MkdirAll(defaultReady, 0755)
+			a.ReadyDir = defaultReady
 		}
 	}
 	return ""

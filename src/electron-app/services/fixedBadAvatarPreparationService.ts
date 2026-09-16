@@ -2,9 +2,15 @@ import { createHash } from "crypto";
 import { app } from "electron";
 import fs, { promises as fsPromises } from "fs";
 import path from "path";
+import {
+  collectConsoleCrashArtifacts,
+  describeConsoleCrashArtifacts,
+} from "../infrastructure/consoleCrashArtifacts";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
 import { getBundledResourcesRoot, getRepoRoot } from "../infrastructure/fileSystem";
 import { isForeignConsoleStatePath, quarantineForeignConsoleState } from "../infrastructure/foreignConsoleState";
+import { appendAppEvent } from "../infrastructure/serverLog";
+import { reportError } from "../infrastructure/telemetry";
 export { isForeignConsoleStatePath } from "../infrastructure/foreignConsoleState";
 import {
   AURORA_READY_TO_PLAY_FILTER_PATH,
@@ -241,6 +247,42 @@ async function replaceGeneratedEntry(
   });
 }
 
+/**
+ * O pendrive volta ao PC com os dois vestígios que o console deixou de uma falha: o `crashlog.txt`
+ * do DashLaunch e os dumps do Aurora. Antes isso dependia de pedir ao usuário que os procurasse e
+ * enviasse à mão, e nenhuma reprodução real chegou. Nunca lança: diagnóstico não interrompe uma
+ * preparação, e o dispositivo só é lido, nunca alterado.
+ */
+async function reportConsoleCrashArtifacts(
+  driveRoot: string,
+  bundledFiles: readonly FixedPayloadManifestFile[],
+): Promise<number> {
+  try {
+    const collection = await collectConsoleCrashArtifacts(driveRoot, bundledFiles);
+    if (collection.unreadable.length > 0) {
+      appendAppEvent("BADAVATAR_CRASH", `Registros ilegíveis no pendrive: ${collection.unreadable.join("; ")}`);
+    }
+    if (collection.artifacts.length === 0) return 0;
+    const summary = describeConsoleCrashArtifacts(collection);
+    appendAppEvent("BADAVATAR_CRASH", `O console deixou registros de falha no pendrive: ${summary}`);
+    reportError(
+      "badavatar-console-crash",
+      "services/fixedBadAvatarPreparationService.ts",
+      "prepareFixedBadAvatarDevice",
+      `Pendrive preparado trouxe ${collection.artifacts.length} registro(s) de falha do console: ${summary}`,
+      "",
+      collection.artifacts.map((artifact) => `===== ${artifact.path} =====\n${artifact.content}`),
+    );
+    return collection.artifacts.length;
+  } catch (error: any) {
+    appendAppEvent(
+      "BADAVATAR_CRASH",
+      `Falha ao ler os registros de falha do console: ${error?.message || String(error)}`,
+    );
+    return 0;
+  }
+}
+
 export function inspectFixedPayloadReadiness(): {
   ready: boolean;
   blocker?: string;
@@ -334,6 +376,25 @@ export async function prepareFixedBadAvatarDevice(
   }
 
   let device = await requireSafeWindowsUsbTarget(request.driveRoot, request.expectedDeviceFingerprint);
+
+  // O manifesto sobe para antes da formatação porque é ele que separa um dump do console do
+  // usuário de uma cópia do estado que veio no pacote — e formatar apaga o dump. Esta é a única
+  // janela em que o vestígio de uma reprodução ainda existe quando "Formatar antes" está marcado.
+  const { assetsRoot, index } = loadPackageIndex();
+  let sourceRoot = firstExistingDirectory(payloadCandidates(assetsRoot, index));
+  if (!sourceRoot) throw new Error(`A versão ${index.release} não foi encontrada no aplicativo.`);
+  const manifest = loadManifest(assetsRoot, index);
+
+  onProgress({ status: "Procurando registros de falha do console…", percent: 1 });
+  const crashArtifacts = await reportConsoleCrashArtifacts(request.driveRoot, manifest.files);
+  if (crashArtifacts > 0) {
+    onProgress({
+      status: "Registros de falha do console recolhidos do pendrive.",
+      percent: 2,
+      detail: `${crashArtifacts} arquivo(s)`,
+    });
+  }
+
   if (request.formatDrive) {
     const expectedVolumeBytes = device.partitionSizeBytes || device.sizeBytes;
     await formatVolumeFat32(request.driveRoot, (progress) => {
@@ -351,10 +412,6 @@ export async function prepareFixedBadAvatarDevice(
     throw new Error("O dispositivo precisa estar em FAT32. Marque “Formatar antes” e tente novamente.");
   }
 
-  const { assetsRoot, index } = loadPackageIndex();
-  let sourceRoot = firstExistingDirectory(payloadCandidates(assetsRoot, index));
-  if (!sourceRoot) throw new Error(`A versão ${index.release} não foi encontrada no aplicativo.`);
-  const manifest = loadManifest(assetsRoot, index);
   onProgress({ status: `Verificando o pacote ${manifest.release}…`, percent: 14 });
   const transactionScope = request.isRghOnly
     ? `rgh-only-ready-to-play-v${READY_TO_PLAY_CONFIGURATION_VERSION}`

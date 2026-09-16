@@ -282,6 +282,15 @@ func (s *Service) FindLocalISO(gameName string) string {
 }
 
 func (s *Service) IsGameReadyLocally(gameName string) bool {
-	_, err := os.Stat(filepath.Join(s.App.ToolsDir, "Ready", helpers.SanitizeFilename(gameName), "godsend.ini"))
-	return err == nil
+	safeName := helpers.SanitizeFilename(gameName)
+	if _, err := os.Stat(filepath.Join(s.App.GetReadyDir(), safeName, "godsend.ini")); err == nil {
+		return true
+	}
+	if s.App.ToolsDir != "" {
+		legacyPath := filepath.Join(s.App.ToolsDir, "Ready", safeName, "godsend.ini")
+		if _, err := os.Stat(legacyPath); err == nil {
+			return true
+		}
+	}
+	return false
 }

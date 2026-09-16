@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"errors"
 	"fmt"
 
 	"godsend/models"
@@ -11,9 +12,12 @@ import (
 // and compatibility rows are useful before download, but cannot safely decide
 // whether a retail disc is playable or is an STFS content installer.
 func (s *Service) resolveISOInstallType(gameName, isoPath, requested string) (string, error) {
-	info, err := utils.ProbeISODiscInfo(isoPath)
-	if err != nil {
-		return "", fmt.Errorf("validar tipo do disco: %w", err)
+	info, execErr := utils.ProbeISODiscInfo(isoPath)
+	if execErr != nil && !errors.Is(execErr, utils.ErrNoExecutable) {
+		return "", fmt.Errorf("validar tipo do disco: %w", execErr)
+	}
+	if info == nil {
+		info = &utils.TitleExecInfo{}
 	}
 	layout, err := utils.ProbeISOInstallLayout(isoPath, info)
 	if err != nil {
@@ -23,18 +27,27 @@ func (s *Service) resolveISOInstallType(gameName, isoPath, requested string) (st
 	if guessed := models.GuessTitleIDFromMultiDiscName(gameName); (compatTitleID == 0 || models.IsContentDiscPlaceholderTitleID(compatTitleID)) && guessed != 0 {
 		compatTitleID = guessed
 	}
+	if compatTitleID == 0 && layout.ContentTitleID != 0 {
+		compatTitleID = layout.ContentTitleID
+	}
 	compatDiscNumber := info.DiscNumber
 	if compatDiscNumber == 0 {
 		compatDiscNumber = models.DiscNumberFromName(gameName)
 	}
 	rec := models.DiscCompat(compatTitleID, compatDiscNumber)
 	if rec.InstallType == "xex" {
+		if execErr != nil {
+			return "", fmt.Errorf("validar tipo do disco: %w", execErr)
+		}
 		if requested != "xex" {
 			return "", fmt.Errorf("este disco nao e compativel com GOD; selecione instalacao XEX: %s", rec.Notes)
 		}
 		return "xex", nil
 	}
 	if requested == "xex" {
+		if execErr != nil {
+			return "", fmt.Errorf("validar tipo do disco: %w", execErr)
+		}
 		return requested, nil
 	}
 	resolved := "god"
@@ -45,6 +58,9 @@ func (s *Service) resolveISOInstallType(gameName, isoPath, requested string) (st
 	// embedded content still needs a separate extraction workflow.
 	if compatTitleID == 0x555308B6 && compatDiscNumber == 2 {
 		resolved = "god"
+	}
+	if execErr != nil && resolved != "content" {
+		return "", fmt.Errorf("validar tipo do disco: %w", execErr)
 	}
 	if requested != resolved {
 		s.App.Logf("DISC LAYOUT [%s]: pedido=%s corrigido=%s TitleID=%08X disco=%d/%d conteudo=%t",

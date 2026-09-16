@@ -38,7 +38,7 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 		cc := c.(models.XboxConnection)
 		xboxConn = &cc
 	}
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	// Resolve download URL from cache
@@ -58,7 +58,7 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 	// Download the ZIP using parallel range requests
 	zipPath := filepath.Join(s.App.TempDir, safeName+"_rom.zip")
 	if xboxConn != nil && xboxConn.Mode == "local" {
-		zipPath = filepath.Join(gameDir, ".source_rom.zip")
+		zipPath = s.resolveLocalSourceArchive(gameDir, safeName, ".source_rom.zip")
 	}
 	s.App.LogStatus(gameName, "Processing", "Downloading from EdgeEmu...")
 	var downloadErr error
@@ -84,9 +84,11 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 	extDir := filepath.Join(s.App.TempDir, safeName+"_rom_ext")
 	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
 	if err := s.extractArchiveResilient(gameName, zipPath, extDir); err != nil {
+		err = s.invalidateDownloadedArchiveOnCorruptExtract(gameName, zipPath, "edgeemu", err)
 		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Extract: %v", err))
 		return
 	}
+	clearCorruptArchiveRedownloadMarker(zipPath)
 
 	// Find the ROM file
 	romFiles := findROMFiles(extDir)

@@ -26,6 +26,28 @@ O arquivo também define `Dumpfile = Usb:\crashlog.txt` na seção `[Paths]`. O 
 
 Isso foi acrescentado a partir de um relato do banner **Fatal Crash Intercepted!** no console. A autoria do texto não está confirmada — tanto o `exchandler` do DashLaunch quanto o manipulador de crash do próprio Aurora poderiam emiti-lo. Ver [`docs/bugs/open/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md`](bugs/open/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md).
 
+### Coleta dos vestígios quando o pendrive volta ao PC
+
+Gravar o `Dumpfile` resolveu metade do problema: o vestígio passou a existir, mas continuava dependendo de
+pedir ao usuário que o localizasse e o enviasse, e nenhuma reprodução chegou assim. Desde a 2.12.96 a própria
+preparação lê o dispositivo — `collectConsoleCrashArtifacts`, em
+`infrastructure/consoleCrashArtifacts.ts` — e recolhe `crashlog.txt` da raiz e o conteúdo de
+`Aurora\Data\Logs`. O resultado vai para o log da sessão e, com o reporte de erros ligado, para a telemetria.
+
+A leitura acontece **antes da formatação**, e essa posição é obrigatória: quem marca **Formatar antes**
+apagaria o dump antes de ele ser lido. Por isso o manifesto do pacote é carregado antes do passo de formatação —
+é ele que distingue um dump do console do usuário de uma das nove cópias que vieram no pacote. Uma cópia ainda
+idêntica em tamanho e SHA-256 é contada à parte e não é reportada; um arquivo do pacote que o console alterou —
+o `debug.log`, que recebe as linhas do hook a cada boot — deixa de conferir e é recolhido, que é justamente o
+artefato citado no item 7 da validação física. O dispositivo é apenas lido; nada é alterado ou apagado.
+
+Como o conteúdo lido sai da máquina pela telemetria, e como a leitura acontece antes da recusa de sistemas de
+arquivos que não sejam FAT32, duas portas limitam o que pode ser lido. Nada é lido sem o marcador
+`.xbox-downloader\ready-to-play-v<N>.marker` — qualquer versão dele serve, porque quem tem um dump para
+entregar preparou o pendrive numa versão anterior e só depois atualizou o aplicativo; e cada pasta do caminho é
+conferida antes de ser aberta, de modo que uma junction apontando para fora do dispositivo é recusada em vez de
+seguida até o disco local.
+
 ### Biblioteca vazia
 
 Copiar jogos para o dispositivo não cria por si só as entradas em `ScanPaths` no banco do Aurora. Os dois formatos usados pelo Companion precisam ser cadastrados com o identificador físico do dispositivo:
@@ -140,6 +162,7 @@ A implementação possui testes para:
 - ausência da chamada não documentada `Content.StartScan()`;
 - restauração de arquivo removido após uma transação concluída;
 - retomada segura nos pontos de interrupção já cobertos pelo escritor transacional;
+- coleta dos registros de falha do console, exclusão das cópias do pacote ainda idênticas ao manifesto, recolhimento do arquivo do pacote que o console alterou, corte pelo fim no `debug.log` e pelo começo nos dumps, tetos de tamanho e quantidade, recusa de dispositivo sem marcador e recusa de pasta redirecionada por junction;
 - migração de uma preparação antiga mesmo com o novo diário já concluído, preservando jogos;
 - preservação de logs e bancos alterados, inclusive quando mantêm o tamanho original;
 - retomada da migração após interrupção, quarentenas anteriores e recusa de caminhos com links;
@@ -164,6 +187,11 @@ O teste automatizado não substitui o ensaio em um Xbox 360 compatível. Em hard
 10. em um pendrive de laboratório preparado antes da 2.12.68, atualize sem formatar e confirme
     que os arquivos ainda idênticos ao pacote foram movidos para a quarentena, enquanto os
     logs novos e os bancos modificados continuam no lugar.
+11. depois de um boot no console, reconecte o pendrive ao PC e execute a preparação de novo:
+    o log da sessão deve trazer a linha `APP_BADAVATAR_CRASH` nomeando o `debug.log` recolhido
+    (e o `crashlog.txt`, se a falha tiver ocorrido), e **nenhum** dos nove dumps do pacote.
+    Repita com **Formatar antes** marcado e confirme que a linha aparece mesmo assim — ela é
+    escrita antes de o dispositivo ser apagado.
 
 O fluxo só deve ser anunciado como validado em hardware depois que esses itens forem registrados. A implementação não grava NAND e não elimina as exigências próprias do exploit, da atualização de avatar e da compatibilidade do console.
 

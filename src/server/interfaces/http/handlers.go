@@ -4,6 +4,7 @@ package http
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -946,32 +947,52 @@ func (d *Deps) handleDiscInfo(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	iso := d.Local.FindLocalISO(gameName)
 	if iso != "" {
 		info, err := utils.ProbeISODiscInfo(iso)
-		if err != nil {
+		if err != nil && !errors.Is(err, utils.ErrNoExecutable) {
 			jsonError(w, 500, fmt.Sprintf("Disc probe failed: %v", err))
 			return
+		}
+		if info == nil {
+			info = &utils.TitleExecInfo{}
 		}
 		compatTitleID := info.TitleID
 		if guessed := models.GuessTitleIDFromMultiDiscName(gameName); (compatTitleID == 0 || models.IsContentDiscPlaceholderTitleID(compatTitleID)) && guessed != 0 {
 			compatTitleID = guessed
+		}
+		layout, layoutErr := utils.ProbeISOInstallLayout(iso, info)
+		if layoutErr != nil {
+			jsonError(w, 500, fmt.Sprintf("Disc layout probe failed: %v", layoutErr))
+			return
+		}
+		if compatTitleID == 0 && layout.ContentTitleID != 0 {
+			compatTitleID = layout.ContentTitleID
 		}
 		compatDiscNumber := info.DiscNumber
 		if compatDiscNumber == 0 {
 			compatDiscNumber = models.DiscNumberFromName(gameName)
 		}
 		rec := models.DiscCompat(compatTitleID, compatDiscNumber)
-		layout, err := utils.ProbeISOInstallLayout(iso, info)
-		if err != nil {
-			jsonError(w, 500, fmt.Sprintf("Disc layout probe failed: %v", err))
-			return
-		}
 		if layout.HasInstallableContent && !(compatTitleID == 0x555308B6 && compatDiscNumber == 2) {
 			rec = models.DiscCompatRec{InstallType: "content", Notes: "ISO contem pacotes STFS de instalacao; estrutura detectada no proprio disco"}
 		}
+		if err != nil && rec.InstallType != "content" {
+			jsonError(w, 500, fmt.Sprintf("Disc probe failed: %v", err))
+			return
+		}
+		titleIDStr := fmt.Sprintf("%08X", info.TitleID)
+		if info.TitleID == 0 && layout.ContentTitleID != 0 {
+			titleIDStr = fmt.Sprintf("%08X", layout.ContentTitleID)
+		} else if info.TitleID == 0 && compatTitleID != 0 {
+			titleIDStr = fmt.Sprintf("%08X", compatTitleID)
+		}
+		discNum := info.DiscNumber
+		if discNum == 0 {
+			discNum = compatDiscNumber
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"disc_number":      info.DiscNumber,
+			"disc_number":      discNum,
 			"disc_count":       info.DiscCount,
-			"title_id":         fmt.Sprintf("%08X", info.TitleID),
+			"title_id":         titleIDStr,
 			"recommendation":   rec.InstallType,
 			"notes":            rec.Notes,
 			"probed":           true,
@@ -1071,6 +1092,13 @@ func (d *Deps) handleQueueRemove(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			d.App.DeleteQueueJob(k)
 			d.App.IncompleteRelease.Delete(k)
 			d.App.SuppressedJobs.Store(k, struct{}{})
+			safeName := helpers.SanitizeFilename(k)
+			if safeName != "" {
+				os.RemoveAll(filepath.Join(d.App.GetReadyDir(), safeName))
+				if d.App.ToolsDir != "" {
+					os.RemoveAll(filepath.Join(d.App.ToolsDir, "Ready", safeName))
+				}
+			}
 		}
 		d.App.Logf("QUEUE: cleared %d job(s)", len(keys))
 		jsonSuccess(w, map[string]string{"status": "cleared", "count": fmt.Sprintf("%d", len(keys))})
@@ -1081,6 +1109,13 @@ func (d *Deps) handleQueueRemove(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	d.App.DeleteQueueJob(game)
 	d.App.IncompleteRelease.Delete(game)
 	d.App.SuppressedJobs.Store(game, struct{}{})
+	safeName := helpers.SanitizeFilename(game)
+	if safeName != "" {
+		os.RemoveAll(filepath.Join(d.App.GetReadyDir(), safeName))
+		if d.App.ToolsDir != "" {
+			os.RemoveAll(filepath.Join(d.App.ToolsDir, "Ready", safeName))
+		}
+	}
 	// Also cancel any pending FTP job for this game
 	for _, job := range d.FTP.LoadAllPendingFTPJobs() {
 		if job.GameName == game {
@@ -1184,14 +1219,20 @@ func (d *Deps) handleDataClear(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			}
 		}(job)
 	}
-	// Clear Ready/ and Temp/ directories. TempDir/TorrentTempDir may live on
+	// Clear Ready/ and Temp/ directories. TempDir/TorrentTempDir/ReadyDir may live on
 	// another drive (auto-selected roomiest volume), so clear them explicitly.
-	os.RemoveAll(filepath.Join(d.App.ToolsDir, "Ready"))
-	os.RemoveAll(filepath.Join(d.App.ToolsDir, "Temp"))
+	os.RemoveAll(d.App.GetReadyDir())
+	if d.App.ToolsDir != "" {
+		os.RemoveAll(filepath.Join(d.App.ToolsDir, "Ready"))
+		os.RemoveAll(filepath.Join(d.App.ToolsDir, "Temp"))
+	}
 	os.RemoveAll(d.App.TempDir)
 	os.RemoveAll(d.App.TorrentTempDir)
-	os.MkdirAll(filepath.Join(d.App.ToolsDir, "Ready"), 0755)
-	os.MkdirAll(filepath.Join(d.App.ToolsDir, "Temp"), 0755)
+	os.MkdirAll(d.App.GetReadyDir(), 0755)
+	if d.App.ToolsDir != "" {
+		os.MkdirAll(filepath.Join(d.App.ToolsDir, "Ready"), 0755)
+		os.MkdirAll(filepath.Join(d.App.ToolsDir, "Temp"), 0755)
+	}
 	os.MkdirAll(d.App.TempDir, 0755)
 	os.MkdirAll(d.App.TorrentTempDir, 0755)
 
@@ -1993,10 +2034,21 @@ func (d *Deps) handleDebug(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		fmt.Fprintf(w, "<li>%s</li>", g)
 	}
 	fmt.Fprintf(w, "</ul><h3>Ready Games:</h3><ul>")
-	if files, err := os.ReadDir(filepath.Join(d.App.ToolsDir, "Ready")); err == nil {
-		for _, f := range files {
-			if f.IsDir() {
-				fmt.Fprintf(w, "<li>%s</li>", f.Name())
+	readyDirs := []string{d.App.GetReadyDir()}
+	if d.App.ToolsDir != "" {
+		legacy := filepath.Join(d.App.ToolsDir, "Ready")
+		if !strings.EqualFold(filepath.Clean(legacy), filepath.Clean(d.App.GetReadyDir())) {
+			readyDirs = append(readyDirs, legacy)
+		}
+	}
+	seenReady := map[string]bool{}
+	for _, rDir := range readyDirs {
+		if files, err := os.ReadDir(rDir); err == nil {
+			for _, f := range files {
+				if f.IsDir() && !seenReady[f.Name()] {
+					seenReady[f.Name()] = true
+					fmt.Fprintf(w, "<li>%s</li>", f.Name())
+				}
 			}
 		}
 	}
@@ -2021,6 +2073,11 @@ func (d *Deps) handleDebug(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 // FILE SERVING
 // ==========================================
 
+func fileExistsOrDir(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func (d *Deps) handleFileServe(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	relPath := strings.TrimPrefix(r.URL.Path, "/files/")
 	if relPath == "" {
@@ -2032,10 +2089,27 @@ func (d *Deps) handleFileServe(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		jsonError(w, 400, "Invalid file path encoding")
 		return
 	}
-	fullPath := filepath.Join(d.App.ToolsDir, "Ready", decodedPath)
-
-	absReady, _ := filepath.Abs(filepath.Join(d.App.ToolsDir, "Ready"))
+	primaryReady := d.App.GetReadyDir()
+	fullPath := filepath.Join(primaryReady, decodedPath)
+	absReady, _ := filepath.Abs(primaryReady)
 	absPath, _ := filepath.Abs(fullPath)
+
+	if !strings.HasPrefix(absPath, absReady) || (!fileExistsOrDir(fullPath) && d.App.ToolsDir != "") {
+		legacyReady := filepath.Join(d.App.ToolsDir, "Ready")
+		if !strings.EqualFold(filepath.Clean(legacyReady), filepath.Clean(primaryReady)) {
+			legacyFullPath := filepath.Join(legacyReady, decodedPath)
+			absLegacyReady, _ := filepath.Abs(legacyReady)
+			absLegacyPath, _ := filepath.Abs(legacyFullPath)
+			if strings.HasPrefix(absLegacyPath, absLegacyReady) {
+				if fileExistsOrDir(legacyFullPath) {
+					fullPath = legacyFullPath
+					absReady = absLegacyReady
+					absPath = absLegacyPath
+				}
+			}
+		}
+	}
+
 	if !strings.HasPrefix(absPath, absReady) {
 		jsonError(w, 403, "Access denied")
 		return

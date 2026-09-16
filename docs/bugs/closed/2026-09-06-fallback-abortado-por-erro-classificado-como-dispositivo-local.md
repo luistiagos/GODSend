@@ -1,10 +1,9 @@
-# Bug aberto: erro de rede/disco do PC e classificado como "falha no dispositivo local" e aborta o fallback
+# Bug fechado: erro de rede/disco do PC e classificado como "falha no dispositivo local" e aborta o fallback
 
 Data: 2026-09-06
-Status: parcialmente corrigido — itens 1, 2, 4 e 5 na v2.12.73; itens 3, 6 e 8 na v2.12.93.
-So o item 7 segue aberto.
-Area: pipeline de fallback, classificacao de erro local, telemetria
-Commits: v2.12.73, v2.12.93
+Status: corrigido — itens 1, 2, 4 e 5 na v2.12.73; itens 3, 6 e 8 na v2.12.93; item 7 na v2.12.96.
+Area: pipeline de fallback, classificacao de erro local, telemetria, alocacao de staging
+Commits: v2.12.73, v2.12.93, v2.12.96
 
 ## Estado por defeito
 
@@ -17,7 +16,7 @@ Commits: v2.12.73, v2.12.93
 | 4 | Telemetria nao cobre este caminho | corrigido (`haltOnLocalStorageFailure`) |
 | 5 | "O download concluido foi preservado" na fase de download | corrigido |
 | 6 | `%v` achata o erro original e quebra `errors.Is` para sentinelas futuras | corrigido na v2.12.93 (`%w`) |
-| 7 | `archivePath` do modo local ignora o volume mais folgado | **aberto** — ver nota abaixo |
+| 7 | `archivePath` do modo local ignora o volume mais folgado | corrigido na v2.12.96 (`App.ReadyDir` / `GetReadyDir`) |
 
 Sobre o que a v2.12.93 fez nos itens 3, 6 e 8:
 
@@ -179,13 +178,12 @@ Feito (v2.12.73 e v2.12.93):
 - ~~Corrigir o texto da mensagem~~ — v2.12.73, e revisto na v2.12.93 para cobrir extracao e
   conversao GOD, nao so download.
 
-Aberto (item 7):
+Feito (item 7 na v2.12.96):
 
-- Usar `TempDir` (volume folgado) tambem para o `archivePath` do modo local. **Antes de tentar
-  de novo, ler a nota do item 7 no topo deste arquivo**: sao 5 pontos de troca de caminho, 28
-  pontos de limpeza, e `protectedScratchPaths` apaga scratch de job em `Error`. "Ao menos medir
-  o espaco antes de fixar o caminho" nao resolve sozinho: o tamanho do arquivo so e conhecido
-  depois do probe, dentro do `DownloadWithProgress`, e o caminho ja foi fixado nesse ponto.
+- `ReadyDir` passou a ser alocado dinamicamente no volume com mais espaco livre (`bestFixedVolume()`, em `godsend-temp/ready`), acompanhando `TempDir` (`godsend-temp/proc`) e `TorrentTempDir` (`godsend-temp/torrent-dl`).
+- Todos os 5 pontos de derivacao de caminho de download (`huggingface.go`, `pipeline.go`, `digital.go` x2, `rom.go`) e demais servicos utilizam `a.GetReadyDir()`.
+- O helper `resolveLocalSourceArchive` reutiliza arquivos completos legados em `ToolsDir/Ready` se existentes.
+- Toda a politica de limpeza (28 `os.RemoveAll(gameDir)`, `CleanupEmptyReadyDirs`, remocao de fila) e protecao duravel contra exclusao acidental em `Error` permanece preservada, eliminando o estouro de partição `C:` em downloads locais.
 
 ## Reproducao
 

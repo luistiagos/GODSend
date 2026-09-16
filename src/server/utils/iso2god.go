@@ -34,6 +34,7 @@ import (
 	"crypto/sha1"
 	_ "embed"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -414,6 +415,10 @@ func godDataSizeForTitle(titleID uint32, usedSize, availableSize int64) int64 {
 // XEX2 / XBE executable parsing
 // ══════════════════════════════════════════════════════════════════════════════
 
+// ErrNoExecutable is returned when an ISO has valid filesystem structure but no
+// default.xex or default.xbe executable in the root directory (e.g. content/DLC discs).
+var ErrNoExecutable = errors.New("no game executable (default.xex / default.xbe) found in ISO root")
+
 func extractExecInfo(f *os.File, partOff uint64, rootSector, rootSize uint32) (*TitleExecInfo, error) {
 	// Xbox 360 executable
 	if sec, sz, ok := findInDir(f, partOff, rootSector, rootSize, "default.xex"); ok {
@@ -431,7 +436,7 @@ func extractExecInfo(f *os.File, partOff uint64, rootSector, rootSize uint32) (*
 		}
 		return parseXBE(data)
 	}
-	return nil, fmt.Errorf("no game executable (default.xex / default.xbe) found in ISO root")
+	return nil, ErrNoExecutable
 }
 
 // readISOSlice reads up to limit bytes from a file embedded in the XDVDFS.
@@ -1160,8 +1165,11 @@ func ProbeISOInstallLayout(isoPath string, info *TitleExecInfo) (*ISOInstallLayo
 	if info == nil {
 		var err error
 		info, err = ProbeISODiscInfo(isoPath)
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrNoExecutable) {
 			return nil, err
+		}
+		if info == nil {
+			info = &TitleExecInfo{}
 		}
 	}
 	f, err := os.Open(isoPath)
@@ -1224,7 +1232,7 @@ func ProbeISOInstallLayout(isoPath string, info *TitleExecInfo) (*ISOInstallLayo
 			if packageTitleID, probeErr := ProbeContentPackageTitleID(isoPath, info); probeErr == nil && packageTitleID != 0 {
 				layout.ContentTitleID = packageTitleID
 			}
-			if layout.ContentTitleID == 0 && info.TitleID != 0 && info.TitleID != 0xFFED2000 {
+			if layout.ContentTitleID == 0 && info != nil && info.TitleID != 0 && info.TitleID != 0xFFED2000 {
 				layout.ContentTitleID = info.TitleID
 			}
 			return layout, nil
@@ -1269,8 +1277,12 @@ func ExtractXDVDFSContentToDir(isoPath, destDir string, info *TitleExecInfo) err
 	}
 
 	// Find TitleID subfolder; fall back to FFED2000 or first dir found.
-	titleIDStr := fmt.Sprintf("%08X", info.TitleID)
-	tSec, tSz, ok := findInDir(f, partOff, zSec, zSz, titleIDStr)
+	var tSec, tSz uint32
+	ok = false
+	if info != nil && info.TitleID != 0 {
+		titleIDStr := fmt.Sprintf("%08X", info.TitleID)
+		tSec, tSz, ok = findInDir(f, partOff, zSec, zSz, titleIDStr)
+	}
 	if !ok {
 		if sec, sz, ok2 := findInDir(f, partOff, zSec, zSz, "FFED2000"); ok2 {
 			tSec, tSz = sec, sz
@@ -1345,8 +1357,12 @@ func ProbeContentPackageTitleID(isoPath string, info *TitleExecInfo) (uint32, er
 	}
 
 	// Find TitleID subfolder (same fallback logic as ExtractXDVDFSContentToDir).
-	titleIDStr := fmt.Sprintf("%08X", info.TitleID)
-	tSec, tSz, ok := findInDir(f, partOff, zSec, zSz, titleIDStr)
+	var tSec, tSz uint32
+	ok = false
+	if info != nil && info.TitleID != 0 {
+		titleIDStr := fmt.Sprintf("%08X", info.TitleID)
+		tSec, tSz, ok = findInDir(f, partOff, zSec, zSz, titleIDStr)
+	}
 	if !ok {
 		if sec, sz, ok2 := findInDir(f, partOff, zSec, zSz, "FFED2000"); ok2 {
 			tSec, tSz = sec, sz

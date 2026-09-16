@@ -62,6 +62,14 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 	// Fica verdadeiro quando ao menos um provedor falhou por algo que nao seja
 	// "o catalogo nao tem este jogo" — ou seja, quando ha defeito a reportar.
 	reportable := false
+	// O titulo do reporte e o que agrupa a triagem, e lastErr e quase sempre o
+	// ultimo provedor da cadeia (minerva) dizendo "jogo nao encontrado no
+	// catalogo". Isso escondia a falha real de um provedor anterior — quatro
+	// ocorrencias de extracao corrompida no HuggingFace foram arquivadas sob a
+	// mensagem do minerva. Guarda-se o primeiro erro que nao e ausencia de
+	// catalogo, que e o defeito de fato.
+	var reportedProvider string
+	var reportedErr error
 
 	recordError := func(provider string, err error) {
 		if err == nil {
@@ -74,6 +82,10 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 		}
 		if !isCatalogMissError(err) {
 			reportable = true
+			if reportedErr == nil {
+				reportedProvider = provider
+				reportedErr = err
+			}
 		}
 	}
 
@@ -234,7 +246,7 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 	// entrada carrega o erro integral de um provedor.
 	if reportable {
 		telemetry.Report("pipeline", "fallback.go", "ProcessGameWithFallback",
-			fmt.Sprintf("Download falhou em todas as fontes para %s (%s): %v", gameName, platform, lastErr),
+			fmt.Sprintf("Download falhou em todas as fontes para %s (%s): %s: %v", gameName, platform, reportedProvider, reportedErr),
 			"", providerErrors, false)
 	}
 }

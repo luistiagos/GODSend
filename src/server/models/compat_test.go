@@ -218,6 +218,19 @@ func TestExtractDiscInfoAndReleaseTitle(t *testing.T) {
 			wantMulti: true,
 		},
 		{
+			name:      "Batman - Arkham Origins (Brazil) (En,Es,Pt) (Disco 2)",
+			wantRel:   "Batman - Arkham Origins (Brazil) (En,Es,Pt)",
+			wantDisc:  2,
+			wantMulti: true,
+		},
+		{
+			name:      "Batman - Arkham Origins (Brazil) (En,Es,Pt) (Disco 1 de 2)",
+			wantRel:   "Batman - Arkham Origins (Brazil) (En,Es,Pt)",
+			wantDisc:  1,
+			wantCount: 2,
+			wantMulti: true,
+		},
+		{
 			name:      "Halo 3 (USA)",
 			wantRel:   "Halo 3 (USA)",
 			wantDisc:  0,
@@ -247,6 +260,8 @@ func TestExtractDiscInfoAndReleaseTitle(t *testing.T) {
 
 func TestFindCompanionDiscs(t *testing.T) {
 	catalog := []string{
+		"Batman - Arkham Origins (Brazil) (En,Es,Pt) (Disco 1)",
+		"Batman - Arkham Origins (Brazil) (En,Es,Pt) (Disco 2)",
 		"Dead Space 2 (Germany) (En,De) (Disc 1)",
 		"Dead Space 2 (Germany) (En,De) (Disc 2)",
 		"Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 1)",
@@ -256,6 +271,14 @@ func TestFindCompanionDiscs(t *testing.T) {
 		"Lost Odyssey (USA) (Disc 2)",
 		"Lost Odyssey (USA) (Disc 3)",
 		"Lost Odyssey (USA) (Disc 4)",
+	}
+
+	companionsBatman := FindCompanionDiscs("Batman - Arkham Origins (Brazil) (En,Es,Pt) (Disco 2)", catalog)
+	if len(companionsBatman) != 2 {
+		t.Fatalf("Batman Arkham Origins Brazil: expected 2 discs, got %d: %v", len(companionsBatman), companionsBatman)
+	}
+	if companionsBatman[0] != "Batman - Arkham Origins (Brazil) (En,Es,Pt) (Disco 1)" || companionsBatman[1] != "Batman - Arkham Origins (Brazil) (En,Es,Pt) (Disco 2)" {
+		t.Errorf("Batman Arkham Origins Brazil: unexpected discs %v", companionsBatman)
 	}
 
 	companionsDS2 := FindCompanionDiscs("Dead Space 2 (USA, Europe) (En,Fr,Es) (Disc 1)", catalog)

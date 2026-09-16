@@ -62,10 +62,10 @@ func DiscCompat(titleID uint32, discNumber byte) DiscCompatRec {
 }
 
 var (
-	// Matches (Disc 1), [Disc 2], (DVD 1), (CD 2), (Disk 1), (Disc 1 of 2), etc.
-	discTagPattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:disc|disk|dvd|cd)\s*([0-9]+)(?:\s*(?:of|\/)\s*([0-9]+))?\s*[\)\]]`)
-	// Matches trailing Disc 1, DVD 2, CD 3 without parens (e.g. "Game Disc 1")
-	discTrailingPattern = regexp.MustCompile(`(?i)\s+[-_]?\s*\b(?:disc|disk|dvd|cd)\s*([0-9]+)\b`)
+	// Matches (Disc 1), [Disc 2], (DVD 1), (CD 2), (Disk 1), (Disco 1), (Disc 1 of 2), (Disco 1 de 2), etc.
+	discTagPattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:disco|disc|disk|dvd|cd)\s*([0-9]+)(?:\s*(?:of|de|\/)\s*([0-9]+))?\s*[\)\]]`)
+	// Matches trailing Disc 1, DVD 2, CD 3, Disco 1 without parens (e.g. "Game Disc 1")
+	discTrailingPattern = regexp.MustCompile(`(?i)\s+[-_]?\s*\b(?:disco|disc|disk|dvd|cd)\s*([0-9]+)\b`)
 	// discSubtitlePattern matches a bracketed group that names the ROLE of a disc inside one
 	// release — "(Play Disc)", "(Single-Player Campaign)", "(Install-Multiplayer)", "[DLC]" —
 	// as opposed to the region, language and edition groups that tell two releases apart. The
@@ -82,7 +82,7 @@ var (
 	// downloaded. Requiring the whole group keeps the release names that merely contain the words
 	// — "(Sega Game Toshokan)", "(Game no Kanzume Vol. 1)", "(Required for Play)" — intact; those
 	// name a product, and merging them would queue two unrelated games as discs of each other.
-	discSubtitlePattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:[^)\]]*\b(?:disc|disk|dlc|campaign|multi-?play(?:er)?|single[- ]?play(?:er)?|co-?op|install(?:er|ation)?|bonus|voice\s*over|dysk\s+z\s+gra|spieldisc|disque\s+de\s+jeu|fukikaeban|jimakuban|igrovoj)\b[^)\]]*|play|game)\s*[\)\]]`)
+	discSubtitlePattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:[^)\]]*\b(?:disco|disc|disk|dlc|campaign|multi-?play(?:er)?|single[- ]?play(?:er)?|co-?op|install(?:er|ation)?|bonus|voice\s*over|dysk\s+z\s+gra|spieldisc|disque\s+de\s+jeu|fukikaeban|jimakuban|igrovoj)\b[^)\]]*|play|game)\s*[\)\]]`)
 	// nonRetailMediaPattern names a group that is a SEPARATE PRODUCT, not a disc of the release:
 	// a demo, beta, trial or preview ships under the retail title but is not part of it. It has
 	// to override discSubtitlePattern because that pattern matches a role keyword ANYWHERE in the

@@ -2,6 +2,7 @@
 package pipeline
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -27,26 +28,46 @@ func (s *Service) processContentInstallFromISO(gameName, safeName, isoPath strin
 
 	s.App.LogStatus(gameName, "Processing", "Reading disc info...")
 	info, err := utils.ProbeISODiscInfo(isoPath)
-	if err != nil {
+	if err != nil && !errors.Is(err, utils.ErrNoExecutable) {
 		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Disc probe: %v", err))
 		return fmt.Errorf("disc probe: %w", err)
 	}
-	titleID := fmt.Sprintf("%08X", info.TitleID)
+	if info == nil {
+		info = &utils.TitleExecInfo{}
+	}
+	titleID := ""
+	if info.TitleID != 0 {
+		titleID = fmt.Sprintf("%08X", info.TitleID)
+	}
 	layout, layoutErr := utils.ProbeISOInstallLayout(isoPath, info)
 	if layoutErr != nil {
 		return fmt.Errorf("disc layout: %w", layoutErr)
 	}
 	if layout.ContentTitleID != 0 {
-		if resolved := fmt.Sprintf("%08X", layout.ContentTitleID); resolved != titleID {
+		resolved := fmt.Sprintf("%08X", layout.ContentTitleID)
+		if titleID != "" && resolved != titleID {
 			s.App.Logf("Content install: XEX TitleID %s resolved to %s from embedded content", titleID, resolved)
-			titleID = resolved
 		}
-	} else if models.IsContentDiscPlaceholderTitleID(info.TitleID) {
+		titleID = resolved
+		info.TitleID = layout.ContentTitleID
+	} else if info.TitleID == 0 || models.IsContentDiscPlaceholderTitleID(info.TitleID) {
 		if guessed := models.GuessTitleIDFromMultiDiscName(gameName); guessed != 0 {
-			s.App.Logf("Content install: placeholder TitleID %s overridden to %08X from game name", titleID, guessed)
+			if titleID != "" {
+				s.App.Logf("Content install: placeholder TitleID %s overridden to %08X from game name", titleID, guessed)
+			} else {
+				s.App.Logf("Content install: resolved TitleID %08X from game name", guessed)
+			}
 			titleID = fmt.Sprintf("%08X", guessed)
+			info.TitleID = guessed
 		} else {
 			return fmt.Errorf("nao foi possivel resolver o Title ID real do disco de conteudo %q", gameName)
+		}
+	}
+	if info.DiscNumber == 0 {
+		discInfo := models.ExtractDiscInfo(gameName)
+		info.DiscNumber = discInfo.DiscNumber
+		if info.DiscCount == 0 {
+			info.DiscCount = discInfo.DiscCount
 		}
 	}
 	s.App.Logf("Content install: TitleID=%s disc=%d/%d", titleID, info.DiscNumber, info.DiscCount)
@@ -65,7 +86,7 @@ func (s *Service) processContentInstallFromISO(gameName, safeName, isoPath strin
 		s.App.LogStatus(gameName, "Processing", "FTP Transfer starting...")
 		if err := s.FTP.TransferContent(contentDir, xboxConn, gameName, titleID, "00000002"); err != nil {
 			s.App.Logf("FTP: initial content transfer failed for %s: %v — scheduling for retry", gameName, err)
-			gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+			gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 			job := ftp.PendingFTPJob{
 				ID:        helpers.SanitizeFilename(gameName) + "_" + strconv.FormatInt(time.Now().UnixNano(), 36),
 				GameName:  gameName,
@@ -89,10 +110,10 @@ func (s *Service) processContentInstallFromISO(gameName, safeName, isoPath strin
 			return fmt.Errorf("gravacao local: %w", err)
 		}
 		os.RemoveAll(contentDir)
-		os.RemoveAll(filepath.Join(s.App.ToolsDir, "Ready", safeName))
+		os.RemoveAll(filepath.Join(s.App.GetReadyDir(), safeName))
 		s.App.LogLocalComplete(gameName, titleID, xboxConn.LocalRoot)
 	} else {
-		gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+		gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 		os.MkdirAll(gameDir, 0755)
 
 		s.App.LogStatus(gameName, "Processing", "Packaging content for transfer...")
@@ -134,7 +155,7 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 		cc := c.(models.XboxConnection)
 		xboxConn = &cc
 	}
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	s.App.LogStatus(gameName, "Processing", "Searching Internet Archive (Games)...")
@@ -148,7 +169,7 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 
 	archivePath := filepath.Join(s.App.TempDir, safeName+filepath.Ext(entry.FileName))
 	if xboxConn != nil && xboxConn.Mode == "local" {
-		archivePath = filepath.Join(gameDir, ".source"+filepath.Ext(entry.FileName))
+		archivePath = s.resolveLocalSourceArchive(gameDir, safeName, ".source"+filepath.Ext(entry.FileName))
 	}
 	s.App.LogStatus(gameName, "Processing", "Downloading from Internet Archive...")
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, app.IADownloadBase); err != nil {
@@ -285,7 +306,7 @@ func (s *Service) ProcessDigitalWithErr(gameName, platform string) error {
 		cc := c.(models.XboxConnection)
 		xboxConn = &cc
 	}
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	s.App.LogStatus(gameName, "Processing", "Searching Internet Archive...")
@@ -297,7 +318,7 @@ func (s *Service) ProcessDigitalWithErr(gameName, platform string) error {
 
 	archivePath := filepath.Join(s.App.TempDir, safeName+"_digi"+filepath.Ext(entry.FileName))
 	if xboxConn != nil && xboxConn.Mode == "local" {
-		archivePath = filepath.Join(gameDir, ".source_digi"+filepath.Ext(entry.FileName))
+		archivePath = s.resolveLocalSourceArchive(gameDir, safeName, ".source_digi"+filepath.Ext(entry.FileName))
 	}
 	if err := s.Download.DownloadWithProgress(downloadURL, archivePath, gameName, app.IADownloadBase); err != nil {
 		return fmt.Errorf("Download failed: %w", classifyLocalStorageFailure(xboxConn, "download-http", err))

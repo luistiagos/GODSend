@@ -501,3 +501,89 @@ func TestStorageExtractionFailureDoesNotInvalidateRetainedDownload(t *testing.T)
 		}
 	}
 }
+
+func TestResolveLocalSourceArchivePrefersActiveReadyDir(t *testing.T) {
+	a := app.NewApp()
+	a.ToolsDir = t.TempDir()
+	a.ReadyDir = filepath.Join(t.TempDir(), "roomy-ready")
+	service := &Service{App: a}
+
+	safeName := "Army_of_Two"
+	gameDir := filepath.Join(a.GetReadyDir(), safeName)
+	if err := os.MkdirAll(gameDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Case 1: Active gameDir on roomiest volume has the file
+	activeFile := filepath.Join(gameDir, ".source_hf.rar")
+	if err := os.WriteFile(activeFile, []byte("active-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	resolved := service.resolveLocalSourceArchive(gameDir, safeName, ".source_hf.rar")
+	if resolved != activeFile {
+		t.Fatalf("expected active file %s, got %s", activeFile, resolved)
+	}
+
+	// Case 2: Active file absent, legacy file present in ToolsDir/Ready
+	legacyDir := filepath.Join(a.ToolsDir, "Ready", safeName)
+	if err := os.MkdirAll(legacyDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	legacyFile := filepath.Join(legacyDir, ".source_hf.rar")
+	_ = os.Remove(activeFile)
+	if err := os.WriteFile(legacyFile, []byte("legacy-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	resolvedLegacy := service.resolveLocalSourceArchive(gameDir, safeName, ".source_hf.rar")
+	if resolvedLegacy != legacyFile {
+		t.Fatalf("expected legacy file %s, got %s", legacyFile, resolvedLegacy)
+	}
+
+	// Case 3: Neither exists -> returns target path in active gameDir
+	_ = os.Remove(legacyFile)
+	resolvedNew := service.resolveLocalSourceArchive(gameDir, safeName, ".source_hf.rar")
+	if resolvedNew != activeFile {
+		t.Fatalf("expected new download target %s, got %s", activeFile, resolvedNew)
+	}
+}
+
+// A correcao do cache corrompido depende de duas classificacoes que nunca podem
+// se sobrepor. Um erro de integridade classificado como falha de armazenamento
+// vira halt de dispositivo e o arquivo ruim fica no cache para sempre; um erro
+// de armazenamento classificado como integridade apaga um download bom de
+// varios GB por causa de disco cheio. As mensagens abaixo sao as que a
+// telemetria realmente trouxe.
+func TestExtractionErrorClassificationsDoNotOverlap(t *testing.T) {
+	corrupt := []string{
+		"rardecode: bad file checksum",                // Lego Batman 1 / Incredible Hulk
+		"not a valid 7-zip file",                      // GTA 5
+		"zip: checksum error",                         // archive/zip, caminho do ROM
+		"arquivo extraido incompleto: 10 de 20 bytes", // verificacao pos-extracao
+	}
+	for _, message := range corrupt {
+		err := errors.New(message)
+		if !isArchiveIntegrityError(err) {
+			t.Errorf("deveria pedir novo download: %q", message)
+		}
+		if isLikelyLocalStorageError(err) {
+			t.Errorf("integridade classificada como armazenamento interrompe a cadeia e preserva o arquivo ruim: %q", message)
+		}
+	}
+
+	storage := []string{
+		"write file: there is not enough space on the disk",
+		"data error (cyclic redundancy check)",
+		"open F:/Games: access is denied",
+		"read-only file system",
+		"espaco insuficiente no armazenamento temporario",
+	}
+	for _, message := range storage {
+		err := errors.New(message)
+		if !isLikelyLocalStorageError(err) {
+			t.Errorf("deveria ser tratado como falha de armazenamento: %q", message)
+		}
+		if isArchiveIntegrityError(err) {
+			t.Errorf("erro de armazenamento apagaria um download integro: %q", message)
+		}
+	}
+}

@@ -27,9 +27,9 @@ const profileFolder = "0000000000000000"
 const defaultContentTypeDir = "00000002"
 
 // genericDiscFolderName matches the placeholder folders scene rips use for each disc of a
-// multi-disc release ("Disc2", "DVD 1", "Game Disc"). They name a position in the release,
+// multi-disc release ("Disc2", "DVD 1", "Game Disc", "Disco 2"). They name a position in the release,
 // not a game, so they must never become the name of an installed game.
-var genericDiscFolderName = regexp.MustCompile(`(?i)^(?:(?:game|install(?:ation)?|content|bonus|play)[ _.-]*)?(?:disc|disk|dvd|cd)[ _.-]*[0-9]*$`)
+var genericDiscFolderName = regexp.MustCompile(`(?i)^(?:(?:game|install(?:ation)?|content|bonus|play)[ _.-]*)?(?:disco|disc|disk|dvd|cd)[ _.-]*[0-9]*$`)
 
 // IsGenericDiscFolderName reports whether name is a rip's disc placeholder rather than a title.
 func IsGenericDiscFolderName(name string) bool {

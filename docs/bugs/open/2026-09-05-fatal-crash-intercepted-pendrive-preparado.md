@@ -1,7 +1,8 @@
 # Bug aberto: "Fatal Crash Intercepted!" ao inserir o pendrive preparado no Xbox 360
 
 Data: 2026-09-05
-Status: aberto — mitigado parcialmente, causa raiz não confirmada
+Status: aberto — mitigado parcialmente, causa raiz não confirmada; desde a 2.12.96 a coleta do
+dump deixou de depender de instrução manual, mas nenhuma reprodução real chegou ainda
 Area: preparação BadAvatar USB, launch.ini/DashLaunch, hook ready-to-play do Aurora
 Commits: `3a98a11` (2.12.68), `6faedab` + `906e8c4` (2.12.69, mudança e reversão)
 
@@ -79,14 +80,35 @@ Logs e bancos modificados pelo console são preservados. Portanto, não se deve 
 uma pasta de logs de um pendrive atualizado esteja vazia ou contenha somente a reprodução
 mais recente; devem ser conferidos os horários e o conteúdo dos registros.
 
-### Próximo passo, bloqueante para fechar este bug
+### Próximo passo, bloqueante para fechar este bug — a coleta deixou de ser manual na 2.12.96
 
-Pedir a quem reportou que **prepare o pendrive novamente com a versão ≥ 2.12.92**, reproduza a
-falha e envie **os dois artefatos**:
+Pedir a quem reportou que **prepare o pendrive novamente com a versão ≥ 2.12.96**, reproduza a
+falha, reconecte o pendrive ao PC e **execute a preparação mais uma vez**. Os dois artefatos
+chegam sozinhos a partir daí:
 
 - `crashlog.txt` na raiz do pendrive (caminho DashLaunch);
 - todo o conteúdo de `Aurora\Data\Logs\` (caminho Aurora) — `.crash.log`, `.callstack` e
   `debug.log`.
+
+`collectConsoleCrashArtifacts`, em
+[`consoleCrashArtifacts.ts`](../../../src/electron-app/infrastructure/consoleCrashArtifacts.ts),
+lê os dois caminhos no início da preparação, **antes da formatação** — quem marca "Formatar
+antes" apagaria o dump antes de ele ser lido, e é justamente o que faz quem está tentando
+reproduzir. O conteúdo vai para o log da sessão e, com `errorReporting` ligado, para a
+telemetria, de onde a triagem o puxa. O dispositivo é apenas lido.
+
+**O que era o risco desta coleta, e como ele foi fechado:** os nove dumps do pacote são de outro
+console (candidato 1) e reportá-los como reprodução do usuário repetiria o erro que atrasou este
+diagnóstico. Cada candidato é conferido contra o manifesto por tamanho e SHA-256; o que ainda
+confere é descartado. A conferência é refeita ali em vez de confiar na quarentena da 2.12.74,
+que só roda durante uma preparação e só move o que ainda confere byte a byte. Já um arquivo do
+pacote que o console **alterou** — o `debug.log` — deixa de conferir e é recolhido de propósito.
+
+Como o conteúdo recolhido sai da máquina, e como a leitura acontece antes da recusa de sistemas
+de arquivos que não sejam FAT32, duas portas limitam o alcance: nada é lido sem o marcador
+`.xbox-downloader\ready-to-play-v<N>.marker` (qualquer versão — `crashlog.txt` não está no
+manifesto e a conferência por hash nunca o descartaria), e cada pasta do caminho é conferida
+antes de ser aberta, recusando junction em vez de segui-la até o disco local.
 
 Vale conferir junto se `.xbox-downloader\ready-to-play-v4.restart` ficou no pendrive: a marca
 sobreviver a um boot bem-sucedido é o sinal de que o cadastro dos scan paths não está
@@ -94,6 +116,8 @@ persistindo (candidato 2 abaixo), independentemente do que causou o banner.
 
 Os artefatos permitem identificar qual manipulador registrou a exceção e investigar endereço
 e módulo da falha. A presença de um dump, isoladamente, não prova quem desenhou o banner.
+**A coleta não identifica a causa**; ela só remove a dependência de instrução manual que manteve
+o critério 1 sem resposta desde 2026-09-05.
 
 Ressalvas do DashLaunch para esse arquivo: com mais de um dispositivo USB conectado ele pode
 cair no primeiro enumerado, e o caminho é resolvido apenas no boot — no BadAvatar o pendrive
@@ -238,6 +262,7 @@ não travar, melhor que apagar sem explicação. Não foi implementado: é escol
 | 2.12.74 | Migração sem formatar das cópias antigas ainda idênticas ao manifesto para quarentena; preserva logs/bancos modificados e permite retomada |
 | 2.12.92 | `deviceid` comparado por serial normalizado e reinício do hook limitado a um por cadastro, por marca gravada e conferida no pendrive (candidato 2) |
 | 2.12.92 | `READY_TO_PLAY_CONFIGURATION_VERSION` 3 → 4 (os bytes do hook mudaram; o diário transacional recusaria o plano novo sob o mesmo `transactionId`) |
+| 2.12.96 | Coleta automática de `crashlog.txt` e `Aurora\Data\Logs\` quando o pendrive volta ao PC, antes da formatação, excluindo por manifesto as cópias do pacote — ataca o critério 1, não a causa |
 
 ## Critério para fechar
 

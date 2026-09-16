@@ -43,6 +43,26 @@ func samePath(a, b string) bool {
 	return filepath.Clean(absA) == filepath.Clean(absB)
 }
 
+// resolveLocalSourceArchive returns the path to the downloaded archive for local mode.
+// It prefers the active gameDir on the current ready volume, but checks the legacy
+// ToolsDir/Ready location if an intact completed file is present there from a previous session.
+func (s *Service) resolveLocalSourceArchive(gameDir, safeName, filename string) string {
+	archivePath := filepath.Join(gameDir, filename)
+	if _, err := os.Stat(archivePath); err == nil {
+		return archivePath
+	}
+	if s.App.ToolsDir != "" {
+		legacyDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+		if !samePath(legacyDir, gameDir) {
+			legacyPath := filepath.Join(legacyDir, filename)
+			if _, err := os.Stat(legacyPath); err == nil {
+				return legacyPath
+			}
+		}
+	}
+	return archivePath
+}
+
 func (s *Service) cleanupGameScratch(gameName string) {
 	s.cleanupGameScratchInternal(gameName, true)
 }

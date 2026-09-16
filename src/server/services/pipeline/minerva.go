@@ -39,7 +39,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 		cc := c.(models.XboxConnection)
 		xboxConn = &cc
 	}
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
@@ -59,11 +59,13 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 		extDir := filepath.Join(s.App.TempDir, safeName+"_mext")
 		s.App.LogStatus(gameName, "Processing", "Extracting archive for XEX...")
 		if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
+			err = s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "minerva", err)
 			if xboxConn == nil || xboxConn.Mode != "local" {
 				os.Remove(archivePath)
 			}
 			return fmt.Errorf("Extract failed: %w", err)
 		}
+		clearCorruptArchiveRedownloadMarker(archivePath)
 		if xboxConn == nil || xboxConn.Mode != "local" {
 			os.Remove(archivePath)
 		}
@@ -129,6 +131,11 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 
 	s.App.LogStatus(gameName, "Processing", "Extracting ISO...")
 	isoPath, isoExtDir, err := s.extractISOResilient(gameName, safeName, archivePath, filepath.Join(s.App.TempDir))
+	if err != nil {
+		err = s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "minerva", err)
+	} else {
+		clearCorruptArchiveRedownloadMarker(archivePath)
+	}
 	if xboxConn == nil || xboxConn.Mode != "local" {
 		os.Remove(archivePath)
 	}
@@ -175,7 +182,7 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 		cc := c.(models.XboxConnection)
 		xboxConn = &cc
 	}
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
@@ -191,8 +198,9 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 	extDir := filepath.Join(s.App.TempDir, safeName+"_mgext")
 	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
 	if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
-		return fmt.Errorf("Extract failed: %w", err)
+		return fmt.Errorf("Extract failed: %w", s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "minerva", err))
 	}
+	clearCorruptArchiveRedownloadMarker(archivePath)
 
 	// Try ISO pipeline first
 	isoPath := helpers.FindFileByExt(extDir, ".iso")
@@ -272,7 +280,7 @@ func (s *Service) ProcessMinervaDigitalWithErr(gameName string, entry models.Min
 		cc := c.(models.XboxConnection)
 		xboxConn = &cc
 	}
-	gameDir := filepath.Join(s.App.ToolsDir, "Ready", safeName)
+	gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 	os.MkdirAll(gameDir, 0755)
 
 	torrentDir := filepath.Join(s.App.TempDir, safeName+"_torrent")
@@ -288,8 +296,9 @@ func (s *Service) ProcessMinervaDigitalWithErr(gameName string, entry models.Min
 	extDir := filepath.Join(s.App.TempDir, safeName+"_mdext")
 	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
 	if err := s.extractArchiveResilient(gameName, archivePath, extDir); err != nil {
-		return fmt.Errorf("Extract failed: %w", err)
+		return fmt.Errorf("Extract failed: %w", s.invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, "minerva", err))
 	}
+	clearCorruptArchiveRedownloadMarker(archivePath)
 
 	var contentFile, titleID, typeDir string
 	filepath.Walk(extDir, func(p string, i os.FileInfo, e error) error {
