@@ -52,6 +52,9 @@ func isCatalogMissError(err error) bool {
 // ProcessGameWithFallback sequentially tries the given providers in priority order for the game download and installation.
 func (s *Service) ProcessGameWithFallback(gameName, platform string, providers []string) {
 	s.App.Logf("=== Fallback Pipeline: %s (%s) ===", gameName, platform)
+	if failed := s.App.EnsureWorkingVolume(); failed != "" {
+		s.App.Logf("[WARN] Working scratch volume %s was unavailable; reverted to %s for fallback pipeline of %s", failed, s.App.TempDir, gameName)
+	}
 
 	var lastErr error
 	var providerErrors []string
@@ -87,6 +90,10 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			// para culpar, e e por isso que ErrLocalStaging nao vem mais
 			// embrulhado em ErrLocalDelivery — a mensagem seria falsa.
 			message = "Falha no armazenamento de trabalho do PC, onde o jogo e baixado e montado antes de ir para o destino. Verifique espaco livre e permissoes no disco do aplicativo e tente novamente: " + err.Error()
+			if reverted := s.App.EnsureWorkingVolume(); reverted != "" {
+				s.App.Logf("[WARN] Working volume %s failed during job; reverted to default %s", reverted, s.App.TempDir)
+				message += fmt.Sprintf(" (O volume temporário %s ficou indisponível e foi revertido para %s)", reverted, s.App.TempDir)
+			}
 		}
 		s.App.LogStatus(gameName, "Error", message)
 		logs := append(append([]string{}, providerErrors...), fmt.Sprintf("%s: %v", provider, err))

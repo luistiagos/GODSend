@@ -3,6 +3,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -374,7 +375,29 @@ func markScratchOwner(dir string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, scratchOwnerFile), []byte(strconv.Itoa(os.Getpid())), 0644)
+	ownerPath := filepath.Join(dir, scratchOwnerFile)
+	if data, err := os.ReadFile(ownerPath); err == nil {
+		if pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data))); parseErr == nil && pid > 0 && pid != os.Getpid() && processIsRunning(pid) {
+			// Preserved: scratch directory is already owned by an active process
+			return nil
+		}
+	}
+	return os.WriteFile(ownerPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+}
+
+func validateDirWritable(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return errors.New("empty directory")
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	probePath := filepath.Join(dir, fmt.Sprintf(".probe_%d_%d.tmp", os.Getpid(), time.Now().UnixNano()))
+	if err := os.WriteFile(probePath, []byte("1"), 0644); err != nil {
+		return err
+	}
+	_ = os.Remove(probePath)
+	return nil
 }
 
 // SetupPaths resolves filesystem paths and environment config into App fields.
@@ -393,8 +416,11 @@ func (a *App) SetupPaths() error {
 		a.ToolsDir = abs
 		a.Logf("[INFO] Data directory (GODSEND_HOME): %s", a.ToolsDir)
 		a.Logf("[INFO] Executable: %s", ex)
-	} else {
+	} else if a.ToolsDir == "" {
 		a.ToolsDir = exDir
+	}
+	if err := a.AcquireHomeLock(); err != nil {
+		return err
 	}
 	for _, dir := range []string{"Ready", "Temp", "cache"} {
 		if err := os.MkdirAll(filepath.Join(a.ToolsDir, dir), 0755); err != nil {
@@ -420,15 +446,18 @@ func (a *App) SetupPaths() error {
 	// drive, move the whole per-game working set there so multi-GB downloads and
 	// extraction/GOD conversion don't fill a cramped app/system partition.
 	// Removable and FAT32 volumes are skipped (see bestFixedVolume).
+	autoSelectedTemp := false
 	if best := bestFixedVolume(); best != "" &&
 		!strings.EqualFold(filepath.VolumeName(best), filepath.VolumeName(a.ToolsDir)) {
 		base := filepath.Join(best, "godsend-temp")
 		a.TempDir = filepath.Join(base, "proc")
 		a.TorrentTempDir = filepath.Join(base, "torrent-dl")
 		a.Logf("[INFO] Processing/torrent temp auto-selected roomiest drive: %s", base)
+		autoSelectedTemp = true
 	}
 
 	// An explicit GODSEND_TORRENT_TEMP still wins for the download staging.
+	hasExplicitTorrentTemp := false
 	if v := strings.TrimSpace(os.Getenv("GODSEND_TORRENT_TEMP")); v != "" {
 		abs, err := filepath.Abs(v)
 		if err != nil {
@@ -437,13 +466,45 @@ func (a *App) SetupPaths() error {
 		a.TorrentTempDir = abs
 		a.cleanupStaleScratchDir(a.TorrentTempDir, protectedScratch)
 		a.Logf("[INFO] Torrent download temp (GODSEND_TORRENT_TEMP): %s", a.TorrentTempDir)
+		hasExplicitTorrentTemp = true
+	}
+
+	fallbackToDefaultTemp := func(failedPath string, reason error) error {
+		defaultTemp := filepath.Join(a.ToolsDir, "Temp")
+		a.Logf("[WARN] Auto-selected temp directory %s failed (%v); falling back to default %s", failedPath, reason, defaultTemp)
+		a.TempDir = defaultTemp
+		if !hasExplicitTorrentTemp {
+			a.TorrentTempDir = filepath.Join(a.TempDir, "torrent-dl")
+		}
+		autoSelectedTemp = false
+		if err := markScratchOwner(a.TempDir); err != nil {
+			return fmt.Errorf("processing temp dir: %w", err)
+		}
+		if !hasExplicitTorrentTemp {
+			if err := markScratchOwner(a.TorrentTempDir); err != nil {
+				return fmt.Errorf("torrent temp dir: %w", err)
+			}
+		}
+		return nil
 	}
 
 	if err := markScratchOwner(a.TempDir); err != nil {
-		return fmt.Errorf("processing temp dir: %w", err)
+		if autoSelectedTemp {
+			if fbErr := fallbackToDefaultTemp(a.TempDir, err); fbErr != nil {
+				return fbErr
+			}
+		} else {
+			return fmt.Errorf("processing temp dir: %w", err)
+		}
 	}
 	if err := markScratchOwner(a.TorrentTempDir); err != nil {
-		return fmt.Errorf("torrent temp dir: %w", err)
+		if autoSelectedTemp && !hasExplicitTorrentTemp {
+			if fbErr := fallbackToDefaultTemp(a.TorrentTempDir, err); fbErr != nil {
+				return fbErr
+			}
+		} else {
+			return fmt.Errorf("torrent temp dir: %w", err)
+		}
 	}
 	// ROM install path (drive-relative, no drive letter, no trailing slash)
 	a.ROMRootPath = "Emulators\\RetroArch\\roms"

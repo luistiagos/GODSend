@@ -44,7 +44,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/bodgit/sevenzip"
-	"github.com/nwaples/rardecode"
+	"github.com/nwaples/rardecode/v2"
 )
 
 //go:embed data/empty_live.bin
@@ -813,7 +813,7 @@ func emptyLIVEHeader() []byte {
 // ══════════════════════════════════════════════════════════════════════════════
 
 // extractArchive extracts a .zip, .7z, or .rar archive to destDir using pure-Go
-// libraries (archive/zip, bodgit/sevenzip, nwaples/rardecode).
+// libraries (archive/zip, bodgit/sevenzip, nwaples/rardecode/v2).
 func ExtractArchive(archivePath, destDir string) error {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
@@ -969,7 +969,7 @@ func extract7zEntry(f *sevenzip.File, destDir string) error {
 // ── RAR ──────────────────────────────────────────────────────────────────────
 
 func extractRarAll(src, destDir string) error {
-	r, err := rardecode.OpenReader(src, "")
+	r, err := rardecode.OpenReader(src)
 	if err != nil {
 		return fmt.Errorf("open rar: %w", err)
 	}
@@ -978,7 +978,7 @@ func extractRarAll(src, destDir string) error {
 }
 
 func extractRarFilter(src, destDir, wantExt string) error {
-	r, err := rardecode.OpenReader(src, "")
+	r, err := rardecode.OpenReader(src)
 	if err != nil {
 		return fmt.Errorf("open rar: %w", err)
 	}

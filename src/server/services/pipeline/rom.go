@@ -19,6 +19,9 @@ import (
 // extracts it, then delivers it via FTP or HTTP.
 func (s *Service) ProcessROM(gameName, sysid string) {
 	s.App.Logf("=== ROM: %s (%s) ===", gameName, sysid)
+	if failed := s.App.EnsureWorkingVolume(); failed != "" {
+		s.App.Logf("[WARN] Working scratch volume %s was unavailable; reverted to %s for ROM %s", failed, s.App.TempDir, gameName)
+	}
 	sys, ok := app.ROMSystems[sysid]
 	if !ok {
 		s.App.LogStatus(gameName, "Error", "Unknown ROM system: "+sysid)

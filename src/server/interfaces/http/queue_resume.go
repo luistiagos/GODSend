@@ -163,6 +163,10 @@ func resumePriority(priority, rawURL string) string {
 // from its resume marker — while a job that had already failed comes back as an
 // Error row so the user decides whether to retry it.
 func (d *Deps) ResumeQueuedJobs() {
+	if !d.App.HasHomeLock() {
+		d.App.Logf("QUEUE RESUME: skipping queue resume because GODSEND_HOME is not locked by this instance")
+		return
+	}
 	jobs := d.App.LoadQueueJobs()
 	if len(jobs) == 0 {
 		return

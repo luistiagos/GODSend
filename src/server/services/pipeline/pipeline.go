@@ -39,6 +39,9 @@ type Service struct {
 
 func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 	s.App.Logf("=== Local ISO: %s ===", gameName)
+	if failed := s.App.EnsureWorkingVolume(); failed != "" {
+		s.App.Logf("[WARN] Working scratch volume %s was unavailable; reverted to %s for local ISO of %s", failed, s.App.TempDir, gameName)
+	}
 	safeName := helpers.SanitizeFilename(gameName)
 	if safeName == "" {
 		s.App.LogStatus(gameName, "Error", "Invalid game name")
@@ -155,6 +158,9 @@ func (s *Service) ProcessGame(gameName, platform string) {
 // ProcessGameWithErr runs the online game pipeline and returns any error.
 func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	s.App.Logf("=== Online ISO: %s (%s) ===", gameName, platform)
+	if failed := s.App.EnsureWorkingVolume(); failed != "" {
+		s.App.Logf("[WARN] Working scratch volume %s was unavailable; reverted to %s for online game %s", failed, s.App.TempDir, gameName)
+	}
 	safeName := helpers.SanitizeFilename(gameName)
 	if safeName == "" {
 		return fmt.Errorf("Invalid game name")
@@ -168,6 +174,9 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 	os.MkdirAll(gameDir, 0755)
 
 	s.App.LogStatus(gameName, "Processing", "Searching Internet Archive...")
+	if s.IA == nil {
+		return fmt.Errorf("IA service not initialized")
+	}
 	entry, err := s.IA.FindEntry(gameName, platform)
 	if err != nil {
 		s.App.Logf("ERROR [%s]: IA search failed: %v", gameName, err)

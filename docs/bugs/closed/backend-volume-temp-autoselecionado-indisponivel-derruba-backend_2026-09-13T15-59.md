@@ -78,15 +78,23 @@ o que só piora. 6276 não traz log nem usuário: é compatível, não comprovad
 4. **Sessão:** com o app aberto, enfileirar 2 jogos e desconectar o disco durante o download
    do primeiro → os dois falham em `fase extract-archive: open X:\godsend-temp\proc\...`.
 
-## Próximos passos
+## Resolução (v2.12.95)
 
-1. Em `SetupPaths`, se `markScratchOwner` falhar no volume **auto-selecionado**, logar,
-   voltar para `ToolsDir/Temp` e seguir. Continuar fatal só quando for o `ToolsDir` ou um
-   caminho explícito (`GODSEND_TORRENT_TEMP`).
-2. Excluir da seleção automática discos no barramento USB (`IOCTL_STORAGE_QUERY_PROPERTY` →
-   `BusType == BusTypeUsb`), ou pelo menos preferi-los por último. O comentário de
-   `staging_windows.go:70-72` promete isso e o filtro por `DRIVE_FIXED` não entrega.
-3. Revalidar o volume de trabalho no início de cada job (existe e aceita escrita); se sumiu,
-   voltar para `ToolsDir/Temp` e avisar, em vez de derrubar a fila inteira.
-4. Critério de reabertura depois do fix: `SetupPaths failed` com `godsend-temp` na mensagem,
-   ou `fase extract-*` com `cannot find the path` em `godsend-temp` num build com o item 1/3.
+1. **Exclusão de Barramentos USB e Discos Externos (`src/server/app/staging_windows.go`, `staging_other.go`)**:
+   - `isExternalOrUSBBus(root string)` consulta Win32 `CreateFileW` + `IOCTL_STORAGE_QUERY_PROPERTY` (`StorageDeviceProperty`) e inspeciona `STORAGE_DEVICE_DESCRIPTOR`.
+   - Se `BusType == 0x07` (`BusTypeUsb`), `removable != 0`, `BusType == 0x04` (`BusType1394`), `BusType == 0x0C` (`BusTypeSd`) ou `BusType == 0x0D` (`BusTypeMmc`), o volume é classificado como externo/USB.
+   - `bestFixedVolume()` ignora volumes com `isUSB == true`, assegurando que discos USB externos (mesmo se apresentando como `DRIVE_FIXED`) nunca sejam auto-selecionados.
+
+2. **Fallback Gracioso no Boot (`src/server/app/config.go::SetupPaths`)**:
+   - `SetupPaths` agora rastreia se a atribuição de `TempDir`/`TorrentTempDir` foi produto de auto-seleção (`autoSelectedTemp`).
+   - Caso `markScratchOwner` falhe num volume auto-selecionado, o backend loga `[WARN] Auto-selected temp directory ... failed; falling back to default ...` e reverte imediatamente para `ToolsDir/Temp` (e `ToolsDir/Temp/torrent-dl`), marcando dono nos diretórios locais padrão.
+   - Apenas falhas no próprio `ToolsDir` ou em caminhos explicitamente definidos pelo usuário (`GODSEND_TORRENT_TEMP`) são fatais.
+
+3. **Revalidação de Volume de Trabalho por Job (`src/server/app/app.go`, `services/pipeline/`)**:
+   - `*App.EnsureWorkingVolume()` testa a escrita no volume de trabalho através de `validateDirWritable(a.TempDir)`. Se o volume sumiu ou ficou inacessível (ex.: disco USB desconectado durante a sessão), reverte `a.TempDir` (e `a.TorrentTempDir` se compartilhavam o volume) para `ToolsDir/Temp`, assegurando diretórios e marcando posse.
+   - `AcquireGameJob(gameName, token)` invoca `EnsureWorkingVolume()` assim que adquire o lock da esteira de processamento, garantindo que o próximo jogo da fila nunca tente gravar em volume desconectado.
+   - `ProcessGameWithFallback`, `ProcessLocalISO`, `ProcessGame` e `ProcessROM` executam `EnsureWorkingVolume()` em seus pontos de entrada, e `haltOnLocalStorageFailure` reverte imediatamente o volume caso uma falha de staging ocorra, notificando na mensagem de erro que o volume temporário foi restaurado para o padrão para os próximos trabalhos.
+
+4. **Testes Automatizados**:
+   - `staging_windows_test.go`: valida `isExternalOrUSBBus` e teste unitário garantindo que `bestFixedVolume` ignora volumes USB com maior espaço livre em favor de drives internos.
+   - `scratch_test.go`: `TestEnsureWorkingVolumeWhenValid`, `TestEnsureWorkingVolumeFallbackWhenUnavailable` e `TestAcquireGameJobTriggersEnsureWorkingVolume` cobrem a revalidação e a reversão automática de diretórios inacessíveis.

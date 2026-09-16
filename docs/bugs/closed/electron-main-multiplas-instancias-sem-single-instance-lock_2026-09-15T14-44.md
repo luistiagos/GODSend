@@ -169,22 +169,20 @@ o primeiro provedor.
 5. Para a causa 4: com duas instâncias abertas e um job Minerva na fila da primeira, sair da
    segunda pela bandeja. `%TEMP%\<unpackDir>\aria2c.exe` some.
 
-## Próximos passos
+## Resolução (v2.12.95)
 
-1. **`app.requestSingleInstanceLock()`** no bootstrap, antes de `app.whenReady()`; na
-   segunda instância, `app.quit()`; na primeira, `second-instance` → `show()` + `focus()` da
-   janela (ela pode estar oculta na bandeja). Isso resolve as causas 1 a 4 de uma vez.
-2. Mesmo com o lock, dar ao backend uma trava própria sobre o `GODSEND_HOME` (arquivo
-   travado com `LockFileEx` ou pid + validação) antes de `ResumeQueuedJobs`. Quem sobe o
-   backend manualmente, ou uma instância antiga de outra versão sem o lock, ainda
-   reproduziria a causa 3.
-3. `markScratchOwner` não deveria tomar posse de um scratch cujo dono ainda está vivo.
-4. Avaliar `unpackDirName` único por execução (string com sufixo, ou `true`) ou um splash no
-   portátil. O lock basta para a causa 4 entre instâncias da **mesma** versão, mas não para
-   uma instância antiga ainda aberta durante uma atualização.
-5. Critério de reabertura depois do fix: novo report de `tools:badavatar-list-drives` com
-   versão ≥ a do lock **e** log anexo com mais de um `pid=` simultâneo.
+- **Electron Single Instance Lock (`src/electron-app/main.ts`, `app/bootstrap.ts`, `app/window.ts`)**:
+  - `main.ts` agora chama `app.requestSingleInstanceLock()` logo após fixar `userData`. Instâncias subsequentes chamam `app.quit()` imediatamente sem registrar esquemas, sem carregar o bootstrap e sem subir backend.
+  - O manipulador do evento `second-instance` em `bootstrap.ts` invoca `focusMainWindow()` (`window.ts`), que restaura a janela caso minimizada, exibe-a caso oculta na bandeja (`close-to-tray`) e dá foco no primeiro plano.
+- **Backend GODSEND_HOME Lock (`src/server/app/homelock.go`, `homelock_windows.go`, `homelock_other.go`, `config.go`)**:
+  - `*App.AcquireHomeLock()` estabelece trava exclusiva de arquivo (`LockFileEx` no Windows com `LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY` no offset 4096, e `syscall.Flock` no POSIX) sobre `.godsend.lock` em `GODSEND_HOME`. O kernel do sistema operacional libera o lock automaticamente caso o processo seja terminado ou sofra crash.
+  - `SetupPaths()` invoca `AcquireHomeLock()` antes de qualquer limpeza de scratch ou criação de arquivos de fila; se o diretório estiver travado por outro backend, recusa a inicialização com mensagem clara indicando o PID proprietário.
+  - `ResumeQueuedJobs()` e a rotina de retentativa de FTP em `main.go` agora checam `a.HasHomeLock()` antes de restaurar trabalhos.
+- **Proteção do dono de scratch (`src/server/app/config.go::markScratchOwner`)**:
+  - `markScratchOwner` confere se `.godsend-owner.pid` já existe e se o PID registrado corresponde a um processo em execução (`processIsRunning(pid)` e `pid != os.Getpid()`). Nesses casos, a posse não é sobrescrita, impedindo que encerramentos posteriores limpem o scratch de um processo ativo via `cleanupStaleScratchDir`.
+- **Isolamento da extração do executável portátil (`src/electron-app/package.json`)**:
+  - Alvo `portable` configurado com `"unpackDirName": true`. Evita o bug do electron-builder onde `false` definia uma pasta fixa em `%TEMP%`, garantindo que cada execução descompacte em `$PLUGINSDIR\app` isolado e autolimpante.
+- **Testes**:
+  - `homelock_test.go` cobre aquisição, detecção de conflito com PID no erro, liberação/re-aquisição e preservação do dono de scratch.
+  - `singleInstance.test.cjs` cobre restauração/foco de janela oculta/minimizada, contrato de saída em segunda instância e configuração do portátil.
 
-Os dois reports com uma instância só (5941, 6635) mostram que o timeout também acontece sem
-concorrência. Esse resto é o que o bug fechado de 2026-09-08 descreve como "Storage
-Management travado sem pendrive removível"; não é coberto por este bug.

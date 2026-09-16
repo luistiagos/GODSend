@@ -22,8 +22,9 @@ import (
 )
 
 func main() {
-	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.94\n")
+	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.95\n")
 	a := app.NewApp()
+	defer a.ReleaseHomeLock()
 	if err := a.SetupPaths(); err != nil {
 		fmt.Printf("[FATAL] Setup failed: %v\n", err)
 		// We fallback to standard endpoint since paths are not set up yet
@@ -74,7 +75,7 @@ func main() {
 
 	// ── Banner ──────────────────────────────────────────────────────
 	fmt.Println("╔══════════════════════════════════════════╗")
-	fmt.Println("║    Xbox 360 Companion Server v2.12.94    ║")
+	fmt.Println("║    Xbox 360 Companion Server v2.12.95    ║")
 	fmt.Println("╚══════════════════════════════════════════╝")
 	fmt.Printf("[INFO] Copy Buffer: %d MB | Serve Buffer: %d KB | FTP Buffer: %d MB\n",
 		app.CopyBufferSize/1024/1024, app.ServeBufferSize/1024, app.FTPBufferSize/1024/1024)
@@ -157,6 +158,10 @@ func main() {
 
 	// ── Resume pending FTP jobs from previous sessions ──────────────
 	go func() {
+		if !a.HasHomeLock() {
+			a.Logf("FTP PENDING: skipping restore because GODSEND_HOME is not locked by this instance")
+			return
+		}
 		for _, job := range ftpSvc.LoadAllPendingFTPJobs() {
 			a.Logf("FTP PENDING: Resuming job for %s (from previous session)", job.GameName)
 			a.LogStatus(job.GameName, "Pending FTP", "Resumed from previous session — waiting for Xbox FTP...")

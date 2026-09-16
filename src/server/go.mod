@@ -6,7 +6,7 @@ require (
 	github.com/anacrolix/torrent v1.61.0
 	github.com/bodgit/sevenzip v1.6.1
 	github.com/jlaffaye/ftp v0.2.0
-	github.com/nwaples/rardecode v1.1.3
+	github.com/nwaples/rardecode/v2 v2.4.1
 )
 
 require (

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"godsend/app"
 	"godsend/models"
@@ -19,6 +20,9 @@ func TestHandleQueueRetry(t *testing.T) {
 		TempDir:  t.TempDir(),
 	}
 	a.SetupPaths()
+	t.Cleanup(func() {
+		a.ReleaseHomeLock()
+	})
 
 	deps := &Deps{
 		App:      a,
@@ -56,5 +60,17 @@ func TestHandleQueueRetry(t *testing.T) {
 
 	if resp["status"] != "triggered" {
 		t.Fatalf("expected status 'triggered', got %v", resp["status"])
+	}
+
+	// Ensure background job terminates before test completes and cleans up TempDir
+	a.CancelGameJob(game)
+	for i := 0; i < 50; i++ {
+		if val, ok := a.JobQueue.Load(game); ok {
+			st := val.(models.GameStatus)
+			if st.State == "Error" || st.State == "Ready" {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

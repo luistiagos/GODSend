@@ -155,8 +155,14 @@ export function appendAppEvent(category: string, message: string): void {
   appendLine(`APP_${String(category).toUpperCase()}`, message);
 }
 
+// Pure path getter: no I/O, so it can never throw. Creating the folder is the
+// job of whoever actually writes (appendLine / appendBackendSessionStart /
+// openLogsFolder), and those are all tolerant of the mkdir failing. This used
+// to call ensureLogDir(), which meant a transient ENOENT on the logs folder
+// (a `Downloads` redirected to a volume that dropped, cloud sync, third-party
+// cleanup) propagated out of startGodsend() and killed the whole startup —
+// the backend never spawned because we couldn't *write a log line*.
 export function getLogInfo(): { logsDirectory: string; currentLogFile: string } {
-  ensureLogDir();
   return {
     logsDirectory: logsDirectory(),
     currentLogFile: currentLogFilePath(),

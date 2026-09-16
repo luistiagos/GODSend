@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +20,8 @@ import (
 type App struct {
 	// ── Paths & config (set once at startup) ──────────────────────────
 	ToolsDir          string
+	homeLockFile      *os.File
+	homeLockMu        sync.Mutex
 	GodsendExeDir     string // directory containing the godsend binary
 	TempDir           string // per-game processing scratch (default ToolsDir/Temp; auto-relocated to roomiest fixed drive)
 	TorrentTempDir    string // aria2c Minerva download staging (default TempDir/torrent-dl)
@@ -187,6 +191,54 @@ func (a *App) RegisterGameJob(gameName string) uint64 {
 	return token
 }
 
+// EnsureWorkingVolume validates that TempDir exists and is writable.
+// If TempDir was placed on an auto-selected or external volume that is no longer
+// accessible (e.g. disconnected, asleep, or read-only), it reverts TempDir (and
+// TorrentTempDir if on the same volume) to ToolsDir/Temp and returns the path
+// of the failed volume. If no reversion was needed, it returns "".
+func (a *App) EnsureWorkingVolume() string {
+	defaultTemp := filepath.Join(a.ToolsDir, "Temp")
+	if a.ToolsDir == "" {
+		if a.GodsendExeDir != "" {
+			defaultTemp = filepath.Join(a.GodsendExeDir, "Temp")
+		} else {
+			defaultTemp = filepath.Join(os.TempDir(), "godsend-temp")
+		}
+	}
+	defaultTorrentTemp := filepath.Join(defaultTemp, "torrent-dl")
+
+	if err := validateDirWritable(a.TempDir); err != nil {
+		if strings.EqualFold(filepath.Clean(a.TempDir), filepath.Clean(defaultTemp)) {
+			a.Logf("[ERROR] Default temp directory %s is unavailable: %v", a.TempDir, err)
+			return ""
+		}
+		failedDir := a.TempDir
+		failedVolume := filepath.VolumeName(failedDir)
+		a.Logf("[WARN] Working scratch volume %s is unavailable (%v); reverting to default %s", failedDir, err, defaultTemp)
+		_ = os.MkdirAll(defaultTemp, 0755)
+		a.TempDir = defaultTemp
+		_ = markScratchOwner(a.TempDir)
+
+		if strings.EqualFold(filepath.VolumeName(a.TorrentTempDir), failedVolume) {
+			a.Logf("[WARN] Torrent temp directory %s also resided on unavailable volume %s; reverting to %s", a.TorrentTempDir, failedVolume, defaultTorrentTemp)
+			_ = os.MkdirAll(defaultTorrentTemp, 0755)
+			a.TorrentTempDir = defaultTorrentTemp
+			_ = markScratchOwner(a.TorrentTempDir)
+		}
+		return failedDir
+	}
+
+	if err := validateDirWritable(a.TorrentTempDir); err != nil {
+		if !strings.EqualFold(filepath.Clean(a.TorrentTempDir), filepath.Clean(defaultTorrentTemp)) {
+			a.Logf("[WARN] Torrent temp directory %s unavailable (%v); reverting to %s", a.TorrentTempDir, err, defaultTorrentTemp)
+			_ = os.MkdirAll(defaultTorrentTemp, 0755)
+			a.TorrentTempDir = defaultTorrentTemp
+			_ = markScratchOwner(a.TorrentTempDir)
+		}
+	}
+	return ""
+}
+
 // AcquireGameJob waits for the processing lane and verifies that this exact
 // queued launch was not cancelled or replaced while it waited.
 func (a *App) AcquireGameJob(gameName string, token uint64) bool {
@@ -197,6 +249,9 @@ func (a *App) AcquireGameJob(gameName string, token uint64) bool {
 		return false
 	}
 	a.activeGameJobs.Store(gameName, token)
+	if failed := a.EnsureWorkingVolume(); failed != "" {
+		a.Logf("[WARN] Working volume %s was unavailable; reverted to %s for game '%s'", failed, a.TempDir, gameName)
+	}
 	return true
 }
 

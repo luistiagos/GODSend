@@ -8,8 +8,9 @@ import (
 )
 
 type fixedVolume struct {
-	root string
-	free uint64
+	root  string
+	free  uint64
+	isUSB bool
 }
 
 // bestFixedVolume is Windows-only; elsewhere the default staging path under

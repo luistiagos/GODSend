@@ -25,6 +25,27 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow;
 }
 
+/** Testing hook to set the main window reference. */
+export function setMainWindowForTesting(win: any): void {
+  mainWindow = win;
+}
+
+/**
+ * Focus and restore the main window if it is hidden (e.g. minimized to tray),
+ * minimized, or obscured by other applications.
+ */
+export function focusMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  mainWindow.focus();
+}
+
+
 /** Return whether the app is in the process of quitting. */
 export function getIsQuitting(): boolean {
   return isQuitting;

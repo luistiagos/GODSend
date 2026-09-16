@@ -26,6 +26,7 @@ import {
   buildGodsendEnv,
 } from "./settingsService";
 import { normalizeIACookiePair } from "./iaCookie";
+import { reportError } from "../infrastructure/telemetry";
 
 const GODSEND_LISTEN_PORT_RE = /GODSEND_LISTEN_PORT=(\d+)/;
 const GODSEND_FTP_COMPLETE_PREFIX = "GODSEND_FTP_COMPLETE:";
@@ -90,7 +91,7 @@ export function getOutputBuffer(): string[] {
   return outputBuffer;
 }
 
-export function startGodsend(): void {
+function startGodsend(): void {
   if (godsendProcess) return;
 
   const writableRoot    = prepareWritableRuntime();
@@ -227,10 +228,34 @@ export function stopGodsend(): void {
   godsendProcess.kill();
 }
 
+// Use this from timer callbacks and Electron event handlers. A throw that
+// escapes there is a fatal uncaughtException: the user loses the whole app
+// instead of just the backend, which is exactly how a missing logs folder
+// used to kill startup (docs/bugs/closed/electron-main-falha-na-pasta-de-
+// logs-impede-backend-de-subir_2026-09-13T15-59.md).
+export function startGodsendSafely(): void {
+  try {
+    startGodsend();
+  } catch (err: any) {
+    const stack = err?.stack ? String(err.stack) : String(err);
+    appendAppEvent("BACKEND", `startGodsend threw: ${stack}`);
+    addOutputLine(`[ERROR] Could not start the backend: ${err?.message || err}`);
+    reportError(
+      "electron-main",
+      "backendClient.ts",
+      "startGodsendSafely",
+      err instanceof Error ? err.message : String(err),
+      "",
+      [stack],
+      false
+    );
+  }
+}
+
 export function restartGodsendIfRunning(): void {
   if (!godsendProcess) return;
   stopGodsend();
-  setTimeout(() => startGodsend(), 400);
+  setTimeout(() => startGodsendSafely(), 400);
 }
 
 export interface IALoginResult {

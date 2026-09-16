@@ -10,8 +10,86 @@ import (
 )
 
 type fixedVolume struct {
-	root string
-	free uint64
+	root  string
+	free  uint64
+	isUSB bool
+}
+
+// isExternalOrUSBBus checks if a drive volume is on a USB, FireWire, or SD/MMC bus,
+// or reports removable media via IOCTL_STORAGE_QUERY_PROPERTY.
+// External USB HDDs/SSDs frequently identify as DRIVE_FIXED in Windows, so querying
+// the storage property directly is required to avoid auto-selecting an unplugged
+// or sleeping external drive as the host machine's scratch space.
+func isExternalOrUSBBus(root string) bool {
+	driveLetter := strings.TrimRight(root, "\\")
+	devicePath := `\\.\` + driveLetter
+	pathPtr, err := syscall.UTF16PtrFromString(devicePath)
+	if err != nil {
+		return false
+	}
+
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	createFile := kernel32.NewProc("CreateFileW")
+	deviceIoControl := kernel32.NewProc("DeviceIoControl")
+	closeHandle := kernel32.NewProc("CloseHandle")
+
+	const (
+		fileShareRead             = 1
+		fileShareWrite            = 2
+		openExisting              = 3
+		ioctlStorageQueryProperty = 0x002D1400
+		busTypeUsb                = 0x07
+		busType1394               = 0x04
+		busTypeSd                 = 0x0C
+		busTypeMmc                = 0x0D
+	)
+
+	// DesiredAccess = 0 allows querying device properties without administrative rights
+	h, _, _ := createFile.Call(
+		uintptr(unsafe.Pointer(pathPtr)),
+		0,
+		uintptr(fileShareRead|fileShareWrite),
+		0,
+		uintptr(openExisting),
+		0,
+		0,
+	)
+	if h == uintptr(syscall.InvalidHandle) || h == 0 {
+		return false
+	}
+	defer closeHandle.Call(h)
+
+	type storagePropertyQuery struct {
+		PropertyID           uint32
+		QueryType            uint32
+		AdditionalParameters [4]byte
+	}
+
+	query := storagePropertyQuery{
+		PropertyID: 0, // StorageDeviceProperty
+		QueryType:  0, // PropertyStandardQuery
+	}
+
+	buf := make([]byte, 1024)
+	var bytesReturned uint32
+
+	r1, _, _ := deviceIoControl.Call(
+		h,
+		uintptr(ioctlStorageQueryProperty),
+		uintptr(unsafe.Pointer(&query)),
+		uintptr(unsafe.Sizeof(query)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&bytesReturned)),
+		0,
+	)
+	if r1 == 0 || bytesReturned < 32 {
+		return false
+	}
+
+	removable := buf[10] != 0
+	busType := *(*uint32)(unsafe.Pointer(&buf[28]))
+	return removable || busType == busTypeUsb || busType == busType1394 || busType == busTypeSd || busType == busTypeMmc
 }
 
 // fixedLargeFileVolumes returns every fixed NTFS/exFAT volume and its currently
@@ -61,19 +139,27 @@ func fixedLargeFileVolumes() []fixedVolume {
 		); r2 == 0 {
 			continue
 		}
-		volumes = append(volumes, fixedVolume{root: root, free: freeAvail})
+		volumes = append(volumes, fixedVolume{
+			root:  root,
+			free:  freeAvail,
+			isUSB: isExternalOrUSBBus(root),
+		})
 	}
 	return volumes
 }
 
 // bestFixedVolume returns the root (e.g. "D:\\") of the fixed, large-file-capable
 // (NTFS/exFAT) local drive with the most free space, or "" if none qualifies.
-// Removable drives and FAT/FAT32 volumes are skipped so multi-GB download staging
-// never lands on a pendrive or trips FAT32's 4 GB per-file limit.
+// Removable drives, USB/external drives (which present as DRIVE_FIXED on Windows), and
+// FAT/FAT32 volumes are skipped so multi-GB download staging never lands on a pendrive,
+// an external drive that can disconnect or sleep, or trips FAT32's 4 GB per-file limit.
 func bestFixedVolume() string {
 	var best string
 	var bestFree uint64
 	for _, volume := range fixedLargeFileVolumes() {
+		if volume.isUSB {
+			continue
+		}
 		if volume.free > bestFree {
 			bestFree = volume.free
 			best = volume.root

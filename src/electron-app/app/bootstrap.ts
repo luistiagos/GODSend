@@ -77,14 +77,14 @@ import { createTray } from "../infrastructure/electronTray";
 import {
   getProcess,
   getOutputBuffer,
-  startGodsend,
+  startGodsendSafely,
   stopGodsend,
   restartGodsendIfRunning,
   onFTPComplete,
   addOutputLine,
 } from "../services/backendClient";
 import { autoUploadAuroraAssets, doAuroraLibrarySync } from "../services/autoSyncService";
-import { createMainWindow, setIsQuitting, getMainWindow } from "./window";
+import { createMainWindow, setIsQuitting, getMainWindow, focusMainWindow } from "./window";
 
 import * as configHandlers        from "../ipc/configHandlers";
 import * as xboxFtpHandlers       from "../ipc/xboxFtpHandlers";
@@ -100,13 +100,13 @@ import * as updateHandlers        from "../ipc/updateHandlers";
 
 function registerIpcHandlers(): void {
   ipcMain.handle("godsend:get-buffer", () => getOutputBuffer());
-  ipcMain.handle("godsend:start",   () => { startGodsend(); return true; });
+  ipcMain.handle("godsend:start",   () => { startGodsendSafely(); return true; });
   ipcMain.handle("godsend:stop",    () => { stopGodsend();  return true; });
   ipcMain.handle("godsend:restart", () => {
     if (getProcess()) {
       restartGodsendIfRunning();
     } else {
-      startGodsend();
+      startGodsendSafely();
     }
     return true;
   });
@@ -142,6 +142,11 @@ function registerIpcHandlers(): void {
 
 
 export function bootstrapApp(): void {
+  app.on("second-instance", () => {
+    appendAppEvent("LIFECYCLE", "second-instance event received; restoring and focusing window");
+    focusMainWindow();
+  });
+
   app.whenReady().then(() => {
     protocol.handle("godsend-aurora", (request) => {
       const root = getActiveAuroraCacheRoot();
@@ -178,7 +183,10 @@ export function bootstrapApp(): void {
     });
 
     getMainWindow()!.webContents.once("did-finish-load", () => {
-      startGodsend();
+      // Guarded: anything thrown from an Electron event handler escapes as an
+      // uncaughtException — the user gets the "GODsend crashed" dialog and the
+      // backend is never started.
+      startGodsendSafely();
     });
 
     onFTPComplete(({ gameName, titleId, xboxIp }) => {

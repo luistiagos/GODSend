@@ -20,6 +20,9 @@ func newCompletenessDeps(t *testing.T) *Deps {
 	if err := a.SetupPaths(); err != nil {
 		t.Fatalf("SetupPaths: %v", err)
 	}
+	t.Cleanup(func() {
+		a.ReleaseHomeLock()
+	})
 	return &Deps{App: a}
 }
 

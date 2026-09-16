@@ -81,3 +81,65 @@ func TestRequeueDoesNotUncancelOlderRunningLaunch(t *testing.T) {
 	}
 	a.ReleaseGameJob("Batman Arkham City GOTY", newToken)
 }
+
+func TestEnsureWorkingVolumeWhenValid(t *testing.T) {
+	root := t.TempDir()
+	a := NewApp()
+	a.ToolsDir = root
+	a.TempDir = filepath.Join(root, "Temp")
+	a.TorrentTempDir = filepath.Join(a.TempDir, "torrent-dl")
+
+	if failed := a.EnsureWorkingVolume(); failed != "" {
+		t.Fatalf("expected no fallback, but got failed volume: %s", failed)
+	}
+	if a.TempDir != filepath.Join(root, "Temp") {
+		t.Fatalf("expected TempDir unchanged, got %s", a.TempDir)
+	}
+}
+
+func TestEnsureWorkingVolumeFallbackWhenUnavailable(t *testing.T) {
+	root := t.TempDir()
+	a := NewApp()
+	a.ToolsDir = root
+	// Point TempDir to an un-creatable/invalid path
+	invalidTemp := "Z:\\godsend-temp-unmounted-device\\proc"
+	a.TempDir = invalidTemp
+	a.TorrentTempDir = "Z:\\godsend-temp-unmounted-device\\torrent-dl"
+
+	failed := a.EnsureWorkingVolume()
+	if failed != invalidTemp {
+		t.Fatalf("expected failed volume %s, got %s", invalidTemp, failed)
+	}
+	expectedDefault := filepath.Join(root, "Temp")
+	if a.TempDir != expectedDefault {
+		t.Fatalf("expected TempDir reverted to %s, got %s", expectedDefault, a.TempDir)
+	}
+	expectedTorrentDefault := filepath.Join(expectedDefault, "torrent-dl")
+	if a.TorrentTempDir != expectedTorrentDefault {
+		t.Fatalf("expected TorrentTempDir reverted to %s, got %s", expectedTorrentDefault, a.TorrentTempDir)
+	}
+	// Verify directory was created and owner marked
+	if _, err := os.Stat(filepath.Join(expectedDefault, scratchOwnerFile)); err != nil {
+		t.Fatalf("scratch owner marker was not created in fallback dir: %v", err)
+	}
+}
+
+func TestAcquireGameJobTriggersEnsureWorkingVolume(t *testing.T) {
+	root := t.TempDir()
+	a := NewApp()
+	a.ToolsDir = root
+	invalidTemp := "Z:\\godsend-temp-unmounted\\proc"
+	a.TempDir = invalidTemp
+	a.TorrentTempDir = "Z:\\godsend-temp-unmounted\\torrent-dl"
+
+	token := a.RegisterGameJob("Lego Batman 1")
+	if !a.AcquireGameJob("Lego Batman 1", token) {
+		t.Fatal("failed to acquire game job")
+	}
+	defer a.ReleaseGameJob("Lego Batman 1", token)
+
+	expectedDefault := filepath.Join(root, "Temp")
+	if a.TempDir != expectedDefault {
+		t.Fatalf("AcquireGameJob did not revert unavailable TempDir: got %s, want %s", a.TempDir, expectedDefault)
+	}
+}
