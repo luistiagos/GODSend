@@ -83,4 +83,5 @@ git diff --stat
 
 ## Related Skills
 - [`docs-source-of-truth`](docs-source-of-truth.md) — conventions for the doc files themselves.
+- [`bug-triage`](bug-triage.md) — conventions for bug triage, templates, and lifecycle management.
 - [`shim-electron`](shim-electron.md), [`shim-go-backend`](shim-go-backend.md), [`shim-aurora-scripts`](shim-aurora-scripts.md) — per-component agent guidance; each triggers this skill when code changes land.
