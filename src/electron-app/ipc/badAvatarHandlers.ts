@@ -30,9 +30,9 @@ let previewAbortController: AbortController | null = null;
 let preparationInProgress = false;
 
 export function register(ipcMain: IpcMain): void {
-  ipcMain.handle("tools:badavatar-list-drives", async () => {
+  ipcMain.handle("tools:badavatar-list-drives", async (_event, options?: { fresh?: boolean }) => {
     try {
-      const drives = await listFat32UsbDrives();
+      const drives = await listFat32UsbDrives(options?.fresh === true);
       appendAppEvent(
         "usb",
         `lista enviada à interface: ${drives.length} unidade(s); ${drives.map((drive) => `${drive.rootPath}:${drive.safety?.allowed ? "permitida" : "bloqueada"}`).join(", ") || "nenhuma"}`,

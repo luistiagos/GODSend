@@ -112,7 +112,7 @@ export default function BadAvatarUsbPage({
   const refreshDrives = useCallback(async () => {
     setLoading(true);
     setLoadError("");
-    const drivesPromise = window.godsendApi.toolsBadAvatarListDrives().then((driveResult: any) => {
+    const drivesPromise = window.godsendApi.toolsBadAvatarListDrives({ fresh: true }).then((driveResult: any) => {
       if (!driveResult?.ok) {
         setDrives([]);
         setSelectedDrive("");

@@ -3,7 +3,7 @@
 - **Detectado em:** 2026-09-09 03:15 (telemetria de produção)
 - **Status:** **Duplicado** de [`electron-renderer-settingspage-onopenupdatemodal-referenceerror_2026-09-06T04-37.md`](electron-renderer-settingspage-onopenupdatemodal-referenceerror_2026-09-06T04-37.md) — já corrigido no commit `ea06af0`
 - **Origem:** telemetria `xbox-360-companion/electron-renderer` (`renderer-dist/assets/index-*.js::window.onerror`)
-- **Errors (serviço):** 5085, 5196, 5368 (3 ocorrências); **triagem de 2026-09-15:** 5994, 6211 (+2)
+- **Errors (serviço):** 5085, 5196, 5368 (3 ocorrências); **triagem de 2026-09-15:** 5994, 6211 (+2); **triagem de 2026-09-17:** 7065 (+1, v2.12.67)
 - **Classe:** crash
 - **Versões:** ElectronApp v2.12.43 e v2.12.67 — ambas **anteriores** à correção
 

@@ -27,6 +27,11 @@ Este documento continua fechado. Os 2 reports da amostra com **uma** instância 
 (5941, 6635) são o resto descrito em "O que continua aberto", abaixo; se esse resto crescer
 depois do lock de instância única, é aqui que ele reabre.
 
+Na **triagem de 2026-09-17**, foram identificados mais 45 reports: 43 na v2.12.81 (recorrência do
+problema de múltiplas instâncias anterior ao fix da v2.12.95) e 2 na v2.12.97 (7014, 7018),
+originados pelo polling não-cacheador da Home a cada 5s/7s, corrigido na v2.12.98
+(`listFat32UsbDrives` cacheado até mudança de volume montado). Nenhuma ocorrência na v2.12.98.
+
 ## Sintoma
 
 Print 1, na faixa de erro do card **Dispositivo conectado**:

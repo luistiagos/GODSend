@@ -359,12 +359,108 @@ function checkExistingXboxFolders(driveRoot: string): boolean {
   return false;
 }
 
-/** USB / external drives (any filesystem) suitable for BadAvatar setup. */
-export async function listFat32UsbDrives(): Promise<UsbDriveInfo[]> {
+/**
+ * Windows only sees USB drives through PowerShell — two or three powershell.exe per
+ * listing, plus csc.exe for Add-Type — and the Home screen and the installed-games
+ * counter ask for this list every few seconds, in the background too. On some
+ * machines every one of those processes flashes a console window, so an idle app
+ * kept blinking terminals on the screen.
+ *
+ * The listing is now reused until a mounted volume changes. Letters and serial
+ * numbers come from stat() on each drive root (`dev` is the volume serial), which
+ * spawns nothing; formatting mints a new serial and ejecting drops the letter. A
+ * change keeps re-enumerating for USB_LIST_SETTLE_MS, because Windows shows the
+ * letter a few seconds before Storage Management lists the disk, and caching that
+ * empty answer would hide the drive until it is reconnected.
+ */
+const USB_LIST_SETTLE_MS = 15_000;
+let mountedVolumes = "";
+let mountedVolumesChangedAt = 0;
+let usbListCache: UsbDriveInfo[] | null = null;
+let usbListGeneration = 0;
+let usbListInFlight: { generation: number; drives: Promise<UsbDriveInfo[]> } | null = null;
+
+/**
+ * Forces the next listing to re-enumerate. For what changes neither letter nor
+ * serial: chkdsk fixing the health hints, and whatever the user clicks "Atualizar"
+ * for — a write-protect flag cleared in software, or a health probe that timed out
+ * on the enumeration that got cached.
+ */
+export function invalidateUsbDriveListCache(): void {
+  usbListCache = null;
+  usbListGeneration++;
+}
+
+async function readMountedVolumes(): Promise<string> {
+  const roots = Array.from({ length: 26 }, (_, i) => `${String.fromCharCode(65 + i)}:\\`);
+  const volumes = await Promise.all(
+    roots.map((root) =>
+      fs.promises.stat(root).then(
+        (stat) => `${root}${stat.dev}`,
+        // Only a letter that does not exist drops out. A RAW volume — a new, foreign
+        // or corrupted stick — has a letter whose stat fails, and must still count.
+        (error) => (error?.code === "ENOENT" ? "" : `${root}!${error?.code}`),
+      ),
+    ),
+  );
+  return volumes.filter(Boolean).join("|");
+}
+
+async function listWindowsUsbDrivesOnVolumeChange(): Promise<UsbDriveInfo[]> {
+  const volumes = await readMountedVolumes();
+  // Monotonic: a wall clock set backwards would keep the list unsettled for as long.
+  const now = performance.now();
+  if (volumes !== mountedVolumes) {
+    mountedVolumes = volumes;
+    mountedVolumesChangedAt = now;
+    usbListCache = null;
+  }
+
+  if (usbListCache) {
+    // Downloads to the drive move free space without touching the volume serial.
+    await Promise.all(
+      usbListCache.map(async (drive) => {
+        try {
+          const stats = await fs.promises.statfs(normalizeRoot(drive.rootPath));
+          drive.freeBytes = stats.bavail * stats.bsize;
+        } catch {
+          // keep the last enumerated value
+        }
+      }),
+    );
+    return usbListCache;
+  }
+
+  const generation = usbListGeneration;
+  // The only consumer of the health/repair hints is the device list this feeds.
+  const drives = await enumerateSafeWindowsUsbDevices(true);
+  if (now - mountedVolumesChangedAt >= USB_LIST_SETTLE_MS && generation === usbListGeneration) {
+    usbListCache = drives;
+  }
+  return drives;
+}
+
+/**
+ * USB / external drives (any filesystem) suitable for BadAvatar setup.
+ * @param fresh Re-enumerate even if no volume changed. For user actions only
+ * ("Atualizar", after preparing or repairing) — background polls must leave it off.
+ */
+export async function listFat32UsbDrives(fresh = false): Promise<UsbDriveInfo[]> {
   let drives: UsbDriveInfo[] = [];
   if (process.platform === "win32") {
-    // The only consumer of the health/repair hints is the device list this feeds.
-    drives = await enumerateSafeWindowsUsbDevices(true);
+    if (fresh) invalidateUsbDriveListCache();
+    let inFlight = usbListInFlight;
+    // An enumeration that started before an invalidation holds the stale answer.
+    if (!inFlight || inFlight.generation !== usbListGeneration) {
+      const entry = {
+        generation: usbListGeneration,
+        drives: listWindowsUsbDrivesOnVolumeChange().finally(() => {
+          if (usbListInFlight === entry) usbListInFlight = null;
+        }),
+      };
+      usbListInFlight = inFlight = entry;
+    }
+    drives = await inFlight.drives;
   } else if (process.platform === "darwin") {
     drives = await listDarwinUsbDrives();
   } else if (process.platform === "linux") {

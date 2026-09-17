@@ -2,7 +2,7 @@
 
 - **Detectado em:** 2026-09-15 14:44 (telemetria de produção)
 - **Origem:** telemetria `xbox-360-companion/electron-main` (`badAvatarHandlers.ts::tools:badavatar-list-drives`) e `xbox-360-companion/pipeline` (`fallback.go::ProcessGameWithFallback`)
-- **Errors (serviço):** ver tabela "IDs por sintoma" abaixo — 153 + 8 + 2 + 7 + 7 + 4 (+3 compatíveis) = 184
+- **Errors (serviço):** ver tabela "IDs por sintoma" abaixo — 184 originais + 44 na triagem de 2026-09-17 (43 timeouts v2.12.81 + 1 aria2c 6899) = 228
 - **Classe:** fail (funcional recorrente; nenhum crash)
 - **Versões:** ElectronApp v2.12.78 (8 reports) e **v2.12.81** (145 reports) — a v2.12.81 **já contém** a correção de [`enumeracao-usb-timeout-e-dispositivo-mudou-desde-a-selecao`](../closed/enumeracao-usb-timeout-e-dispositivo-mudou-desde-a-selecao_2026-09-08T00-00.md) (v2.12.79)
 - **Reincidência:** primeira vez como causa própria; é a razão pela qual o timeout de USB continuou chegando depois do fix da v2.12.79
@@ -149,9 +149,10 @@ minerva: Minerva torrent failed: aria2c not found — bundled binary missing and
 | Timeout ao listar USB — chegaram **durante** a triagem de 2026-09-15 | 6766, 6768, 6778–6781 (6) | causa 2; pico de 1 a 8 instâncias |
 | `Não foi possível enumerar os dispositivos USB.` — `powershell.exe` saiu com código ≠ 0 e stderr vazio (`windowsUsbDeviceService.ts:81`) | 6777, 6782 (2) | causa 2; os dois logs têm **8** instâncias simultâneas e dezenas de `enumeração nativa falhou` de pids diferentes no mesmo segundo |
 | Timeout ao listar USB — segunda rodada, 2026-09-15 18:29–19:00 | 6785, 6793 (2) | causa 2; 4 instâncias simultâneas em cada log, 3 e 4 backends com `serverPort=... (auto, requested port in use)` |
+| Timeout ao listar USB — triagem de 2026-09-17 (v2.12.81 pré-fix) | 6808, 6810, 6816, 6819, 6835, 6843–6847, 6850, 6862, 6868, 6869, 6871, 6873, 6876–6880, 6883, 6884, 6887–6889, 6893, 6900–6903, 6908, 6909, 6976, 6978, 6998–7001, 7003, 7016, 7017, 7045 (43) | causa 2 |
 | `ENOSPC` ao listar USB (C: cheio + 11 instâncias) | 5820–5825, 5877 (7) | causa 2, agravada |
 | `rename ... being used by another process` / scratch perdido | 6658, 6666, 6685, 6728, 6729, 5831, 5837 (7) | causa 3 |
-| `aria2c` apagado do diretório de extração | 6531, 6539, 6544, 6545 (4) | causa 4 |
+| `aria2c` apagado do diretório de extração | 6531, 6539, 6544, 6545 (4); **triagem de 2026-09-17:** 6899 (1) | causa 4 |
 | Compatíveis, não comprovados | 5743 (`aria2c unusable: exit status 1`, v2.12.78), 6654 (GTA 5 `not a valid 7-zip file`, máquina G) | causas 4 e 3 |
 | Compatível, não comprovado | 6798 (timeout de USB, v2.12.81) | causa 1: quatro `app ready` de pids diferentes **no mesmo milissegundo** (19:10:12.73x), nenhum deles sobe backend nem escreve outra linha; o quinto lançamento, 4 min depois, é o que reporta — sozinho no log, backend na porta 8080 sem conflito. Máquina lenta (44 s entre `app ready` e `Starting` do backend) e a sonda que estoura (19:15:31–36) começa junto com o fim do carregamento de caches do próprio backend. Não há sonda concorrente visível, então pode ser só a máquina |
 

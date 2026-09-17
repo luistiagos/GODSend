@@ -7,6 +7,7 @@ import { IpcMain } from "electron";
 import { getWebContentsForPush } from "../app/window";
 import { diagnoseDrive, repairDrive } from "../services/driveRepairService";
 import { probeFakeDrive } from "../services/fakeDriveProbeService";
+import { invalidateUsbDriveListCache } from "../services/badAvatarUsbService";
 import { safelyEjectWindowsDrive } from "../infrastructure/windowsUsbDeviceService";
 import { appendAppEvent } from "../infrastructure/serverLog";
 
@@ -40,6 +41,7 @@ export function register(ipcMain: IpcMain): void {
       return { ok: false, error: err?.message || String(err) };
     } finally {
       repairInProgress = false;
+      invalidateUsbDriveListCache();
     }
   });
 

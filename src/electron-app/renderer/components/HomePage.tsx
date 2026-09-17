@@ -109,7 +109,8 @@ export default function HomePage({
     }
 
     try {
-      const result = await window.godsendApi.toolsBadAvatarListDrives();
+      // The 5 s poll reuses the cached list; only the user's own check re-enumerates.
+      const result = await window.godsendApi.toolsBadAvatarListDrives({ fresh: manual });
       if (!preparedDetectionMounted.current) return;
       const hasPrepared = readPreparedUsbDetection(result);
       if (hasPrepared === null) {

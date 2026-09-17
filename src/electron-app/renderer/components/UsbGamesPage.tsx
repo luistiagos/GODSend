@@ -229,7 +229,7 @@ export default function UsbGamesPage({
     setActionFeedback(null);
     try {
       // 1. Fetch drives
-      const drivesRes = await window.godsendApi.toolsBadAvatarListDrives();
+      const drivesRes = await window.godsendApi.toolsBadAvatarListDrives({ fresh: true });
       if (drivesRes && drivesRes.ok && Array.isArray(drivesRes.drives)) {
         setDrives(drivesRes.drives);
         if (selectedDrive === "ALL" && drivesRes.drives.length === 1 && drivesRes.drives[0].rootPath) {

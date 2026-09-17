@@ -131,7 +131,7 @@ contextBridge.exposeInMainWorld("godsendApi", {
   toolsFtpCopy:             (payload: any) => ipcRenderer.invoke("tools:ftp-copy", payload),
   moveGameToDrive:          (payload: any) => ipcRenderer.invoke("xbox:move-game", payload),
 
-  toolsBadAvatarListDrives: () => ipcRenderer.invoke("tools:badavatar-list-drives"),
+  toolsBadAvatarListDrives: (options?: { fresh?: boolean }) => ipcRenderer.invoke("tools:badavatar-list-drives", options),
   toolsBadAvatarIsAdmin:    () => ipcRenderer.invoke("tools:badavatar-is-admin"),
   toolsBadAvatarPreview:    (payload: any) => ipcRenderer.invoke("tools:badavatar-preview", payload),
   toolsBadAvatarPreviewCancel: () => ipcRenderer.invoke("tools:badavatar-preview-cancel"),

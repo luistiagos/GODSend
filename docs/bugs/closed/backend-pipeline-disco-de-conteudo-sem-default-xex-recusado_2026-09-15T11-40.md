@@ -2,7 +2,7 @@
 
 - **Detectado em:** 2026-09-15 11:40 (telemetria de produção)
 - **Origem:** telemetria `xbox-360-companion/pipeline` (`fallback.go::ProcessGameWithFallback`)
-- **Errors (serviço):** 6699, 6726 (2 ocorrências, mesmo jogo, 2026-09-15 05:09 e 11:40)
+- **Errors (serviço):** 6699, 6726 (2 ocorrências, Batman Arkham Origins Disco 2, 2026-09-15); **triagem de 2026-09-17:** 6897 (Kinect Rush), 6932 (Kinect Nat Geo TV Disc 2) (+2 ocorrências pré-fix v2.12.97)
 - **Classe:** fail
 - **Versões:** o componente `pipeline` não manda versão no `user_agent`; `disc_layout.go` não muda desde `ece2826` (2026-09-02), então o defeito está no código atual (v2.12.93)
 - **Reincidência:** primeira vez
