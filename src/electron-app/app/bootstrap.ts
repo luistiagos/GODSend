@@ -85,6 +85,7 @@ import {
 } from "../services/backendClient";
 import { autoUploadAuroraAssets, doAuroraLibrarySync } from "../services/autoSyncService";
 import { createMainWindow, setIsQuitting, getMainWindow, focusMainWindow } from "./window";
+import { checkPendingUpdateResult } from "../services/autoUpdateService";
 
 import * as configHandlers        from "../ipc/configHandlers";
 import * as xboxFtpHandlers       from "../ipc/xboxFtpHandlers";
@@ -173,6 +174,12 @@ export function bootstrapApp(): void {
       "LIFECYCLE",
       `app ready userData=${app.getPath("userData")} logDir=${getLogInfo().logsDirectory}`
     );
+
+    try {
+      checkPendingUpdateResult();
+    } catch (err: any) {
+      appendAppEvent("UPDATE", `pending update check failed: ${err?.message || err}`);
+    }
 
     createMainWindow();
     createTray(getMainWindow()!, {

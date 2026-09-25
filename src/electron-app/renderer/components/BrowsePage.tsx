@@ -8,6 +8,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "../lib/utils";
+import { errorMessage } from "../../infrastructure/backendFailure.ts";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1216,6 +1217,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
   const [source,   setSource]   = useState("unified");
   const [platform, setPlatform] = useState("xbox360");
   const [status,   setStatus]   = useState("idle");  // idle|loading|cache-building|ready|empty|error
+  const [loadError, setLoadError] = useState("");
   const [games,    setGames]    = useState<string[]>([]);
   // Disc membership per catalog name, as the backend groups it. A name that is absent belongs
   // to no multi-disc release, which is the same thing as being a one-disc game.
@@ -1311,6 +1313,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
 
   async function loadGames() {
     setStatus("loading");
+    setLoadError("");
     setGames([]);
     setDiscMembership(new Map());
     setFilter("");
@@ -1324,18 +1327,49 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
     // download.
     void loadDiscMembership(isLocal ? "local" : platform);
 
-    if (!isLocal) {
-      // Background-refresh installed games so badges update reactively without blocking catalog display
-      window.godsendApi.browseGetInstalledGames()
-        .then((instRes: any) => {
-          if (instRes?.ok && Array.isArray(instRes.games)) {
-            setInstalledGames(instRes.games);
-          }
-        })
-        .catch(() => {});
+    try {
+      if (!isLocal) {
+        // Background-refresh installed games so badges update reactively without blocking catalog display
+        window.godsendApi.browseGetInstalledGames()
+          .then((instRes: any) => {
+            if (instRes?.ok && Array.isArray(instRes.games)) {
+              setInstalledGames(instRes.games);
+            }
+          })
+          .catch(() => {});
 
-      const r = await window.godsendApi.browseGetGames({ platform, source });
-      if (!r.ok) {
+        const r = await window.godsendApi.browseGetGames({ platform, source });
+        if (!r?.ok) {
+          setLoadError(r?.error ? errorMessage(r.error) : "O aplicativo não recebeu o motivo da falha ao carregar o catálogo.");
+          setStatus("error");
+          return;
+        }
+        if (r.loading) {
+          setCacheProgress({ loaded: r.loaded, total: r.total });
+          setStatus("cache-building");
+          return;
+        }
+        const backendList = Array.isArray(r.games) ? r.games : [];
+        setGames(backendList);
+        setStatus(backendList.length === 0 ? "empty" : "ready");
+        setTimeout(() => filterRef.current?.focus(), 50);
+        return;
+      }
+
+      // Local library mode: fetch in parallel
+      const [instRes, r] = await Promise.all([
+        window.godsendApi.browseGetInstalledGames().catch(() => ({ ok: false, games: [] })),
+        window.godsendApi.browseGetGames({ platform: "local", source: "local" })
+      ]);
+
+      let localInstalled: InstalledGame[] = [];
+      if (instRes?.ok && Array.isArray(instRes.games)) {
+        localInstalled = instRes.games;
+        setInstalledGames(instRes.games);
+      }
+
+      if (!r?.ok) {
+        setLoadError(r?.error ? errorMessage(r.error) : "O aplicativo não recebeu o motivo da falha ao carregar a biblioteca local.");
         setStatus("error");
         return;
       }
@@ -1345,45 +1379,35 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
         return;
       }
       const backendList = Array.isArray(r.games) ? r.games : [];
-      setGames(backendList);
-      setStatus(backendList.length === 0 ? "empty" : "ready");
+      let list: string[] = backendList;
+      if (isLocal) {
+        const combined = new Set<string>();
+        for (const g of localInstalled) {
+          combined.add(g.name);
+        }
+        for (const b of backendList) {
+          combined.add(b);
+        }
+        list = Array.from(combined).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+      }
+
+      setGames(list);
+      setStatus(list.length === 0 ? "empty" : "ready");
       setTimeout(() => filterRef.current?.focus(), 50);
-      return;
+    } catch (err: unknown) {
+      const message = `Falha de comunicação com o aplicativo: ${errorMessage(err)}`;
+      setLoadError(message);
+      setStatus("error");
+      // Expected backend failures are reported by browse:get-games. An IPC
+      // rejection never returns that result, so report it from the renderer.
+      try {
+        await window.godsendApi.reportError?.(
+          "electron-renderer", "BrowsePage.tsx", "loadGames", message,
+          window.location.href,
+          [`platform=${isLocal ? "local" : platform}; source=${source}`, err instanceof Error ? err.stack || message : message],
+        );
+      } catch { /* telemetry must never prevent retrying the catalog */ }
     }
-
-    // Local library mode: fetch in parallel
-    const [instRes, r] = await Promise.all([
-      window.godsendApi.browseGetInstalledGames().catch(() => ({ ok: false, games: [] })),
-      window.godsendApi.browseGetGames({ platform: "local", source: "local" }).catch(() => ({ ok: false, games: [] }))
-    ]);
-
-    let localInstalled: InstalledGame[] = [];
-    if (instRes?.ok && Array.isArray(instRes.games)) {
-      localInstalled = instRes.games;
-      setInstalledGames(instRes.games);
-    }
-
-    if (r.loading) {
-      setCacheProgress({ loaded: r.loaded, total: r.total });
-      setStatus("cache-building");
-      return;
-    }
-    const backendList = Array.isArray(r.games) ? r.games : [];
-    let list: string[] = backendList;
-    if (isLocal) {
-      const combined = new Set<string>();
-      for (const g of localInstalled) {
-        combined.add(g.name);
-      }
-      for (const b of backendList) {
-        combined.add(b);
-      }
-      list = Array.from(combined).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-    }
-
-    setGames(list);
-    setStatus(list.length === 0 ? "empty" : "ready");
-    setTimeout(() => filterRef.current?.focus(), 50);
   }
 
   function openGame(name: string, releaseGroup?: ReleaseGroup) {
@@ -1608,14 +1632,46 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
       {status === "error" && (
         <CenteredOverlay>
           <WifiOff className="h-7 w-7 text-muted-foreground" />
-          <p className="text-[13px]">Não foi possível acessar o servidor.</p>
-          <p className="text-[11px] text-muted-foreground/60">
-            Verifique se o serviço do GODsend está em execução.
+          <p className="text-[13px] font-medium text-foreground">
+            Não foi possível carregar {isLocal ? "a biblioteca local" : "o catálogo de jogos"}.
           </p>
-          <Button size="sm" onClick={loadGames}>
-            <RefreshCw className="h-3 w-3 mr-1.5" />
-            Tentar de novo
-          </Button>
+          {loadError && (
+            <div
+              role="alert"
+              className="text-[11px] font-mono text-muted-foreground max-w-lg max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-center select-text bg-muted/40 border border-border/60 rounded px-3 py-2"
+            >
+              {loadError}
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground/70 max-w-md text-center">
+            Verifique se o serviço do GODsend está em execução e se antivírus ou firewall não estão bloqueando conexões locais (127.0.0.1).
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+            <Button size="sm" onClick={loadGames}>
+              <RefreshCw className="h-3 w-3 mr-1.5" />
+              Tentar de novo
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                window.godsendApi.restartProcess?.().then(() => {
+                  setTimeout(loadGames, 1500);
+                }).catch(() => {});
+              }}
+            >
+              Reiniciar serviço
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                window.godsendApi.openLogsFolder?.().catch(() => {});
+              }}
+            >
+              Abrir pasta de logs
+            </Button>
+          </div>
         </CenteredOverlay>
       )}
 

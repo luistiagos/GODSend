@@ -35,23 +35,18 @@ func (s *Service) resolveISOInstallType(gameName, isoPath, requested string) (st
 		compatDiscNumber = models.DiscNumberFromName(gameName)
 	}
 	rec := models.DiscCompat(compatTitleID, compatDiscNumber)
+	resolved := "god"
 	if rec.InstallType == "xex" {
 		if execErr != nil {
 			return "", fmt.Errorf("validar tipo do disco: %w", execErr)
 		}
-		if requested != "xex" {
-			return "", fmt.Errorf("este disco nao e compativel com GOD; selecione instalacao XEX: %s", rec.Notes)
-		}
-		return "xex", nil
-	}
-	if requested == "xex" {
+		resolved = "xex"
+	} else if requested == "xex" {
 		if execErr != nil {
 			return "", fmt.Errorf("validar tipo do disco: %w", execErr)
 		}
-		return requested, nil
-	}
-	resolved := "god"
-	if rec.InstallType == "content" || layout.HasInstallableContent {
+		resolved = "xex"
+	} else if rec.InstallType == "content" || layout.HasInstallableContent {
 		resolved = "content"
 	}
 	// Blacklist Disc 2 is a documented mixed disc. Keep the playable GOD path;

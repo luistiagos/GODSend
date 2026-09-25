@@ -11,6 +11,14 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
+import {
+  canSkipPreparation,
+  type PreparedDeviceState,
+} from "../../services/preparedUsbDetection.ts";
+import {
+  DEVICE_STATE_BADGE,
+  SKIP_SCREEN_TEXT,
+} from "../../services/preparedDeviceCopy.ts";
 
 interface UsbDrive {
   rootPath: string;
@@ -28,7 +36,10 @@ interface UsbDrive {
     codes?: string[];
     reasons: string[];
   };
-  alreadyPrepared?: boolean;
+  preparedState?: PreparedDeviceState;
+  needsRepair?: boolean;
+  healthStatus?: string;
+  operationalStatus?: string;
 }
 
 // Mensagens curtas e acionáveis para o usuário leigo, mapeadas pelos códigos
@@ -109,10 +120,10 @@ export default function BadAvatarUsbPage({
     }
   }, [initialIsRghOnly]);
 
-  const refreshDrives = useCallback(async () => {
+  const refreshDrives = useCallback(async (manual = false) => {
     setLoading(true);
     setLoadError("");
-    const drivesPromise = window.godsendApi.toolsBadAvatarListDrives({ fresh: true }).then((driveResult: any) => {
+    const drivesPromise = window.godsendApi.toolsBadAvatarListDrives({ fresh: manual }).then((driveResult: any) => {
       if (!driveResult?.ok) {
         setDrives([]);
         setSelectedDrive("");
@@ -153,13 +164,13 @@ export default function BadAvatarUsbPage({
   }, []);
 
   useEffect(() => {
-    refreshDrives();
+    refreshDrives(false);
   }, [refreshDrives]);
 
   // Initial step setup once drives are loaded
   useEffect(() => {
     if (hasLoadedOnce && step === null) {
-      const hasPrepared = drives.some((d) => d.alreadyPrepared);
+      const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, isRghOnly));
       if (startAtPreparation && initialIsRghOnly !== null) {
         setStep("preparation");
       } else if (hasPrepared) {
@@ -168,20 +179,21 @@ export default function BadAvatarUsbPage({
         setStep("unlock-selection");
       }
     }
-  }, [hasLoadedOnce, drives, step, startAtPreparation, initialIsRghOnly]);
+  }, [hasLoadedOnce, drives, step, startAtPreparation, initialIsRghOnly, isRghOnly]);
 
   // Redirect to unlock-selection if the prepared device is disconnected
   useEffect(() => {
-    if (step === "detect" && hasLoadedOnce && !loading && drives.length > 0 && !drives.some((d) => d.alreadyPrepared)) {
+    if (step === "detect" && hasLoadedOnce && !loading && drives.length > 0 &&
+        !drives.some((d) => canSkipPreparation(d.preparedState, isRghOnly))) {
       setStep("unlock-selection");
     }
-  }, [step, hasLoadedOnce, loading, drives]);
+  }, [step, hasLoadedOnce, loading, drives, isRghOnly]);
 
   // Propagate back action changes up to parent (for custom header alignment)
   useEffect(() => {
     if (!onBackActionChange) return;
 
-    const hasPrepared = drives.some((d) => d.alreadyPrepared);
+    const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, isRghOnly));
 
     if (step === "preparation") {
       onBackActionChange(() => onBackToPrevious || (() => setStep("unlock-selection")));
@@ -196,7 +208,7 @@ export default function BadAvatarUsbPage({
     return () => {
       onBackActionChange(null);
     };
-  }, [step, drives, onBackActionChange, onBackToPrevious]);
+  }, [step, drives, onBackActionChange, onBackToPrevious, isRghOnly]);
 
   useEffect(() => window.godsendApi.onBadAvatarPrepareProgress(
     (progress: { status?: string; percent?: number; detail?: string }) => {
@@ -208,6 +220,10 @@ export default function BadAvatarUsbPage({
   const selectedDevice = useMemo(
     () => drives.find((drive) => drive.rootPath === selectedDrive),
     [drives, selectedDrive],
+  );
+  const skipEligibleState = useMemo(
+    () => drives.find((drive) => canSkipPreparation(drive.preparedState, isRghOnly))?.preparedState,
+    [drives, isRghOnly],
   );
   const deviceAllowed = selectedDevice?.safety?.allowed === true;
   const hasStableVolumeIdentity = /^\\\\\?\\Volume\{[0-9a-f-]+\}\\?$/i.test(
@@ -284,10 +300,10 @@ export default function BadAvatarUsbPage({
               <Check className="h-6 w-6" />
             </div>
             <h1 className="font-display text-xl font-bold text-foreground">
-              Dispositivo Xbox 360 detectado!
+              {SKIP_SCREEN_TEXT[skipEligibleState === "preparado-rgh" ? "preparado-rgh" : "preparado-bloqueado-lt"].title}
             </h1>
             <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
-              Já existe um desbloqueio ou pastas de jogos (Aurora, exploit ou Content) neste pendrive ou HD. Você pode pular a preparação e baixar/instalar os jogos diretamente.
+              {SKIP_SCREEN_TEXT[skipEligibleState === "preparado-rgh" ? "preparado-rgh" : "preparado-bloqueado-lt"].detail}
             </p>
           </header>
 
@@ -319,7 +335,7 @@ export default function BadAvatarUsbPage({
 
   // Step 2: Unlock Selection Page
   if (step === "unlock-selection") {
-    const hasPrepared = drives.some((d) => d.alreadyPrepared);
+    const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, isRghOnly));
 
     return (
       <main className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
@@ -450,7 +466,7 @@ export default function BadAvatarUsbPage({
               variant="ghost"
               className="ml-auto"
               disabled={loading || busy}
-              onClick={refreshDrives}
+              onClick={() => refreshDrives(true)}
             >
               {loading
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -460,9 +476,19 @@ export default function BadAvatarUsbPage({
           </div>
 
           {loadError ? (
-            <div className="flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-3 text-[12px] text-red-300">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              {loadError}
+            <div
+              className={`flex items-center gap-2.5 rounded-lg border px-3.5 py-3 text-[12px] leading-relaxed ${
+                /reconhecendo|atualizar/i.test(loadError)
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
+                  : "border-red-500/30 bg-red-500/10 text-red-300"
+              }`}
+            >
+              <AlertTriangle
+                className={`h-4 w-4 shrink-0 ${
+                  /reconhecendo|atualizar/i.test(loadError) ? "text-amber-400" : "text-red-400"
+                }`}
+              />
+              <span>{loadError}</span>
             </div>
           ) : drives.length === 0 ? (
             <div className="flex items-center gap-3 rounded-lg border border-dashed border-border px-3 py-4 text-[12px] text-muted-foreground">
@@ -499,15 +525,21 @@ export default function BadAvatarUsbPage({
                 </div>
               )}
 
-              {selectedDevice && selectedDevice.alreadyPrepared && (
-                <div className="mt-3 rounded-lg border border-green-500/35 bg-green-950/20 px-3 py-3 text-[12px] text-gray-200 flex items-center gap-2.5">
-                  <Check className="h-4 w-4 shrink-0 text-green-400" />
-                  <div>
-                    <span className="font-semibold block text-green-400">Dispositivo Xbox 360 detectado!</span>
-                    Já existe um desbloqueio ou pastas de jogos neste pendrive/HD.
+              {selectedDevice?.preparedState && DEVICE_STATE_BADGE[selectedDevice.preparedState] && (() => {
+                const badge = DEVICE_STATE_BADGE[selectedDevice.preparedState]!;
+                const green = badge.tone === "green";
+                return (
+                  <div className={`mt-3 rounded-lg border px-3 py-3 text-[12px] text-gray-200 flex items-center gap-2.5 ${green ? "border-green-500/35 bg-green-950/20" : "border-amber-500/40 bg-amber-950/20"}`}>
+                    {green
+                      ? <Check className="h-4 w-4 shrink-0 text-green-400" />
+                      : <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />}
+                    <div>
+                      <span className={`font-semibold block ${green ? "text-green-400" : "text-amber-400"}`}>{badge.title}</span>
+                      {badge.detail}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {selectedDevice && (selectedDevice.needsRepair || selectedDevice.healthStatus === "Warning" || /Repair|Need|Corrupt/i.test(selectedDevice.operationalStatus || "")) && (
                 <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/20 px-3 py-3 text-[12px] text-amber-200 flex items-center gap-2.5">
@@ -677,7 +709,7 @@ export default function BadAvatarUsbPage({
 
         <div>
           <Button
-            variant={selectedDevice?.alreadyPrepared ? "default" : "primary"}
+            variant={canSkipPreparation(selectedDevice?.preparedState, isRghOnly) ? "default" : "primary"}
             className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
             disabled={!canPrepare}
             onClick={handlePrepare}

@@ -30,7 +30,14 @@ depois do lock de instância única, é aqui que ele reabre.
 Na **triagem de 2026-09-17**, foram identificados mais 45 reports: 43 na v2.12.81 (recorrência do
 problema de múltiplas instâncias anterior ao fix da v2.12.95) e 2 na v2.12.97 (7014, 7018),
 originados pelo polling não-cacheador da Home a cada 5s/7s, corrigido na v2.12.98
-(`listFat32UsbDrives` cacheado até mudança de volume montado). Nenhuma ocorrência na v2.12.98.
+(`listFat32UsbDrives` cacheado até mudança de volume montado).
+
+Na **triagem de 2026-09-22**, foram identificados 62 novos reports (IDs 8192, 8163, 8157, 8146, 8134,
+8126, 7989...), sendo 21 já na v2.12.98. A análise de telemetria revelou que o polling da Home
+estava corrigido, mas as abas `BadAvatarUsbPage.tsx` e `UsbGamesPage.tsx` mantinham chamadas incondicionais
+a `toolsBadAvatarListDrives({ fresh: true })` no mount (`useEffect`), forçando reenumeração física com
+probe de integridade a cada visita de tela. Corrigido na v2.12.99 para passar `{ fresh: false }` no
+mount e reservar `{ fresh: true }` estritamente para o clique manual do usuário no botão "Atualizar".
 
 ## Sintoma
 
@@ -214,3 +221,15 @@ de foto.
 nenhum** — se aquele serviço travar, a promise nunca resolve. Não está no caminho
 desta correção (é acionada por `tools:drive-diagnose`, que a interface hoje não
 chama), mas é a mesma armadilha e vale corrigir antes de alguém ligar esse canal.
+
+---
+
+## Confirmação de campo em produção (chamado #30, 19/09/2026)
+
+- **Sessão:** `81999649845480@lid` (chamado #30, versão em produção: v2.12.81)
+- **Cenário:** O cliente conectou um **HD externo USB** (`Fixed`, não `Removable`) no notebook para gravação do BadAvatar.
+- **Sintoma:** O aplicativo travou na tela "Modo de Instalação" com o status `"Verificando pendrive..."` e emitiu exatamente a mensagem de timeout do PowerShell:
+  > *"O Windows demorou demais para listar os dispositivos USB. Remova e conecte o pendrive novamente, aguarde alguns segundos e tente atualizar a lista."* (Print enviado em `[114270]`, 18:40:11).
+- **Impacto:** O cliente tentou mudar de porta USB sem sucesso (`[114347]`: *"Só fica assim já mudei de porta USB agora último tentativa e tentar em outro notebook"*). Só conseguiu avançar após trocar de computador para um segundo notebook, onde a gravação dos arquivos finalmente iniciou (`[114478]`).
+- **Validação:** Confirma que HDs externos (que não são capturados pelo caminho leve de `DriveInfo.Removable`) caiam invariavelmente no script físico que estourava o timeout de 5s no Windows sob a v2.12.81, mitigado posteriormente com as melhorias de cache e lock de instâncias na v2.12.98/v2.12.99.
+

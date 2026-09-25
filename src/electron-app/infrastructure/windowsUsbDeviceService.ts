@@ -18,7 +18,33 @@ import {
 
 const USB_ENUMERATION_TIMEOUT_MS = 12_000;
 const REMOVABLE_ENUMERATION_TIMEOUT_MS = 5_000;
+const REMOVABLE_RECOVERY_TIMEOUT_MS = 7_000;
+const ENUMERATION_RECOVERY_DELAY_MS = 750;
 const HEALTH_PROBE_TIMEOUT_MS = 3_000;
+
+type UsbEnumerationTimeoutError = Error & {
+  code?: string;
+  timeoutMs?: number;
+};
+
+function usbEnumerationTimeout(timeoutMs: number): UsbEnumerationTimeoutError {
+  const error = new Error(
+    "O Windows ainda está reconhecendo seu pendrive ou HD. " +
+      "Aguarde alguns instantes e clique no botão 'Atualizar'. " +
+      "(Dica: se não aparecer após alguns segundos, experimente reconectar em outra porta USB).",
+  ) as UsbEnumerationTimeoutError;
+  error.code = "USB_ENUMERATION_TIMEOUT";
+  error.timeoutMs = timeoutMs;
+  return error;
+}
+
+function isUsbEnumerationTimeout(error: unknown): boolean {
+  return (error as UsbEnumerationTimeoutError | undefined)?.code === "USB_ENUMERATION_TIMEOUT";
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -60,12 +86,7 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
       child.kill();
       finish(() => {
         cleanup();
-        reject(
-          new Error(
-            "O Windows demorou demais para listar os dispositivos USB. " +
-              "Remova e conecte o pendrive novamente, aguarde alguns segundos e tente atualizar a lista.",
-          ),
-        );
+        reject(usbEnumerationTimeout(timeoutMs));
       });
     }, timeoutMs);
     child.stdout.on("data", (data) => { stdout += data.toString(); });
@@ -370,6 +391,29 @@ if ($rows.Count -eq 0) { '[]' } else { @($rows) | ConvertTo-Json -Compress -Dept
   }
 }
 
+async function finishRemovableEnumeration(
+  devices: SafeUsbDevice[],
+  includeHealth: boolean,
+  logPrefix = "enumeracao nativa",
+): Promise<SafeUsbDevice[]> {
+  if (includeHealth) {
+    try {
+      await annotateRemovableHealth(devices);
+    } catch (error: any) {
+      // Best-effort: the rows keep the neutral Healthy/OK they were built with.
+      appendAppEvent(
+        "usb",
+        `diagnostico de integridade indisponivel: ${error?.message || String(error)}`,
+      );
+    }
+  }
+  appendAppEvent(
+    "usb",
+    `${logPrefix} encontrou ${devices.length} unidade(s): ${devices.map((device) => device.rootPath).join(", ")}`,
+  );
+  return devices;
+}
+
 /**
  * @param includeHealth Probe the health/repair hints too. Off by default: this
  * function is also the revalidation path, which `createThrottledUsbTargetRevalidator`
@@ -398,38 +442,62 @@ export async function enumerateSafeWindowsUsbDevices(
       .map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive));
   };
 
+  let nativeRecoveryAttempted = false;
+  const recoverNativeListing = async (reason: string): Promise<SafeUsbDevice[] | null> => {
+    if (!includeHealth || nativeRecoveryAttempted) return null;
+    nativeRecoveryAttempted = true;
+    appendAppEvent("usb", `${reason}; tentando novamente pela enumeracao nativa`);
+    await wait(ENUMERATION_RECOVERY_DELAY_MS);
+    try {
+      const removable = parseOutput(
+        await runPowerShell(ENUMERATE_REMOVABLE_SCRIPT, REMOVABLE_RECOVERY_TIMEOUT_MS),
+      );
+      if (removable.length > 0) {
+        return finishRemovableEnumeration(
+          removable,
+          includeHealth,
+          "enumeracao nativa recuperada",
+        );
+      }
+    } catch (error: any) {
+      appendAppEvent(
+        "usb",
+        `recuperacao por enumeracao nativa falhou: ${error?.message || String(error)}`,
+      );
+    }
+    return null;
+  };
+
   try {
     const removable = parseOutput(
       await runPowerShell(ENUMERATE_REMOVABLE_SCRIPT, REMOVABLE_ENUMERATION_TIMEOUT_MS),
     );
     if (removable.length > 0) {
-      if (includeHealth) {
-        try {
-          await annotateRemovableHealth(removable);
-        } catch (error: any) {
-          // Best-effort: the rows keep the neutral Healthy/OK they were built with.
-          appendAppEvent(
-            "usb",
-            `diagnóstico de integridade indisponível: ${error?.message || String(error)}`,
-          );
-        }
-      }
-      appendAppEvent(
-        "usb",
-        `enumeração nativa encontrou ${removable.length} unidade(s): ${removable.map((device) => device.rootPath).join(", ")}`,
-      );
-      return removable;
+      return finishRemovableEnumeration(removable, includeHealth);
     }
   } catch (error: any) {
-    appendAppEvent("usb", `enumeração nativa falhou: ${error?.message || String(error)}`);
+    appendAppEvent("usb", `enumeracao nativa falhou: ${error?.message || String(error)}`);
+    if (isUsbEnumerationTimeout(error)) {
+      const recovered = await recoverNativeListing("enumeracao nativa excedeu o tempo");
+      if (recovered) return recovered;
+    }
   }
 
-  const devices = parseOutput(await runPowerShell(ENUMERATE_USB_SCRIPT));
-  appendAppEvent(
-    "usb",
-    `enumeração física encontrou ${devices.length} unidade(s): ${devices.map((device) => device.rootPath).join(", ") || "nenhuma"}`,
-  );
-  return devices;
+  try {
+    const devices = parseOutput(await runPowerShell(ENUMERATE_USB_SCRIPT));
+    appendAppEvent(
+      "usb",
+      `enumeracao fisica encontrou ${devices.length} unidade(s): ${devices.map((device) => device.rootPath).join(", ") || "nenhuma"}`,
+    );
+    return devices;
+  } catch (error: any) {
+    appendAppEvent("usb", `enumeracao fisica falhou: ${error?.message || String(error)}`);
+    if (isUsbEnumerationTimeout(error)) {
+      const recovered = await recoverNativeListing("enumeracao fisica excedeu o tempo");
+      if (recovered) return recovered;
+    }
+    throw error;
+  }
 }
 
 export async function safelyEjectWindowsDrive(rootPath: string): Promise<{ ok: boolean; error?: string }> {

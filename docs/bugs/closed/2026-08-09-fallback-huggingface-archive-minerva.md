@@ -1,7 +1,7 @@
-# Bug aberto: Fallback unificado ignora fontes anteriores e termina em erro Minerva
+# Bug fechado: Fallback unificado ignora fontes anteriores e termina em erro Minerva
 
 Data: 2026-08-09
-Status: aberto — codigo corrigido ate a v2.12.91; falta so a confirmacao de uma instalacao real completa (Batman, 9,6 GB)
+Status: fechado — codigo corrigido ate a v2.12.91, movido para `closed/` em `6efb1f3`; a confirmacao de uma instalacao real completa (Batman, 9,6 GB) nao foi registrada — ver "Situacao atual"
 Area: browse unificado, pipeline de fallback, cache IA/HuggingFace/Minerva
 Commits: pendente
 
@@ -214,3 +214,6 @@ permanece aberto ate a confirmacao de uma instalacao real completa do arquivo de
 Batman. O
 bloqueio original de pre-alocacao foi reproduzido e eliminado em execucao real; os testes
 automatizados, a auditoria integral dos caches e a cancelacao com limpeza estao verdes.
+
+Triagem de 2026-09-17: o arquivo foi movido para `closed/` em `6efb1f3` (2026-09-11) sem que a
+instalacao real do Batman fosse registrada aqui. Se ela falhar, reabrir citando este documento.

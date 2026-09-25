@@ -18,7 +18,14 @@ interface AppUpdateModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDismissVersion?: (version: string) => void;
+  /** Opens straight in the error state (update applied at boot but version unchanged). */
+  initialError?: string;
 }
+
+const MANUAL_UPDATE_STEPS =
+  "Para atualizar manualmente: feche o Xbox Companion pelo ícone da bandeja (setinha perto do relógio) → Quit. " +
+  "Depois clique em \"Mostrar arquivo baixado\", copie o xboxcompanion-update.exe para a pasta do seu " +
+  "xboxcompanion.exe e substitua o arquivo antigo, mantendo o nome xboxcompanion.exe.";
 
 type ModalState = "prompt" | "downloading" | "downloaded" | "error";
 
@@ -43,6 +50,7 @@ export default function AppUpdateModal({
   isOpen,
   onClose,
   onDismissVersion,
+  initialError,
 }: AppUpdateModalProps) {
   const [modalState, setModalState] = useState<ModalState>("prompt");
   const [progressPercent, setProgressPercent] = useState(0);
@@ -52,18 +60,20 @@ export default function AppUpdateModal({
   const [downloadedFilePath, setDownloadedFilePath] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isApplying, setIsApplying] = useState(false);
+  const [applyFailed, setApplyFailed] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setModalState("prompt");
+      setModalState(initialError ? "error" : "prompt");
       setProgressPercent(0);
       setBytesDownloaded(0);
       setTotalBytes(updateInfo?.size || 0);
       setDownloadSpeed(0);
-      setErrorMessage("");
+      setErrorMessage(initialError ? `${initialError}\n\n${MANUAL_UPDATE_STEPS}` : "");
       setIsApplying(false);
+      setApplyFailed(Boolean(initialError));
     }
-  }, [isOpen, updateInfo]);
+  }, [isOpen, updateInfo, initialError]);
 
   useEffect(() => {
     const cleanup = window.godsendApi.onUpdateDownloadProgress((progress: any) => {
@@ -86,6 +96,7 @@ export default function AppUpdateModal({
 
     setModalState("downloading");
     setErrorMessage("");
+    setApplyFailed(false);
     setProgressPercent(0);
 
     try {
@@ -118,13 +129,18 @@ export default function AppUpdateModal({
 
   async function handleApplyAndRestart() {
     setIsApplying(true);
+    let error = "";
     try {
-      await window.godsendApi.applyUpdateAndRestart(downloadedFilePath);
+      const res = await window.godsendApi.applyUpdateAndRestart(downloadedFilePath, updateInfo?.latestVersion);
+      if (res?.ok) return; // o app está fechando
+      error = res?.error || "Falha ao reiniciar para atualização.";
     } catch (err: any) {
-      setIsApplying(false);
-      setErrorMessage(err.message || "Falha ao reiniciar para atualização.");
-      setModalState("error");
+      error = err.message || "Falha ao reiniciar para atualização.";
     }
+    setIsApplying(false);
+    setApplyFailed(true);
+    setErrorMessage(`${error}\n\n${MANUAL_UPDATE_STEPS}`);
+    setModalState("error");
   }
 
   function handleDismiss() {
@@ -251,7 +267,7 @@ export default function AppUpdateModal({
             <div className="space-y-3 py-2">
               <div className="flex items-start gap-2.5 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="text-[11px] leading-relaxed">
+                <div className="text-[11px] leading-relaxed whitespace-pre-wrap">
                   <span className="font-semibold block mb-0.5">Erro na atualização</span>
                   {errorMessage || "Não foi possível completar a operação de atualização."}
                 </div>
@@ -338,6 +354,16 @@ export default function AppUpdateModal({
               >
                 Fechar
               </Button>
+              {applyFailed && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.godsendApi.showDownloadedUpdate()}
+                  className="text-[12px]"
+                >
+                  Mostrar arquivo baixado
+                </Button>
+              )}
               <Button
                 variant="primary"
                 size="sm"

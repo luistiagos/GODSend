@@ -159,3 +159,52 @@ func TestProcessContentInstallFromISOWithoutDefaultXex(t *testing.T) {
 		t.Fatalf("expected packaged 7z at %s: %v", part1, err)
 	}
 }
+
+func buildAc4Disc2XexISO(t *testing.T) string {
+	t.Helper()
+	const sectorSz = 2048
+	const rootSector = 0x21
+	image := make([]byte, 0x30*sectorSz)
+	descriptor := image[0x20*sectorSz:]
+	copy(descriptor, "MICROSOFT*XBOX*MEDIA")
+	binary.LittleEndian.PutUint32(descriptor[20:], rootSector)
+	binary.LittleEndian.PutUint32(descriptor[24:], sectorSz)
+
+	// Root directory with default.xex pointing to sector 0x22
+	writeTestDirEntry(image, rootSector, 0x22, "default.xex", false, 0x200)
+
+	// Mock XEX2 binary at sector 0x22
+	xex := image[0x22*sectorSz:]
+	copy(xex[:4], "XEX2")
+	binary.BigEndian.PutUint32(xex[20:], 1)          // fieldCount = 1
+	binary.BigEndian.PutUint32(xex[24:], 0x00040006) // key = xex2ExecInfoKey
+	binary.BigEndian.PutUint32(xex[28:], 32)         // val = offset 32
+
+	// Execution-info at offset 32:
+	// MediaID (0), Version (4), BaseVersion (8), TitleID (12), Platform (16), ExecType (17), DiscNum (18), DiscCount (19)
+	binary.BigEndian.PutUint32(xex[32+12:], 0x555308C2) // TitleID AC IV
+	xex[32+18] = 2                                      // DiscNumber = 2
+	xex[32+19] = 2                                      // DiscCount = 2
+
+	path := filepath.Join(t.TempDir(), "ac4_disc2.iso")
+	if err := os.WriteFile(path, image, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestResolveISOInstallTypePromotesNoGodDiscToXex(t *testing.T) {
+	service := &Service{App: app.NewApp()}
+	isoPath := buildAc4Disc2XexISO(t)
+	gameName := "Assassins Creed IV Black Flag [RF][DVD2]"
+
+	// When user or UI requested "god", it must automatically promote to "xex" without error
+	resolved, err := service.resolveISOInstallType(gameName, isoPath, "god")
+	if err != nil {
+		t.Fatalf("expected No-GOD disc requiring XEX to resolve without error, got: %v", err)
+	}
+	if resolved != "xex" {
+		t.Fatalf("expected resolved type 'xex', got %q", resolved)
+	}
+}
+

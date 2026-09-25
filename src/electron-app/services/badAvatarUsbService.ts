@@ -16,6 +16,10 @@ import {
   requireSafeWindowsUsbTarget,
 } from "../infrastructure/windowsUsbDeviceService";
 import { powerShellExe, system32Exe } from "../infrastructure/windowsSystemExecutables";
+import { appendAppEvent } from "../infrastructure/serverLog";
+import { exploitProfileFiles, type ExploitProfileFile } from "./fixedBadAvatarPreparationService";
+import { detectPreparedDeviceState } from "./preparedDeviceState";
+import type { PreparedDeviceState } from "./preparedUsbDetection";
 
 // The inherited writer downloads unpinned archives and extracts them directly
 // onto the target. Keep it impossible to invoke until the trusted-manifest and
@@ -44,7 +48,7 @@ export interface UsbDriveInfo {
     codes: string[];
     reasons: string[];
   };
-  alreadyPrepared?: boolean;
+  preparedState?: PreparedDeviceState;
 }
 
 export interface BadAvatarPackage {
@@ -336,27 +340,25 @@ function addLinuxMount(full: string, roots: UsbDriveInfo[], seen: Set<string>): 
   }
 }
 
-function checkExistingXboxFolders(driveRoot: string): boolean {
+let exploitProfileBlockerLogged = "";
+
+/**
+ * O perfil do exploit vem do manifesto do pacote ativo. Se ele não puder ser lido, a varredura
+ * segue sem poder provar nada — e uma lista vazia nunca vira "preparado", então o assistente
+ * pergunta o modo do console em vez de convidar a pular a preparação. Loga uma vez por motivo:
+ * a Home pede esta lista a cada 5 s.
+ */
+function readExploitProfileFiles(): ExploitProfileFile[] {
   try {
-    const root = normalizeRoot(driveRoot);
-    const indicators = [
-      path.join(root, "Content", "0000000000000000"),
-      path.join(root, "Aurora"),
-      path.join(root, "Games"),
-      path.join(root, "FSD"),
-      path.join(root, "Freestyle"),
-      path.join(root, "default.xex"),
-      path.join(root, "launch.ini"),
-    ];
-    for (const item of indicators) {
-      if (fs.existsSync(item)) {
-        return true;
-      }
+    return exploitProfileFiles();
+  } catch (error: any) {
+    const message = error?.message || String(error);
+    if (exploitProfileBlockerLogged !== message) {
+      exploitProfileBlockerLogged = message;
+      appendAppEvent("usb", `sem o perfil do exploit para conferir os dispositivos: ${message}`);
     }
-  } catch {
-    // ignore
+    return [];
   }
-  return false;
 }
 
 /**
@@ -377,6 +379,7 @@ const USB_LIST_SETTLE_MS = 15_000;
 let mountedVolumes = "";
 let mountedVolumesChangedAt = 0;
 let usbListCache: UsbDriveInfo[] | null = null;
+let usbListLastGood: UsbDriveInfo[] | null = null;
 let usbListGeneration = 0;
 let usbListInFlight: { generation: number; drives: Promise<UsbDriveInfo[]> } | null = null;
 
@@ -389,6 +392,26 @@ let usbListInFlight: { generation: number; drives: Promise<UsbDriveInfo[]> } | n
 export function invalidateUsbDriveListCache(): void {
   usbListCache = null;
   usbListGeneration++;
+}
+
+async function refreshUsbDriveFreeBytes(drives: UsbDriveInfo[]): Promise<void> {
+  await Promise.all(
+    drives.map(async (drive) => {
+      try {
+        const stats = await fs.promises.statfs(normalizeRoot(drive.rootPath));
+        drive.freeBytes = stats.bavail * stats.bsize;
+      } catch {
+        // keep the last enumerated value
+      }
+    }),
+  );
+}
+
+function mountedVolumeSignatureHasRoot(volumes: string, rootPath: string): boolean {
+  const root = normalizeRoot(rootPath).toUpperCase();
+  return volumes
+    .split("|")
+    .some((volume) => volume.toUpperCase().startsWith(root));
 }
 
 async function readMountedVolumes(): Promise<string> {
@@ -410,7 +433,8 @@ async function listWindowsUsbDrivesOnVolumeChange(): Promise<UsbDriveInfo[]> {
   const volumes = await readMountedVolumes();
   // Monotonic: a wall clock set backwards would keep the list unsettled for as long.
   const now = performance.now();
-  if (volumes !== mountedVolumes) {
+  const volumeSignatureChanged = volumes !== mountedVolumes;
+  if (volumeSignatureChanged) {
     mountedVolumes = volumes;
     mountedVolumesChangedAt = now;
     usbListCache = null;
@@ -418,26 +442,30 @@ async function listWindowsUsbDrivesOnVolumeChange(): Promise<UsbDriveInfo[]> {
 
   if (usbListCache) {
     // Downloads to the drive move free space without touching the volume serial.
-    await Promise.all(
-      usbListCache.map(async (drive) => {
-        try {
-          const stats = await fs.promises.statfs(normalizeRoot(drive.rootPath));
-          drive.freeBytes = stats.bavail * stats.bsize;
-        } catch {
-          // keep the last enumerated value
-        }
-      }),
-    );
+    await refreshUsbDriveFreeBytes(usbListCache);
     return usbListCache;
   }
 
   const generation = usbListGeneration;
-  // The only consumer of the health/repair hints is the device list this feeds.
-  const drives = await enumerateSafeWindowsUsbDevices(true);
-  if (now - mountedVolumesChangedAt >= USB_LIST_SETTLE_MS && generation === usbListGeneration) {
-    usbListCache = drives;
+  try {
+    // The only consumer of the health/repair hints is the device list this feeds.
+    const drives = await enumerateSafeWindowsUsbDevices(true);
+    usbListLastGood = drives;
+    if (now - mountedVolumesChangedAt >= USB_LIST_SETTLE_MS && generation === usbListGeneration) {
+      usbListCache = drives;
+    }
+    return drives;
+  } catch (error: any) {
+    if (usbListLastGood && (!volumeSignatureChanged || usbListLastGood.every((drive) => mountedVolumeSignatureHasRoot(volumes, drive.rootPath)))) {
+      await refreshUsbDriveFreeBytes(usbListLastGood);
+      appendAppEvent(
+        "usb",
+        `enumeracao indisponivel; mantendo a ultima lista confiavel: ${error?.message || String(error)}`,
+      );
+      return usbListLastGood;
+    }
+    throw error;
   }
-  return drives;
 }
 
 /**
@@ -467,9 +495,10 @@ export async function listFat32UsbDrives(fresh = false): Promise<UsbDriveInfo[]>
     drives = await listLinuxUsbDrives();
   }
 
-  for (const drive of drives) {
-    drive.alreadyPrepared = checkExistingXboxFolders(drive.rootPath);
-  }
+  const exploitProfile = readExploitProfileFiles();
+  await Promise.all(drives.map(async (drive) => {
+    drive.preparedState = await detectPreparedDeviceState(drive.rootPath, exploitProfile);
+  }));
   return drives;
 }
 

@@ -186,8 +186,14 @@ if (-not $SkipHF) {
     $savedEAP = $ErrorActionPreference
     $ErrorActionPreference = "SilentlyContinue"
     try {
-        & hf upload $HF_REPO "$PortablePath" $hfRemotePath `
-            --repo-type $HF_REPO_TYPE --token $HF_TOKEN --commit-message "v$VERSION"
+        $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+        if ($pythonCmd) {
+            & python -c "try:`n    import truststore; truststore.inject_into_ssl()`nexcept Exception:`n    pass`nfrom huggingface_hub.cli.hf import main; main()" upload $HF_REPO "$PortablePath" $hfRemotePath `
+                --repo-type $HF_REPO_TYPE --token $HF_TOKEN --commit-message "v$VERSION"
+        } else {
+            & hf upload $HF_REPO "$PortablePath" $hfRemotePath `
+                --repo-type $HF_REPO_TYPE --token $HF_TOKEN --commit-message "v$VERSION"
+        }
     } finally {
         $ErrorActionPreference = $savedEAP
     }

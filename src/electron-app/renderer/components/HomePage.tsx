@@ -8,10 +8,17 @@ import { Input } from "./ui/input";
 import BadAvatarUsbPage from "./BadAvatarUsbPage";
 import MainNav from "./MainNav";
 import {
+  canSkipPreparation,
   nextStepAfterPreparedUsbScan,
   readPreparedUsbDetection,
+  type PreparedDeviceState,
   type PreparedUsbWizardStep,
 } from "../../services/preparedUsbDetection.ts";
+import {
+  PREPARED_DEVICE_NOTICE,
+  PREPARED_DEVICE_SUMMARY,
+  PREPARED_DEVICE_TITLE,
+} from "../../services/preparedDeviceCopy.ts";
 
 interface LogInfo {
   logsDirectory?: string;
@@ -67,7 +74,7 @@ export default function HomePage({
   
   // Simple Mode state
   const [wizardStep, setWizardStep] = useState<PreparedUsbWizardStep>("checking-prepared");
-  const [preparedDeviceDetected, setPreparedDeviceDetected] = useState(false);
+  const [preparedDeviceState, setPreparedDeviceState] = useState<PreparedDeviceState>("sem-preparo");
   const [detectedGamesCount, setDetectedGamesCount] = useState<number | null>(null);
   const [preparedCheckBusy, setPreparedCheckBusy] = useState(false);
   const [preparedCheckNotice, setPreparedCheckNotice] = useState("");
@@ -112,8 +119,8 @@ export default function HomePage({
       // The 5 s poll reuses the cached list; only the user's own check re-enumerates.
       const result = await window.godsendApi.toolsBadAvatarListDrives({ fresh: manual });
       if (!preparedDetectionMounted.current) return;
-      const hasPrepared = readPreparedUsbDetection(result);
-      if (hasPrepared === null) {
+      const detectedState = readPreparedUsbDetection(result);
+      if (detectedState === null) {
         if (manual) {
           setPreparedCheckNotice(result?.error || "O Windows ainda não disponibilizou o pendrive. Reconecte-o e tente novamente.");
         }
@@ -121,13 +128,13 @@ export default function HomePage({
         return;
       }
 
-      setPreparedDeviceDetected(hasPrepared);
+      setPreparedDeviceState(detectedState);
       setWizardStep((current) => nextStepAfterPreparedUsbScan(
         current,
-        hasPrepared,
+        detectedState,
         preparedDetectionDismissed.current,
       ));
-      if (hasPrepared) {
+      if (canSkipPreparation(detectedState)) {
         setPreparedCheckNotice("");
         window.godsendApi.browseGetInstalledGames().then((r: any) => {
           if (r?.ok && Array.isArray(r.games)) {
@@ -135,7 +142,7 @@ export default function HomePage({
           }
         }).catch(() => {});
       } else if (manual) {
-        setPreparedCheckNotice("Nenhum pendrive preparado foi encontrado. Aguarde o Windows mostrar a unidade e verifique novamente.");
+        setPreparedCheckNotice(PREPARED_DEVICE_NOTICE[detectedState]);
       }
     } catch (error: any) {
       if (!preparedDetectionMounted.current) return;
@@ -465,7 +472,7 @@ export default function HomePage({
                   <CheckCircle2 className="h-6 w-6" />
                 </div>
                 <h1 className="font-display text-xl font-bold text-foreground">
-                  Pendrive Xbox 360 detectado!
+                  {PREPARED_DEVICE_TITLE[preparedDeviceState]}
                 </h1>
                 <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
                   {detectedGamesCount !== null && detectedGamesCount > 0
@@ -473,6 +480,11 @@ export default function HomePage({
                     : `Encontramos um pendrive ou HD que já está preparado. Você pode visualizar os jogos nele ou ir direto ao catálogo para baixar novos títulos.`
                   }
                 </p>
+                {PREPARED_DEVICE_SUMMARY[preparedDeviceState] && (
+                  <p className="mx-auto mt-2 max-w-xl text-[12px] leading-relaxed text-muted-foreground/90">
+                    {PREPARED_DEVICE_SUMMARY[preparedDeviceState]}
+                  </p>
+                )}
               </header>
 
               <section className="card-surface p-5 flex flex-col gap-3">
@@ -518,7 +530,7 @@ export default function HomePage({
           <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
             <div className="animate-fade-in flex flex-col gap-4">
               <header className="mb-5 text-center relative">
-                {preparedDeviceDetected && (
+                {canSkipPreparation(preparedDeviceState, selectedUnlockMode) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -587,7 +599,14 @@ export default function HomePage({
                 <Button
                   variant="primary"
                   className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
-                  onClick={() => setWizardStep("method")}
+                  // Quem declara RGH e tem um pendrive preparado em RGH ganha aqui o caminho de
+                  // pular a preparação. É no clique dele, não na varredura de 5 s, que trocaria a
+                  // tela debaixo de quem acabou de escolher o modo do console.
+                  onClick={() => setWizardStep(
+                    canSkipPreparation(preparedDeviceState, selectedUnlockMode) && !preparedDetectionDismissed.current
+                      ? "prepared-detected"
+                      : "method",
+                  )}
                   disabled={selectedUnlockMode === null}
                 >
                   Avançar

@@ -32,6 +32,7 @@ export default function App() {
   // ── Auto Update modal state ───────────────────────────────────────────────
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateModalInfo, setUpdateModalInfo] = useState<UpdateInfo | null>(null);
+  const [updateModalError, setUpdateModalError] = useState("");
 
   // Forçar o tema escuro/grafite por padrão e limpar qualquer estado anterior
   useEffect(() => {
@@ -124,6 +125,21 @@ export default function App() {
 
     const updateTimer = setTimeout(async () => {
       try {
+        const failure = await window.godsendApi.takeUpdateApplyFailure();
+        if (failure) {
+          const res = await window.godsendApi.checkForUpdates(true).catch(() => null);
+          setUpdateModalInfo(
+            res?.ok && res.updateAvailable
+              ? res
+              : { currentVersion: failure.currentVersion, latestVersion: failure.targetVersion }
+          );
+          setUpdateModalError(
+            `A atualização para a v${failure.targetVersion} não foi aplicada: o app reabriu na v${failure.currentVersion}. ` +
+              `Motivo: ${failure.reason}`
+          );
+          setUpdateModalOpen(true);
+          return;
+        }
         const res = await window.godsendApi.checkForUpdates(false);
         if (res && res.ok && res.updateAvailable && !res.skipped) {
           setUpdateModalInfo(res);
@@ -339,7 +355,8 @@ export default function App() {
         <AppUpdateModal
           isOpen={updateModalOpen}
           updateInfo={updateModalInfo}
-          onClose={() => setUpdateModalOpen(false)}
+          initialError={updateModalError}
+          onClose={() => { setUpdateModalOpen(false); setUpdateModalError(""); }}
           onDismissVersion={(v) => window.godsendApi.dismissUpdateVersion(v)}
         />
       </>
@@ -377,7 +394,8 @@ export default function App() {
         <AppUpdateModal
           isOpen={updateModalOpen}
           updateInfo={updateModalInfo}
-          onClose={() => setUpdateModalOpen(false)}
+          initialError={updateModalError}
+          onClose={() => { setUpdateModalOpen(false); setUpdateModalError(""); }}
           onDismissVersion={(v) => window.godsendApi.dismissUpdateVersion(v)}
         />
       </>
@@ -434,7 +452,8 @@ export default function App() {
       <AppUpdateModal
         isOpen={updateModalOpen}
         updateInfo={updateModalInfo}
-        onClose={() => setUpdateModalOpen(false)}
+        initialError={updateModalError}
+        onClose={() => { setUpdateModalOpen(false); setUpdateModalError(""); }}
         onDismissVersion={(v) => window.godsendApi.dismissUpdateVersion(v)}
       />
     </div>

@@ -341,12 +341,9 @@ export default function MainNav({
           size="sm"
           title="Console"
           aria-label="Console"
-          variant={currentPage === "home" ? "primary" : "default"}
+          variant="default"
           onClick={onNavigateHome || onLibraryToggle}
-          className={cn(
-            "flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg cursor-pointer",
-            currentPage === "home" && activeBtnClass
-          )}
+          className="flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-lg cursor-pointer"
         >
           <Terminal className="h-4 w-4 text-sky-400" />
           <span className="hidden sm:inline">Console</span>

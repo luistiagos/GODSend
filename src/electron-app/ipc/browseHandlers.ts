@@ -11,6 +11,8 @@ import { getConfiguredXboxIP, getConfiguredServerPort, getConfiguredProviderPrio
 import { backendGet, backendGetWithStatus } from "../infrastructure/backendHttp";
 import { backendFailureReason, errorMessage } from "../infrastructure/backendFailure";
 import { fetchHttpImage } from "../infrastructure/httpHelper";
+import { appendAppEvent } from "../infrastructure/serverLog";
+import { reportError } from "../infrastructure/telemetry";
 import {
   browseCoverCache,
   baseTitleForCover,
@@ -37,20 +39,46 @@ export function register(ipcMain: IpcMain): void {
 
   // ── Get game list from Go backend ──────────────────────────────────────────
   ipcMain.handle("browse:get-games", async (_event, { platform, source }) => {
+    let endpoint = "http://127.0.0.1";
+    let httpStatus: number | undefined;
     try {
+      endpoint += `:${getConfiguredServerPort()}/browse`;
       const priority = getConfiguredProviderPriority().join(",");
       const src  = source ? `&source=${encodeURIComponent(source)}` : "";
-      const data = await backendGet(
+      const response = await backendGetWithStatus(
         `/browse?platform=${encodeURIComponent(platform)}${src}&priority=${encodeURIComponent(priority)}`
       );
+      httpStatus = response.status;
+      const data = response.body;
+      // /browse returns plain text, including an empty local catalog. Only
+      // inspect HTTP failures and JSON error replies with the JSON helper.
+      if (httpStatus < 200 || httpStatus >= 300 || data.trimStart().startsWith("{")) {
+        const failure = backendFailureReason(response);
+        if (failure) throw new Error(failure);
+      }
       if (data.startsWith("__IA_LOADING__")) {
         const m = data.match(/__IA_LOADING__:(\d+)\/(\d+)/);
         return { ok: true, loading: true, loaded: m ? m[1] : "?", total: m ? m[2] : "?", games: [] };
       }
       const games = data.split("|").map((s: string) => s.trim()).filter(Boolean);
       return { ok: true, loading: false, games };
-    } catch (err: any) {
-      return { ok: false, error: err.message, games: [] };
+    } catch (err: unknown) {
+      const message = `Falha ao carregar o catálogo em ${endpoint}` +
+        (httpStatus === undefined ? "" : ` (HTTP ${httpStatus})`) +
+        `: ${errorMessage(err)}`;
+      const context = `platform=${platform}; source=${source || "unified"}; endpoint=${endpoint}`;
+      const stack = err instanceof Error ? err.stack : undefined;
+      appendAppEvent("BROWSE", `${context}; ${message}`);
+      reportError(
+        "electron-main",
+        "browseHandlers.ts",
+        "browse:get-games",
+        message,
+        "",
+        stack ? [context, stack] : [context],
+        false,
+      );
+      return { ok: false, error: message, games: [] };
     }
   });
 
@@ -65,8 +93,10 @@ export function register(ipcMain: IpcMain): void {
       const data = await backendGet(`/browse/releases?platform=${encodeURIComponent(platform)}`);
       const parsed = JSON.parse(data);
       return { ok: true, releases: Array.isArray(parsed.releases) ? parsed.releases : [] };
-    } catch (err: any) {
-      return { ok: false, error: err.message, releases: [] };
+    } catch (err: unknown) {
+      const msg = errorMessage(err);
+      appendAppEvent("BROWSE", `browse:get-release-groups falhou (platform=${platform}): ${msg}`);
+      return { ok: false, error: msg, releases: [] };
     }
   });
 
@@ -219,7 +249,7 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("xbox:get-queue", () => {
     return new Promise((resolve) => {
       const port = getConfiguredServerPort();
-      const req  = http.get(`http://localhost:${port}/queue`, (res) => {
+      const req  = http.get(`http://127.0.0.1:${port}/queue`, (res) => {
         let data = "";
         res.on("data",  (chunk) => { data += chunk; });
         res.on("end", () => {
@@ -236,7 +266,7 @@ export function register(ipcMain: IpcMain): void {
     return new Promise((resolve) => {
       const port = getConfiguredServerPort();
       const enc  = encodeURIComponent(game);
-      const req  = http.get(`http://localhost:${port}/queue/remove?game=${enc}`, (res) => {
+      const req  = http.get(`http://127.0.0.1:${port}/queue/remove?game=${enc}`, (res) => {
         let data = "";
         res.on("data",  (chunk) => { data += chunk; });
         res.on("end", () => resolve({ ok: true, data }));
@@ -250,7 +280,7 @@ export function register(ipcMain: IpcMain): void {
     return new Promise((resolve) => {
       const port = getConfiguredServerPort();
       const enc  = encodeURIComponent(game);
-      const req  = http.get(`http://localhost:${port}/queue/retry?game=${enc}`, (res) => {
+      const req  = http.get(`http://127.0.0.1:${port}/queue/retry?game=${enc}`, (res) => {
         let data = "";
         res.on("data",  (chunk) => { data += chunk; });
         res.on("end", () => {

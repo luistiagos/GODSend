@@ -207,7 +207,9 @@ contextBridge.exposeInMainWorld("godsendApi", {
   downloadUpdate:         (payload: { downloadUrl: string; sha256?: string; size?: number }) =>
     ipcRenderer.invoke("update:download", payload),
   cancelUpdateDownload:   () => ipcRenderer.invoke("update:cancel-download"),
-  applyUpdateAndRestart:  (filePath?: string) => ipcRenderer.invoke("update:apply", { filePath }),
+  applyUpdateAndRestart:  (filePath?: string, version?: string) => ipcRenderer.invoke("update:apply", { filePath, version }),
+  takeUpdateApplyFailure: () => ipcRenderer.invoke("update:take-apply-failure"),
+  showDownloadedUpdate:   () => ipcRenderer.invoke("update:show-downloaded-file"),
   dismissUpdateVersion:   (version: string) => ipcRenderer.invoke("update:dismiss-version", { version }),
   getAutoCheckUpdates:    () => ipcRenderer.invoke("update:get-auto-check"),
   setAutoCheckUpdates:    (enabled: boolean) => ipcRenderer.invoke("update:set-auto-check", { enabled }),

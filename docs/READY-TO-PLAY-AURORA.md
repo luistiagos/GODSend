@@ -24,7 +24,7 @@ O pacote precisava de um `launch.ini` canônico na raiz do dispositivo, com o de
 
 O arquivo também define `Dumpfile = Usb:\crashlog.txt` na seção `[Paths]`. O DashLaunch intercepta exceções não tratadas por padrão (`exchandler`, que vale `TRUE` quando ausente) e, sem `Dumpfile`, despeja o texto apenas pela UART — o usuário fica sem nenhum vestígio para reportar. Duas ressalvas do próprio DashLaunch: com mais de um dispositivo USB o arquivo pode cair no primeiro enumerado, e o caminho só é resolvido no boot — no BadAvatar o pendrive já está presente ao ligar.
 
-Isso foi acrescentado a partir de um relato do banner **Fatal Crash Intercepted!** no console. A autoria do texto não está confirmada — tanto o `exchandler` do DashLaunch quanto o manipulador de crash do próprio Aurora poderiam emiti-lo. Ver [`docs/bugs/open/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md`](bugs/open/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md).
+Isso foi acrescentado a partir de um relato do banner **Fatal Crash Intercepted!** no console. A autoria do texto não está confirmada — tanto o `exchandler` do DashLaunch quanto o manipulador de crash do próprio Aurora poderiam emiti-lo. Ver [`docs/bugs/closed/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md`](bugs/closed/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md).
 
 ### Coleta dos vestígios quando o pendrive volta ao PC
 

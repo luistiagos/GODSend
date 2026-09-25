@@ -7,7 +7,7 @@ import { hashFileSha256 } from "./secureComponentStaging";
 // pendrive — o `Dumpfile` do DashLaunch (`crashlog.txt` na raiz, configurado em
 // readyToPlayConfiguration.ts desde a 2.12.68) e os dumps do Aurora em `Aurora\Data\Logs`. Ate
 // aqui eles so chegavam ao mantenedor se o usuario fosse instruido a procura-los a mao, e o bug
-// ficou aberto por falta deles. Ver docs/bugs/open/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md.
+// ficou aberto por falta deles. Ver docs/bugs/closed/2026-09-05-fatal-crash-intercepted-pendrive-preparado.md.
 const DASHLAUNCH_DUMP_PATH = "crashlog.txt";
 const AURORA_LOG_DIRECTORY = "Aurora/Data/Logs";
 

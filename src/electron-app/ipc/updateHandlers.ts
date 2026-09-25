@@ -2,13 +2,16 @@
  * IPC handlers for the in-app update system.
  */
 
-import { IpcMain } from "electron";
+import { IpcMain, shell } from "electron";
+import fs from "node:fs";
 import {
   checkForUpdates,
   downloadUpdate,
   cancelUpdateDownload,
   applyUpdateAndRestart,
   dismissVersion,
+  getDownloadedUpdateFile,
+  takeLastApplyFailure,
 } from "../services/autoUpdateService";
 import {
   getConfiguredAutoCheckUpdates,
@@ -67,14 +70,23 @@ export function register(ipcMain: IpcMain): void {
     }
   });
 
-  ipcMain.handle("update:apply", async (_event, payload?: { filePath?: string }) => {
+  ipcMain.handle("update:apply", async (_event, payload?: { filePath?: string; version?: string }) => {
     try {
-      const success = applyUpdateAndRestart(payload?.filePath);
+      const success = await applyUpdateAndRestart(payload?.filePath, payload?.version);
       return { ok: success };
     } catch (err: any) {
       appendAppEvent("UPDATE", `update:apply error: ${err.message || err}`);
       return { ok: false, error: err.message || String(err) };
     }
+  });
+
+  ipcMain.handle("update:take-apply-failure", async () => takeLastApplyFailure());
+
+  ipcMain.handle("update:show-downloaded-file", async () => {
+    const file = getDownloadedUpdateFile();
+    if (!fs.existsSync(file)) return { ok: false, error: "Arquivo baixado não encontrado." };
+    shell.showItemInFolder(file);
+    return { ok: true };
   });
 
   ipcMain.handle("update:dismiss-version", async (_event, payload: { version: string }) => {

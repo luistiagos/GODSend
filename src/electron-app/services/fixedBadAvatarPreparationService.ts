@@ -7,8 +7,13 @@ import {
   describeConsoleCrashArtifacts,
 } from "../infrastructure/consoleCrashArtifacts";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
+import { isExploitProfilePath } from "../infrastructure/exploitProfile";
 import { getBundledResourcesRoot, getRepoRoot } from "../infrastructure/fileSystem";
 import { isForeignConsoleStatePath, quarantineForeignConsoleState } from "../infrastructure/foreignConsoleState";
+import {
+  buildPreparationReceipt,
+  writePreparationReceipt,
+} from "../infrastructure/preparationReceipt";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { reportError } from "../infrastructure/telemetry";
 export { isForeignConsoleStatePath } from "../infrastructure/foreignConsoleState";
@@ -283,6 +288,37 @@ async function reportConsoleCrashArtifacts(
   }
 }
 
+export interface ExploitProfileFile {
+  path: string;
+  sizeBytes: number;
+}
+
+let cachedExploitProfileFiles: ExploitProfileFile[] | null = null;
+
+/**
+ * Os arquivos do perfil do exploit no pacote ativo — o que a detecção de estado confere no
+ * dispositivo para responder "este pendrive tem o desbloqueio?" em vez de "tem alguma pasta de
+ * Xbox?". Sai do manifesto já validado porque o XUID pertence ao pacote (ver
+ * `infrastructure/exploitProfile.ts`).
+ *
+ * Lança se o pacote não trouxer nenhum: lista vazia jamais pode ser lida como "confere".
+ * O resultado é memorizado porque a Home pede a lista de dispositivos a cada 5 s e validar o
+ * manifesto significa reler e reconferir 643 entradas; só sucesso entra no cache.
+ */
+export function exploitProfileFiles(): ExploitProfileFile[] {
+  if (cachedExploitProfileFiles) return cachedExploitProfileFiles;
+  const { assetsRoot, index } = loadPackageIndex();
+  const manifest = loadManifest(assetsRoot, index);
+  const files = manifest.files
+    .filter((file) => isExploitProfilePath(file.path))
+    .map((file) => ({ path: file.path, sizeBytes: file.sizeBytes }));
+  if (files.length === 0) {
+    throw new Error(`O pacote ${manifest.release} não traz o perfil do exploit.`);
+  }
+  cachedExploitProfileFiles = files;
+  return files;
+}
+
 export function inspectFixedPayloadReadiness(): {
   ready: boolean;
   blocker?: string;
@@ -510,6 +546,22 @@ export async function prepareFixedBadAvatarDevice(
         detail: `${Math.min(progress.completedFiles + 1, progress.totalFiles)}/${progress.totalFiles}`,
       }),
     });
+
+    // Fora da transação, e depois dela: o recibo carrega data e versão, e qualquer byte volátil
+    // dentro do plano faria toda retomada interrompida falhar (ver preparationReceipt.ts).
+    // Diagnóstico nunca derruba uma preparação que já terminou de gravar.
+    try {
+      const receipt = buildPreparationReceipt({
+        isRghOnly: request.isRghOnly === true,
+        appVersion: app.getVersion(),
+        release: manifest.release,
+        readyToPlayVersion: READY_TO_PLAY_CONFIGURATION_VERSION,
+      });
+      await writePreparationReceipt(request.driveRoot, receipt);
+      appendAppEvent("BADAVATAR", `recibo do preparo gravado: modo ${receipt.mode}, pacote ${receipt.release}`);
+    } catch (error: any) {
+      appendAppEvent("BADAVATAR", `falha ao gravar o recibo do preparo: ${error?.message || String(error)}`);
+    }
 
     return {
       release: manifest.release,

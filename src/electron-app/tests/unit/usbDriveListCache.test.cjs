@@ -18,6 +18,7 @@ test(
     let volumes = { "C:\\": 1, "E:\\": 42 };
     let free = 400;
     let enumerations = 0;
+    let enumerationError = null;
     let releaseEnumeration = null;
 
     t.mock.method(performance, "now", () => clock);
@@ -30,6 +31,7 @@ test(
     t.mock.method(fs.promises, "statfs", async () => ({ bavail: free, bsize: 1 }));
     t.mock.method(usbDevices, "enumerateSafeWindowsUsbDevices", async () => {
       enumerations++;
+      if (enumerationError) throw enumerationError;
       if (releaseEnumeration) await new Promise((resolve) => { releaseEnumeration = resolve; });
       else await new Promise((resolve) => setImmediate(resolve));
       return [{ rootPath: "E:\\", label: "XBOX", sizeBytes: 1000, freeBytes: 400 }];
@@ -98,5 +100,11 @@ test(
     await Promise.all([beforeRepair, afterRepair]);
     await listFat32UsbDrives();
     assert.equal(enumerations, 12);
+
+    // Se o Windows falha sem mudanca real de volumes, a UI preserva a ultima lista boa.
+    enumerationError = new Error("timeout");
+    const stale = await listFat32UsbDrives(true);
+    assert.equal(enumerations, 13);
+    assert.equal(stale[0].rootPath, "E:\\");
   },
 );

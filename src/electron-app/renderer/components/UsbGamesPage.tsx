@@ -224,12 +224,12 @@ export default function UsbGamesPage({
   const [ejecting, setEjecting] = useState(false);
 
   // Load drives and installed games
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async (manual = false) => {
     setLoading(true);
     setActionFeedback(null);
     try {
       // 1. Fetch drives
-      const drivesRes = await window.godsendApi.toolsBadAvatarListDrives({ fresh: true });
+      const drivesRes = await window.godsendApi.toolsBadAvatarListDrives({ fresh: manual });
       if (drivesRes && drivesRes.ok && Array.isArray(drivesRes.drives)) {
         setDrives(drivesRes.drives);
         if (selectedDrive === "ALL" && drivesRes.drives.length === 1 && drivesRes.drives[0].rootPath) {
@@ -254,7 +254,7 @@ export default function UsbGamesPage({
   }, [selectedDrive, onGamesCountChange]);
 
   useEffect(() => {
-    refreshAll();
+    refreshAll(false);
   }, []);
 
   // Filtered games based on drive, format, and search
@@ -407,7 +407,7 @@ export default function UsbGamesPage({
               size="sm"
               variant="default"
               disabled={loading}
-              onClick={refreshAll}
+              onClick={() => refreshAll(true)}
               className="gap-1.5 h-9 px-3 cursor-pointer"
               title="Atualizar lista de jogos"
             >
@@ -655,7 +655,7 @@ export default function UsbGamesPage({
               Não encontramos nenhum jogo nos formatos XEX ou GOD na unidade selecionada. Conecte o pendrive com jogos ou baixe novos títulos diretamente do catálogo.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
-              <Button onClick={refreshAll} variant="default" size="sm" className="gap-2 cursor-pointer">
+              <Button onClick={() => refreshAll(true)} variant="default" size="sm" className="gap-2 cursor-pointer">
                 <RefreshCw className="h-4 w-4" />
                 Verificar novamente
               </Button>
@@ -739,7 +739,7 @@ export default function UsbGamesPage({
                 Cancelar
               </Button>
               <Button
-                variant="destructive"
+                variant="default"
                 size="sm"
                 disabled={deleting}
                 onClick={handleDeleteGame}
