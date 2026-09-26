@@ -9,6 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.103] - 2026-09-26
+
+### Fixed
+- **Progresso visível durante a extração de arquivos (`utils/iso2god.go`, `services/pipeline/stage_checkpoint.go`)**:
+  - Corrige a fila parada em “extraindo” por vários minutos. ZIP e 7z publicam bytes descompactados e porcentagem; RAR publica bytes e arquivos concluídos sem inventar um total. A contagem avança durante a escrita de um único arquivo grande e usa o formato de porcentagem que a fila já reconhece.
+  - Atualizações limitadas a uma por segundo, com início e conclusão garantidos. O estado permanece `Processing`, via `LogStatus`, e 100% só aparece após a validação e gravação dos arquivos. Retentativas reiniciam o contador e arquivos completos reaproveitados também contam.
+  - A extração filtrada de ISO usa o mesmo progresso. A conferência SHA-256 dos checkpoints informa os bytes verificados, para não deixar a fila presa na mensagem de extração concluída enquanto relê arquivos grandes.
+  - Testes com ZIP, 7z e RAR pequenos, progresso dentro de um arquivo grande, CRC inválido, ISO ausente, total filtrado, retomada e integração com a fila.
+  - Relato e validação: [extração sem progresso](docs/bugs/closed/backend-pipeline-extracao-sem-progresso-parece-travada_2026-09-26T11-24.md).
+
+## [2.12.102] - 2026-09-26
+
 ### Fixed
 - **O disco jogável do GTA V deixa de ser entregue sem o conteúdo de instalação do Disco 1 (`models/compat.go`, `infrastructure/helpers/multi_disc.go`, `services/pipeline/companion_content.go`, `services/cache/huggingface.go`) - v2.12.102**:
   - Trata [o chamado #85](docs/bugs/open/catalogo-gta5-hf-incompleto-sem-disco-instalacao-trava-boot_2026-09-26T01-05.md): a entrada "GTA 5" do catálogo HuggingFace apontava para `GTA 5 (7.61).7z`, que traz só o disco jogável. O job terminava como gravado e o console parava para sempre na tela de carregamento, porque o GTA V não inicia sem os quatro pacotes que o Disco 1 grava em `Content/0000000000000000/545408A7/00000002` (`545408A700000000` a `…0003`).

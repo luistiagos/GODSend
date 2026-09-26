@@ -1,5 +1,6 @@
 # Bug: a fase de extração não publica progresso, e o cliente passa 20 minutos achando que o app travou
 
+- **Estado:** corrigido no código em 2026-09-26, v2.12.103; testes e build aprovados.
 - **Detectado em:** 2026-09-26 11:24 (chamado #85 do painel, sessão `232224620290076@lid`)
 - **Origem:** conversa de suporte + leitura de `src/server/services/pipeline/huggingface.go`, `stage_checkpoint.go::extractArchiveResilient`, `utils/iso2god.go::ExtractArchive` e `renderer/components/QueuePage.tsx`
 - **Classe:** diagnóstico (UI da fila)
@@ -52,3 +53,45 @@ tela diferencia "trabalhando" de "travado".
    ("NN arquivos extraídos"), para a tela mostrar que o app está vivo.
 2. Teste unitário com um arquivo pequeno: a sequência de `LogStatus` da fase de extração precisa ter mais de
    uma mensagem e terminar em 100%.
+
+
+## Correção — 2026-09-26 (v2.12.103)
+
+A causa foi confirmada no código: os extratores de ZIP, 7z e RAR escreviam os
+arquivos sem publicar progresso. Os logs locais em `%APPDATA%/Xbox 360 Companion/logs`
+foram conferidos; são registros de testes e não incluem a sessão de campo do chamado #85.
+
+- `ExtractArchiveWithProgress` e `ExtractISOWithProgress` preservam as APIs antigas
+  e oferecem callback síncrono, limitado a uma atualização por segundo, além do
+  início e fim. A contagem acontece durante a escrita, inclusive dentro de uma ISO
+  grande, sem percorrer repetidamente a pasta de saída.
+- ZIP e 7z usam o total descompactado do índice; a extração de ISO conta apenas as
+  entradas selecionadas. RAR usa bytes e arquivos concluídos, sem ler duas vezes um
+  arquivo sólido para tentar descobrir o total.
+- `extractArchiveResilient` e `extractISOResilient` publicam via `LogStatus` no estado
+  `Processing`. As mensagens usam `(NN%)`, já reconhecido pela `QueuePage`. O
+  progresso não marca o jogo como pronto e não precisa de alteração no renderer.
+- CRC, tamanho esperado, gravação atômica e reaproveitamento de arquivos completos
+  continuam ativos. O contador de arquivos só cresce após o commit; a porcentagem
+  fica no máximo em 99 até o sucesso da extração. Falhas de CRC e ISO ausente não
+  emitem conclusão. Cada nova tentativa começa com um contador próprio.
+- A criação e a validação dos checkpoints publicam os bytes conferidos enquanto
+  calculam SHA-256. Depois dessa conferência, a fase informa “Extração verificada
+  (100%)”. Não há goroutine de progresso que possa sobrescrever estados posteriores.
+
+### Validação
+
+- `go test -C src/server ./... -count=1`: aprovado em todos os pacotes.
+- `npm run build:server`: aprovado, binários Windows x64 e ia32 compilados e verificados.
+- Testes novos em `utils/archive_progress_test.go` e
+  `services/pipeline/extraction_progress_test.go`: ZIP, 7z e RAR reais e mínimos,
+  contagem durante um arquivo de 3 MiB, falha de escrita, CRC inválido, ausência de
+  ISO, total filtrado, retomada, limite de frequência, mensagens de `LogStatus` e
+  sintaxe de porcentagem consumida pela fila.
+- Na primeira execução integral, o Windows falhou ao remover uma pasta temporária
+  ao encerrar um teste; a repetição integral passou sem mudanças no código.
+- A versão foi atualizada nos quatro locais obrigatórios e nos dois lockfiles.
+  O README não menciona a versão 2.12.102; os links existentes apontam para
+  artefatos já publicados e não foram renomeados.
+- Validação automatizada local; não foi repetido o download de 6,7 GB do cliente
+  nem feita publicação de uma nova versão.

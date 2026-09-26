@@ -78,20 +78,24 @@ func writeStageSourceMarker(destDir string, marker *stageSourceMarker) error {
 	return writeStageMetadata(stageSourceMarkerPath(destDir), data)
 }
 
-func hashStageFile(path string) (string, error) {
+func hashStageFile(path string, onBytes func(int)) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	var writer io.Writer = h
+	if onBytes != nil {
+		writer = io.MultiWriter(h, stageProgressWriter(onBytes))
+	}
+	if _, err := io.Copy(writer, f); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func buildStageCheckpoint(phase, sourcePath, destDir string) (*stageCheckpoint, error) {
+func buildStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) (*stageCheckpoint, error) {
 	source, err := os.Stat(sourcePath)
 	if err != nil {
 		return nil, err
@@ -114,7 +118,7 @@ func buildStageCheckpoint(phase, sourcePath, destDir string) (*stageCheckpoint, 
 		if err != nil {
 			return err
 		}
-		hash, err := hashStageFile(path)
+		hash, err := hashStageFile(path, onBytes)
 		if err != nil {
 			return err
 		}
@@ -169,7 +173,7 @@ func writeStageMetadata(path string, data []byte) error {
 	return nil
 }
 
-func validStageCheckpoint(phase, sourcePath, destDir string) bool {
+func validStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) bool {
 	data, err := os.ReadFile(stageCheckpointPath(destDir))
 	if err != nil {
 		return false
@@ -194,7 +198,7 @@ func validStageCheckpoint(phase, sourcePath, destDir string) bool {
 		if err != nil || !st.Mode().IsRegular() || st.Size() != file.Size {
 			return false
 		}
-		hash, err := hashStageFile(path)
+		hash, err := hashStageFile(path, onBytes)
 		if err != nil || hash != file.SHA256 {
 			return false
 		}
@@ -220,7 +224,7 @@ func validStageCheckpoint(phase, sourcePath, destDir string) bool {
 }
 
 func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string, resetOnRetry bool, action func() error) error {
-	if validStageCheckpoint(phase, sourcePath, destDir) {
+	if validStageCheckpoint(phase, sourcePath, destDir, s.stageVerificationProgress(gameName)) {
 		s.App.Logf("STAGE CACHE [%s]: reutilizando fase validada %s", gameName, phase)
 		s.App.LogStatus(gameName, "Processing", "Retomando: fase "+phase+" ja estava concluida e foi verificada...")
 		return nil
@@ -267,7 +271,8 @@ func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string,
 		}
 		err := action()
 		if err == nil {
-			checkpoint, checkpointErr := buildStageCheckpoint(phase, sourcePath, destDir)
+			s.App.LogStatus(gameName, "Processing", "Verificando arquivos processados...")
+			checkpoint, checkpointErr := buildStageCheckpoint(phase, sourcePath, destDir, s.stageVerificationProgress(gameName))
 			if checkpointErr == nil {
 				checkpointErr = writeStageCheckpoint(destDir, checkpoint)
 			}
@@ -302,9 +307,13 @@ func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string,
 }
 
 func (s *Service) extractArchiveResilient(gameName, archivePath, destDir string) error {
-	return s.runDirectoryStage(gameName, "extract-archive", archivePath, destDir, false, func() error {
-		return utils.ExtractArchive(archivePath, destDir)
+	err := s.runDirectoryStage(gameName, "extract-archive", archivePath, destDir, false, func() error {
+		return utils.ExtractArchiveWithProgress(archivePath, destDir, s.archiveExtractionProgress(gameName))
 	})
+	if err == nil {
+		s.App.LogStatus(gameName, "Processing", "Extracao verificada (100%)")
+	}
+	return err
 }
 
 // extractISOResilient returns the ISO to install and the directory the archive was expanded
@@ -314,7 +323,7 @@ func (s *Service) extractArchiveResilient(gameName, archivePath, destDir string)
 func (s *Service) extractISOResilient(gameName, safeName, archivePath, tempRoot string) (string, string, error) {
 	destDir := filepath.Join(tempRoot, safeName+"_extracted")
 	err := s.runDirectoryStage(gameName, "extract-iso", archivePath, destDir, false, func() error {
-		_, err := utils.ExtractISO(archivePath, safeName, tempRoot)
+		_, err := utils.ExtractISOWithProgress(archivePath, safeName, tempRoot, s.archiveExtractionProgress(gameName))
 		return err
 	})
 	if err != nil {
@@ -324,6 +333,7 @@ func (s *Service) extractISOResilient(gameName, safeName, archivePath, tempRoot 
 	if isoPath == "" {
 		return "", destDir, fmt.Errorf("checkpoint de extracao sem ISO")
 	}
+	s.App.LogStatus(gameName, "Processing", "Extracao verificada (100%)")
 	return isoPath, destDir, nil
 }
 

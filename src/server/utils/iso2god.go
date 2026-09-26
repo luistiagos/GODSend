@@ -820,16 +820,32 @@ func emptyLIVEHeader() []byte {
 // extractArchive extracts a .zip, .7z, or .rar archive to destDir using pure-Go
 // libraries (archive/zip, bodgit/sevenzip, nwaples/rardecode/v2).
 func ExtractArchive(archivePath, destDir string) error {
+	return ExtractArchiveWithProgress(archivePath, destDir, nil)
+}
+
+// ExtractArchiveWithProgress reports bounded, synchronous updates while extracting.
+// The callback is optional; existing callers can continue using ExtractArchive.
+func ExtractArchiveWithProgress(archivePath, destDir string, callback func(ExtractionProgress)) error {
+	progress := newArchiveProgress(callback)
+	if err := extractArchiveFilter(archivePath, destDir, "", progress); err != nil {
+		return err
+	}
+	progress.Done = true
+	progress.report(true)
+	return nil
+}
+
+func extractArchiveFilter(archivePath, destDir, wantExt string, progress *archiveProgress) error {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
 	}
 	switch strings.ToLower(filepath.Ext(archivePath)) {
 	case ".zip":
-		return extractZipAll(archivePath, destDir)
+		return extractZipFilter(archivePath, destDir, wantExt, progress)
 	case ".7z":
-		return extract7zAll(archivePath, destDir)
+		return extract7zFilter(archivePath, destDir, wantExt, progress)
 	case ".rar":
-		return extractRarAll(archivePath, destDir)
+		return extractRarFilter(archivePath, destDir, wantExt, progress)
 	default:
 		return fmt.Errorf("unsupported archive format: %s", filepath.Ext(archivePath))
 	}
@@ -838,28 +854,22 @@ func ExtractArchive(archivePath, destDir string) error {
 // ExtractISO extracts the first .iso file found inside a .zip/.7z/.rar archive.
 // tempRoot is typically GODSEND_HOME/Temp (caller passes filepath.Join(home, "Temp")).
 func ExtractISO(archivePath, safeName, tempRoot string) (string, error) {
+	return ExtractISOWithProgress(archivePath, safeName, tempRoot, nil)
+}
+
+// ExtractISOWithProgress uses the total of matching entries, excluding other files.
+func ExtractISOWithProgress(archivePath, safeName, tempRoot string, callback func(ExtractionProgress)) (string, error) {
 	dest := filepath.Join(tempRoot, safeName+"_extracted")
-	if err := os.MkdirAll(dest, 0755); err != nil {
-		return "", err
-	}
-	var err error
-	switch strings.ToLower(filepath.Ext(archivePath)) {
-	case ".zip":
-		err = extractZipFilter(archivePath, dest, ".iso")
-	case ".7z":
-		err = extract7zFilter(archivePath, dest, ".iso")
-	case ".rar":
-		err = extractRarFilter(archivePath, dest, ".iso")
-	default:
-		return "", fmt.Errorf("unsupported archive format: %s", filepath.Ext(archivePath))
-	}
-	if err != nil {
+	progress := newArchiveProgress(callback)
+	if err := extractArchiveFilter(archivePath, dest, ".iso", progress); err != nil {
 		return "", err
 	}
 	iso := findFirstFileByExt(dest, ".iso")
 	if iso == "" {
 		return "", fmt.Errorf("no .iso found in archive")
 	}
+	progress.Done = true
+	progress.report(true)
 	return iso, nil
 }
 
@@ -881,38 +891,31 @@ func findFirstFileByExt(dir, ext string) string {
 
 // ── ZIP ──────────────────────────────────────────────────────────────────────
 
-func extractZipAll(src, destDir string) error {
+func extractZipFilter(src, destDir, wantExt string, progress *archiveProgress) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return fmt.Errorf("open zip: %w", err)
 	}
 	defer r.Close()
+	progress.TotalBytes = 0
 	for _, f := range r.File {
-		if err := extractZipEntry(f, destDir); err != nil {
-			return err
+		if !f.FileInfo().IsDir() && (wantExt == "" || strings.EqualFold(filepath.Ext(f.Name), wantExt)) {
+			progress.TotalBytes += int64(f.UncompressedSize64)
 		}
 	}
-	return nil
-}
-
-func extractZipFilter(src, destDir, wantExt string) error {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return fmt.Errorf("open zip: %w", err)
-	}
-	defer r.Close()
+	progress.report(true)
 	for _, f := range r.File {
-		if strings.ToLower(filepath.Ext(f.Name)) != wantExt {
+		if wantExt != "" && strings.ToLower(filepath.Ext(f.Name)) != wantExt {
 			continue
 		}
-		if err := extractZipEntry(f, destDir); err != nil {
+		if err := extractZipEntry(f, destDir, progress); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func extractZipEntry(f *zip.File, destDir string) error {
+func extractZipEntry(f *zip.File, destDir string, progress *archiveProgress) error {
 	outPath := filepath.Join(destDir, filepath.FromSlash(f.Name))
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(outPath, 0755)
@@ -922,43 +925,36 @@ func extractZipEntry(f *zip.File, destDir string) error {
 		return err
 	}
 	defer rc.Close()
-	return extractFileAtomically(outPath, int64(f.UncompressedSize64), f.CRC32, true, true, rc)
+	return extractFileAtomically(outPath, int64(f.UncompressedSize64), f.CRC32, true, true, rc, progress)
 }
 
 // ── 7Z ───────────────────────────────────────────────────────────────────────
 
-func extract7zAll(src, destDir string) error {
+func extract7zFilter(src, destDir, wantExt string, progress *archiveProgress) error {
 	r, err := sevenzip.OpenReader(src)
 	if err != nil {
 		return fmt.Errorf("open 7z: %w", err)
 	}
 	defer r.Close()
+	progress.TotalBytes = 0
 	for _, f := range r.File {
-		if err := extract7zEntry(f, destDir); err != nil {
-			return err
+		if !f.FileInfo().IsDir() && (wantExt == "" || strings.EqualFold(filepath.Ext(f.Name), wantExt)) {
+			progress.TotalBytes += f.FileInfo().Size()
 		}
 	}
-	return nil
-}
-
-func extract7zFilter(src, destDir, wantExt string) error {
-	r, err := sevenzip.OpenReader(src)
-	if err != nil {
-		return fmt.Errorf("open 7z: %w", err)
-	}
-	defer r.Close()
+	progress.report(true)
 	for _, f := range r.File {
-		if strings.ToLower(filepath.Ext(f.Name)) != wantExt {
+		if wantExt != "" && strings.ToLower(filepath.Ext(f.Name)) != wantExt {
 			continue
 		}
-		if err := extract7zEntry(f, destDir); err != nil {
+		if err := extract7zEntry(f, destDir, progress); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func extract7zEntry(f *sevenzip.File, destDir string) error {
+func extract7zEntry(f *sevenzip.File, destDir string, progress *archiveProgress) error {
 	outPath := filepath.Join(destDir, filepath.FromSlash(f.Name))
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(outPath, 0755)
@@ -968,30 +964,22 @@ func extract7zEntry(f *sevenzip.File, destDir string) error {
 		return err
 	}
 	defer rc.Close()
-	return extractFileAtomically(outPath, f.FileInfo().Size(), f.CRC32, true, true, rc)
+	return extractFileAtomically(outPath, f.FileInfo().Size(), f.CRC32, true, true, rc, progress)
 }
 
 // ── RAR ──────────────────────────────────────────────────────────────────────
 
-func extractRarAll(src, destDir string) error {
+func extractRarFilter(src, destDir, wantExt string, progress *archiveProgress) error {
 	r, err := rardecode.OpenReader(src)
 	if err != nil {
 		return fmt.Errorf("open rar: %w", err)
 	}
 	defer r.Close()
-	return drainRAR(r, destDir, "")
+	progress.report(true)
+	return drainRAR(r, destDir, wantExt, progress)
 }
 
-func extractRarFilter(src, destDir, wantExt string) error {
-	r, err := rardecode.OpenReader(src)
-	if err != nil {
-		return fmt.Errorf("open rar: %w", err)
-	}
-	defer r.Close()
-	return drainRAR(r, destDir, wantExt)
-}
-
-func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string) error {
+func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string, progress *archiveProgress) error {
 	for {
 		h, err := r.Next()
 		if err == io.EOF {
@@ -1014,7 +1002,7 @@ func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string) error {
 		if h.UnKnownSize {
 			expected = -1
 		}
-		if err := extractFileAtomically(outPath, expected, 0, false, false, r); err != nil {
+		if err := extractFileAtomically(outPath, expected, 0, false, false, r, progress); err != nil {
 			return err
 		}
 	}
@@ -1022,10 +1010,12 @@ func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string) error {
 
 // extractFileAtomically never exposes a truncated final file. Fully committed
 // files are reused when a stage restarts; an interrupted .part is rewritten.
-func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint32, verifyCRC, allowReuse bool, src io.Reader) error {
+func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint32, verifyCRC, allowReuse bool, src io.Reader, progress *archiveProgress) error {
 	if allowReuse && expectedSize >= 0 {
 		if st, err := os.Stat(outPath); err == nil && st.Mode().IsRegular() && st.Size() == expectedSize {
 			if !verifyCRC {
+				progress.addBytes(expectedSize)
+				progress.commitFile()
 				return nil
 			}
 			f, openErr := os.Open(outPath)
@@ -1034,6 +1024,8 @@ func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint3
 				_, hashErr := io.Copy(h, f)
 				closeErr := f.Close()
 				if hashErr == nil && closeErr == nil && h.Sum32() == expectedCRC {
+					progress.addBytes(expectedSize)
+					progress.commitFile()
 					return nil
 				}
 			}
@@ -1053,6 +1045,9 @@ func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint3
 	if verifyCRC {
 		crc = crc32.NewIEEE()
 		writer = io.MultiWriter(out, crc)
+	}
+	if progress.callback != nil {
+		writer = extractionProgressWriter{Writer: writer, progress: progress}
 	}
 	written, copyErr := io.CopyBuffer(writer, src, make([]byte, 1024*1024))
 	syncErr := out.Sync()
@@ -1075,7 +1070,11 @@ func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint3
 	if err := os.Remove(outPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.Rename(partial, outPath)
+	if err := os.Rename(partial, outPath); err != nil {
+		return err
+	}
+	progress.commitFile()
+	return nil
 }
 
 type hash32 interface {
