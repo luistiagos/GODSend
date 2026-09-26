@@ -187,3 +187,52 @@ o primeiro provedor.
   - `homelock_test.go` cobre aquisição, detecção de conflito com PID no erro, liberação/re-aquisição e preservação do dono de scratch.
   - `singleInstance.test.cjs` cobre restauração/foco de janela oculta/minimizada, contrato de saída em segunda instância e configuração do portátil.
 
+## Confirmação de campo — chamado #85 (triagem de 2026-09-26)
+
+**A "máquina G" é a do cliente do chamado #85** (sessão `232224620290076@lid`, Xbox 360, v2.12.81).
+A tabela "IDs por sintoma" marcava 6666 e 6685 como *"provável, não comprovado"*. Agora está provado:
+
+- os logs anexos de 6658, 6728, 6729, 6753 e 6754 trazem o caminho `C:\Users\<user>\Downloads\godsend-data\...`
+  com o **mesmo usuário do Windows** (6754 é o report em que este doc mostra 3 backends nas portas
+  8097, 8098 e 8099). 6642 e 6643 (a "máquina 2" de
+  [`electron-main-falha-na-pasta-de-logs-impede-backend-de-subir`](electron-main-falha-na-pasta-de-logs-impede-backend-de-subir_2026-09-13T15-59.md))
+  também são dela;
+- **6666** (15/09 02:15:05 UTC) é o texto que o cliente colou na conversa **37 s depois**, em `[109377]`
+  (02:15:42): *"Falha no dispositivo local. O download concluido foi preservado para nova tentativa: Gravação
+  local: falha no dispositivo local: gravar audio_cs.rpf: rename D:\Games\GTA 5 (7.61) - 545408A7\sfx\audio_cs.rpf.xbox-companion-part
+  [...] The process cannot access the file because it is being used by another process."*;
+- **6685** (04:09:46) é o mesmo destino na mesma noite em que o cliente deixou a gravação rodando
+  (`[109428]` 03:35: *"tenho que dormir [...] seria melhor deixar de madrugada rolando"*). O vínculo vem da
+  continuidade. O log não traz o usuário.
+
+### O que o cliente viveu (UTC, `Wpp_proccess` + telemetria)
+
+| hora | conversa | telemetria |
+|---|---|---|
+| 01:24 | `[109333]` coloca o GTA 5 na fila | |
+| 01:34 | | 6654 `not a valid 7-zip file` (compatível; o log não traz caminho) |
+| 01:44 | | 6658 `rename ...\_hf_ext\...\audio_cs.rpf ... being used by another process` — **já havia dois backends extraindo o mesmo arquivo** |
+| 01:52 | `[109361]` *"puts fechou sozinho"* | nenhum report |
+| 01:54 | `[109365]` reabre: não há nada em andamento, e ele enfileira de novo | |
+| 02:15 | `[109377]` cola o erro de `rename` no pendrive | 6666 |
+| 02:23–03:00 | `[109407]`, `[109412]`: preso em 9% por mais de 30 min, e continua em 9% depois de fechar e reabrir | |
+| 04:09 | (cliente dormindo) | 6685 `rename ... audio_misc.rpf` |
+| 11:49–11:51 | | 6728, 6729 `rename` no scratch |
+| 12:28 | `[109561]` *"GTA 5 Pronto. Gravado no dispostivo"* | |
+
+**Custo medido: cerca de 11 h** entre enfileirar e concluir um arquivo de 7,61 GB, com duas intervenções do
+cliente. O fechamento das 01:52 e o travamento em 9% são **compatíveis** com as causas 1 e 3, mas nenhum report
+cobre esses dois momentos. Ficam registrados como compatíveis, não como comprovados.
+
+### Depois do fix
+
+Em 25/09 o cliente atualizou o app (`[122516]` 20:11, *"Tá falando que tem uma atualização disponível"*. A
+versão instalada não foi registrada; a última do `CHANGELOG.md` antes dessa data é a 2.12.101, posterior à
+2.12.95) e regravou o GTA 5 do zero. A gravação terminou em 1 h sem erro
+relatado (`[122580]` 21:11), e a telemetria não tem report desta máquina entre 19:30 e 03:00. **É um sinal fraco a
+favor do fix, não uma prova**: ele se apoia na ausência de report, numa única execução.
+
+**Não confundir:** o GTA 5 continuou travando no console depois dessa regravação limpa. Esse travamento não vem
+das colisões de `rename`. A causa é o arquivo do catálogo sem o Disco 1, em
+[`catalogo-gta5-hf-incompleto-sem-disco-instalacao-trava-boot`](../open/catalogo-gta5-hf-incompleto-sem-disco-instalacao-trava-boot_2026-09-26T01-05.md).
+
