@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"godsend/app"
@@ -137,5 +138,81 @@ func TestHuggingFaceBuildPublishesFreshCacheInMemory(t *testing.T) {
 	}
 	if _, ok := a.GameEntryMap["hf_xbox360\x00fresh game"]; !ok {
 		t.Fatal("fresh HuggingFace entry missing from live map")
+	}
+}
+
+func TestHuggingFaceBuildRejectsIncompleteGTA5(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+{
+  "console":"xbox360rgh",
+  "link":"https://huggingface.co/datasets/luistiagos/xbx/resolve/main/GTA%205%20%287.61%29.7z",
+  "path":"GTA 5 (7.61).7z",
+  "size":"6758.12MB"
+},
+{
+  "console":"xbox360rgh",
+  "link":"https://archive.org/download/mx360gcpt3-x360-ztm/Grand.Theft.Auto.5.EUR.X360-ZTM.rar",
+  "path":"Grand Theft Auto 5.rar",
+  "size":"14.36 GiB"
+}
+]`))
+	}))
+	defer server.Close()
+
+	a := app.NewApp()
+	a.ToolsDir = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(a.ToolsDir, "cache"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	ia := &IAService{App: a}
+	service := &HuggingFaceService{App: a, IA: ia, CatalogURL: server.URL}
+
+	service.Build("xbox360")
+
+	// The incomplete 7.61 GB URL must not be in the entry map
+	for k, v := range a.GameEntryMap {
+		if strings.Contains(v.FileName, "GTA%205%20%287.61%29.7z") {
+			t.Fatalf("entry %s has incomplete GTA 5 URL: %s", k, v.FileName)
+		}
+	}
+	// GTA 5 should point to the complete Grand Theft Auto 5 release
+	entry, ok := a.GameEntryMap["hf_xbox360\x00gta 5"]
+	if !ok {
+		t.Fatal("expected hf_xbox360\x00gta 5 to be aliased to the full release")
+	}
+	if !strings.Contains(entry.FileName, "Grand.Theft.Auto.5") {
+		t.Fatalf("expected full ZTM release, got %s", entry.FileName)
+	}
+}
+
+func TestSanitizeHuggingFaceCacheRemovesIncompleteGTA5(t *testing.T) {
+	games := []string{"GTA 5", "Grand Theft Auto 5"}
+	entries := map[string]models.IAGameEntry{
+		"xbox360\x00gta 5": {
+			CollectionID: "6758.12MB",
+			FileName:     "https://huggingface.co/datasets/luistiagos/xbx/resolve/main/GTA%205%20%287.61%29.7z",
+		},
+		"xbox360\x00grand theft auto 5": {
+			CollectionID: "14.36 GiB",
+			FileName:     "https://archive.org/download/mx360gcpt3-x360-ztm/Grand.Theft.Auto.5.EUR.X360-ZTM.rar",
+		},
+	}
+
+	cleanGames, cleanEntries, _ := sanitizeHuggingFaceCache("xbox360", games, entries)
+	gtaEntry, ok := cleanEntries["xbox360\x00gta 5"]
+	if !ok {
+		t.Fatal("gta 5 entry missing from clean entries")
+	}
+	if strings.Contains(gtaEntry.FileName, "7.61") {
+		t.Fatalf("incomplete GTA 5 URL was not sanitized: %s", gtaEntry.FileName)
+	}
+	if !strings.Contains(gtaEntry.FileName, "Grand.Theft.Auto.5") {
+		t.Fatalf("gta 5 should alias to full release: %s", gtaEntry.FileName)
+	}
+	// A queued job named "GTA 5" is relaunched by that name, so the row has to stay listed.
+	if strings.Join(cleanGames, ",") != "GTA 5,Grand Theft Auto 5" {
+		t.Fatalf("expected both rows to stay listed, got %v", cleanGames)
 	}
 }

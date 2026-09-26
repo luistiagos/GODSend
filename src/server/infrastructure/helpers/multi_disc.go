@@ -6,7 +6,10 @@
 package helpers
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -154,6 +157,106 @@ func describePayload(dir, folderTitleID, folderTypeDir string) (CompanionContent
 		typeDir = defaultContentTypeDir
 	}
 	return CompanionContent{Dir: dir, TitleID: titleID, TypeDir: typeDir}, true
+}
+
+// InstallPackageHeaderLen is how much of a package InstallPackageProblem needs to read.
+const InstallPackageHeaderLen = 0x3AD
+
+// InstallPackageProblem says why a package cannot be one of titleID's install packages, or
+// returns "" when it can. header is the start of the package — at least
+// InstallPackageHeaderLen bytes — and size the length of the whole file.
+//
+// Identity comes from the header, never from the file name: any file dropped under the
+// title's folder would otherwise pass. Truncation comes from the sizes an STFS header
+// declares. The content size, on every retail LIVE/PIRS package checked, is exactly the file
+// length minus the header rounded up to a 4 KiB block, so it catches a cut of a single byte.
+// Homebrew and CON containers leave it zero; for those only the allocated blocks bound the
+// length, and a cut shorter than the interleaved hash tables goes unseen.
+func InstallPackageProblem(header []byte, size int64, titleID string, contentType uint32) string {
+	if len(header) < InstallPackageHeaderLen {
+		return "cabeçalho ilegível"
+	}
+	if magic := string(header[:4]); magic != "LIVE" && magic != "PIRS" && magic != "CON " {
+		return "não é um pacote do Xbox 360"
+	}
+	if got := strings.ToUpper(hex.EncodeToString(header[0x360:0x364])); !strings.EqualFold(got, titleID) {
+		return "pertence ao TitleID " + got
+	}
+	if got := binary.BigEndian.Uint32(header[0x344:0x348]); got != contentType {
+		return fmt.Sprintf("tem o tipo de conteúdo %08X", got)
+	}
+	if binary.BigEndian.Uint32(header[0x3A9:0x3AD]) != 0 {
+		// SVOD keeps its data in a ".data" folder beside the header, so the file size of the
+		// header says nothing about completeness.
+		return ""
+	}
+	dataStart := (int64(binary.BigEndian.Uint32(header[0x340:0x344])) + 0xFFF) &^ 0xFFF
+	need := dataStart + int64(binary.BigEndian.Uint32(header[0x395:0x399]))*0x1000
+	if declared := int64(binary.BigEndian.Uint64(header[0x34C:0x354])); declared > 0 && dataStart+declared > need {
+		need = dataStart + declared
+	}
+	if size < need {
+		return fmt.Sprintf("truncado (%d de %d bytes)", size, need)
+	}
+	return ""
+}
+
+// PackageProbe reads one package of an install set: the start of the file, the size of the
+// whole file, and whether it exists at all.
+type PackageProbe func(name string) (header []byte, size int64, found bool)
+
+// InstallSetProblem checks every package of an install set, returning "" only when all of
+// them are present and pass InstallPackageProblem.
+func InstallSetProblem(titleID string, contentType uint32, packages []string, probe PackageProbe) string {
+	var missing, bad []string
+	for _, name := range packages {
+		header, size, found := probe(name)
+		if !found {
+			missing = append(missing, name)
+			continue
+		}
+		if problem := InstallPackageProblem(header, size, titleID, contentType); problem != "" {
+			bad = append(bad, name+" "+problem)
+		}
+	}
+	var parts []string
+	if len(missing) > 0 {
+		parts = append(parts, "faltam "+strings.Join(missing, ", "))
+	}
+	return strings.Join(append(parts, bad...), "; ")
+}
+
+// LocalPackageProbe reads packages from a local folder, matching names case-insensitively
+// because FAT32 and the console do.
+func LocalPackageProbe(dir string) PackageProbe {
+	entries, _ := os.ReadDir(dir)
+	return func(name string) ([]byte, int64, bool) {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.EqualFold(entry.Name(), name) {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return nil, 0, true
+			}
+			return readFileHead(filepath.Join(dir, entry.Name()), InstallPackageHeaderLen), info.Size(), true
+		}
+		return nil, 0, false
+	}
+}
+
+// readFileHead returns the first n bytes of path, or nil when the file is shorter.
+func readFileHead(path string, n int) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	head := make([]byte, n)
+	if _, err := io.ReadFull(f, head); err != nil {
+		return nil
+	}
+	return head
 }
 
 // isRealTitleID rejects the IDs that identify an installer or the dashboard instead of a

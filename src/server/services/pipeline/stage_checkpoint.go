@@ -353,6 +353,9 @@ func (s *Service) convertGODResilient(gameName, isoPath, godDir string) error {
 }
 
 func (s *Service) convertAndFinalizeGODResilient(gameName, safeName, gameDir, isoPath, godDir string, connection *models.XboxConnection) error {
+	if err := s.requireInstallContentForISO(gameName, isoPath, connection); err != nil {
+		return err
+	}
 	for rebuild := 0; rebuild < 4; rebuild++ {
 		s.App.LogStatus(gameName, "Processing", "Convertendo/verificando GOD...")
 		if err := s.convertGODResilient(gameName, isoPath, godDir); err != nil {

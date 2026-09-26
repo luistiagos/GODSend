@@ -70,6 +70,10 @@ func (s *Service) ProcessLocalISO(gameName, isoPath string) {
 			return
 		}
 		defer s.cleanupStageAfterRun(gameName, xexDir, xboxConn)
+		if err := s.requireInstallContent(gameName, playableTitleID(xexDir), xboxConn, nil); err != nil {
+			s.App.LogStatus(gameName, "Error", err.Error())
+			return
+		}
 
 		gameDir := filepath.Join(s.App.GetReadyDir(), safeName)
 		os.MkdirAll(gameDir, 0755)
@@ -304,6 +308,9 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		}
 		os.Remove(isoPath)
 		return nil
+	}
+	if err := s.requireInstallContentForISO(gameName, isoPath, xboxConn); err != nil {
+		return err
 	}
 
 	localRebuilds := 0

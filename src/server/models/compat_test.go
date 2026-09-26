@@ -557,3 +557,49 @@ func TestIsDemoTitle(t *testing.T) {
 		}
 	}
 }
+
+// TestMandatoryInstallDiscNamesEveryGTAVPackage pins the install set to the four packages GTA
+// V's Disc 1 writes. A set that could be satisfied by any one file is what let a stray file
+// stand in for the whole install disc.
+func TestMandatoryInstallDiscNamesEveryGTAVPackage(t *testing.T) {
+	mand, ok := RequiresMandatoryInstallDisc(0x545408A7)
+	if !ok {
+		t.Fatal("GTA V (545408A7) tem de exigir o conteudo de instalacao do Disco 1")
+	}
+	if mand.DiscNumber != 1 || mand.TitleIDHex() != "545408A7" || mand.TypeDir() != "00000002" {
+		t.Errorf("destino inesperado: disco %d, %s/%s", mand.DiscNumber, mand.TitleIDHex(), mand.TypeDir())
+	}
+	want := []string{"545408A700000000", "545408A700000001", "545408A700000002", "545408A700000003"}
+	if strings.Join(mand.Packages, ",") != strings.Join(want, ",") {
+		t.Errorf("pacotes = %v, esperado %v", mand.Packages, want)
+	}
+	if _, ok := RequiresMandatoryInstallDisc(0x545407F2); ok { // GTA IV
+		t.Error("GTA IV nao pode herdar o requisito de instalacao do GTA V")
+	}
+}
+
+// TestGTAVNameHintMatchesWholeWordsOnly covers the rows in the packaged catalogs that the
+// substring match filed under GTA V: the "v" of "IV", "Rev 1" and "DVD1", and a bare "GTA".
+func TestGTAVNameHintMatchesWholeWordsOnly(t *testing.T) {
+	for _, name := range []string{
+		"GTA 5", "GTA V", "GTA_V", "Grand Theft Auto 5", "Grand Theft Auto V",
+		"Grand Theft Auto 5 [RF][DVD2]",
+		"Grand Theft Auto V (World) (En,Fr,De,Es,It,Pt,Zh,Ko,Pl,Ru) (Disc 2) (Play)",
+		"Grand Theft Auto V (Japan) (Disc 1) (Install)",
+	} {
+		if got := GuessTitleIDFromMultiDiscName(name); got != 0x545408A7 {
+			t.Errorf("%q = %08X, esperado 545408A7", name, got)
+		}
+	}
+	for _, name := range []string{
+		"Grand Theft Auto IV (USA) (En,Fr,De,Es,It)",
+		"Grand Theft Auto IV Complete Edition [NTSCJ][DVD1]",
+		"GTA_IV",
+		"Grand Theft Auto - San Andreas (USA) (En,Es) (Rev 1)",
+		"Advance GTA (Japan) (En)",
+	} {
+		if got := GuessTitleIDFromMultiDiscName(name); got == 0x545408A7 {
+			t.Errorf("%q resolveu para o GTA V", name)
+		}
+	}
+}

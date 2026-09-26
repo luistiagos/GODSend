@@ -2,6 +2,7 @@
 package models
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -348,15 +349,21 @@ var titleNameHints = []titleNameHint{
 	{0x4D5307E8, []string{"mass effect"}, []string{"mass effect 2", "mass effect 3"}},
 	{0x5451086D, []string{"saints row", "third", "full package"}, nil},
 	{0x4B4D07F6, []string{"saints row iv", "national treasure"}, nil},
+	{0x545408A7, []string{"grand theft auto", "v"}, nil},
+	{0x545408A7, []string{"grand theft auto", "5"}, nil},
+	{0x545408A7, []string{"gta", "v"}, nil},
+	{0x545408A7, []string{"gta", "5"}, nil},
 }
 
-// GuessTitleIDFromMultiDiscName maps known catalog names to verified Title IDs.
+// GuessTitleIDFromMultiDiscName maps known catalog names to verified Title IDs. Every term has
+// to appear as whole words: "v" is a part of "IV", "Rev 1" and "DVD1", and matching it as a
+// substring filed Grand Theft Auto IV and San Andreas under Grand Theft Auto V.
 func GuessTitleIDFromMultiDiscName(name string) uint32 {
 	lower := strings.ToLower(name)
 	for _, hint := range titleNameHints {
 		matches := true
 		for _, required := range hint.required {
-			if !strings.Contains(lower, required) {
+			if !containsWords(lower, required) {
 				matches = false
 				break
 			}
@@ -365,7 +372,7 @@ func GuessTitleIDFromMultiDiscName(name string) uint32 {
 			continue
 		}
 		for _, forbidden := range hint.forbidden {
-			if strings.Contains(lower, forbidden) {
+			if containsWords(lower, forbidden) {
 				matches = false
 				break
 			}
@@ -375,6 +382,26 @@ func GuessTitleIDFromMultiDiscName(name string) uint32 {
 		}
 	}
 	return 0
+}
+
+// containsWords reports whether term occurs in s with no letter or digit touching either end.
+func containsWords(s, term string) bool {
+	for from := 0; from < len(s); {
+		i := strings.Index(s[from:], term)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(term)
+		if (start == 0 || !isWordByte(s[start-1])) && (end == len(s) || !isWordByte(s[end])) {
+			return true
+		}
+		from = start + 1
+	}
+	return false
+}
+
+func isWordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
 }
 
 // IsContentDiscPlaceholderTitleID returns true for generic installer XEX IDs.
@@ -391,4 +418,37 @@ func UnsupportedMultiDiscReason(name string) string {
 		return "Watch Dogs requer combinar os arquivos installation1/installation2 dos dois discos; a instalacao automatica de um disco isolado foi bloqueada"
 	}
 	return ""
+}
+
+// MandatoryInstallDiscInfo is the content an install disc writes and without which the
+// playable disc of the same release cannot boot: every package, by name, under
+// Content/0000000000000000/<TitleID>/<ContentType>/.
+type MandatoryInstallDiscInfo struct {
+	TitleID     uint32
+	ContentType uint32
+	DiscNumber  byte
+	Packages    []string
+}
+
+// TitleIDHex is the Title ID as the console names its content folder.
+func (m MandatoryInstallDiscInfo) TitleIDHex() string { return fmt.Sprintf("%08X", m.TitleID) }
+
+// TypeDir is the content-type folder the packages live in.
+func (m MandatoryInstallDiscInfo) TypeDir() string { return fmt.Sprintf("%08X", m.ContentType) }
+
+// mandatoryInstallDiscs lists only titles whose install set is known package by package: a
+// title listed without it would have to accept any file as the install, which is what let a
+// stray file stand in for Grand Theft Auto V's Disc 1. GTA V's Disc 1 installs exactly these
+// four packages, and the playable disc hangs on its loading screen without them.
+var mandatoryInstallDiscs = map[uint32]MandatoryInstallDiscInfo{
+	0x545408A7: {TitleID: 0x545408A7, ContentType: 0x00000002, DiscNumber: 1, Packages: []string{
+		"545408A700000000", "545408A700000001", "545408A700000002", "545408A700000003",
+	}},
+}
+
+// RequiresMandatoryInstallDisc reports whether titleID is a known game whose playable
+// disc cannot boot without its companion installation/content disc.
+func RequiresMandatoryInstallDisc(titleID uint32) (MandatoryInstallDiscInfo, bool) {
+	info, ok := mandatoryInstallDiscs[titleID]
+	return info, ok
 }

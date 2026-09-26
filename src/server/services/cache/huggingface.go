@@ -90,6 +90,10 @@ func (s *HuggingFaceService) Build(platform string) {
 			s.App.Logf("HUGGINGFACE CACHE: ignoring invalid item path=%q link=%q", item.Path, item.Link)
 			continue
 		}
+		if isKnownIncompleteHuggingFaceURL(item.Link) {
+			s.App.Logf("HUGGINGFACE CACHE: ignoring known incomplete release path=%q link=%q", item.Path, item.Link)
+			continue
+		}
 		name := item.Path
 		for _, suffix := range []string{".7z", ".zip", ".rar", " 7z", " zip", " rar"} {
 			if strings.HasSuffix(strings.ToLower(name), suffix) {
@@ -116,6 +120,13 @@ func (s *HuggingFaceService) Build(platform string) {
 			}
 		}
 	}
+	// If grand theft auto 5 is available in full, ensure gta 5 points to it
+	if fullGTA, ok := entries["hf_"+platform+"\x00grand theft auto 5"]; ok {
+		if _, exists := entries["hf_"+platform+"\x00gta 5"]; !exists {
+			entries["hf_"+platform+"\x00gta 5"] = fullGTA
+			games = append(games, "GTA 5")
+		}
+	}
 	if len(games) == 0 {
 		s.IA.preserveExistingCache("hf_"+platform, "HUGGINGFACE", fmt.Errorf("rebuild returned no valid downloadable games"))
 		return
@@ -126,6 +137,11 @@ func (s *HuggingFaceService) Build(platform string) {
 	s.IA.SaveCacheToDisk("hf_"+platform, games, entries)
 	s.IA.SetBuildState("hf_"+platform, "ready", 1, 1)
 	s.App.Logf("HUGGINGFACE CACHE: Complete — %d games", len(games))
+}
+
+func isKnownIncompleteHuggingFaceURL(raw string) bool {
+	lower := strings.ToLower(raw)
+	return strings.Contains(lower, "gta%205%20%287.61%29.7z") || strings.Contains(lower, "gta 5 (7.61).7z")
 }
 
 func validHuggingFaceDownloadURL(raw string) bool {
@@ -145,8 +161,13 @@ func sanitizeHuggingFaceCache(platform string, games []string, entries map[strin
 	prefix := platform + "\x00"
 	cleanEntries := make(map[string]models.IAGameEntry, len(entries))
 	for key, entry := range entries {
-		if strings.HasPrefix(key, prefix) && validHuggingFaceDownloadURL(entry.FileName) {
+		if strings.HasPrefix(key, prefix) && validHuggingFaceDownloadURL(entry.FileName) && !isKnownIncompleteHuggingFaceURL(entry.FileName) {
 			cleanEntries[key] = entry
+		}
+	}
+	if fullGTA, ok := cleanEntries[prefix+"grand theft auto 5"]; ok {
+		if _, exists := cleanEntries[prefix+"gta 5"]; !exists {
+			cleanEntries[prefix+"gta 5"] = fullGTA
 		}
 	}
 	cleanGames := make([]string, 0, len(games))
