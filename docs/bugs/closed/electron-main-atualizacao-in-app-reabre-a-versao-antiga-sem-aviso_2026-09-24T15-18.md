@@ -189,7 +189,7 @@ modal fica em **"Reiniciando..."** com os dois botões desabilitados, e o erro s
 - **Doc-sync ao corrigir:** `docs/ATUALIZACAO-AUTOMATICA.md` descreve "substituição atômica" — é um
   `Copy-Item` sobre o executável em uso, com relançamento incondicional.
 
-## Resolução (v2.12.100)
+## Resolução (v2.12.101)
 
 - **T1** — `AppUpdateModal.handleApplyAndRestart` lê `ok`; em `ok: false` vai para `error` com a
   mensagem, os passos manuais e o botão **Mostrar arquivo baixado** (`update:show-downloaded-file`).
@@ -212,7 +212,7 @@ modal fica em **"Reiniciando..."** com os dois botões desabilitados, e o erro s
   **Conferido vermelho→verde:** o script antigo, no mesmo cenário, termina com `attempts=20` e o
   alvo inalterado — a reprodução do campo. **Não coberto por teste:** o modal tratando `ok: false`
   (o renderer não tem harness de componente; coberto por typecheck e leitura).
-- **Limite conhecido:** quem está em ≤ 2.12.99 aplica a 2.12.100 com o script **antigo** e cai no
+- **Limite conhecido:** quem está em ≤ 2.12.99 aplica a 2.12.101 com o script **antigo** e cai no
   mesmo defeito uma última vez. Essa migração precisa do caminho manual (e do guia do agente de
   WhatsApp, bug registrado no repositório do agente).
 - **Não verificado:** H1 com o portable real (Process Monitor). O teste reproduz o mecanismo, não a
