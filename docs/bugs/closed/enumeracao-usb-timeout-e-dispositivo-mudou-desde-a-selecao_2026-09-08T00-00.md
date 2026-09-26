@@ -39,6 +39,12 @@ a `toolsBadAvatarListDrives({ fresh: true })` no mount (`useEffect`), forçando 
 probe de integridade a cada visita de tela. Corrigido na v2.12.99 para passar `{ fresh: false }` no
 mount e reservar `{ fresh: true }` estritamente para o clique manual do usuário no botão "Atualizar".
 
+Na **triagem de 2026-09-26**, foram identificados 19 novos reports (IDs 8675, 8638, 8635, 8634, 8633,
+8629, 8617, 8606, 8546, 8545, 8510, 8511, 8505, 8504, 8468, 8356, 8339, 8337, 8311). Destes, 18
+ocorreram em versões anteriores à correção da v2.12.99 (v2.12.78, v2.12.81, v2.12.97 e v2.12.98) e
+apenas 1 ocorrência na v2.12.99 (ID 8468), causada por saturação extrema de I/O durante a retomada
+concorrente de fila de 8 jogos com download HTTP paralelo em 16 conexões.
+
 ## Sintoma
 
 Print 1, na faixa de erro do card **Dispositivo conectado**:
