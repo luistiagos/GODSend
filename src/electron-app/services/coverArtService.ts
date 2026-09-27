@@ -119,13 +119,39 @@ const CURATED_TITLE_IDS: Record<string, string | string[]> = {
 export function normalizeTitleKey(s: string): string {
   return String(s || "")
     .toLowerCase()
+    .replace(/&#0*39;/gi, "'")
+    .replace(/&amp;/gi, " ")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#?\w+;/g, " ")
+    .replace(/[®™©]/g, "")
     .replace(/\s*\(.*?\)/g, "")
     .replace(/\s*\[.*?\]/g, "")
     .replace(/grand thief auto/gi, "grand theft auto")
     .replace(/a era do gelo/gi, "ice age")
-    .replace(/['":;,.!?_~-]/g, " ")
+    .replace(/['":;,.!?_~&/\\-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function normalizeArticles(s: string): string {
+  return String(s || "")
+    .replace(/\b(the|a|an)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function stripPossessives(s: string): string {
+  return String(s || "")
+    .replace(/\b s \b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export const BRAND_PREFIX_REGEX = /^(EA Sports|Tom Clancy's|Tom Clancys|Peter Jackson's|Sid Meier's|James Bond(?: 007)?|Disney's|Disneys|Disney|LEGO|Lego|Marvel's|Marvels|Marvel|Adidas)\s+/i;
+
+export function extractBrandPrefix(s: string): string | null {
+  const m = String(s || "").match(BRAND_PREFIX_REGEX);
+  return m ? m[1].trim() : null;
 }
 
 function indexTitleInMap(rawTitle: string, tid: string): void {
@@ -133,10 +159,24 @@ function indexTitleInMap(rawTitle: string, tid: string): void {
   const id = tid.toUpperCase();
   const n = normalizeTitleKey(rawTitle);
   if (!n) return;
-  if (!titleToIdMap.has(n)) {
-    titleToIdMap.set(n, new Set());
+
+  const addKey = (k: string) => {
+    if (!k) return;
+    if (!titleToIdMap.has(k)) {
+      titleToIdMap.set(k, new Set());
+    }
+    titleToIdMap.get(k)!.add(id);
+  };
+
+  addKey(n);
+  const noArt = normalizeArticles(n);
+  if (noArt && noArt !== n) addKey(noArt);
+  const noPoss = stripPossessives(n);
+  if (noPoss && noPoss !== n) addKey(noPoss);
+  if (noArt && noPoss) {
+    const both = stripPossessives(noArt);
+    if (both && both !== noArt && both !== noPoss) addKey(both);
   }
-  titleToIdMap.get(n)!.add(id);
 }
 
 export function ensureTitleDatabaseLoaded(): void {
@@ -232,7 +272,11 @@ const LEGACY_CORRUPTED_CACHE_PREFIXES = [
   "grand_theft_auto_-_episodes_from_liberty_city",
   "grand_theft_auto_san_andreas",
   "gta_san_andreas_hd_br",
-  "grand_thief_auto"
+  "grand_thief_auto",
+  "lego_the_lord_of_the_rings",
+  "lego_lord_of_the_rings",
+  "lego_marvel_avengers",
+  "lego_marvel_s_avengers"
 ];
 
 let legacyCachePurged = false;
@@ -308,16 +352,21 @@ export function cleanTitleForSearch(raw: string): string {
     .trim();
 }
 
-/** Generate a prioritized list of search queries / TitleIDs for a game title. */
-export function generateSearchCandidates(gameName: string): string[] {
+export interface SearchCandidate {
+  term: string;
+  requiredBrand?: string;
+}
+
+/** Generate a prioritized list of search queries / TitleIDs for a game title, with brand metadata. */
+export function generateSearchCandidateEntries(gameName: string): SearchCandidate[] {
   ensureTitleDatabaseLoaded();
-  const candidates: string[] = [];
+  const candidateMap = new Map<string, string | undefined>();
   const discoveredTitleIds = new Set<string>();
 
-  const add = (q: string) => {
+  const add = (q: string, requiredBrand?: string) => {
     q = q.trim().replace(/\s+/g, " ");
-    if (q && !candidates.includes(q)) {
-      candidates.push(q);
+    if (q && !candidateMap.has(q)) {
+      candidateMap.set(q, requiredBrand);
     }
   };
 
@@ -331,19 +380,34 @@ export function generateSearchCandidates(gameName: string): string[] {
   // 1. Check if raw gameName is already an 8-hex TitleID
   const trimmed = gameName.trim();
   if (/^[0-9A-F]{8}$/i.test(trimmed)) {
-    return [trimmed.toUpperCase()];
+    return [{ term: trimmed.toUpperCase() }];
   }
 
   // 2. Base clean title
   const clean = cleanTitleForSearch(gameName);
   if (!clean) return [];
 
+  const lookupTitleIds = (normKey: string) => {
+    const keysToCheck = [normKey];
+    const noArt = normalizeArticles(normKey);
+    if (noArt && !keysToCheck.includes(noArt)) keysToCheck.push(noArt);
+    const noPoss = stripPossessives(normKey);
+    if (noPoss && !keysToCheck.includes(noPoss)) keysToCheck.push(noPoss);
+    if (noArt && noPoss) {
+      const both = stripPossessives(noArt);
+      if (both && !keysToCheck.includes(both)) keysToCheck.push(both);
+    }
+
+    for (const k of keysToCheck) {
+      const ids = titleToIdMap.get(k);
+      if (ids) {
+        for (const id of ids) addId(id);
+      }
+    }
+  };
+
   // Check direct TitleID lookup on normalized clean title
-  const cleanNorm = normalizeTitleKey(clean);
-  const cleanIds = titleToIdMap.get(cleanNorm);
-  if (cleanIds) {
-    for (const id of cleanIds) addId(id);
-  }
+  lookupTitleIds(normalizeTitleKey(clean));
 
   // 3. Typo corrections and common replacements
   let replaced = clean
@@ -358,55 +422,43 @@ export function generateSearchCandidates(gameName: string): string[] {
   add(replaced);
 
   // Check TitleID on replaced
-  const replacedNorm = normalizeTitleKey(replaced);
-  const replacedIds = titleToIdMap.get(replacedNorm);
-  if (replacedIds) {
-    for (const id of replacedIds) addId(id);
-  }
+  lookupTitleIds(normalizeTitleKey(replaced));
 
   // 4. Franchise expansions & synonyms
   // GTA expansions
   if (/\bgrand theft auto\b/i.test(replaced)) {
     const gtaShort = replaced.replace(/\bgrand theft auto\b/gi, "GTA");
     add(gtaShort);
-    const gtaShortNorm = normalizeTitleKey(gtaShort);
-    const gtaIds = titleToIdMap.get(gtaShortNorm);
-    if (gtaIds) { for (const id of gtaIds) addId(id); }
+    lookupTitleIds(normalizeTitleKey(gtaShort));
   }
   if (/\bgta\b/i.test(replaced)) {
     const gtaLong = replaced.replace(/\bgta\b/gi, "Grand Theft Auto");
     add(gtaLong);
-    const gtaLongNorm = normalizeTitleKey(gtaLong);
-    const gtaIds = titleToIdMap.get(gtaLongNorm);
-    if (gtaIds) { for (const id of gtaIds) addId(id); }
+    lookupTitleIds(normalizeTitleKey(gtaLong));
   }
 
   // Call of Duty expansions
   if (/\bcall of duty\b/i.test(replaced)) {
     const codShort = replaced.replace(/\bcall of duty\b/gi, "COD");
     add(codShort);
-    const codIds = titleToIdMap.get(normalizeTitleKey(codShort));
-    if (codIds) { for (const id of codIds) addId(id); }
+    lookupTitleIds(normalizeTitleKey(codShort));
   }
   if (/\bcod\b/i.test(replaced)) {
     const codLong = replaced.replace(/\bcod\b/gi, "Call of Duty");
     add(codLong);
-    const codIds = titleToIdMap.get(normalizeTitleKey(codLong));
-    if (codIds) { for (const id of codIds) addId(id); }
+    lookupTitleIds(normalizeTitleKey(codLong));
   }
 
   // Need for Speed expansions
   if (/\bneed for speed\b/i.test(replaced)) {
     const nfsShort = replaced.replace(/\bneed for speed\b/gi, "NFS");
     add(nfsShort);
-    const nfsIds = titleToIdMap.get(normalizeTitleKey(nfsShort));
-    if (nfsIds) { for (const id of nfsIds) addId(id); }
+    lookupTitleIds(normalizeTitleKey(nfsShort));
   }
   if (/\bnfs\b/i.test(replaced)) {
     const nfsLong = replaced.replace(/\bnfs\b/gi, "Need for Speed");
     add(nfsLong);
-    const nfsIds = titleToIdMap.get(normalizeTitleKey(nfsLong));
-    if (nfsIds) { for (const id of nfsIds) addId(id); }
+    lookupTitleIds(normalizeTitleKey(nfsLong));
   }
 
   // Skyrim & Elder Scrolls
@@ -447,40 +499,55 @@ export function generateSearchCandidates(gameName: string): string[] {
     [/\b1\b/g, "I"], [/\bI\b/gi, "1"],
   ];
 
-  const currentCandidates = [...candidates];
+  const currentCandidates = Array.from(candidateMap.keys());
   for (const c of currentCandidates) {
     if (/^[0-9A-F]{8}$/i.test(c)) continue;
     for (const [pattern, replacement] of numMap) {
       if (pattern.test(c)) {
         const converted = c.replace(pattern, replacement);
-        add(converted);
-        const convNorm = normalizeTitleKey(converted);
-        const convIds = titleToIdMap.get(convNorm);
-        if (convIds) {
-          for (const id of convIds) addId(id);
-        }
+        const reqBrand = candidateMap.get(c);
+        add(converted, reqBrand);
+        lookupTitleIds(normalizeTitleKey(converted));
       }
     }
   }
 
   // 6. Strip brand prefixes safely
-  const stripBrands = (q: string) => {
-    return q
-      .replace(/^(EA Sports|Tom Clancy's|Tom Clancys|Peter Jackson's|Sid Meier's|James Bond|James Bond 007|Disney's|Disneys|Disney|LEGO|Lego|Marvel's|Marvels|Marvel|Adidas)\s+/i, "")
-      .trim();
-  };
-  add(stripBrands(clean));
-  add(stripBrands(replaced));
+  const cleanBrand = extractBrandPrefix(clean);
+  const replacedBrand = extractBrandPrefix(replaced);
+
+  if (cleanBrand) {
+    const strippedClean = clean.replace(BRAND_PREFIX_REGEX, "").trim();
+    if (strippedClean && strippedClean !== clean) {
+      add(strippedClean, cleanBrand);
+    }
+  }
+  if (replacedBrand) {
+    const strippedReplaced = replaced.replace(BRAND_PREFIX_REGEX, "").trim();
+    if (strippedReplaced && strippedReplaced !== replaced) {
+      add(strippedReplaced, replacedBrand);
+    }
+  }
 
   // Prioritize discovered Title IDs at the very top
-  const idList = Array.from(discoveredTitleIds);
-  const textList = candidates.filter((c) => !/^[0-9A-F]{8}$/i.test(c));
+  const idEntries: SearchCandidate[] = Array.from(discoveredTitleIds).map((id) => ({ term: id }));
+  const textEntries: SearchCandidate[] = [];
+  for (const [term, requiredBrand] of candidateMap.entries()) {
+    if (!/^[0-9A-F]{8}$/i.test(term)) {
+      textEntries.push({ term, requiredBrand });
+    }
+  }
 
-  return [...idList, ...textList];
+  return [...idEntries, ...textEntries];
+}
+
+/** Generate a prioritized list of search queries / TitleIDs for a game title. */
+export function generateSearchCandidates(gameName: string): string[] {
+  return generateSearchCandidateEntries(gameName).map((c) => c.term);
 }
 
 /** Check whether a candidate item name from XboxUnity is a false positive match for the search term. */
-function isValidUnityCoverMatch(searchTerm: string, item: any): boolean {
+export function isValidUnityCoverMatch(searchTerm: string, item: any, requiredBrand?: string): boolean {
   if (!item || typeof item !== "object") return false;
   // If search term was an exact 8-hex TitleID, XboxUnity returns exact matches
   if (/^[0-9A-F]{8}$/i.test(searchTerm)) return true;
@@ -488,6 +555,23 @@ function isValidUnityCoverMatch(searchTerm: string, item: any): boolean {
   const itemName = item.name ? normalizeTitleKey(item.name) : "";
   const queryNorm = normalizeTitleKey(searchTerm);
   if (!itemName || !queryNorm) return true;
+
+  // If candidate was generated by stripping a brand prefix, ensure the returned item still belongs to that brand
+  if (requiredBrand) {
+    const brandLower = requiredBrand.trim().toLowerCase();
+    if (brandLower === "lego") {
+      if (!itemName.includes("lego")) return false;
+    } else {
+      const wordRegex = new RegExp(`\\b${queryNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+      if (!wordRegex.test(itemName)) return false;
+    }
+  }
+
+  // General whole-word check for short queries (like "MMA" matching "Supreme Commander")
+  if (queryNorm.length <= 4) {
+    const shortWordRegex = new RegExp(`\\b${queryNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (!shortWordRegex.test(itemName)) return false;
+  }
 
   // Specific guard for GTA franchise to prevent "Grand Theft Auto Vice City" matching "Grand Theft Auto V"
   if (/\b(v|5)\b/.test(queryNorm) && !/\b(v|5)\b/.test(itemName)) return false;
@@ -502,7 +586,10 @@ function isValidUnityCoverMatch(searchTerm: string, item: any): boolean {
   return true;
 }
 
-export async function fetchXboxUnityCoverWithMeta(searchTerm: string): Promise<{ buf: Buffer; titleId: string } | null> {
+export async function fetchXboxUnityCoverWithMeta(
+  searchTerm: string,
+  requiredBrand?: string
+): Promise<{ buf: Buffer; titleId: string } | null> {
   const url     = `http://xboxunity.net/api/Covers/${encodeURIComponent(searchTerm)}`;
   const jsonBuf = await fetchHttpImage(url);
   if (!jsonBuf || jsonBuf.length === 0) return null;
@@ -511,7 +598,7 @@ export async function fetchXboxUnityCoverWithMeta(searchTerm: string): Promise<{
   if (!Array.isArray(items) || items.length === 0) return null;
 
   // Filter out false positive matches on text search
-  const validItems = items.filter((item) => isValidUnityCoverMatch(searchTerm, item));
+  const validItems = items.filter((item) => isValidUnityCoverMatch(searchTerm, item, requiredBrand));
   if (validItems.length === 0) return null;
 
   const sorted = [...validItems].sort((a, b) => {
@@ -532,7 +619,10 @@ export async function fetchXboxUnityCoverWithMeta(searchTerm: string): Promise<{
   return { buf, titleId };
 }
 
-export async function searchXboxUnityCovers(searchTerm: string): Promise<XboxUnityCoverEntry[]> {
+export async function searchXboxUnityCovers(
+  searchTerm: string,
+  requiredBrand?: string
+): Promise<XboxUnityCoverEntry[]> {
   const url     = `http://xboxunity.net/api/Covers/${encodeURIComponent(searchTerm)}`;
   const jsonBuf = await fetchHttpImage(url);
   if (!jsonBuf || jsonBuf.length === 0) return [];
@@ -540,7 +630,7 @@ export async function searchXboxUnityCovers(searchTerm: string): Promise<XboxUni
   try { items = JSON.parse(jsonBuf.toString("utf8")); } catch { return []; }
   if (!Array.isArray(items)) return [];
 
-  const validItems = items.filter((item) => isValidUnityCoverMatch(searchTerm, item));
+  const validItems = items.filter((item) => isValidUnityCoverMatch(searchTerm, item, requiredBrand));
 
   return validItems
     .map((item) => ({
@@ -586,7 +676,10 @@ function extractTitleIdFromStoreProductJsonStr(jsonStr: string): string {
   return "";
 }
 
-export async function fetchMicrosoftStoreTitleIdForBrowse(searchTerm: string): Promise<string> {
+export async function fetchMicrosoftStoreTitleIdForBrowse(
+  searchTerm: string,
+  requiredBrand?: string
+): Promise<string> {
   const p = new URLSearchParams({
     languages:              "en-us",
     market:                 "US",
@@ -610,6 +703,9 @@ export async function fetchMicrosoftStoreTitleIdForBrowse(searchTerm: string): P
   for (const fam of asj.Results || []) {
     for (const pr of fam.Products || []) {
       if (pr?.ProductId && pr?.Title) {
+        if (requiredBrand && requiredBrand.toLowerCase() === "lego") {
+          if (!String(pr.Title).toLowerCase().includes("lego")) continue;
+        }
         candidates.push({ productId: pr.ProductId, title: String(pr.Title), type: pr.Type || "" });
       }
     }
@@ -643,21 +739,37 @@ export async function fetchMicrosoftStoreTitleIdForBrowse(searchTerm: string): P
   return "";
 }
 
-export async function tryXboxCdnFromMicrosoftStoreSearch(searchTerm: string): Promise<Buffer | null> {
-  const hex = await fetchMicrosoftStoreTitleIdForBrowse(searchTerm);
+export async function tryXboxCdnFromMicrosoftStoreSearch(
+  searchTerm: string,
+  requiredBrand?: string
+): Promise<Buffer | null> {
+  const hex = await fetchMicrosoftStoreTitleIdForBrowse(searchTerm, requiredBrand);
   if (!hex) return null;
   const xboxUrl = `http://catalog.xboxlive.com/Catalog/Product/CoverArt/${hex}/en-US/1`;
   const xboxBuf = await fetchHttpImage(xboxUrl);
   return xboxBuf && xboxBuf.length >= 100 ? xboxBuf : null;
 }
 
-export async function fetchWikipediaCover(articleTitle: string): Promise<Buffer | null> {
+export async function fetchWikipediaCover(
+  articleTitle: string,
+  requiredBrand?: string
+): Promise<Buffer | null> {
   const url     = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(articleTitle)}`;
   const jsonBuf = await fetchHttpImage(url);
   if (!jsonBuf) return null;
   let parsed: any;
   try { parsed = JSON.parse(jsonBuf.toString("utf8")); } catch { return null; }
   if (parsed.type !== "standard") return null;
+
+  if (requiredBrand && requiredBrand.toLowerCase() === "lego") {
+    const titleNorm = String(parsed.title || "").toLowerCase();
+    const descNorm = String(parsed.description || "").toLowerCase();
+    const extractNorm = String(parsed.extract || "").toLowerCase();
+    if (!titleNorm.includes("lego") && !descNorm.includes("lego") && !extractNorm.includes("lego")) {
+      return null;
+    }
+  }
+
   const imgUrl = parsed.originalimage?.source || parsed.thumbnail?.source;
   if (!imgUrl) return null;
   const buf = await fetchHttpImage(imgUrl);

@@ -17,6 +17,7 @@ import {
   browseCoverCache,
   baseTitleForCover,
   generateSearchCandidates,
+  generateSearchCandidateEntries,
   fetchXboxUnityCoverWithMeta,
   tryXboxCdnFromMicrosoftStoreSearch,
   fetchWikipediaCover,
@@ -189,13 +190,13 @@ export function register(ipcMain: IpcMain): void {
       }
 
       // Generate search queries
-      const candidates = generateSearchCandidates(gameName);
+      const candidates = generateSearchCandidateEntries(gameName);
 
       let imgBuf: Buffer | null = null;
 
       // ── 1. XboxUnity Covers API (looping through candidates) ─────────────────
       for (const cand of candidates) {
-        let meta = await fetchXboxUnityCoverWithMeta(cand);
+        let meta = await fetchXboxUnityCoverWithMeta(cand.term, cand.requiredBrand);
         if (meta) {
           imgBuf = meta.buf;
           if (meta.titleId) {
@@ -210,7 +211,7 @@ export function register(ipcMain: IpcMain): void {
       // ── 2. Microsoft Store suggestion → Title ID in product metadata → CDN (looping through candidates) ────
       if (!imgBuf) {
         for (const cand of candidates) {
-          imgBuf = await tryXboxCdnFromMicrosoftStoreSearch(cand);
+          imgBuf = await tryXboxCdnFromMicrosoftStoreSearch(cand.term, cand.requiredBrand);
           if (imgBuf) break;
         }
       }
@@ -218,9 +219,9 @@ export function register(ipcMain: IpcMain): void {
       // ── 3. Wikipedia REST API (looping through candidates) ───────────────────
       if (!imgBuf) {
         for (const cand of candidates) {
-          const wikiTitles = [`${cand} (video game)`, cand];
+          const wikiTitles = [`${cand.term} (video game)`, cand.term];
           for (const title of wikiTitles) {
-            imgBuf = await fetchWikipediaCover(title);
+            imgBuf = await fetchWikipediaCover(title, cand.requiredBrand);
             if (imgBuf) break;
           }
           if (imgBuf) break;

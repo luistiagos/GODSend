@@ -1,5 +1,6 @@
 # Bug: o catálogo mostra a capa de outro jogo quando a busca de capa cai no título sem a marca ("LEGO The Lord of the Rings" aparece com a capa de "War in the North")
 
+- **Estado:** corrigido no código em 2026-09-27, v2.12.104; testes e build aprovados.
 - **Detectado em:** 2026-09-26 11:24 (chamado #85 do painel, sessão `232224620290076@lid`)
 - **Origem:** conversa de suporte + leitura de `src/electron-app/services/coverArtService.ts::generateSearchCandidates` e `src/electron-app/ipc/browseHandlers.ts` (`browse:fetch-cover`) + reprodução contra a API real do XboxUnity
 - **Classe:** falha funcional (UI do catálogo)
@@ -105,3 +106,26 @@ franquia, e a API devolve o jogo mais conhecido dela.
 4. **Purgar do cache em disco as capas gravadas com chave afetada**, como `purgeCorruptedLegacyCoverCache`
    já faz para GTA, senão a capa errada continua para quem já abriu o catálogo.
 5. Estender a medição aos outros prefixos de `stripBrands` antes de fechar.
+ 
+## Correção — 2026-09-27 (v2.12.104)
+ 
+Todas as 5 tarefas propostas foram implementadas e validadas:
+ 
+1. **Guarda de marca removida (`isValidUnityCoverMatch`, `generateSearchCandidateEntries`):**
+   - Quando um candidato é gerado pela remoção de prefixo de marca (`stripBrands`), a marca original é registrada em `requiredBrand`.
+   - Em `isValidUnityCoverMatch`, se `requiredBrand === "LEGO"`, exige estritamente que `item.name` contenha `"lego"`. Títulos de outras franquias devolvidos pela API (como *The Lord of the Rings: War in the North* para busca de *The Lord of the Rings*, ou *Marvel Avengers: Battle for Earth* para busca de *Marvel Avengers*) são sumariamente rejeitados como falsos positivos.
+   - O metadado `requiredBrand` foi estendido às consultas de fallback (Microsoft Store e Wikipedia) para prevenir desvios idênticos.
+2. **Normalização de artigos e possessivos no lookup de TitleID local (`normalizeArticles`, `stripPossessives`):**
+   - Ao indexar e ao buscar nos datasets locais (`iso2god_titles.jsonl`, `xboxdb_browse_pairs.json`, `gist_title_ids.json`), os artigos (`the`, `a`, `an`) e sufixos possessivos (`'s` normalizado em `s`) são indexados em chave alternativa.
+   - Entidades HTML (`&#039;`, `&amp;`) e símbolos especiais (`®`, `™`) são sanitizados.
+   - Com isso, `LEGO The Lord of the Rings` casa diretamente com `LEGO Lord of the Rings` (`5752081D`) e `LEGO Marvel Avengers` casa com `LEGO® Marvel's Avengers` (`5752084F`), posicionando o TitleID exato no índice 0 (`candidates[0]`) antes de qualquer busca textual.
+3. **`UsbGamesPage` prefere TitleID da pasta:**
+   - Na renderização de cards em `UsbGamesPage.tsx`, se `game.titleId` estiver presente, consulta primeiro a capa pelo TitleID exato; somente se não houver capa para o TitleID faz fallback para busca por `game.name`.
+4. **Purga do cache em disco (`LEGACY_CORRUPTED_CACHE_PREFIXES`):**
+   - Adicionadas as chaves corrompidas `lego_the_lord_of_the_rings`, `lego_lord_of_the_rings`, `lego_marvel_avengers` e `lego_marvel_s_avengers` à lista de prefixos expurgados automaticamente na inicialização via `purgeCorruptedLegacyCoverCache()`.
+5. **Medição dos outros prefixos de `stripBrands`:**
+   - Testadas as 65 entradas com prefixo de marca do catálogo `cache/xbox360.json` contra o dataset local e a API do XboxUnity.
+   - Prefixos de autor/estúdio como *Peter Jackson's* (*King Kong*) e *Sid Meier's* (*Civilization Revolution*), bem como *Disney* (*G-Force*) e *Adidas* (*miCoach*), representam jogos cujo título oficial na Xbox Live e XboxUnity é registrado sem o prefixo. Nesses casos, a remoção da marca é benéfica e essencial para encontrar o jogo real.
+   - Já para *LEGO*, todos os 21 títulos são adaptações onde a remoção da marca deixa o nome de uma franquia inteira externa; a exigência de `"lego"` no retorno elimina 100% dos falsos positivos observados. Adicionalmente, consultas curtas como `"MMA"` ganharam guarda de palavra inteira (`\bMMA\b`) evitando casar com substrings como *Supreme Commander*.
+- **Testes e Build:** 12 testes unitários em `coverArtService.test.cjs` (incluindo fixtures reais do XboxUnity para *War in the North* e *Battle for Earth*) e 239 testes no total de `test:safety` aprovados sem regressões.
+

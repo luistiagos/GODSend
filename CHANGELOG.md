@@ -9,6 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.104] - 2026-09-27
+
+### Fixed
+- **Prevenção de capas de outros jogos em títulos com prefixo de marca e normalização de TitleID local (`src/electron-app/services/coverArtService.ts`, `src/electron-app/ipc/browseHandlers.ts`, `src/electron-app/renderer/components/UsbGamesPage.tsx`)**:
+  - Corrige [o bug do catálogo](docs/bugs/closed/electron-browse-capa-de-outro-jogo-quando-a-busca-cai-no-titulo-sem-a-marca_2026-09-26T11-24.md) onde "LEGO The Lord of the Rings" exibia a capa de *The Lord of the Rings: War in the North* e "LEGO Marvel Avengers" exibia a de *Marvel Avengers: Battle for Earth*.
+  - **Guarda de marca removida:** Candidatos gerados por `stripBrands` agora carregam `requiredBrand`. Em `isValidUnityCoverMatch`, títulos devolvidos por termos com marca removida (ex: `The Lord of the Rings` derivado de `LEGO The Lord of the Rings`) devem estritamente conter a marca original (`"lego"`). Retornos de outras franquias externas são sumariamente descartados. O metadado também protege as buscas de fallback da Microsoft Store e Wikipedia.
+  - **Normalização de artigos e possessivos nos datasets locais:** A busca de TitleID local (`iso2god_titles.jsonl`, `xboxdb_browse_pairs.json`, `gist_title_ids.json`) normaliza artigos (`the`, `a`, `an`), sufixos possessivos (`'s` / `s`), entidades HTML (`&#039;`, `&amp;`) e símbolos especiais (`®`, `™`). Com isso, `LEGO The Lord of the Rings` resolve diretamente para `5752081D` e `LEGO Marvel Avengers` para `5752084F`, alocando o TitleID exato no topo dos candidatos (`candidates[0]`) antes de qualquer consulta textual.
+  - **Jogos instalados (`UsbGamesPage`):** O componente prefere o TitleID exato da pasta do jogo no pendrive/HD para consultar a capa, recorrendo ao nome do jogo apenas se não houver TitleID ou se a consulta pelo ID falhar.
+  - **Purga de cache legado:** Adicionadas chaves de capas previamente corrompidas (`lego_the_lord_of_the_rings`, `lego_lord_of_the_rings`, `lego_marvel_avengers`, `lego_marvel_s_avengers`) a `LEGACY_CORRUPTED_CACHE_PREFIXES` para limpeza automática em disco na inicialização.
+  - **Medição ampla de marcas:** Avaliadas todas as 65 entradas de marcas do catálogo contra o XboxUnity. Confirmado que marcas de autores/estúdios (como *Peter Jackson's* e *Sid Meier's*) e publicadores (*Disney*, *Adidas*) necessitam da remoção para casar com os nomes oficiais registrados sem o prefixo (*King Kong*, *Civilization Revolution*, *G-Force*, *miCoach*), ao passo que títulos *LEGO* são 100% adaptações onde a marca é obrigatória. Consultas curtas (ex: `MMA`) também receberam verificação de limites de palavra inteira (`\bMMA\b`) para não casar substrings alheias como *Supreme Commander*.
+  - Testes com fixtures reais do XboxUnity e 239 testes de segurança unitários aprovados sem regressões.
+
 ## [2.12.103] - 2026-09-26
 
 ### Fixed
