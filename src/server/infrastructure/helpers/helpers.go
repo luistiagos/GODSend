@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"godsend/app"
+	"godsend/models"
 	"godsend/utils"
 )
 
@@ -239,20 +240,43 @@ func FindFileByExt(dir, ext string) string {
 }
 
 // FindXEXFolder walks dir and returns the path of the folder directly
-// containing a default.xex file.
+// containing a default.xex file. When a rip carries more than one, the playable disc wins
+// over a known install disc: lexical order is not a disc order, and the ZTM release of Grand
+// Theft Auto V keeps its install disc in a "Disc2" folder that sorts before the game's own
+// default.xex — taking the first one delivered the installer as the game.
 func FindXEXFolder(dir string) string {
-	var xexFolder string
+	var folders []string
 	filepath.Walk(dir, func(p string, i os.FileInfo, e error) error {
 		if e != nil || i.IsDir() {
 			return nil
 		}
 		if strings.EqualFold(filepath.Base(p), "default.xex") {
-			xexFolder = filepath.Dir(p)
-			return io.EOF
+			folders = append(folders, filepath.Dir(p))
 		}
 		return nil
 	})
-	return xexFolder
+	if len(folders) == 0 {
+		return ""
+	}
+	for _, folder := range folders {
+		if !isInstallDiscFolder(folder) {
+			return folder
+		}
+	}
+	return folders[0]
+}
+
+// isInstallDiscFolder reports whether the default.xex in folder is a disc the compatibility
+// data knows as the installation/content disc of its title.
+func isInstallDiscFolder(folder string) bool {
+	info, err := utils.FolderXEXExecInfo(folder)
+	if err != nil {
+		return false
+	}
+	if mandatory, ok := models.RequiresMandatoryInstallDisc(info.TitleID); ok && mandatory.DiscNumber == info.DiscNumber {
+		return true
+	}
+	return models.DiscCompat(info.TitleID, info.DiscNumber).InstallType == "content"
 }
 
 // SystemTitleID is the dashboard/system title that every Kinect and speech package bundled

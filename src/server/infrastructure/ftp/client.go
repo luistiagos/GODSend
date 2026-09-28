@@ -16,6 +16,7 @@ import (
 	"godsend/app"
 	"godsend/infrastructure/helpers"
 	"godsend/models"
+	"godsend/utils"
 
 	goftp "github.com/jlaffaye/ftp"
 )
@@ -490,9 +491,14 @@ func (s *Service) TransferXEX(xexFolder, folderName string, conn *models.XboxCon
 	s.App.Logf("FTP XEX Dest: %s", base)
 	MkdirAll(fc, base)
 
+	// Another disc of the same title nested in the game folder is not part of the game.
+	nestedDiscs := utils.CompanionDiscFolders(xexFolder)
 	var totalSize int64
 	var totalFiles int
 	filepath.Walk(xexFolder, func(p string, i os.FileInfo, e error) error {
+		if e == nil && i.IsDir() && utils.WithinAnyDir(p, nestedDiscs) {
+			return filepath.SkipDir
+		}
 		if e == nil && !i.IsDir() {
 			totalFiles++
 			totalSize += i.Size()
@@ -504,6 +510,9 @@ func (s *Service) TransferXEX(xexFolder, folderName string, conn *models.XboxCon
 	var xferred int
 	xferStart := time.Now()
 	return filepath.Walk(xexFolder, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.IsDir() && utils.WithinAnyDir(path, nestedDiscs) {
+			return filepath.SkipDir
+		}
 		if err != nil || info.IsDir() {
 			return nil
 		}

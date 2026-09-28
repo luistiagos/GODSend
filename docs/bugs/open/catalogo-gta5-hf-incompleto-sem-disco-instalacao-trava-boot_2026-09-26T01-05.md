@@ -206,3 +206,57 @@ Cada teste novo foi conferido contra o defeito que protege. Reintroduzir a grava
 - [ ] Exercitar a conferência por FTP contra um console real com o Aurora. O servidor falso reproduz o comportamento documentado no código, não o servidor verdadeiro.
 - [ ] Acervo remoto (`digitalstoregamesproject`/`emuladores`): retirar `GTA 5 (7.61).7z` da API de ROMs e do dataset `luistiagos/xbx`. Enquanto isso, o app descarta a URL no rebuild e no cache salvo.
 - [ ] Atendimento: o bug cruzado existe em `digitalstoregamesproject`, em `docs/modules/chatbot-whatsapp/areas/prompt-kb/bugs/2026-09-26-agente-xbox-instrui-apagar-disco1-instalacao-gta5.md`. T1 (evidência) e T2 (caso de eval) estão commitadas. A T3, que ajusta a KB do `XBOX360_AGENT`, está sob a moratória de prompts e depende de aprovação do dono. A "Passada 2" desse doc lista o que esta correção muda para o agente, incluindo as mensagens novas do Companion. A KB só deve mudar depois que a 2.12.102 for publicada.
+
+## Validação de ponta a ponta no PC — 2026-09-27/28 (v2.12.103 reprovada, v2.12.105 aprovada)
+
+**Resultado: com a 2.12.103 publicada, nenhum cliente conseguia o GTA 5; a 2.12.105 entrega o jogo e o Disco 1 completos no pendrive.** Falta o boot no console.
+
+### Como foi medido
+
+Backend compilado do `HEAD`, rodando isolado (`GODSEND_HOME` e porta próprios, telemetria desligada), com uma pasta vazia no papel do pendrive (`/register?mode=local&local_root=...`) e o "GTA 5" enfileirado como o Electron faz (`install_type=god`). O cache de catálogo usado foi o empacotado. O provedor HuggingFace baixou `Grand.Theft.Auto.5.EUR.X360-ZTM.rar` do Archive.org (15.414.198.016 bytes, 14,7 GB), com o login automático da conta compartilhada (`ia_auth.go`) funcionando.
+
+### O que o arquivo real contém (não é o que a descrição do item dizia)
+
+| caminho no `.rar` | o que é |
+|---|---|
+| `Grand.Theft.Auto.5.EUR.X360-ZTM/default.xex` | **disco 2 de 2** (jogável), TitleID `545408A7`, MediaID `79E465C5` |
+| `Grand.Theft.Auto.5.EUR.X360-ZTM/Disc2/default.xex` | **disco 1 de 2** (instalador), MediaID `0C48794E` — apesar do nome da pasta |
+| `Grand.Theft.Auto.5.EUR.X360-ZTM/Disc2/content/0000000000000000/545408A7/00000002/` | os quatro pacotes `PIRS`, TitleID `545408A7`, tipo `0x2`, 1,8 a 2,1 GB cada |
+
+Não há `hdd1/content`. O instalador fica **dentro** da pasta do jogo.
+
+### 2.12.103: recusado com "release incompleta"
+
+Log do job: *"huggingface: release incompleta: GTA 5 exige o conteudo de instalacao do Disco 1 em Content/0000000000000000/545408A7/00000002, que nao veio no arquivo baixado nem esta no destino (faltam 545408A700000000, ...0001, ...0002, ...0003)"*, e o fallback não achou outra fonte. O pendrive ficou intocado.
+
+Causa, aberta no código:
+1. `FindXEXFolder` (`helpers.go`) devolvia o primeiro `default.xex` do `filepath.Walk`, que é lexical: `Disc2` (D maiúsculo) vem antes de `default.xex`. **O instalador foi tomado pelo jogo** — exatamente o risco anotado na lista acima, com os nomes trocados.
+2. `FindCompanionContentPayloads(extDir, pastaDoJogo)` (`multi_disc.go`) pula a pasta do jogo inteira, e os pacotes moravam dentro dela.
+3. A barreira da 2.12.102 fez o que devia: recusou entregar um jogo que não daria boot. Sem ela, o cliente receberia o instalador em `Games`.
+
+Por que os testes da 2.12.102 não pegaram: `TestGTAVArchiveWithTheWholeReleaseIsDelivered` montava os pacotes em `hdd1/content`, ao lado do jogo, a partir da descrição do item; ninguém tinha aberto o `.rar`.
+
+### Correção (v2.12.105)
+
+- `FindXEXFolder`: com mais de um `default.xex`, vence o que não é disco de instalação conhecido (`DiscCompat`/`mandatoryInstallDiscs`, pelo TitleID e número de disco do executável). Com um só, nada muda.
+- `utils.CompanionDiscFolders`: subpasta do jogo com outro disco do mesmo título. Ela não é copiada com o jogo (`buildLocalCopyManifest`, `TransferXEX`, `CreateZipFromDir`, `findFileExceedingFAT32Limit`) e é procurada por `FindCompanionContentPayloads`.
+- Testes novos com o layout medido: `TestZTMReleaseDeliversTheGameAndItsNestedInstallDisc`, `TestFindXEXFolderPrefersThePlayableDiscOverANestedInstallDisc`, `TestFindXEXFolderPrefersThePlayableDiscOverASiblingInstallDisc`, `TestFindXEXFolderKeepsTheFirstFolderWhenNothingIsAnInstallDisc`, `TestFindCompanionContentPayloadsLooksInsideANestedInstallDisc`, `TestCompanionDiscFoldersFindsTheInstallDiscNestedInTheGame`, `TestCompanionDiscFoldersIgnoresWhatIsNotAnotherDisc`. Rodados contra o código da 2.12.104, os quatro que tocam a escolha e a busca **falham** (*"veio ...\Disc2"*); com a correção, passam.
+
+### 2.12.105: entregue
+
+Mesmo arquivo, mesmo destino, reaproveitando o download:
+
+| no pendrive | conferido |
+|---|---|
+| `Games/Grand.Theft.Auto.5.EUR.X360-ZTM - 545408A7/` (8,15 GB) | `default.xex` = disco **2 de 2**, TitleID `545408A7`; **nenhuma** pasta `Disc2` dentro |
+| `Content/0000000000000000/545408A7/00000002/545408A70000000[0-3]` | os quatro, `PIRS`, TitleID `545408A7`, tipo `0x2`; tamanho real = declarado + 45.056 B de cabeçalho, idêntico ao arquivo de origem |
+| estado final do job | `Ready` — *"Gravado no dispositivo!"*, sem aviso de release incompleta; log: *"conteúdo de instalação do Disco 1 gravado neste job"* |
+
+Validação de código: `go vet ./...` limpo; `go test ./...` verde (uma falha isolada de limpeza de `TempDir` no Windows em `TestProcessContentInstallFromISOWithoutDefaultXex`, que passa 5 de 5 isolado com e sem a correção); `npm run build:server` com x64 e ia32 verificados.
+
+### Pendências atualizadas
+
+- [x] Baixar a release ZTM e conferir qual pasta traz o `default.xex` jogável — feito acima; o risco se confirmou e foi corrigido.
+- [ ] **Boot no console** com o pendrive gravado pela 2.12.105 (o cliente do chamado #85 é o candidato natural).
+- [ ] **Catálogo online:** retirar a linha `GTA 5 7z` (`source_id` 1, `xbox360rgh`) da API de ROMs. A chamada é `POST https://emuladores.pythonanywhere.com/api/rom/delete` com `{"manifest_path":"xbox360rgh/GTA 5 7z","source_id":1}`; ela foi bloqueada pela política de permissões desta sessão e ficou com o dono. Para restaurar: `path` "GTA 5 7z", link `https://huggingface.co/datasets/luistiagos/xbx/resolve/main/GTA%205%20%287.61%29.7z`, tamanho "6758.12MB". O endpoint não exige autenticação.
+- [ ] Conferência por FTP contra console real (inalterada).

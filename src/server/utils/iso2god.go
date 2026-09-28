@@ -1098,7 +1098,12 @@ func CreateZipFromDir(dir, outPath string) error {
 	w := zip.NewWriter(f)
 	defer w.Close()
 
+	// Another disc of the same title nested in the game folder is not part of the game.
+	nestedDiscs := CompanionDiscFolders(dir)
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.IsDir() && WithinAnyDir(path, nestedDiscs) {
+			return filepath.SkipDir
+		}
 		if err != nil || info.IsDir() {
 			return err
 		}

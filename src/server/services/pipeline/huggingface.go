@@ -258,7 +258,12 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 func findFileExceedingFAT32Limit(dir string) (string, int64) {
 	var foundName string
 	var foundSize int64
+	// Another disc of the same title nested in the game folder is not copied with the game.
+	nestedDiscs := utils.CompanionDiscFolders(dir)
 	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && info.IsDir() && utils.WithinAnyDir(p, nestedDiscs) {
+			return filepath.SkipDir
+		}
 		if err != nil || info == nil || info.IsDir() {
 			return nil
 		}

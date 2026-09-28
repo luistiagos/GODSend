@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"godsend/utils"
 )
 
 // ContentPlaceholderTitleID is the generic retail-installer XEX title. It names the
@@ -51,17 +53,27 @@ type CompanionContent struct {
 // payload under dir that lives outside excludeDir — the folder already being installed as
 // the game. The parent Title ID comes from the package header whenever it parses, because a
 // retail installer addresses its own tree under the placeholder FFED2000 while the console
-// looks the content up by the game's real Title ID.
+// looks the content up by the game's real Title ID. Another disc of the same title nested
+// inside excludeDir (utils.CompanionDiscFolders) is not part of the game and is searched too.
 func FindCompanionContentPayloads(dir, excludeDir string) []CompanionContent {
 	if dir == "" {
 		return nil
+	}
+	var nestedDiscs []string
+	if excludeDir != "" {
+		nestedDiscs = utils.CompanionDiscFolders(excludeDir)
 	}
 	var found []CompanionContent
 	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || !info.IsDir() {
 			return nil
 		}
-		if excludeDir != "" && isWithinDir(p, excludeDir) {
+		if excludeDir != "" && isWithinDir(p, excludeDir) && !utils.WithinAnyDir(p, nestedDiscs) {
+			for _, disc := range nestedDiscs {
+				if isWithinDir(disc, p) {
+					return nil // on the way to a nested disc: keep walking, never a payload itself
+				}
+			}
 			return filepath.SkipDir
 		}
 		if !strings.EqualFold(info.Name(), profileFolder) ||

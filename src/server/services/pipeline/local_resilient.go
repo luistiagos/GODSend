@@ -17,6 +17,7 @@ import (
 	"godsend/app"
 	"godsend/infrastructure/helpers"
 	"godsend/models"
+	"godsend/utils"
 )
 
 var (
@@ -328,11 +329,16 @@ func localFileMatches(path string, entry *localCopyEntry) (bool, error) {
 func buildLocalCopyManifest(srcDir string) ([]localCopyEntry, int64, error) {
 	entries := make([]localCopyEntry, 0, 64)
 	var totalSize int64
+	// Another disc of the same title nested in the game folder is not part of the game.
+	nestedDiscs := utils.CompanionDiscFolders(srcDir)
 	err := filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
+			if utils.WithinAnyDir(path, nestedDiscs) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		rel, err := filepath.Rel(srcDir, path)

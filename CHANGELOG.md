@@ -9,6 +9,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.105] - 2026-09-28
+
+### Fixed
+- **O GTA V do catálogo volta a ser entregue: disco jogável escolhido pelo executável e disco de instalação aninhado reconhecido (`infrastructure/helpers/helpers.go`, `infrastructure/helpers/multi_disc.go`, `utils/companion_disc.go`, `services/pipeline/local_resilient.go`, `infrastructure/ftp/client.go`, `utils/iso2god.go`, `services/pipeline/huggingface.go`)**:
+  - Medido com a 2.12.103 sobre o arquivo real (`Grand.Theft.Auto.5.EUR.X360-ZTM.rar`, 15,4 GB): o job terminava em *"release incompleta"* e nenhum cliente recebia o GTA 5. A release guarda o disco jogável (2 de 2) na raiz e o disco de instalação (1 de 2) numa pasta chamada `Disc2`, **dentro** do jogo, com os quatro pacotes em `Disc2/content/0000000000000000/545408A7/00000002`.
+  - `FindXEXFolder` pegava o primeiro `default.xex` em ordem lexical, e `Disc2` vem antes de `default.xex`: o instalador era tomado pelo jogo, e a busca de conteúdo, que pula a pasta do jogo, nunca via os pacotes. Agora, havendo mais de um `default.xex`, vence o que **não** é disco de instalação conhecido (`DiscCompat`/`mandatoryInstallDiscs`, pelo TitleID e número de disco do próprio executável). Com um só candidato, nada muda.
+  - Uma pasta dentro do jogo que traz **outro disco do mesmo título** (`utils.CompanionDiscFolders`: mesmo TitleID, outro número de disco) deixa de ser copiada junto com o jogo — na gravação local, no FTP, no pacote manual e na checagem do limite de 4 GB do FAT32 — e passa a ser procurada pelo conteúdo de instalação. Sem isso, o pendrive receberia os ~8 GB do instalador também em `Games`.
+  - O teste da 2.12.102 montava os pacotes ao lado do jogo (`hdd1/content`), como a descrição do item no Archive.org sugeria; o arquivo real não é assim. Os testes novos usam o layout medido e falham no código anterior.
+  - O banner em caixa do log (`main.go`) estava parado em "v2.12.101"; passa a acompanhar a versão.
+  - Relato e validação: [o chamado #85](docs/bugs/open/catalogo-gta5-hf-incompleto-sem-disco-instalacao-trava-boot_2026-09-26T01-05.md).
+
 ## [2.12.104] - 2026-09-27
 
 ### Fixed
