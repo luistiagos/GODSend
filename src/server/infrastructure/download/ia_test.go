@@ -1,6 +1,7 @@
 package download
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"godsend/app"
 )
@@ -242,5 +244,36 @@ func TestDownloadPromotesDurableFullSingleResumeWithoutRequest(t *testing.T) {
 	}
 	if !reusableCompletedDownload(dest, server.URL) {
 		t.Fatal("arquivo integral nao recebeu marcador de conclusao verificavel")
+	}
+}
+
+func TestSingleDownloadStallTimeoutAbortsAttempt(t *testing.T) {
+	prevTimeout := app.DownloadStallTimeout
+	app.DownloadStallTimeout = 150 * time.Millisecond
+	defer func() { app.DownloadStallTimeout = prevTimeout }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("12345"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		// Stall indefinitely without closing connection
+		time.Sleep(2 * time.Second)
+	}))
+	defer server.Close()
+
+	a := app.NewApp()
+	a.IAHTTPClient = server.Client()
+	service := &Service{App: a}
+	dest := filepath.Join(t.TempDir(), "stall.zip")
+
+	err := service.iaDownloadSingleAttempt(server.URL, dest, "StallTest", server.URL, false)
+	if err == nil {
+		t.Fatal("expected download to abort on stall")
+	}
+	if !errors.Is(err, app.ErrDownloadStalled) && !strings.Contains(err.Error(), "estagnado") {
+		t.Fatalf("expected ErrDownloadStalled, got: %v", err)
 	}
 }

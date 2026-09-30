@@ -13,6 +13,7 @@ import (
 	"godsend/infrastructure/helpers"
 	"godsend/models"
 	"godsend/services"
+	cacheService "godsend/services/cache"
 	"godsend/utils"
 )
 
@@ -25,6 +26,7 @@ func (s *Service) ProcessHuggingFaceGame(gameName string, downloadURL string) {
 
 // ProcessHuggingFaceGameWithErr downloads and processes an XEX game folder, returning any error.
 func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL string) error {
+	downloadURL = cacheService.NormalizeHuggingFaceDownloadURL(downloadURL)
 	s.App.Logf("=== HuggingFace: %s ===", gameName)
 	safeName := helpers.SanitizeFilename(gameName)
 	if safeName == "" {

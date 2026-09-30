@@ -3,6 +3,7 @@ package download
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"godsend/app"
@@ -19,7 +20,19 @@ type ProgressWriter struct {
 	StartTime     time.Time
 	FirstByteTime time.Time
 	LowSpeedStart time.Time
+	LastActivity  int64 // atomic UnixNano timestamp of latest received chunk
 	App           *app.App
+}
+
+func (pw *ProgressWriter) LastActivityTime() time.Time {
+	v := atomic.LoadInt64(&pw.LastActivity)
+	if v == 0 {
+		if !pw.FirstByteTime.IsZero() {
+			return pw.FirstByteTime
+		}
+		return pw.StartTime
+	}
+	return time.Unix(0, v)
 }
 
 func (pw *ProgressWriter) Write(p []byte) (int, error) {
@@ -29,6 +42,7 @@ func (pw *ProgressWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	pw.Written += int64(n)
 	now := time.Now()
+	atomic.StoreInt64(&pw.LastActivity, now.UnixNano())
 	if n > 0 && pw.FirstByteTime.IsZero() {
 		pw.FirstByteTime = now
 	}

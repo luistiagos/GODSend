@@ -52,8 +52,14 @@ const (
 	LowSpeedSustainedDuration        = 20 * time.Second // Duration speed must remain under threshold
 )
 
+// DownloadStallTimeout is the duration of zero byte transfer before classifying connection as stalled.
+var DownloadStallTimeout = 45 * time.Second
+
 // ErrDownloadTooSlow is returned when download speed stays under MinDownloadSpeedThreshold.
 var ErrDownloadTooSlow = fmt.Errorf("download muito lento, alternando para o próximo provedor")
+
+// ErrDownloadStalled is returned when a download connection stops receiving data.
+var ErrDownloadStalled = fmt.Errorf("download estagnado sem dados, alternando para o próximo provedor")
 
 // ErrJobCancelled is returned when the user removes a running queue item.
 var ErrJobCancelled = fmt.Errorf("tarefa cancelada pelo usuario")

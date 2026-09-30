@@ -364,6 +364,8 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 		s.App.Logf("DOWNLOAD RESUME [%s]: %.1f MB ja confirmados em %d segmentos", name, float64(written)/1048576, len(segments)-len(jobs))
 	}
 	initialWritten := written
+	var lastChunkActivity int64
+	atomic.StoreInt64(&lastChunkActivity, time.Now().UnixNano())
 	var lowSpeedErr error
 	var lowSpeedErrMu sync.Mutex
 	var resumeMu sync.Mutex
@@ -414,6 +416,21 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 					lastConsole = now
 				}
 
+				// Stall monitoring: check if any chunk data arrived within DownloadStallTimeout
+				lastProgNano := atomic.LoadInt64(&lastChunkActivity)
+				if lastProgNano > 0 {
+					lastProg := time.Unix(0, lastProgNano)
+					if now.Sub(lastProg) > app.DownloadStallTimeout {
+						s.App.Logf("WARN [%s]: Download chunked estagnado (nenhum dado recebido por %s) — abortando",
+							name, app.DownloadStallTimeout)
+						lowSpeedErrMu.Lock()
+						lowSpeedErr = app.ErrDownloadStalled
+						lowSpeedErrMu.Unlock()
+						cancel()
+						return
+					}
+				}
+
 				// Speed monitoring: check if download speed is sustained below threshold
 				threshold := s.App.MinDownloadSpeedThreshold
 				if threshold > 0 && !s.App.IsSpeedCheckBypassed(name) && !firstDataTime.IsZero() && now.Sub(firstDataTime) > app.LowSpeedGracePeriod && pct < 95 {
@@ -456,7 +473,7 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 				if ctx.Err() != nil {
 					return
 				}
-				if err := s.iaDownloadRange(ctx, urlStr, ref, out, ss.start, ss.end, totalSize, &written); err != nil {
+				if err := s.iaDownloadRange(ctx, urlStr, ref, out, ss.start, ss.end, totalSize, &written, &lastChunkActivity); err != nil {
 					errMu.Lock()
 					if firstErr == nil {
 						firstErr = err
@@ -510,7 +527,7 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 }
 
 // iaDownloadRange downloads the inclusive byte range [start,end] into out at the same file offsets.
-func (s *Service) iaDownloadRange(ctx context.Context, urlStr, ref string, out *os.File, start, end, totalSize int64, writtenAtomic *int64) error {
+func (s *Service) iaDownloadRange(ctx context.Context, urlStr, ref string, out *os.File, start, end, totalSize int64, writtenAtomic *int64, lastActivity *int64) error {
 	expect := end - start + 1
 	var lastErr error
 	for attempt := 0; attempt <= app.IAChunkRetries; attempt++ {
@@ -582,6 +599,9 @@ func (s *Service) iaDownloadRange(ctx context.Context, urlStr, ref string, out *
 					goto nextAttempt
 				}
 				atomic.AddInt64(writtenAtomic, int64(n))
+				if lastActivity != nil {
+					atomic.StoreInt64(lastActivity, time.Now().UnixNano())
+				}
 				chunkWritten += int64(n)
 			}
 			if readErr == io.EOF {
@@ -631,6 +651,9 @@ func (s *Service) IADownloadSingle(urlStr, dest, name, ref string) error {
 			removeDownloadResume(dest)
 			return lastErr
 		}
+		if errors.Is(lastErr, app.ErrDownloadStalled) && attempt >= 1 {
+			return lastErr
+		}
 	}
 	return lastErr
 }
@@ -640,7 +663,10 @@ func (s *Service) iaDownloadSingleAttempt(urlStr, dest, name, ref string, isIA b
 	if !isIA {
 		client = &http.Client{Timeout: 0}
 	}
-	req, err := http.NewRequest("GET", urlStr, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		return err
 	}
@@ -717,10 +743,52 @@ func (s *Service) iaDownloadSingleAttempt(urlStr, dest, name, ref string, isIA b
 		Total: totalSize, Written: resumeOffset, ResumeOffset: resumeOffset,
 		GameName: name, LastLog: time.Now(), StartTime: time.Now(), App: s.App,
 	}
+
+	var stallErr error
+	var stallErrMu sync.Mutex
+	doneCh := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-doneCh:
+				return
+			case now := <-ticker.C:
+				if s.App.IsGameJobCancelled(name) {
+					stallErrMu.Lock()
+					stallErr = app.ErrJobCancelled
+					stallErrMu.Unlock()
+					cancel()
+					return
+				}
+				lastActivity := pw.LastActivityTime()
+				if !lastActivity.IsZero() && now.Sub(lastActivity) > app.DownloadStallTimeout {
+					s.App.Logf("WARN [%s]: Download estagnado (nenhum dado recebido por %s) — abortando tentativa para retentativa/retomada",
+						name, app.DownloadStallTimeout)
+					stallErrMu.Lock()
+					stallErr = app.ErrDownloadStalled
+					stallErrMu.Unlock()
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
 	written, err := io.Copy(bw, io.TeeReader(resp.Body, pw))
+	close(doneCh)
+
 	flushErr := bw.Flush()
 	syncErr := out.Sync()
 	closeErr := out.Close()
+
+	stallErrMu.Lock()
+	if stallErr != nil {
+		err = stallErr
+	}
+	stallErrMu.Unlock()
+
 	if err != nil {
 		return fmt.Errorf("interrupted after %.2f MB nesta tentativa: %w", float64(written)/1048576, err)
 	}

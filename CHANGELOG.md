@@ -9,6 +9,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.106] - 2026-09-30
+
+### Fixed
+- **FIFA 18 e 86 títulos ZTM acelerados de 85 KB/s para >20 MB/s via dataset HuggingFace CDN e detecção de stall de conexão (`cache/hf_xbox360.json`, `cache/hf_.json`, `src/server/services/cache/rgh_files.go`, `src/server/services/cache/huggingface.go`, `src/server/services/pipeline/huggingface.go`, `src/server/app/config.go`, `src/server/infrastructure/download/progress.go`, `src/server/infrastructure/download/ia.go`, `src/server/services/pipeline/fallback.go`)**:
+  - Trata o chamado de lentidão e stall: cliente com FIFA 18 baixando a mais de 12 horas e travado em 62%.
+  - **Diagnóstico matemático:** A entrada do catálogo ZTM (`mx360gcpt3-x360-ztm`) apontava para o Internet Archive (`archive.org/download/...`). O Archive.org estrangula conexões diretas em ~80–85 KB/s, levando precisamente 20 horas para baixar os 5,82 GiB do FIFA 18 (e atingindo exatamente 62% em 12 horas). Paralelamente, o dataset HuggingFace oficial `luistiagos/rgh` já continha a release idêntica servida pela CDN global da CloudFront em 20–50 MB/s (concluindo o download em 2 a 4 minutos).
+  - **Catálogo e Normalização Canônica:** Criado catálogo embutido `rgh_files.go` mapeando todos os 110 arquivos do dataset `luistiagos/rgh`. Atualizadas as 86 entradas ZTM em `cache/hf_xbox360.json` e `cache/hf_.json` para apontar diretamente para a CDN do HuggingFace. A função `NormalizeHuggingFaceDownloadURL` higieniza qualquer URL de entrada (inclusive vindas da API remota `emuladores.pythonanywhere.com` ou caches salvos em disco) no rebuild, no sanitizador e em tempo de download.
+  - **Detecção de Stall de Conexão (Stall Detection):** Adicionado `DownloadStallTimeout = 45 * time.Second` e `ErrDownloadStalled`. As conexões de download (`iaDownloadSingleAttempt` e `IADownloadChunkedParallel`) monitoram a inatividade através de `LastActivity` atômico em `progress.go`. Se uma conexão passar 45s sem transmitir bytes, o contexto HTTP é cancelado com `ErrDownloadStalled` e a transferência é retomada via cabeçalho `Range: bytes=N-` ou alternada pelo fallback (`fallback.go::isDownloadTooSlowError`), impedindo que stalls silenciosos de TCP mantenham a fila bloqueada indefinidamente.
+  - Relato e validação: [FIFA 18 download lento e stall no Archive.org](docs/bugs/closed/backend-pipeline-fifa18-ztm-download-lento-stall-archive-org_2026-09-30T14-50.md).
+
 ## [2.12.105] - 2026-09-28
 
 ### Fixed

@@ -26,7 +26,10 @@ func isDownloadTooSlowError(err error) bool {
 		return false
 	}
 	return errors.Is(err, app.ErrDownloadTooSlow) ||
-		strings.Contains(err.Error(), "muito lento")
+		errors.Is(err, app.ErrDownloadStalled) ||
+		strings.Contains(err.Error(), "muito lento") ||
+		strings.Contains(err.Error(), "estagnado") ||
+		strings.Contains(err.Error(), "stall")
 }
 
 // isLocalStorageHalt reports whether the chain must stop instead of asking the

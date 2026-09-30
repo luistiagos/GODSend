@@ -86,12 +86,13 @@ func (s *HuggingFaceService) Build(platform string) {
 	seen := make(map[string]bool)
 
 	for _, item := range items {
-		if !validHuggingFaceDownloadURL(item.Link) {
-			s.App.Logf("HUGGINGFACE CACHE: ignoring invalid item path=%q link=%q", item.Path, item.Link)
+		link := NormalizeHuggingFaceDownloadURL(item.Link)
+		if !validHuggingFaceDownloadURL(link) {
+			s.App.Logf("HUGGINGFACE CACHE: ignoring invalid item path=%q link=%q", item.Path, link)
 			continue
 		}
-		if isKnownIncompleteHuggingFaceURL(item.Link) {
-			s.App.Logf("HUGGINGFACE CACHE: ignoring known incomplete release path=%q link=%q", item.Path, item.Link)
+		if isKnownIncompleteHuggingFaceURL(link) {
+			s.App.Logf("HUGGINGFACE CACHE: ignoring known incomplete release path=%q link=%q", item.Path, link)
 			continue
 		}
 		name := item.Path
@@ -116,7 +117,7 @@ func (s *HuggingFaceService) Build(platform string) {
 			games = append(games, name)
 			entries["hf_"+platform+"\x00"+lower] = models.IAGameEntry{
 				CollectionID: item.Size,
-				FileName:     item.Link,
+				FileName:     link,
 			}
 		}
 	}
@@ -161,8 +162,9 @@ func sanitizeHuggingFaceCache(platform string, games []string, entries map[strin
 	prefix := platform + "\x00"
 	cleanEntries := make(map[string]models.IAGameEntry, len(entries))
 	for key, entry := range entries {
-		if strings.HasPrefix(key, prefix) && validHuggingFaceDownloadURL(entry.FileName) && !isKnownIncompleteHuggingFaceURL(entry.FileName) {
-			cleanEntries[key] = entry
+		fileName := NormalizeHuggingFaceDownloadURL(entry.FileName)
+		if strings.HasPrefix(key, prefix) && validHuggingFaceDownloadURL(fileName) && !isKnownIncompleteHuggingFaceURL(fileName) {
+			cleanEntries[key] = models.IAGameEntry{CollectionID: entry.CollectionID, FileName: fileName}
 		}
 	}
 	if fullGTA, ok := cleanEntries[prefix+"grand theft auto 5"]; ok {
@@ -207,6 +209,7 @@ func FindHuggingFaceEntry(a *app.App, gameName, platform string) (models.IAGameE
 	defer a.GameEntryMapMu.RUnlock()
 
 	if entry, ok := a.GameEntryMap[exactKey]; ok {
+		entry.FileName = NormalizeHuggingFaceDownloadURL(entry.FileName)
 		return entry, true
 	}
 	var bestEntry models.IAGameEntry
@@ -225,6 +228,7 @@ func FindHuggingFaceEntry(a *app.App, gameName, platform string) (models.IAGameE
 		}
 	}
 	if bestScore >= 0 {
+		bestEntry.FileName = NormalizeHuggingFaceDownloadURL(bestEntry.FileName)
 		return bestEntry, true
 	}
 	return models.IAGameEntry{}, false
