@@ -475,6 +475,7 @@
     "Dynasty Warriors Strikeforce",
     "Dynasty Warriors Strikeforce ASiA",
     "Dynasty Warriors Strikeforce KOR",
+    "EA FC 26 Legacy Edition",
     "EA Sports Active 2",
     "EA Sports MMA",
     "EXIT1",
@@ -8441,6 +8442,18 @@
     "hf_xbox360\u0000zumba kids": {
       "collection_id": "7.48 GiB",
       "filename": "https://archive.org/download/mx360gckx360-ztm/Zumba.Kids.USA.X360-ZTM.rar"
+    },
+    "hf_xbox360\u0000ea fc 26 legacy edition": {
+      "collection_id": "10.98 GiB",
+      "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/EA%20FC%2026%20Legacy%20Edition.zip"
+    },
+    "hf_xbox360\u0000ea sports fc 26 legacy edition": {
+      "collection_id": "10.98 GiB",
+      "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/EA%20FC%2026%20Legacy%20Edition.zip"
+    },
+    "hf_xbox360\u0000ea fc 26": {
+      "collection_id": "10.98 GiB",
+      "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/EA%20FC%2026%20Legacy%20Edition.zip"
     }
   },
   "build_time": "2026-09-27T01:18:30.5715661-03:00"

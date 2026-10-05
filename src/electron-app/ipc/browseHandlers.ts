@@ -21,6 +21,7 @@ import {
   fetchXboxUnityCoverWithMeta,
   tryXboxCdnFromMicrosoftStoreSearch,
   fetchWikipediaCover,
+  fetchCustomCover,
   getCachedCoverFromDisk,
   saveCoverToDisk,
 } from "../services/coverArtService";
@@ -189,22 +190,28 @@ export function register(ipcMain: IpcMain): void {
         return result;
       }
 
+      // ── 0. Custom cover URL check (for mods/homebrew with dedicated covers) ──
+      let imgBuf: Buffer | null = await fetchCustomCover(base);
+      if (!imgBuf && base !== gameName) {
+        imgBuf = await fetchCustomCover(gameName);
+      }
+
       // Generate search queries
       const candidates = generateSearchCandidateEntries(gameName);
 
-      let imgBuf: Buffer | null = null;
-
       // ── 1. XboxUnity Covers API (looping through candidates) ─────────────────
-      for (const cand of candidates) {
-        let meta = await fetchXboxUnityCoverWithMeta(cand.term, cand.requiredBrand);
-        if (meta) {
-          imgBuf = meta.buf;
-          if (meta.titleId) {
-            const xboxUrl = `http://catalog.xboxlive.com/Catalog/Product/CoverArt/${meta.titleId}/en-US/1`;
-            const xboxBuf = await fetchHttpImage(xboxUrl);
-            if (xboxBuf && xboxBuf.length >= 100) imgBuf = xboxBuf;
+      if (!imgBuf) {
+        for (const cand of candidates) {
+          let meta = await fetchXboxUnityCoverWithMeta(cand.term, cand.requiredBrand);
+          if (meta) {
+            imgBuf = meta.buf;
+            if (meta.titleId) {
+              const xboxUrl = `http://catalog.xboxlive.com/Catalog/Product/CoverArt/${meta.titleId}/en-US/1`;
+              const xboxBuf = await fetchHttpImage(xboxUrl);
+              if (xboxBuf && xboxBuf.length >= 100) imgBuf = xboxBuf;
+            }
+            break;
           }
-          break;
         }
       }
 

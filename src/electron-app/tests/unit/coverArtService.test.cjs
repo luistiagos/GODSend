@@ -12,6 +12,8 @@ const {
   stripPossessives,
   resolveTitleIdHex,
   ensureTitleDatabaseLoaded,
+  CUSTOM_COVER_URLS,
+  getCachedCoverFromDisk,
 } = require("../../services/coverArtService.js");
 
 test("coverArtService: normalizeTitleKey handles typos, brackets, and roman numerals", () => {
@@ -230,4 +232,18 @@ test("coverArtService: isValidUnityCoverMatch rejects franchise false positives 
     "LEGO® Marvel's Avengers must be accepted when LEGO brand is required"
   );
 });
+
+test("coverArtService: EA FC 26 Legacy Edition custom cover and curated TitleID mapping", () => {
+  const candidates = generateSearchCandidates("EA FC 26 Legacy Edition");
+  assert.ok(candidates.includes("454109F9"), "EA FC 26 should map to FIFA 19 TitleID 454109F9");
+
+  assert.equal(
+    CUSTOM_COVER_URLS["ea fc 26 legacy edition"],
+    "https://down-br.img.susercontent.com/file/br-11134207-820li-mo2rdptzkiyp5c"
+  );
+
+  const diskCover = getCachedCoverFromDisk("EA FC 26 Legacy Edition");
+  assert.ok(diskCover && diskCover.startsWith("data:image/jpeg;base64,"), "Disk cover must be found");
+});
+
 

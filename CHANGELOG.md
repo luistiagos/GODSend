@@ -9,6 +9,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Adicionado EA FC 26 Legacy Edition ao catálogo do Xbox 360 Companion com capa dedicada (`cache/hf_xbox360.json`, `cache/hf_.json`, `cache/covers/ea_fc_26_legacy_edition.jpg`, `src/electron-app/services/coverArtService.ts`, `src/electron-app/ipc/browseHandlers.ts`)**:
+  - **Catálogo HuggingFace:** Incluído o título `EA FC 26 Legacy Edition` apontando para `https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/EA%20FC%2026%20Legacy%20Edition.zip` (10.98 GiB) nos manifestos locais e em produção na API remota (`emuladores.pythonanywhere.com`).
+  - **Capa Customizada:** Como se trata de modificação/lançamento de comunidade indisponível nas fontes oficiais do XboxUnity/Microsoft Store, foi adicionada a resolução e download direto da capa oficial fornecida (`https://down-br.img.susercontent.com/file/br-11134207-820li-mo2rdptzkiyp5c`), persistida em cache local/empacotada em `cache/covers/` e associada ao TitleID curado do FIFA 19 Legacy Edition (`454109F9`).
+
 ## [2.12.106] - 2026-09-30
 
 ### Fixed

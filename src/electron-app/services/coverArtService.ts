@@ -113,8 +113,28 @@ const CURATED_TITLE_IDS: Record<string, string | string[]> = {
   "dead space 2": "454108DF",
   "dead space 3": "4541099D",
   "bioshock infinite": "5454085D",
-  "borderlands 2": "5454087C"
+  "borderlands 2": "5454087C",
+
+  // EA Sports FC / FIFA Mods
+  "ea fc 26 legacy edition": "454109F9",
+  "ea fc 26": "454109F9",
+  "ea sports fc 26 legacy edition": "454109F9"
 };
+
+// Known custom covers for fan mods, patches and homebrews not present on XboxUnity/MS Store
+export const CUSTOM_COVER_URLS: Record<string, string> = {
+  "ea fc 26 legacy edition": "https://down-br.img.susercontent.com/file/br-11134207-820li-mo2rdptzkiyp5c",
+  "ea fc 26": "https://down-br.img.susercontent.com/file/br-11134207-820li-mo2rdptzkiyp5c",
+  "ea sports fc 26 legacy edition": "https://down-br.img.susercontent.com/file/br-11134207-820li-mo2rdptzkiyp5c",
+};
+
+export async function fetchCustomCover(gameName: string): Promise<Buffer | null> {
+  const norm = normalizeTitleKey(gameName);
+  const url = CUSTOM_COVER_URLS[norm] || CUSTOM_COVER_URLS[gameName.trim().toLowerCase()];
+  if (!url) return null;
+  const buf = await fetchHttpImage(url);
+  return buf && buf.length >= 100 ? buf : null;
+}
 
 export function normalizeTitleKey(s: string): string {
   return String(s || "")
@@ -306,19 +326,33 @@ export function getCachedCoverFromDisk(key: string): string | null {
     purgeCorruptedLegacyCoverCache();
     const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
     const cacheDir = getDiskCoverCacheDir();
-    const jpgPath = path.join(cacheDir, `${safeKey}.jpg`);
-    const pngPath = path.join(cacheDir, `${safeKey}.png`);
-    if (fs.existsSync(jpgPath)) {
-      const buf = fs.readFileSync(jpgPath);
-      if (buf.length >= 100) {
-        return `data:image/jpeg;base64,${buf.toString("base64")}`;
-      }
+    const candidateDirs = [
+      cacheDir,
+      path.join(process.cwd(), "cache", "covers"),
+      path.join(__dirname, "..", "..", "cache", "covers"),
+      path.join(__dirname, "..", "..", "..", "cache", "covers"),
+    ];
+    if ((process as any).resourcesPath) {
+      candidateDirs.unshift(path.join((process as any).resourcesPath, "cache", "covers"));
     }
-    if (fs.existsSync(pngPath)) {
-      const buf = fs.readFileSync(pngPath);
-      if (buf.length >= 100) {
-        return `data:image/png;base64,${buf.toString("base64")}`;
-      }
+    for (const dir of candidateDirs) {
+      try {
+        if (!fs.existsSync(dir)) continue;
+        const jpgPath = path.join(dir, `${safeKey}.jpg`);
+        const pngPath = path.join(dir, `${safeKey}.png`);
+        if (fs.existsSync(jpgPath)) {
+          const buf = fs.readFileSync(jpgPath);
+          if (buf.length >= 100) {
+            return `data:image/jpeg;base64,${buf.toString("base64")}`;
+          }
+        }
+        if (fs.existsSync(pngPath)) {
+          const buf = fs.readFileSync(pngPath);
+          if (buf.length >= 100) {
+            return `data:image/png;base64,${buf.toString("base64")}`;
+          }
+        }
+      } catch {}
     }
   } catch {}
   return null;
