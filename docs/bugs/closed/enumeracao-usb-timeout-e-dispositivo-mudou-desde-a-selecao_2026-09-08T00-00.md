@@ -248,3 +248,9 @@ chama), mas é a mesma armadilha e vale corrigir antes de alguém ligar esse can
 - **Impacto:** O cliente tentou mudar de porta USB sem sucesso (`[114347]`: *"Só fica assim já mudei de porta USB agora último tentativa e tentar em outro notebook"*). Só conseguiu avançar após trocar de computador para um segundo notebook, onde a gravação dos arquivos finalmente iniciou (`[114478]`).
 - **Validação:** Confirma que HDs externos (que não são capturados pelo caminho leve de `DriveInfo.Removable`) caiam invariavelmente no script físico que estourava o timeout de 5s no Windows sob a v2.12.81, mitigado posteriormente com as melhorias de cache e lock de instâncias na v2.12.98/v2.12.99.
 
+## Mesma mensagem na v2.12.106, outra causa (chamado #133, 03/10/2026)
+
+- **Sessão:** `272077621866729@lid` (chamado #133); reports de telemetria `9324` e `9325`, ElectronApp **v2.12.106** — depois de todas as correções acima.
+- **Cenário:** HD externo em `D:` já com biblioteca de jogos; a janela fica "(Não está respondendo)" (print `[129786]`) e a faixa mostra "O Windows ainda está reconhecendo seu pendrive ou HD" (print `[129768]`) com o disco montado e legível.
+- **Por que este documento continua fechado:** o log anexo mostra uma instância só e a lista saindo do cache; o que aparece são 20 lacunas de 70–105 s no processo principal, e as três falhas de enumeração do meio da sessão são a primeira linha depois de uma lacuna. A causa é a varredura síncrona de jogos instalados, não a enumeração. Análise em [`electron-main-varredura-sincrona-de-jogos-instalados-congela-a-janela-e-gera-falso-timeout-de-usb_2026-10-05T17-25.md`](../open/electron-main-varredura-sincrona-de-jogos-instalados-congela-a-janela-e-gera-falso-timeout-de-usb_2026-10-05T17-25.md).
+
