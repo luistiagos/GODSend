@@ -5,8 +5,8 @@
 - **Classe:** falha funcional (atualização) + diagnóstico (a falha é invisível: não há mensagem, linha de log nem report de telemetria)
 - **Severidade:** **P1 — Alto** (matriz de [`bug-triage.md`](../../agents/skills/bug-triage.md)): bloqueio total do canal de atualização. **Nenhuma** das 11 aplicações com desfecho observável chegou à versão nova (8 máquinas, 05/09–23/09). Quem depende do botão fica preso em versões com bugs já corrigidos (2.12.43, 2.12.58, 2.12.67, 2.12.78, 2.12.81, 2.12.97). O cliente do #72 abriu chamado por causa disso.
 - **Complexidade:** **baixa** para T1 (o renderer passa a ler `ok`); **média** para T2/T3 (substituir o launcher portable exige esperar o processo dele terminar e conferir o resultado)
-- **Versões:** todas desde o "In-App Auto and Manual Update System" (CHANGELOG); observado de 2.12.43 a 2.12.97. O código atual (2.12.99) é o mesmo.
-- **Reincidência:** primeira vez. **Não é** [[renderer-onopenupdatemodal-not-defined_2026-09-09T03-15]] nem [[electron-renderer-settingspage-onopenupdatemodal-referenceerror_2026-09-06T04-37]]: lá o botão de Configurações quebrava antes de o modal abrir. Aqui o modal abre, baixa, confere o SHA-256 e falha no último passo.
+- **Errors (serviço):** 8758, 8759, 8839 (3 ocorrências registradas pela instrumentação T3 na triagem de 2026-09-30)
+- **Reincidência:** recorrente pós-fix v2.12.101 — 3 reports capturados pela instrumentação diagnóstica T3. **Não é** [[renderer-onopenupdatemodal-not-defined_2026-09-09T03-15]] nem [[electron-renderer-settingspage-onopenupdatemodal-referenceerror_2026-09-06T04-37]]: lá o botão de Configurações quebrava antes de o modal abrir. Aqui o modal abre, baixa, confere o SHA-256 e falha no último passo.
 
 ## Sintoma, na ordem que o cliente viveu
 
@@ -218,3 +218,23 @@ modal fica em **"Reiniciando..."** com os dois botões desabilitados, e o erro s
 - **Não verificado:** H1 com o portable real (Process Monitor). O teste reproduz o mecanismo, não a
   duração exata do `RMDir /r` em campo; o teto de 180 s é margem, e se estourar o desfecho agora é
   visível na telemetria.
+
+## Recorrência em produção pós-fix T3 (triagem de 2026-09-30)
+
+A instrumentação diagnóstica T3 implementada na v2.12.101 capturou **3 ocorrências reais** em produção:
+- **8758** e **8759** (2026-09-27): máquina de usuário tentando atualizar de `2.12.103` para `2.12.104`, alvo `C:\Users\davip\Downloads\xboxcompanion.exe`.
+- **8839** (2026-09-28): máquina de usuário tentando atualizar de `2.12.101` para `2.12.105`, alvo `C:\Users\User\Downloads\xboxcompanion (2).exe`.
+
+Em todos os 3 casos, o motivo registrado foi:
+`o script de substituição não registrou resultado (não rodou ou foi interrompido)`
+
+### Diagnóstico Técnico
+
+A análise detalhada dos logs anexos revelou que:
+1. O download e a verificação SHA-256 completaram com sucesso (`Download complete & verified`).
+2. O target foi corretamente resolvido (`Replace script started: ...`).
+3. O `child.once("spawn")` resolveu normalmente e o Electron chamou `app.quit()`.
+4. No entanto, o `update-result.txt` **nunca foi criado** pelo script PowerShell.
+5. No Windows, o processo do launcher portable NSIS ou o Job Object do processo do Windows encerra os processos filhos gerados quando a árvore do processo principal é finalizada antes que o PowerShell desanexado conclua o ciclo de espera e cópia. Além disso, invocações via `-Command` sem `-ExecutionPolicy Bypass` ou sem isolamento explícito de Job Object ficam sujeitas a interrupção prematura pelo ambiente do sistema operacional.
+
+**Ação de follow-up necessária:** Modificar o executor de atualização para usar um runner desacoplado de Job Object (ou `-ExecutionPolicy Bypass` com script desacoplado via processo auxiliar do Windows `cmd /c start` / executável dedicado), garantindo a conclusão independente da árvore do launcher original.

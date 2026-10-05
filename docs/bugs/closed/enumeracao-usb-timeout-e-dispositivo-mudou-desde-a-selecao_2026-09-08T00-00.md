@@ -45,6 +45,15 @@ ocorreram em versões anteriores à correção da v2.12.99 (v2.12.78, v2.12.81, 
 apenas 1 ocorrência na v2.12.99 (ID 8468), causada por saturação extrema de I/O durante a retomada
 concorrente de fila de 8 jogos com download HTTP paralelo em 16 conexões.
 
+Na **triagem de 2026-09-30**, foram identificados 56 novos reports (IDs 9193, 9163, 9162, 9161, 9156,
+9142, 9118, 9116, 9115, 9114, 9111, 9112, 9113, 9103, 9104, 9105, 9106, 9107, 9108, 9109, 9110,
+9100, 9101, 9102, 9099, 9006, 8998, 8847, 8843, 8840, 8838, 8831, 8829, 8816, 8817, 8818, 8819,
+8820, 8813, 8797, 8785, 8749, 8726, 8725, 8708, 8707, 8706, 8704, 8700, 8699, 8698, 8697, 8696,
+8695, 8688, 8682). Destes, 46 ocorreram em versões legadas pré-fix (23 em v2.12.78, 9 em v2.12.81,
+6 em v2.12.97, 8 em v2.12.98), 7 sem versão identificada, 2 em v2.12.101 (8840, 8688) e apenas 1 em
+v2.12.105 (8847), associado a atraso transitório na inicialização fria simultânea do backend com
+carregamento dos 10 arquivos de cache. Nenhuma ocorrência representou travamento ou anomalia nova.
+
 ## Sintoma
 
 Print 1, na faixa de erro do card **Dispositivo conectado**:

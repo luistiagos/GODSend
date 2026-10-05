@@ -2,12 +2,12 @@
 
 - **Detectado em:** 2026-09-05 (relato de usuário com foto da tela do console)
 - **Origem:** preparação BadAvatar USB (`services/fixedBadAvatarPreparationService.ts`), `launch.ini`/DashLaunch (`infrastructure/readyToPlayConfiguration.ts::generateReadyToPlayLaunchIni`) e hook ready-to-play do Aurora (`XboxCompanionReady.lua`)
-- **Errors (serviço):** 8630, 8334, 8238, 7734, 7704, 7608 (`xbox-360-companion/badavatar-console-crash` via `prepareFixedBadAvatarDevice`)
+- **Errors (serviço):** 9158, 8814, 8786, 8709 (triagem de 2026-09-30); 8630, 8334, 8238, 7734, 7704, 7608 (`xbox-360-companion/badavatar-console-crash` via `prepareFixedBadAvatarDevice`)
 - **Classe:** crash
 - **Severidade:** **P0 — Crítico** (crash de console; matriz de [`bug-triage.md`](../../agents/skills/bug-triage.md))
-- **Versões:** relato anterior à 2.12.68 (versão exata não informada); mitigações implementadas nas versões 2.12.68, 2.12.74, 2.12.92 e 2.12.96. Validação definitiva por telemetria concluída nas v2.12.96–v2.12.102
+- **Versões:** relato anterior à 2.12.68 (versão exata não informada); mitigações implementadas nas versões 2.12.68, 2.12.74, 2.12.92 e 2.12.96. Validação definitiva por telemetria concluída nas v2.12.96–v2.12.105
 - **Reincidência:** primeira vez (relatórios subsequentes confirmam ausência de crash de boot)
-- **Status:** fechado — a validação de telemetria em produção capturou relatórios reais (IDs 8630, 8334, 8238, 7734, 7704, 7608). A análise técnica dos logs comprovou que o boot do DashLaunch, a subida do Aurora e o hook `XboxCompanionReady.lua` executaram com 100% de sucesso sem crash. Não houve `crashlog.txt` na raiz (DashLaunch íntegro). Na triagem de 2026-09-26, os IDs 8630 e 8334 reforçaram o boot perfeito do Aurora (`> Xbox 360 Companion: pronto para conectar e jogar`).
+- **Status:** fechado — a validação de telemetria em produção capturou relatórios reais (IDs 8630, 8334, 8238, 7734, 7704, 7608; e 9158, 8814, 8786, 8709 em 2026-09-30). A análise técnica dos logs comprovou que o boot do DashLaunch, a subida do Aurora e o hook `XboxCompanionReady.lua` executaram com 100% de sucesso sem crash. Não houve `crashlog.txt` na raiz (DashLaunch íntegro). Na triagem de 2026-09-26, os IDs 8630 e 8334 reforçaram o boot perfeito do Aurora (`> Xbox 360 Companion: pronto para conectar e jogar`), e a triagem de 2026-09-30 adicionou 4 novas sessões confirmando operação normal.
 - **Commits:** `3a98a11` (2.12.68), `6faedab` + `906e8c4` (2.12.69), `9e30a5e` (2.12.74), `0476442` (2.12.92), `f7e02f0` (2.12.96)
 
 ## Sintoma

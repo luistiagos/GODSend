@@ -2,7 +2,7 @@
 
 - **Detectado em:** 2026-09-12 12:24 (telemetria de produção)
 - **Origem:** telemetria `xbox-360-companion/pipeline` (`fallback.go::ProcessGameWithFallback`)
-- **Errors (serviço):** 5774, 5798, 6002, 6086 (`Lego Batman 1`, 4 ocorrências entre 2026-09-11 01:48 e 2026-09-12 12:24); 6197 (`Incredible Hulk`, 2026-09-13); **triagem de 2026-09-17 (pré-fix v2.12.97):** 6825, 6853 (`Lego Batman 1`), 6823, 6851 (`Incredible Hulk`), 6922, 6923 (`Kinect Sports Season 1 & 2`), 6911 (`MX vs ATV Alive`) (+7 ocorrências)
+- **Errors (serviço):** 5774, 5798, 6002, 6086 (`Lego Batman 1`, 4 ocorrências entre 2026-09-11 01:48 e 2026-09-12 12:24); 6197 (`Incredible Hulk`, 2026-09-13); **triagem de 2026-09-17 (pré-fix v2.12.97):** 6825, 6853 (`Lego Batman 1`), 6823, 6851 (`Incredible Hulk`), 6922, 6923 (`Kinect Sports Season 1 & 2`), 6911 (`MX vs ATV Alive`) (+7 ocorrências); **triagem de 2026-09-30:** 8815 (`Fable 3`, 1 ocorrência: `rardecode: bad file checksum`)
 - **Status:** fechado em 2026-09-16 (v2.12.94 + v2.12.97)
 - **Classe:** fail — **investigação**: o defeito de código está confirmado; falta confirmar que foi ele que prendeu estes dois jogos
 - **Versões:** `pipeline` não manda versão; o trecho citado está igual no código atual (v2.12.93)
@@ -124,11 +124,9 @@ depende: as classificações de integridade e de armazenamento não podem se sob
 nenhuma direção.
 
 ## Pendência
-
-O **passo 3 continua aberto** e não é de código: ninguém baixou `Lego Batman 1` nem
-`Incredible Hulk` do HuggingFace numa máquina limpa para testar o RAR. Enquanto isso não for
-feito, não está provado que foi o cache que prendeu **estes dois jogos** — a leitura
-alternativa (arquivo de origem corrompido no catálogo) segue de pé. A diferença agora é
-observável: com a correção, uma origem ruim produz a mensagem *"arquivo baixado novamente
-continua invalido. A origem pode estar corrompida no catalogo"* em vez de repetir a falha
-idêntica sem rebaixar.
+ 
+O **passo 3 continua aberto** e não é de código: ninguém baixou `Lego Batman 1`, `Incredible Hulk`
+ou `Fable 3` (capturado na triagem de 2026-09-30, ID 8815) do HuggingFace numa máquina limpa para
+testar a integridade do RAR do catálogo upstream. Enquanto isso não for feito, não está provado
+se a falha decorreu de corrupção em trânsito/disco do cliente ou se o arquivo de origem está
+permanentemente corrompido no dataset do Hugging Face.
