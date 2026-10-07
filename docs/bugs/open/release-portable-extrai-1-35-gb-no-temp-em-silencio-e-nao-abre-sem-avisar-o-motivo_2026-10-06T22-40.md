@@ -314,3 +314,26 @@ O disco virtual foi criado com uma elevação aprovada pelo dono, e desmontado e
   minuto", ícone perto do relógio) não corresponde ao que o cliente vê.
 - Para fechar este bug: confirmação de um cliente real com a 2.12.107, ou o primeiro
   `xbox-360-companion/portable-launcher` no painel acompanhado de abertura bem-sucedida.
+
+## Passagem de bastão (2026-10-07)
+
+Estado: código e docs commitados em `86dfac6` (análise em `b20d972`), só local; `main` estava 7
+commits à frente do `origin` (3 deles de outra sessão, que mexe no scanner de jogos). Nada desta
+correção ficou sem commit. Sandbox de teste apagada.
+
+Próximo passo exato, em ordem, cada um depende de decisão do dono:
+
+1. **Push:** `git push origin main` só com autorização (leva também os commits da outra sessão).
+2. **Publicar a 2.12.107:** esperar a outra sessão commitar o trabalho do scanner
+   (`localGameScannerService.ts` e `zzOldScannerTmp.ts` estavam sem commit) e rodar
+   `build-and-upload.ps1` **sem** `-SkipBuild`. Não publicar o `.exe` que está em `dist/`: foi
+   gerado às 10:33, antes dos commits `9258bfe`/`426d4ff`. Os dois commits da outra sessão entram
+   na 2.12.107 sem entrada no `CHANGELOG.md` — avisar o dono ou a sessão dona.
+3. **Depois de publicar:** rodar `src/electron-app/scripts/measure-portable-launcher.ps1` no
+   `xboxcompanion.exe` baixado do link público (pasta própria, `-TempDir` isolado) e conferir a
+   janela de progresso e o pico de ~1.793 MB. Para ver o aviso de espaço sem disco cheio:
+   `-Env @{ XBOX360COMPANION_LAUNCHER_EXTRA_MB = '99999999' }`.
+4. **Fora deste repositório:** atualizar o conhecimento do agente de suporte
+   (`digitalstoregamesproject`) — janela de progresso, as três mensagens, ~1,9 GB livres no C:.
+5. **Fechar o bug** (`git mv` para `docs/bugs/closed/`) quando um cliente real confirmar ou o
+   painel mostrar `xbox-360-companion/portable-launcher` seguido de abertura.
