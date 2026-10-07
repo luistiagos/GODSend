@@ -153,3 +153,61 @@ falha dura com a unidade presente. A mensagem atribui ao USB um atraso que é do
   report.
 - Alcance real: os 19+ reports abertos dessa mensagem nas versões 2.12.10x precisam ser separados
   entre "loop bloqueado" (lacunas no log, bug de 2026-10-05) e "PowerShell lento" (este).
+
+## Correção planejada (2026-10-07, antes de editar código)
+
+### Conferido nesta passada
+
+- `windowsUsbDeviceService.ts::recoverNativeListing` — a primeira linha é
+  `if (!includeHealth || nativeRecoveryAttempted) return null`. O `!includeHealth` não protege
+  nada do caminho de revalidação: `finishRemovableEnumeration(…, includeHealth)` já pula o probe
+  `Get-Volume` quando `includeHealth` é falso. `git log -S` aponta só para `c859f97` (mensagem `*`),
+  sem motivo registrado. Tirar o `!includeHealth` dá ao preparo a mesma 2ª tentativa nativa da lista.
+- `runPowerShell` — prazo fixo recebido do chamador; em timeout mata o filho e rejeita com
+  `code = USB_ENUMERATION_TIMEOUT`; não registra duração de nada (por isso o log não diz quanto o
+  PowerShell levou).
+- `requireSafeWindowsUsbTarget` — conhece a raiz; a enumeração lança o timeout sem tratar, e é essa
+  mensagem que chega à caixa vermelha (`BadAvatarUsbPage.tsx::handlePrepare` → `setError`).
+  `waitForFormattedDevice` guarda o último erro de 20 tentativas e lança o mesmo texto.
+- `renderer/components/BadAvatarUsbPage.tsx:481` usa `/reconhecendo|atualizar/i` só para a cor do
+  `loadError` da **lista**; o erro do preparo (`error`) não depende do texto.
+- `deviceSafetyPolicy.ts::createDeviceFingerprint` — confirmado: não usa `allocationUnitBytes`.
+  `writeCapacityPolicy.ts::validateStorageInfo` bloqueia `allocationUnitBytes` < 512, e
+  `assessWriteCapacity` cai para 32 KiB nesse caso — então o valor importa e não pode virar 0.
+- **libuv v1.52.1** (a do Node 24.19 / Electron 42), `src/win/fs.c::fs__statfs`:
+  `f_bsize = SectorsPerAllocationUnit * BytesPerSector` de `FileFsFullSizeInformation` — o mesmo
+  cluster que `GetDiskFreeSpace` devolve. Medido aqui (`scratchpad/compare-cluster.js`): C:\ e D:\
+  NTFS, `GetDiskFreeSpace=4096`, `statfs.bsize=4096`, iguais. Não há pendrive FAT32 nesta máquina.
+- `badAvatarUsbService.ts::listWindowsUsbDrivesOnVolumeChange` — `usbListLastGood` guarda a última
+  lista que veio de enumeração bem-sucedida; `tests/unit/usbDriveListCache.test.cjs` já simula
+  `enumerateSafeWindowsUsbDevices` por `t.mock.method` no objeto do módulo.
+- `ipc/badAvatarHandlers.ts` — `preparationInProgress` é local ao handler; a lista e o contador de
+  jogos (`localGameScannerService.ts:733`) não sabem dele.
+
+### Tasks
+
+- **T1 — prazos que acompanham a máquina** (`windowsUsbDeviceService.ts`). `runPowerShell` mede cada
+  execução bem-sucedida e guarda as 5 últimas; as enumerações (nativa, recuperação, física e a
+  revalidação de `requireSafeWindowsUsbTarget`) usam `max(prazo base, 3 × a mais lenta recente)`, com
+  teto de 30 s. O probe de integridade (best-effort, 3 s) e a ejeção ficam fixos: esperar mais por
+  eles atrasaria a lista sem proteger nada. `recoverNativeListing` vale também sem `includeHealth`
+  (o preparo ganha a 2ª tentativa nativa) e o prazo da recuperação sobe de 7 para 12 s (a nativa
+  levou 5–8 s no `9530`). Só sucesso alimenta a medida: timeout pode ser travamento de verdade.
+  Prova: `tests/unit/powershellSlowMachine.test.cjs` com `child_process.spawn` substituído por um
+  `node` que responde como o PowerShell lento — (a) nativa em 6 s e física que não responde:
+  `requireSafeWindowsUsbTarget` resolve (hoje lança); (b) depois de um sucesso de 6 s o prazo da
+  nativa passa de 5 s; (c) controle: filho que nunca responde continua expirando, no teto.
+- **T2 — sem `Add-Type`** no `ENUMERATE_REMOVABLE_SCRIPT`; `allocationUnitBytes` = 0 vindo do
+  script é preenchido em TS com `fs.promises.statfs(root).bsize`. Prova: tempo do script antes/depois
+  nesta máquina; teste de que a linha nativa sai com o `bsize` do `statfs`.
+- **T3 — sem enumeração concorrente ao preparo**: `setUsbPreparationActive()` em
+  `badAvatarUsbService.ts`, ligado/desligado pelo handler `tools:badavatar-prepare`; com preparo em
+  curso e uma última lista confiável, `listFat32UsbDrives` a devolve sem abrir `powershell.exe`.
+  Prova: caso novo em `usbDriveListCache.test.cjs` contando as enumerações.
+- **T4 — mensagem honesta**: no preparo (`requireSafeWindowsUsbTarget`, `waitForFormattedDevice`),
+  timeout de enumeração com a letra respondendo a `fs.promises.stat(root)` vira "o pendrive está
+  conectado, mas o computador está demorando para responder… não precisa trocar de porta… clique em
+  'Preparar pendrive/HD' de novo". Sem a letra, mantém a mensagem atual. Prova: teste unitário.
+- **T5** continua dependente do bug de telemetria do preparo (fora desta correção). A linha de log
+  com a duração de cada PowerShell lento (≥ 2 s) e de cada prazo estourado entra no T1 e responde o
+  "O que falta medir".
