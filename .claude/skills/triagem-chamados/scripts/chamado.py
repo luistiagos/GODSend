@@ -226,10 +226,22 @@ def cmd_conversa_lid(lid):
     return _baixar_conversa(lid, None, re.sub(r"\W+", "_", str(lid)))
 
 
+# Promessa de atendimento humano, por FAMILIA de frase, nao por frase literal: o agente varia a
+# redacao e a lista literal (a 1a linha) pegava so 38% das promessas de 60 dias de producao.
+# Remedir antes de mexer: bug docs/bugs/*/skill-triagem-chamados-promessas-reconhece-so-38pct-*.
+# "aciono o suporte" (presente) fica de fora de proposito: quase sempre e oferta condicional.
+_EQUIPE = r"(suporte|equipe|nosso time|time t[e\u00e9]cnico|atendente|atendimento humano)"
 _PROMESSA = re.compile(
     r"chamando o suporte|acionando o suporte|chamar o suporte|acionar o suporte"
     r"|refor\w+ com o suporte|refor\w+ seu caso|atendente j[a\u00e1] (vai|te)"
-    r"|encaminhar o seu caso|deixei seu caso com o suporte|direcionando para o atendente",
+    r"|encaminhar o seu caso|deixei seu caso com o suporte|direcionando para o atendente"
+    r"|(acionei|acionando|acionad[oa]s?|chamei|chamando) (o |a |nossa |nosso )?" + _EQUIPE
+    + r"|(passei|repassei|encaminh[a-z]*|registr[a-z]*|deixei|direcion[a-z]*) .{0,50}" + _EQUIPE
+    + r"|(est[a\u00e1]|ficou|segue) com (a |o )?(nossa |nosso )?(suporte|equipe|time)"
+    + r"|" + _EQUIPE + r" .{0,40}(assum|retorn|te respond|v[a\u00e3]o te respond|vai te respond"
+    r"|seguem? com voc|continua[rm]? com|est[a\u00e1] acompanhando|est[a\u00e1] cuidando"
+    r"|cuidar[a\u00e1]? d|est[a\u00e1] verificando)"
+    r"|(verificar|vendo isso|confirmar[a-z ]{0,12}) com a equipe",
     re.I,
 )
 
