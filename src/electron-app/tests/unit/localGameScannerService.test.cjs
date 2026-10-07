@@ -11,21 +11,21 @@ const {
   scanIsoDirectory,
 } = require("../../services/localGameScannerService.js");
 
-test("normalizeDriveLetter: normaliza caminhos de unidades para maiusculo", () => {
+test("normalizeDriveLetter: normaliza caminhos de unidades para maiusculo", async () => {
   assert.equal(normalizeDriveLetter("f:\\"), "F:");
   assert.equal(normalizeDriveLetter("F:/"), "F:");
   assert.equal(normalizeDriveLetter("e:"), "E:");
   assert.equal(normalizeDriveLetter("/media/usb"), "/media/usb");
 });
 
-test("scanGamesDirectory: detecta jogos GOD no formato Nome - TitleID", () => {
+test("scanGamesDirectory: detecta jogos GOD no formato Nome - TitleID", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
   try {
     const gamesDir = path.join(tmp, "Games");
     const halo3Dir = path.join(gamesDir, "Halo 3 - 4D5307E6");
     fs.mkdirSync(path.join(halo3Dir, "00007000"), { recursive: true });
 
-    const results = scanGamesDirectory(gamesDir, "F: (USB)");
+    const results = await scanGamesDirectory(gamesDir, "F: (USB)");
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Halo 3");
     assert.equal(results[0].titleId, "4D5307E6");
@@ -36,7 +36,7 @@ test("scanGamesDirectory: detecta jogos GOD no formato Nome - TitleID", () => {
   }
 });
 
-test("scanGamesDirectory: detecta jogos XEX com default.xex", () => {
+test("scanGamesDirectory: detecta jogos XEX com default.xex", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -44,7 +44,7 @@ test("scanGamesDirectory: detecta jogos XEX com default.xex", () => {
     fs.mkdirSync(gowDir, { recursive: true });
     fs.writeFileSync(path.join(gowDir, "default.xex"), "fake-xex-binary");
 
-    const results = scanGamesDirectory(gamesDir, "F:");
+    const results = await scanGamesDirectory(gamesDir, "F:");
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Gears of War");
     assert.equal(results[0].format, "xex");
@@ -54,7 +54,7 @@ test("scanGamesDirectory: detecta jogos XEX com default.xex", () => {
   }
 });
 
-test("scanGamesDirectory: le manifesto godsend.ini quando presente", () => {
+test("scanGamesDirectory: le manifesto godsend.ini quando presente", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -65,7 +65,7 @@ test("scanGamesDirectory: le manifesto godsend.ini quando presente", () => {
       "[TestGame]\ntype=god\ntitleid=545408A7\ntitlename=Grand Theft Auto V\n"
     );
 
-    const results = scanGamesDirectory(gamesDir, "F:");
+    const results = await scanGamesDirectory(gamesDir, "F:");
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Grand Theft Auto V");
     assert.equal(results[0].titleId, "545408A7");
@@ -75,7 +75,7 @@ test("scanGamesDirectory: le manifesto godsend.ini quando presente", () => {
   }
 });
 
-test("scanContentDirectory: detecta jogos na pasta Content/0000000000000000", () => {
+test("scanContentDirectory: detecta jogos na pasta Content/0000000000000000", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
   try {
     const contentDir = path.join(tmp, "Content", "0000000000000000");
@@ -83,7 +83,7 @@ test("scanContentDirectory: detecta jogos na pasta Content/0000000000000000", ()
     fs.mkdirSync(path.join(gameTidDir, "00007000"), { recursive: true });
 
     const nameMap = new Map([["4D530805", "Alan Wake"]]);
-    const results = scanContentDirectory(contentDir, "E:", nameMap);
+    const results = await scanContentDirectory(contentDir, "E:", nameMap);
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Alan Wake");
     assert.equal(results[0].titleId, "4D530805");
@@ -93,7 +93,7 @@ test("scanContentDirectory: detecta jogos na pasta Content/0000000000000000", ()
   }
 });
 
-test("scanIsoDirectory: detecta arquivos .iso", () => {
+test("scanIsoDirectory: detecta arquivos .iso", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
   try {
     const transferDir = path.join(tmp, "Transfer");
@@ -101,7 +101,7 @@ test("scanIsoDirectory: detecta arquivos .iso", () => {
     fs.writeFileSync(path.join(transferDir, "Red Dead Redemption.iso"), "fake-iso");
     fs.writeFileSync(path.join(transferDir, "not-a-game.txt"), "text");
 
-    const results = scanIsoDirectory(transferDir, "Transfer");
+    const results = await scanIsoDirectory(transferDir, "Transfer");
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Red Dead Redemption");
     assert.equal(results[0].format, "iso");
@@ -110,7 +110,7 @@ test("scanIsoDirectory: detecta arquivos .iso", () => {
   }
 });
 
-test("scanGamesDirectory: calcula sizeBytes e detecta TitleID em subpastas", () => {
+test("scanGamesDirectory: calcula sizeBytes e detecta TitleID em subpastas", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -119,7 +119,7 @@ test("scanGamesDirectory: calcula sizeBytes e detecta TitleID em subpastas", () 
     fs.mkdirSync(subTidDir, { recursive: true });
     fs.writeFileSync(path.join(subTidDir, "asset.bin"), Buffer.alloc(1024 * 1024));
 
-    const results = scanGamesDirectory(gamesDir, "E:");
+    const results = await scanGamesDirectory(gamesDir, "E:");
     assert.equal(results.length, 1);
     assert.equal(results[0].titleId, "584107F4");
     assert.ok(results[0].sizeBytes >= 1024 * 1024);
@@ -128,7 +128,7 @@ test("scanGamesDirectory: calcula sizeBytes e detecta TitleID em subpastas", () 
   }
 });
 
-test("isCorruptedFolderName & scanGamesDirectory: ignora pastas corrompidas ou sem assinatura de jogo", () => {
+test("isCorruptedFolderName & scanGamesDirectory: ignora pastas corrompidas ou sem assinatura de jogo", async () => {
   const { isCorruptedFolderName } = require("../../services/localGameScannerService.js");
 
   assert.equal(isCorruptedFolderName(""), true);
@@ -157,7 +157,7 @@ test("isCorruptedFolderName & scanGamesDirectory: ignora pastas corrompidas ou s
     fs.mkdirSync(path.join(validGameDir, "00007000"), { recursive: true });
     fs.writeFileSync(path.join(validGameDir, "00007000", "data.bin"), Buffer.alloc(1024));
 
-    const results = scanGamesDirectory(gamesDir, "E:");
+    const results = await scanGamesDirectory(gamesDir, "E:");
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Gears of War 2");
     assert.equal(results[0].titleId, "4D53082D");
@@ -176,7 +176,7 @@ function makeStfsPackage(titleId) {
   return buf;
 }
 
-test("scanGamesDirectory: nao descarta jogo que carrega pacotes Kinect assinados como FFFE07DF", () => {
+test("scanGamesDirectory: nao descarta jogo que carrega pacotes Kinect assinados como FFFE07DF", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-kinect-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -187,7 +187,7 @@ test("scanGamesDirectory: nao descarta jogo que carrega pacotes Kinect assinados
     fs.writeFileSync(path.join(gameDir, "Database.xmplr"), makeStfsPackage("FFFE07DF"));
     fs.writeFileSync(path.join(gameDir, "NuiIdentity.bin.be"), makeStfsPackage("FFFE07DF"));
 
-    const results = scanGamesDirectory(gamesDir, "E:");
+    const results = await scanGamesDirectory(gamesDir, "E:");
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Forza Horizon 2 Presents Fast & Furious");
     assert.equal(results[0].format, "xex");
@@ -197,7 +197,7 @@ test("scanGamesDirectory: nao descarta jogo que carrega pacotes Kinect assinados
   }
 });
 
-test("scanGamesDirectory: prefere o TitleID do jogo ao de um pacote de sistema na mesma pasta", () => {
+test("scanGamesDirectory: prefere o TitleID do jogo ao de um pacote de sistema na mesma pasta", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-tid-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -207,7 +207,7 @@ test("scanGamesDirectory: prefere o TitleID do jogo ao de um pacote de sistema n
     fs.writeFileSync(path.join(gameDir, "AAA_pacote_sistema"), makeStfsPackage("FFFE07DF"));
     fs.writeFileSync(path.join(gameDir, "nxeart"), makeStfsPackage("4D530AA4"));
 
-    const results = scanGamesDirectory(gamesDir, "E:");
+    const results = await scanGamesDirectory(gamesDir, "E:");
     assert.equal(results.length, 1);
     assert.equal(results[0].titleId, "4D530AA4");
   } finally {
@@ -215,7 +215,7 @@ test("scanGamesDirectory: prefere o TitleID do jogo ao de um pacote de sistema n
   }
 });
 
-test("scanGamesDirectory: soma arquivos aninhados alem de tres niveis no tamanho do jogo", () => {
+test("scanGamesDirectory: soma arquivos aninhados alem de tres niveis no tamanho do jogo", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-size-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -228,7 +228,7 @@ test("scanGamesDirectory: soma arquivos aninhados alem de tres niveis no tamanho
     fs.mkdirSync(deepDir, { recursive: true });
     fs.writeFileSync(path.join(deepDir, "dados.bin"), Buffer.alloc(500000));
 
-    const results = scanGamesDirectory(gamesDir, "E:");
+    const results = await scanGamesDirectory(gamesDir, "E:");
     assert.equal(results.length, 1);
     assert.equal(results[0].sizeBytes, 1024 + 500000);
   } finally {
@@ -236,7 +236,7 @@ test("scanGamesDirectory: soma arquivos aninhados alem de tres niveis no tamanho
   }
 });
 
-test("scanGamesDirectory: lista jogo cujos unicos containers sao pacotes de sistema", () => {
+test("scanGamesDirectory: lista jogo cujos unicos containers sao pacotes de sistema", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-sysonly-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -246,7 +246,7 @@ test("scanGamesDirectory: lista jogo cujos unicos containers sao pacotes de sist
     // Nenhum container do proprio jogo — so pacotes assinados sob o titulo de sistema.
     fs.writeFileSync(path.join(gameDir, "Database.xmplr"), makeStfsPackage("FFFE07DF"));
 
-    const results = scanGamesDirectory(gamesDir, "E:");
+    const results = await scanGamesDirectory(gamesDir, "E:");
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Jogo So Com Kinect");
     assert.equal(results[0].titleId, undefined);
@@ -255,7 +255,7 @@ test("scanGamesDirectory: lista jogo cujos unicos containers sao pacotes de sist
   }
 });
 
-test("scanGamesDirectory: continua descartando dados de atualizacao do sistema", () => {
+test("scanGamesDirectory: continua descartando dados de atualizacao do sistema", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-sysdata-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -264,14 +264,14 @@ test("scanGamesDirectory: continua descartando dados de atualizacao do sistema",
     fs.mkdirSync(path.join(sysDir, "pacote.data"), { recursive: true });
     fs.writeFileSync(path.join(sysDir, "pacote"), makeStfsPackage("FFFE07DF"));
 
-    const results = scanGamesDirectory(gamesDir, "E:");
+    const results = await scanGamesDirectory(gamesDir, "E:");
     assert.equal(results.length, 0);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("scanGamesDirectory: resolve o nome real quando a pasta so diz qual disco era", () => {
+test("scanGamesDirectory: resolve o nome real quando a pasta so diz qual disco era", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-disc-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -281,7 +281,7 @@ test("scanGamesDirectory: resolve o nome real quando a pasta so diz qual disco e
     fs.writeFileSync(path.join(gameDir, "default.xex"), "fake-xex-binary");
 
     const nameMap = new Map([["545408A7", "Grand Theft Auto V"]]);
-    const results = scanGamesDirectory(gamesDir, "E:", nameMap);
+    const results = await scanGamesDirectory(gamesDir, "E:", nameMap);
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Grand Theft Auto V");
     assert.equal(results[0].titleId, "545408A7");
@@ -290,7 +290,7 @@ test("scanGamesDirectory: resolve o nome real quando a pasta so diz qual disco e
   }
 });
 
-test("scanGamesDirectory: nome de jogo que comeca com 'Disc' nao e tratado como marcador", () => {
+test("scanGamesDirectory: nome de jogo que comeca com 'Disc' nao e tratado como marcador", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-discname-"));
   try {
     const gamesDir = path.join(tmp, "Games");
@@ -299,9 +299,37 @@ test("scanGamesDirectory: nome de jogo que comeca com 'Disc' nao e tratado como 
     fs.writeFileSync(path.join(gameDir, "default.xex"), "fake-xex-binary");
 
     const nameMap = new Map([["4D5307E6", "Halo 3"]]);
-    const results = scanGamesDirectory(gamesDir, "E:", nameMap);
+    const results = await scanGamesDirectory(gamesDir, "E:", nameMap);
     assert.equal(results.length, 1);
     assert.equal(results[0].name, "Discworld Noir");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanGamesDirectory: nao bloqueia o loop de eventos enquanto mede o jogo", async () => {
+  // A varredura roda no processo principal do Electron. Com fs.*Sync, um HD externo com biblioteca
+  // grande deixava a janela "Nao esta respondendo" por 70-105 s e fazia o PowerShell da enumeracao
+  // de USB "estourar o tempo" depois de ja ter terminado.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-loop-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const gameDir = path.join(gamesDir, "Jogo Com Muitos Arquivos");
+    fs.mkdirSync(path.join(gameDir, "media"), { recursive: true });
+    fs.writeFileSync(path.join(gameDir, "default.xex"), "fake-xex-binary");
+    for (let i = 0; i < 300; i++) fs.writeFileSync(path.join(gameDir, "media", `asset${i}.bin`), "x");
+
+    let ticks = 0;
+    let scanning = true;
+    const tick = () => { ticks++; if (scanning) setImmediate(tick); };
+    setImmediate(tick);
+    const results = await scanGamesDirectory(gamesDir, "E:");
+    scanning = false;
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].sizeBytes, "fake-xex-binary".length + 300);
+    // Codigo sincrono: nenhum callback roda ate a varredura acabar (ticks === 0).
+    assert.ok(ticks > 10, `o loop deveria girar durante a varredura (ticks=${ticks})`);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

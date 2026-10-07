@@ -4,6 +4,13 @@ import { listFat32UsbDrives, type UsbDriveInfo } from "./badAvatarUsbService";
 import { readConfig } from "./settingsService";
 import { xboxBuildGameNameMap } from "./auroraLibraryService";
 
+// Every disk access here is asynchronous, and that is load-bearing: the scan runs in Electron's
+// main process and walks every file of every game to size it. With fs.*Sync, an external HD with a
+// large library froze the window ("Não está respondendo") for 70–105 s per scan, and the blocked
+// loop turned finished PowerShell enumerations into a false "O Windows ainda está reconhecendo...".
+// See docs/bugs/*/electron-main-varredura-sincrona-de-jogos-instalados-*.md before adding a *Sync.
+const fsp = fs.promises;
+
 export interface InstalledGameInfo {
   name: string;
   titleId?: string;
@@ -59,6 +66,24 @@ const SYSTEM_CONTAINER_NAMES = new Set([
   "apps",
 ]);
 
+/** Async fs.existsSync: false on any error. */
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fsp.stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readDirEntries(dirPath: string): Promise<fs.Dirent[] | null> {
+  try {
+    return await fsp.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Normalizes a drive root to uppercase format (e.g. "F:\" -> "F:").
  */
@@ -70,11 +95,9 @@ export function normalizeDriveLetter(rootPath: string): string {
 /**
  * Parses a godsend.ini file if present to extract title, titleId and type.
  */
-function readGodsendIni(dirPath: string): { titleName?: string; titleId?: string; type?: string } | null {
+async function readGodsendIni(dirPath: string): Promise<{ titleName?: string; titleId?: string; type?: string } | null> {
   try {
-    const iniPath = path.join(dirPath, "godsend.ini");
-    if (!fs.existsSync(iniPath)) return null;
-    const content = fs.readFileSync(iniPath, "utf8");
+    const content = await fsp.readFile(path.join(dirPath, "godsend.ini"), "utf8");
     const lines = content.split(/\r?\n/);
     let titleName: string | undefined;
     let titleId: string | undefined;
@@ -111,22 +134,19 @@ export function isCorruptedFolderName(name: string): boolean {
 /**
  * Checks whether a folder has a standard GOD subfolder or any known Xbox content structure.
  */
-function hasGodOrContentSubfolder(dirPath: string): boolean {
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (isCorruptedFolderName(entry.name)) continue;
-      const lower = entry.name.toLowerCase();
-      if (entry.isDirectory()) {
-        if (KNOWN_CONTENT_TYPES.has(entry.name.toUpperCase()) || lower.endsWith(".data")) {
-          return true;
-        }
-      } else if (entry.isFile()) {
-        if (lower.endsWith(".data")) return true;
+async function hasGodOrContentSubfolder(dirPath: string): Promise<boolean> {
+  const entries = await readDirEntries(dirPath);
+  if (!entries) return false;
+  for (const entry of entries) {
+    if (isCorruptedFolderName(entry.name)) continue;
+    const lower = entry.name.toLowerCase();
+    if (entry.isDirectory()) {
+      if (KNOWN_CONTENT_TYPES.has(entry.name.toUpperCase()) || lower.endsWith(".data")) {
+        return true;
       }
+    } else if (entry.isFile()) {
+      if (lower.endsWith(".data")) return true;
     }
-  } catch {
-    /* ignore */
   }
   return false;
 }
@@ -134,23 +154,16 @@ function hasGodOrContentSubfolder(dirPath: string): boolean {
 /**
  * Checks whether a folder contains a default.xex file (or one level deep).
  */
-function hasDefaultXex(dirPath: string): boolean {
-  try {
-    const direct = path.join(dirPath, "default.xex");
-    if (fs.existsSync(direct)) return true;
-    const directCase = path.join(dirPath, "Default.xex");
-    if (fs.existsSync(directCase)) return true;
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory() && !isCorruptedFolderName(entry.name)) {
-        const subXex = path.join(dirPath, entry.name, "default.xex");
-        if (fs.existsSync(subXex)) return true;
-        const subXexCase = path.join(dirPath, entry.name, "Default.xex");
-        if (fs.existsSync(subXexCase)) return true;
-      }
+async function hasDefaultXex(dirPath: string): Promise<boolean> {
+  if (await pathExists(path.join(dirPath, "default.xex"))) return true;
+  if (await pathExists(path.join(dirPath, "Default.xex"))) return true;
+  const entries = await readDirEntries(dirPath);
+  if (!entries) return false;
+  for (const entry of entries) {
+    if (entry.isDirectory() && !isCorruptedFolderName(entry.name)) {
+      if (await pathExists(path.join(dirPath, entry.name, "default.xex"))) return true;
+      if (await pathExists(path.join(dirPath, entry.name, "Default.xex"))) return true;
     }
-  } catch {
-    /* ignore */
   }
   return false;
 }
@@ -158,25 +171,25 @@ function hasDefaultXex(dirPath: string): boolean {
 /**
  * Inspects a single candidate game folder and returns InstalledGameInfo if valid.
  */
-function parseGameFolder(
+async function parseGameFolder(
   fullPath: string,
   folderName: string,
   driveLabel: string,
   nameMap?: Map<string, string>
-): InstalledGameInfo | null {
+): Promise<InstalledGameInfo | null> {
   if (isCorruptedFolderName(folderName)) return null;
   const lower = folderName.toLowerCase();
   if (SYSTEM_CONTAINER_NAMES.has(lower)) return null;
 
   try {
     // Check godsend.ini manifest
-    const ini = readGodsendIni(fullPath);
+    const ini = await readGodsendIni(fullPath);
     let titleName: string | undefined = ini?.titleName;
     let titleId: string | undefined = ini?.titleId;
     let format: "god" | "xex" | undefined = ini?.type === "xex" ? "xex" : ini?.type === "god" ? "god" : undefined;
 
-    const isDefaultXex = hasDefaultXex(fullPath);
-    const isGodSub = hasGodOrContentSubfolder(fullPath);
+    const isDefaultXex = await hasDefaultXex(fullPath);
+    const isGodSub = await hasGodOrContentSubfolder(fullPath);
 
     // Pattern: "Game Name - 4D5307E6"
     const match = folderName.match(NAME_TITLE_ID_REGEX);
@@ -192,20 +205,18 @@ function parseGameFolder(
 
     // Check if any direct subdirectory is an 8-char hex TitleID (e.g. Games/Street Fighter/584107F4)
     if (!titleId) {
-      try {
-        const subs = fs.readdirSync(fullPath, { withFileTypes: true });
-        for (const sub of subs) {
-          if (sub.isDirectory() && !isCorruptedFolderName(sub.name) && HEX_8_REGEX.test(sub.name)) {
-            titleId = sub.name.toUpperCase();
-            break;
-          }
+      const subs = (await readDirEntries(fullPath)) ?? [];
+      for (const sub of subs) {
+        if (sub.isDirectory() && !isCorruptedFolderName(sub.name) && HEX_8_REGEX.test(sub.name)) {
+          titleId = sub.name.toUpperCase();
+          break;
         }
-      } catch {}
+      }
     }
 
     // Probe STFS LIVE/PIRS header if Title ID is still unknown
     if (!titleId) {
-      titleId = probeStfsTitleId(fullPath) || undefined;
+      titleId = (await probeStfsTitleId(fullPath)) || undefined;
     }
 
     // Skip Xbox 360 system/dashboard update data. Such data carries no executable of its own,
@@ -264,17 +275,14 @@ function parseGameFolder(
       }
     }
 
-    let sizeBytes = 0;
-    try {
-      sizeBytes = getDirectorySizeBytes(fullPath);
-    } catch {}
+    const sizeBytes = await getDirectorySizeBytes(fullPath);
 
     // Reject empty folders with 0 bytes that have no actual executable or valid ini
     if (sizeBytes === 0 && !ini && !isDefaultXex && !isGodSub) {
       return null;
     }
 
-    const localCoverUrl = findLocalCoverDataUrl(fullPath);
+    const localCoverUrl = await findLocalCoverDataUrl(fullPath);
 
     return {
       name: titleName,
@@ -294,26 +302,20 @@ function parseGameFolder(
 /**
  * Scans a single Games directory for GOD and XEX games.
  */
-export function scanGamesDirectory(
+export async function scanGamesDirectory(
   gamesDir: string,
   driveLabel: string,
   nameMap?: Map<string, string>
-): InstalledGameInfo[] {
+): Promise<InstalledGameInfo[]> {
   const games: InstalledGameInfo[] = [];
-  if (!fs.existsSync(gamesDir)) return games;
-
-  let entries: fs.Dirent[] = [];
-  try {
-    entries = fs.readdirSync(gamesDir, { withFileTypes: true });
-  } catch {
-    return games;
-  }
+  const entries = await readDirEntries(gamesDir);
+  if (!entries) return games;
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (isCorruptedFolderName(entry.name)) continue;
     const fullPath = path.join(gamesDir, entry.name);
-    const game = parseGameFolder(fullPath, entry.name, driveLabel, nameMap);
+    const game = await parseGameFolder(fullPath, entry.name, driveLabel, nameMap);
     if (game) {
       games.push(game);
     }
@@ -322,29 +324,28 @@ export function scanGamesDirectory(
   return games;
 }
 
-function getDirectorySizeBytes(dirPath: string, depth = 0): number {
+async function getDirectorySizeBytes(dirPath: string, depth = 0): Promise<number> {
   // Xbox game trees nest deeply (media/tracks/<track>/<asset>, Content/0000000000000000/
   // <titleID>/<type>/), so a shallow cap silently reports multi-GB titles as a few MB.
   if (depth > MAX_SIZE_SCAN_DEPTH) return 0;
   let total = 0;
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (isCorruptedFolderName(entry.name)) continue;
-      const full = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        total += getDirectorySizeBytes(full, depth + 1);
-      } else if (entry.isFile()) {
-        try {
-          total += fs.statSync(full).size;
-        } catch {}
-      }
+  const entries = await readDirEntries(dirPath);
+  if (!entries) return 0;
+  for (const entry of entries) {
+    if (isCorruptedFolderName(entry.name)) continue;
+    const full = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      total += await getDirectorySizeBytes(full, depth + 1);
+    } else if (entry.isFile()) {
+      try {
+        total += (await fsp.stat(full)).size;
+      } catch {}
     }
-  } catch {}
+  }
   return total;
 }
 
-function findLocalCoverDataUrl(dirPath: string): string | undefined {
+async function findLocalCoverDataUrl(dirPath: string): Promise<string | undefined> {
   const coverFiles = [
     "cover.jpg", "cover.png", "cover.jpeg",
     "folder.jpg", "folder.png",
@@ -354,81 +355,76 @@ function findLocalCoverDataUrl(dirPath: string): string | undefined {
   ];
   for (const name of coverFiles) {
     const p = path.join(dirPath, name);
-    if (fs.existsSync(p)) {
-      try {
-        const stat = fs.statSync(p);
-        if (stat.isFile() && stat.size >= 100 && stat.size < 5000000) {
-          const buf = fs.readFileSync(p);
-          const mime = (buf[0] === 0xFF && buf[1] === 0xD8) ? "image/jpeg" : (buf[0] === 0x89 && buf[1] === 0x50) ? "image/png" : "image/jpeg";
-          return `data:${mime};base64,${buf.toString("base64")}`;
-        }
-      } catch {}
-    }
+    try {
+      const stat = await fsp.stat(p);
+      if (stat.isFile() && stat.size >= 100 && stat.size < 5000000) {
+        const buf = await fsp.readFile(p);
+        const mime = (buf[0] === 0xFF && buf[1] === 0xD8) ? "image/jpeg" : (buf[0] === 0x89 && buf[1] === 0x50) ? "image/png" : "image/jpeg";
+        return `data:${mime};base64,${buf.toString("base64")}`;
+      }
+    } catch {}
   }
   return undefined;
 }
 
-function probeStfsTitleId(dirPath: string, depth = 0): string | null {
+async function probeStfsTitleId(dirPath: string, depth = 0): Promise<string | null> {
   if (depth > 4) return null;
   // A game's own container wins over any system package bundled inside it, but a folder that
   // holds nothing but system packages still reports SYSTEM_TITLE_ID, so parseGameFolder can
   // recognise it as dashboard data rather than listing it as a game.
   let systemOnly: string | null = null;
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (isCorruptedFolderName(entry.name)) continue;
-      const full = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        const sub = probeStfsTitleId(full, depth + 1);
-        if (sub && sub !== SYSTEM_TITLE_ID) return sub;
-        if (sub) systemOnly = sub;
-      } else {
-        try {
-          const s = fs.statSync(full);
-          if (s.size >= 0x364 && s.size < 60000000) {
-            const fd = fs.openSync(full, "r");
-            const buf = Buffer.alloc(0x364);
-            const read = fs.readSync(fd, buf, 0, 0x364, 0);
-            fs.closeSync(fd);
-            if (read >= 0x364) {
-              const magic = buf.toString("ascii", 0, 4);
-              if (magic === "LIVE" || magic === "PIRS" || magic === "CON ") {
-                const tid = buf.toString("hex", 0x360, 0x364).toUpperCase();
-                if (HEX_8_REGEX.test(tid) && tid !== "00000000" && tid !== "FFFFFFFF") {
-                  // Kinect and speech packages that ship inside ordinary games
-                  // (Database.xmplr, NuiIdentity.bin.be, nuisp*) carry the system title, so
-                  // they must not decide the folder's identity — keep looking for the game.
-                  if (tid !== SYSTEM_TITLE_ID) return tid;
-                  systemOnly = tid;
-                }
+  const entries = await readDirEntries(dirPath);
+  if (!entries) return systemOnly;
+  for (const entry of entries) {
+    if (isCorruptedFolderName(entry.name)) continue;
+    const full = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      const sub = await probeStfsTitleId(full, depth + 1);
+      if (sub && sub !== SYSTEM_TITLE_ID) return sub;
+      if (sub) systemOnly = sub;
+    } else {
+      try {
+        const s = await fsp.stat(full);
+        if (s.size >= 0x364 && s.size < 60000000) {
+          const buf = Buffer.alloc(0x364);
+          const handle = await fsp.open(full, "r");
+          let read = 0;
+          try {
+            read = (await handle.read(buf, 0, 0x364, 0)).bytesRead;
+          } finally {
+            await handle.close();
+          }
+          if (read >= 0x364) {
+            const magic = buf.toString("ascii", 0, 4);
+            if (magic === "LIVE" || magic === "PIRS" || magic === "CON ") {
+              const tid = buf.toString("hex", 0x360, 0x364).toUpperCase();
+              if (HEX_8_REGEX.test(tid) && tid !== "00000000" && tid !== "FFFFFFFF") {
+                // Kinect and speech packages that ship inside ordinary games
+                // (Database.xmplr, NuiIdentity.bin.be, nuisp*) carry the system title, so
+                // they must not decide the folder's identity — keep looking for the game.
+                if (tid !== SYSTEM_TITLE_ID) return tid;
+                systemOnly = tid;
               }
             }
           }
-        } catch {}
-      }
+        }
+      } catch {}
     }
-  } catch {}
+  }
   return systemOnly;
 }
 
 /**
  * Scans Content/0000000000000000 on a drive for GOD/XBLA/DLC games.
  */
-export function scanContentDirectory(
+export async function scanContentDirectory(
   contentDir: string,
   driveLabel: string,
   nameMap?: Map<string, string>
-): InstalledGameInfo[] {
+): Promise<InstalledGameInfo[]> {
   const games: InstalledGameInfo[] = [];
-  if (!fs.existsSync(contentDir)) return games;
-
-  let entries: fs.Dirent[] = [];
-  try {
-    entries = fs.readdirSync(contentDir, { withFileTypes: true });
-  } catch {
-    return games;
-  }
+  const entries = await readDirEntries(contentDir);
+  if (!entries) return games;
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -445,7 +441,7 @@ export function scanContentDirectory(
 
     try {
       // Check if this Title ID folder has any content subdirectories or files
-      const subdirs = fs.readdirSync(fullPath, { withFileTypes: true });
+      const subdirs = await fsp.readdir(fullPath, { withFileTypes: true });
       if (subdirs.length === 0) continue;
 
       let hasValidContent = false;
@@ -465,7 +461,7 @@ export function scanContentDirectory(
       if (!hasValidContent) continue;
 
       let titleName = nameMap?.get(tid) || tid;
-      const ini = readGodsendIni(fullPath);
+      const ini = await readGodsendIni(fullPath);
       if (ini?.titleName) titleName = ini.titleName;
 
       // If title name is still just the hex TID, look for a named container file inside subfolders
@@ -474,7 +470,7 @@ export function scanContentDirectory(
           for (const sub of subdirs) {
             if (isCorruptedFolderName(sub.name)) continue;
             if (sub.isDirectory()) {
-              const files = fs.readdirSync(path.join(fullPath, sub.name), { withFileTypes: true });
+              const files = await fsp.readdir(path.join(fullPath, sub.name), { withFileTypes: true });
               for (const f of files) {
                 if (isCorruptedFolderName(f.name)) continue;
                 if (f.isFile() && !/^[0-9A-F]{40}$/i.test(f.name) && !/^\d+$/.test(f.name) && !f.name.endsWith(".data")) {
@@ -490,12 +486,9 @@ export function scanContentDirectory(
 
       if (isCorruptedFolderName(titleName)) continue;
 
-      let sizeBytes = 0;
-      try {
-        sizeBytes = getDirectorySizeBytes(fullPath);
-      } catch {}
+      const sizeBytes = await getDirectorySizeBytes(fullPath);
 
-      const localCoverUrl = findLocalCoverDataUrl(fullPath);
+      const localCoverUrl = await findLocalCoverDataUrl(fullPath);
 
       games.push({
         name: titleName,
@@ -518,30 +511,26 @@ export function scanContentDirectory(
 /**
  * Scans a folder for raw .iso files.
  */
-export function scanIsoDirectory(isoDir: string, driveLabel: string): InstalledGameInfo[] {
+export async function scanIsoDirectory(isoDir: string, driveLabel: string): Promise<InstalledGameInfo[]> {
   const games: InstalledGameInfo[] = [];
-  if (!fs.existsSync(isoDir)) return games;
+  const entries = await readDirEntries(isoDir);
+  if (!entries) return games;
 
-  try {
-    const entries = fs.readdirSync(isoDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory()) continue;
-      if (isCorruptedFolderName(entry.name)) continue;
-      const n = entry.name;
-      if (n.toLowerCase().endsWith(".iso")) {
-        const name = path.basename(n, path.extname(n));
-        if (isCorruptedFolderName(name)) continue;
-        games.push({
-          name,
-          path: path.join(isoDir, n),
-          drive: driveLabel,
-          format: "iso",
-          folderName: n,
-        });
-      }
+  for (const entry of entries) {
+    if (entry.isDirectory()) continue;
+    if (isCorruptedFolderName(entry.name)) continue;
+    const n = entry.name;
+    if (n.toLowerCase().endsWith(".iso")) {
+      const name = path.basename(n, path.extname(n));
+      if (isCorruptedFolderName(name)) continue;
+      games.push({
+        name,
+        path: path.join(isoDir, n),
+        drive: driveLabel,
+        format: "iso",
+        folderName: n,
+      });
     }
-  } catch {
-    /* ignore */
   }
 
   return games;
@@ -550,13 +539,13 @@ export function scanIsoDirectory(isoDir: string, driveLabel: string): InstalledG
 /**
  * Scans a single drive root across all potential game folders.
  */
-function scanDriveRoot(
+async function scanDriveRoot(
   driveRoot: string,
   driveLabel: string,
   nameMap: Map<string, string>,
   seenPaths: Set<string>,
   outGames: InstalledGameInfo[]
-): void {
+): Promise<void> {
   const candidateFolderNames = [
     "Games", "games", "Jogos", "jogos",
     "Xbox360", "xbox360", "Xbox 360", "xbox 360",
@@ -568,10 +557,10 @@ function scanDriveRoot(
   for (const folder of candidateFolderNames) {
     const fullDir = path.join(driveRoot, folder);
     const lowerKey = fullDir.toLowerCase();
-    if (scannedDirs.has(lowerKey) || !fs.existsSync(fullDir)) continue;
+    if (scannedDirs.has(lowerKey) || !(await pathExists(fullDir))) continue;
     scannedDirs.add(lowerKey);
 
-    const found = scanGamesDirectory(fullDir, driveLabel, nameMap);
+    const found = await scanGamesDirectory(fullDir, driveLabel, nameMap);
     for (const g of found) {
       const pKey = g.path.toLowerCase();
       if (!seenPaths.has(pKey)) {
@@ -583,46 +572,42 @@ function scanDriveRoot(
 
   // Check Content/0000000000000000 in drive root
   const contentDir = path.join(driveRoot, "Content", "0000000000000000");
-  if (fs.existsSync(contentDir)) {
-    const foundContent = scanContentDirectory(contentDir, driveLabel, nameMap);
-    for (const g of foundContent) {
-      const pKey = g.path.toLowerCase();
-      if (!seenPaths.has(pKey)) {
-        seenPaths.add(pKey);
-        outGames.push(g);
-      }
+  const foundContent = await scanContentDirectory(contentDir, driveLabel, nameMap);
+  for (const g of foundContent) {
+    const pKey = g.path.toLowerCase();
+    if (!seenPaths.has(pKey)) {
+      seenPaths.add(pKey);
+      outGames.push(g);
     }
   }
 
   // Check direct root-level game folders (e.g. E:\Gears of War 3 - 4D5308AB\)
-  try {
-    const rootEntries = fs.readdirSync(driveRoot, { withFileTypes: true });
-    for (const entry of rootEntries) {
-      if (!entry.isDirectory()) continue;
-      if (isCorruptedFolderName(entry.name)) continue;
-      const lower = entry.name.toLowerCase();
-      if (SYSTEM_CONTAINER_NAMES.has(lower) || candidateFolderNames.some((c) => c.toLowerCase() === lower)) {
-        continue;
-      }
-      const fullPath = path.join(driveRoot, entry.name);
-      if (hasDefaultXex(fullPath) || hasGodOrContentSubfolder(fullPath) || NAME_TITLE_ID_REGEX.test(entry.name)) {
-        const game = parseGameFolder(fullPath, entry.name, driveLabel, nameMap);
-        if (game) {
-          const pKey = game.path.toLowerCase();
-          if (!seenPaths.has(pKey)) {
-            seenPaths.add(pKey);
-            outGames.push(game);
-          }
+  const rootEntries = (await readDirEntries(driveRoot)) ?? [];
+  for (const entry of rootEntries) {
+    if (!entry.isDirectory()) continue;
+    if (isCorruptedFolderName(entry.name)) continue;
+    const lower = entry.name.toLowerCase();
+    if (SYSTEM_CONTAINER_NAMES.has(lower) || candidateFolderNames.some((c) => c.toLowerCase() === lower)) {
+      continue;
+    }
+    const fullPath = path.join(driveRoot, entry.name);
+    if (await hasDefaultXex(fullPath) || await hasGodOrContentSubfolder(fullPath) || NAME_TITLE_ID_REGEX.test(entry.name)) {
+      const game = await parseGameFolder(fullPath, entry.name, driveLabel, nameMap);
+      if (game) {
+        const pKey = game.path.toLowerCase();
+        if (!seenPaths.has(pKey)) {
+          seenPaths.add(pKey);
+          outGames.push(game);
         }
       }
     }
-  } catch {}
+  }
 }
 
 /**
  * Returns available Windows drive letters (D: through Z:) that exist and are ready.
  */
-function getWindowsCandidateDriveRoots(): string[] {
+async function getWindowsCandidateDriveRoots(): Promise<string[]> {
   if (process.platform !== "win32") return [];
   const roots: string[] = [];
   const startCode = "D".charCodeAt(0);
@@ -631,11 +616,9 @@ function getWindowsCandidateDriveRoots(): string[] {
   for (let code = startCode; code <= endCode; code++) {
     const letter = String.fromCharCode(code);
     const rootPath = `${letter}:\\`;
-    try {
-      if (fs.existsSync(rootPath)) {
-        roots.push(rootPath);
-      }
-    } catch {}
+    if (await pathExists(rootPath)) {
+      roots.push(rootPath);
+    }
   }
   return roots;
 }
@@ -688,24 +671,28 @@ export async function scanUsbAndLocalGames(forceRefresh = false): Promise<Instal
           : letter;
         processedRoots.add(normalizeDriveLetter(drive.rootPath).toLowerCase());
 
-        scanDriveRoot(drive.rootPath, driveDisplay, nameMap, seenPaths, allGames);
+        await scanDriveRoot(drive.rootPath, driveDisplay, nameMap, seenPaths, allGames);
       }
 
       // 2. Safety fallback: scan any connected Windows drives (D: to Z:) that have Xbox game folders
       if (process.platform === "win32") {
-        const winRoots = getWindowsCandidateDriveRoots();
+        const winRoots = await getWindowsCandidateDriveRoots();
         for (const r of winRoots) {
           const letter = normalizeDriveLetter(r);
           if (processedRoots.has(letter.toLowerCase())) continue;
           processedRoots.add(letter.toLowerCase());
 
           // Only scan non-USB volume if it has an Xbox indicator folder
-          const hasXboxFolders = [
-            "Games", "games", "Jogos", "jogos", "Xbox360", "xbox360", "Aurora", "Content"
-          ].some((f) => fs.existsSync(path.join(r, f)));
+          let hasXboxFolders = false;
+          for (const f of ["Games", "games", "Jogos", "jogos", "Xbox360", "xbox360", "Aurora", "Content"]) {
+            if (await pathExists(path.join(r, f))) {
+              hasXboxFolders = true;
+              break;
+            }
+          }
 
           if (hasXboxFolders) {
-            scanDriveRoot(r, letter, nameMap, seenPaths, allGames);
+            await scanDriveRoot(r, letter, nameMap, seenPaths, allGames);
           }
         }
       }
@@ -713,8 +700,8 @@ export async function scanUsbAndLocalGames(forceRefresh = false): Promise<Instal
       // 3. Scan configured Transfer folder (for ISOs and local transfers)
       const config = readConfig();
       const transferFolder = config.transferFolder;
-      if (transferFolder && fs.existsSync(transferFolder)) {
-        const isoGames = scanIsoDirectory(transferFolder, "Transfer");
+      if (transferFolder && await pathExists(transferFolder)) {
+        const isoGames = await scanIsoDirectory(transferFolder, "Transfer");
         for (const g of isoGames) {
           if (!seenPaths.has(g.path.toLowerCase())) {
             seenPaths.add(g.path.toLowerCase());
@@ -722,7 +709,7 @@ export async function scanUsbAndLocalGames(forceRefresh = false): Promise<Instal
           }
         }
 
-        const gamesInTransfer = scanGamesDirectory(path.join(transferFolder, "Games"), "Transfer", nameMap);
+        const gamesInTransfer = await scanGamesDirectory(path.join(transferFolder, "Games"), "Transfer", nameMap);
         for (const g of gamesInTransfer) {
           if (!seenPaths.has(g.path.toLowerCase())) {
             seenPaths.add(g.path.toLowerCase());
