@@ -46,6 +46,32 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const LATE_TIMER_GRACE_MS = 1_000;
+
+/**
+ * setTimeout for a child-process deadline. A timer that fires well past its deadline means the
+ * event loop was blocked, and the child's exit may already be queued: on Windows it is delivered
+ * in libuv's poll phase, which runs after the timers phase. Expiring there reports a finished
+ * PowerShell as "O Windows ainda está reconhecendo..." — so a late timer waits one short grace
+ * period first. A child that is really stuck still expires (deadline + grace at most).
+ * Returns the cancel function.
+ */
+export function setLoopAwareTimeout(timeoutMs: number, onExpire: () => void): () => void {
+  const deadline = Date.now() + timeoutMs;
+  let graceUsed = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const fire = () => {
+    if (!graceUsed && Date.now() - deadline > LATE_TIMER_GRACE_MS) {
+      graceUsed = true;
+      timer = setTimeout(fire, LATE_TIMER_GRACE_MS);
+      return;
+    }
+    onExpire();
+  };
+  timer = setTimeout(fire, timeoutMs);
+  return () => clearTimeout(timer);
+}
+
 function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     // Write script to a temp file so PowerShell uses -File instead of -Command.
@@ -71,24 +97,23 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
     let stdout = "";
     let stderr = "";
     let settled = false;
-    let timeout: ReturnType<typeof setTimeout>;
     const finish = (callback: () => void) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      cancelTimeout();
       callback();
     };
     const cleanup = () => {
       if (tmpDir) try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
     };
 
-    timeout = setTimeout(() => {
+    const cancelTimeout = setLoopAwareTimeout(timeoutMs, () => {
       child.kill();
       finish(() => {
         cleanup();
         reject(usbEnumerationTimeout(timeoutMs));
       });
-    }, timeoutMs);
+    });
     child.stdout.on("data", (data) => { stdout += data.toString(); });
     child.stderr.on("data", (data) => { stderr += data.toString(); });
     child.on("error", (error) => finish(() => {
