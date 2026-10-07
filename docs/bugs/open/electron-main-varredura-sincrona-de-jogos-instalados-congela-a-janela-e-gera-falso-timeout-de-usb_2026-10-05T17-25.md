@@ -241,6 +241,67 @@ bloqueio 6000, filho Start-Sleep 10 -> REJEITOU apos 7043 ms           (prazo + 
 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
-| T1 | `runPowerShell`: timer que disparou atrasado ganha 1 s de folga antes de declarar timeout | -- | -- | -- | -- |
-| T2 | varredura de jogos instalados com `fs.promises` (loop livre durante a varredura) | -- | -- | -- | -- |
-| T3 | resultado por jogo e mapa de nomes reaproveitados por 10 min + log de duração da varredura | -- | -- | -- | -- |
+| T1 | `runPowerShell`: timer que disparou atrasado ganha 1 s de folga antes de declarar timeout | `9258bfe` | commitado, sem release | claude-opus-5-5 | -- |
+| T2 | varredura de jogos instalados com `fs.promises` (loop livre durante a varredura) | `426d4ff` | commitado, sem release | claude-opus-5-5 | -- |
+| T3 | resultado por jogo e mapa de nomes reaproveitados por 10 min + log de duração da varredura | `91d20dc` | commitado, sem release | claude-opus-5-5 | -- |
+
+## Correção aplicada
+
+Seguiu a correção planejada, com estes detalhes:
+
+- **T1** — `setLoopAwareTimeout` exportada de `windowsUsbDeviceService.ts` e usada por
+  `runPowerShell` no lugar do `setTimeout`. Medido à parte (`measure-close-delay.cjs`): depois de
+  destravar o loop, o `close` do filho chega em **3–5 ms** (5 de 5), contra a folga de 1 s.
+- **T2** — conversão linha a linha; os `fs.existsSync` que só antecediam um `readdir`/`readFile`
+  viraram o próprio `readdir`/`readFile` com o mesmo `catch` (mesmo resultado, um acesso a menos).
+  `getWindowsCandidateDriveRoots` também ficou assíncrona: `existsSync("X:\\")` num leitor de
+  cartão vazio ou unidade de rede caída também bloqueia.
+- **T3** — o corpo por entrada de `scanContentDirectory` foi extraído para
+  `parseContentTitleFolder` (sem mudança de lógica) para passar pelo mesmo cache. No laço de pastas
+  da raiz, o pré-teste (`hasDefaultXex`/`hasGodOrContentSubfolder`/nome com TitleID) também fica
+  dentro do cache. A chave é caminho + rótulo da unidade. O log leva só o **nome** da pasta mais
+  lenta, nunca o caminho (a pasta de transferência pode estar dentro do perfil do usuário, e o log
+  vai para a telemetria).
+- **Tentativa descartada durante a T3:** `stat` em paralelo por diretório (`Promise.all`) para
+  recuperar o tempo de parede da primeira varredura. Medido: 13,2/12,3 s contra 12,3 s sequencial,
+  e a maior travada do loop subiu de 9 para 51–54 ms. Revertido.
+- **Custo conhecido:** a **primeira** varredura ficou ~2× mais lenta no relógio num SSD (12,3 s
+  contra 5,9 s na mesma biblioteca sintética) — é o custo de cada operação ir ao pool do libuv. A
+  janela responde o tempo todo, e as seguintes custam ~0 ms. Num HD USB mecânico o tempo é dominado
+  pelo disco, então a diferença tende a ser menor; não medido.
+- **Versão:** não houve bump. Outra sessão tem o bump para 2.12.107 em andamento, sem commit, nos
+  quatro arquivos de versão; a entrada desta correção está no `[Unreleased]` do `CHANGELOG.md` e
+  sai com a próxima release.
+
+## Testes executados
+
+- `npm run tsc` (em `src/electron-app`): sem erros.
+- `node --test tests/unit/*.test.cjs`: **252/252** (eram 248 + 4 novos).
+- Novos e o que cada um pega (controle negativo de todos rodado):
+  - `loopAwareTimeout.test.cjs` — filho que já terminou vence o prazo vencido com o loop bloqueado
+    2,5 s; filho travado expira no prazo (sem folga) e com loop bloqueado (uma folga só). Com a folga
+    desligada no JS compilado: o primeiro teste **falha**.
+  - `localGameScannerService.test.cjs` › "nao bloqueia o loop de eventos" — callbacks
+    `setImmediate` giram durante a varredura. Contra o scanner de `060687e` (síncrono): **falha com
+    `ticks=0`**.
+  - `localGameScannerService.test.cjs` › "reaproveita a analise" — tamanho guardado dentro do prazo,
+    jogo novo aparece, jogo apagado some, `invalidateInstalledGamesCache` recalcula. Com
+    `GAME_INFO_TTL_MS = 0` no JS compilado: **falha** (1500 em vez de 1000).
+- Escala (`bench-scan.cjs`, 30 jogos × 1500 arquivos em SSD, `scanGamesDirectory`):
+
+  | versão | 1ª varredura | maior travada do loop | 2ª varredura |
+  |---|---|---|---|
+  | `060687e` (síncrona) | 5 972 ms | 5 972 ms | 5 504 ms (trava de novo) |
+  | `91d20dc` | 12 294 ms | 9 ms | 1 ms |
+
+## O que ainda falta para fechar
+
+- **Prova de campo:** não há nesta máquina um HD externo com biblioteca grande; o app não foi
+  aberto com o cenário do cliente. A prova é a release: com a T3 no ar, um log de cliente com HD
+  cheio deve trazer `APP_BROWSE varredura de jogos instalados: ...` **sem** as lacunas de 70–105 s
+  entre as linhas `lista enviada à interface`, e sem `USB_ENUMERATION_TIMEOUT` colado no fim de uma
+  varredura.
+- **Alcance e a hipótese "Xbox Games 360 como um jogo só":** a linha `APP_BROWSE` (pasta mais lenta
+  + arquivos medidos) responde as duas quando os primeiros logs da nova versão chegarem.
+- O chamado #133 (o cliente desistiu) e o bug do agente em `digitalstoregamesproject` seguem fora
+  deste doc.

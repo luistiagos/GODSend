@@ -27,6 +27,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Catálogo HuggingFace:** Incluído o título `EA FC 26 Legacy Edition` apontando para `https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/EA%20FC%2026%20Legacy%20Edition.zip` (10.98 GiB) nos manifestos locais e em produção na API remota (`emuladores.pythonanywhere.com`).
   - **Capa Customizada:** Como se trata de modificação/lançamento de comunidade indisponível nas fontes oficiais do XboxUnity/Microsoft Store, foi adicionada a resolução e download direto da capa oficial fornecida (`https://down-br.img.susercontent.com/file/br-11134207-820li-mo2rdptzkiyp5c`), persistida em cache local/empacotada em `cache/covers/` e associada ao TitleID curado do FIFA 19 Legacy Edition (`454109F9`).
 
+### Fixed
+- **Janela "Não está respondendo" com HD externo cheio, e o falso "O Windows ainda está reconhecendo seu pendrive ou HD" que vinha junto (`localGameScannerService.ts`, `windowsUsbDeviceService.ts`)**:
+  - Trata o chamado #133 (reports `9324`/`9325`, v2.12.106): com um HD de biblioteca grande conectado, o processo principal ficava mudo 70–105 s em ciclos, 77% da sessão.
+  - **Causa:** a varredura de jogos instalados (`browse:get-installed-games`, consultada a cada 5–7 s pela Home e pelo contador do menu) era toda `fs.*Sync` no processo principal, medindo cada arquivo de cada jogo, e o resultado valia só 15 s. Com o loop de eventos bloqueado, o timer da enumeração de USB vencia antes de o Node entregar a saída do PowerShell que já tinha terminado — reproduzido: filho que termina em 0,4 s, loop bloqueado 6 s, timeout em 2 de 2.
+  - **Correção:** a varredura passa a usar `fs.promises` (numa biblioteca sintética de 30 jogos × 1500 arquivos, a maior travada do loop caiu de 5,9 s para 9 ms); a análise de cada jogo e o mapa de nomes são reaproveitados por 10 min (a segunda varredura caiu de 5,5 s para 1 ms), mas a listagem é refeita a cada consulta, então jogo copiado ou apagado aparece em até 15 s como antes; `runPowerShell` dá 1 s de folga a um timer que disparou atrasado antes de declarar timeout. Varredura que levar 1 s ou mais grava `APP_BROWSE` com duração, contagens e a pasta mais lenta.
+  - **Não use `fs.*Sync` em `localGameScannerService.ts`.** Relato e análise: [`docs/bugs/open/electron-main-varredura-sincrona-…`](docs/bugs/open/electron-main-varredura-sincrona-de-jogos-instalados-congela-a-janela-e-gera-falso-timeout-de-usb_2026-10-05T17-25.md).
+
 ## [2.12.106] - 2026-09-30
 
 ### Fixed
