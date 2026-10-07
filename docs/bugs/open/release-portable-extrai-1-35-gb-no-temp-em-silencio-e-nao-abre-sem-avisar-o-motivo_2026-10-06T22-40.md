@@ -244,6 +244,14 @@ Duas armadilhas de medição, para quem repetir:
    por `scripts/build-portable.js` com `node -r`. Troca o texto em
    `NsisTarget.computeFinalScript`, recusa o build se o template do electron-builder mudou
    (sha256) e falha se o build terminar sem ter compilado o launcher.
+   - **Corrigido na implementação:** com `node -r` o build real falhou (*"Rebuilder failed with
+     exit code: 1"*). O electron-builder abre um processo filho com `child_process.fork` para
+     recompilar módulos nativos (`app-builder-lib/out/util/rebuild.js`), o filho herda as opções
+     do node, carrega o gancho e sai pela trava "terminou sem compilar o launcher". O gancho
+     virou o ponto de entrada: `build-portable.js` roda `portable-launcher-hook.js` no lugar do
+     `cli.js` do electron-builder, e o gancho chama o `cli.js` depois de se instalar. O teste
+     com `--prepackaged` não pega isso, porque esse caminho não recompila nada; só o build
+     completo pega.
    - Prova: o mesmo teste, que só passa se o `.exe` gerado tiver o comportamento do launcher
      novo.
 3. **Registro no painel**: `src/electron-app/services/portableLauncherReport.ts` (novo) lê e
@@ -257,3 +265,52 @@ Duas armadilhas de medição, para quem repetir:
    virtual pequeno com o 2.12.106 e o 2.12.107 lado a lado (disco cheio de verdade).
 6. Versão 2.12.107, `CHANGELOG.md`, `AGENTS.md`, `docs/ATUALIZACAO-AUTOMATICA.md` (aponta para o
    template antigo) e `docs/features.md`.
+
+---
+
+## Correção aplicada (2.12.107, 2026-10-07)
+
+Os itens 1 a 6 acima, com a mudança registrada no item 2 (o gancho é o ponto de entrada do CLI,
+não um `node -r`). Também: `docs/tutorial_usuario_leigo.md` pede 2 GB livres no C: entre os
+requisitos, e o comentário de `autoUpdateService.ts::buildReplaceScript` deixou de citar
+`ExecWait`.
+
+### Provas
+
+- **Testes automatizados:** `npm run test:safety` com 247 testes verdes, entre eles os 4 de
+  `tests/unit/portableLauncher.test.cjs` e os 3 de `tests/unit/portableLauncherReport.test.cjs`.
+  Com a checagem de espaço, a conferência da extração e a checagem do `CreateProcess`
+  desligadas de propósito no `build/portable.nsi`, os três testes correspondentes falham e o de
+  abrir o app continua passando. `go test -count=1 ./...` verde (só o banner mudou no Go).
+- **Build completo:** `npm run build:server` + `npm run build:electron:win:portable` (os passos
+  do `build-and-upload.ps1`), 3 min 02 s. Gerou `dist\xbox-360-companion-Portable-2.12.107-x64.exe`,
+  528.191.584 bytes, sha256 `0234296cf0c600566e9cdc782c8e63d9761aa752914cd18627acbfe10995f1ee`
+  (+4.773 bytes em relação à 2.12.106). A saída do build mostra
+  `[portable-launcher-hook] compiling build\portable.nsi`.
+- **Ponta a ponta no `.exe` gerado** (`scripts/measure-portable-launcher.ps1`, cópia do `.exe` numa
+  pasta própria, `%TEMP%` isolado):
+
+| Caso | 2.12.106 publicada | 2.12.107 |
+|---|---|---|
+| Abrir, disco com espaço (segunda execução do `.exe`) | nenhuma janela até o app; janela do app aos 21,1 s; pico 3.083 MB e 3.083 MB com o app aberto | janela de progresso aos 0,3 s (*"Abrindo o Xbox 360 Companion: 0% (0 / 1289 MB)"*, depois *"Iniciando o Xbox 360 Companion..."*), janela do app aos 12,2 s; pico 1.793 MB; 1.290 MB com o app aberto; 0 MB sobrando depois de fechar |
+| `%TEMP%` num disco virtual de 2 GB com **782 MB livres** (o número do print do cliente) | `.7z` gravado, extração para em 277 MB com o disco zerado (1 MB livre), espera ~5 s, tenta de novo e sai com código 1. **Nenhuma janela, nenhum app.** É o sintoma do chamado. | caixa aos 0,3 s, antes de gravar qualquer byte: *"Não há espaço livre suficiente no disco X: para abrir o Xbox 360 Companion. Livre agora: 781 MB. Necessário: 1,9 GB. Libere pelo menos 1,1 GB no disco X:…"*; código 2; registro `sem-espaco disco=X: livre_mb=781 necessario_mb=1892` |
+| Mesmo disco com **~1.950 MB livres** | abre aos 19,4 s pelo caminho de último recurso do template (extrai, a cópia falha por falta de espaço, espera ~5 s, apaga e extrai de novo), sem nenhuma janela antes; 1.793 MB ocupados com o app aberto | abre aos 15,4 s com a janela de progresso; mínimo de 155 MB livres no pico; 1.290 MB com o app aberto |
+| Disco enche **durante** a gravação do pacote (outro processo ocupa o espaço logo depois da checagem) | — | caixa do próprio NSIS em português (*"Extrair: erro ao gravar o arquivo …\app.7z"*), a janela fica esperando um clique em Cancelar (título sem o falso "Completado"), e então o nosso aviso "Não foi possível preparar os arquivos…"; código 2; registro `pacote-nao-gravado` |
+| Variável `XBOX360COMPANION_LAUNCHER_EXTRA_MB=99999999` e, em seguida, abertura normal | — | primeiro a caixa de falta de espaço e a linha no registro; na abertura seguinte o app apagou o `launcher-failures.log`, gravou `APP_LAUNCHER o portátil não abriu antes desta execução: sem-espaco (1 tentativa(s))` no log e enviou à telemetria `project=xbox-360-companion/portable-launcher`, `message=o portátil não abriu antes desta execução: sem-espaco`, com a linha completa em anexo (endpoint apontado para um receptor local pelo `config.json` do teste, para não sujar o painel) |
+
+O disco virtual foi criado com uma elevação aprovada pelo dono, e desmontado e apagado no fim.
+
+### O que ainda falta (fora do código)
+
+- **Publicar a 2.12.107** (`build-and-upload.ps1`; o `.exe` acima está em `dist/`). Até lá o
+  link público continua com o launcher antigo.
+- **Chamado #148:** a hipótese 1 continua sem confirmação na máquina do cliente. Com a 2.12.107
+  publicada, o próprio launcher diz se é falta de espaço e quanto liberar; antes disso, o
+  roteiro do item 1 das tarefas propostas continua valendo, agora com o número certo: ele
+  precisa de **~3 GB livres no C:** com a 2.12.106, ou ~1,9 GB com a 2.12.107.
+- **Agente de suporte** (repositório `digitalstoregamesproject`, fora deste): saber que o
+  portátil agora mostra uma janela de progresso e as três mensagens, e que precisa de ~1,9 GB no
+  disco C: mesmo com o arquivo salvo em outro disco. A instrução atual ("pode demorar até 1
+  minuto", ícone perto do relógio) não corresponde ao que o cliente vê.
+- Para fechar este bug: confirmação de um cliente real com a 2.12.107, ou o primeiro
+  `xbox-360-companion/portable-launcher` no painel acompanhado de abertura bem-sucedida.

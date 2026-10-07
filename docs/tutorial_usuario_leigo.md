@@ -16,6 +16,7 @@ Use esta função para preparar o dispositivo que vai guardar os seus jogos e ca
 ### 📋 Requisitos para o USB
 * Um pendrive ou HD externo USB de no mínimo 8 GB (recomendado 32 GB ou mais para caber vários jogos).
 * O aplicativo **Xbox 360 Companion** aberto no computador: [Baixar Versão Portátil](https://gofile.io/d/pnHMrf).
+* Pelo menos **2 GB livres no disco C:** do computador. O programa usa esse espaço toda vez que abre, mesmo que o arquivo baixado esteja em outro disco; se faltar, ele avisa quanto é preciso liberar.
 
 ### 🛠️ Passo a Passo da Preparação:
 1. Abra o **Xbox 360 Companion** no computador.

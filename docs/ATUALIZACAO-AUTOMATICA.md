@@ -137,9 +137,9 @@ Configurações → "Verificar atualizações"
 ```
 
 **Por que esperar processos, e não um tempo fixo.** No build portable o arquivo que o usuário
-abre é o launcher NSIS (`app-builder-lib/templates/nsis/portable.nsi`): ele define
-`PORTABLE_EXECUTABLE_FILE = $EXEPATH`, roda o Electron com `ExecWait` e **só depois** apaga a pasta
-extraída (~1,3 GB, 770 arquivos). O `.exe` a sobrescrever continua em uso até essa limpeza
+abre é o launcher NSIS (`src/electron-app/build/portable.nsi`, desde a 2.12.107; antes, o template
+`app-builder-lib/templates/nsis/portable.nsi`): ele define `PORTABLE_EXECUTABLE_FILE = $EXEPATH`,
+inicia o Electron, espera ele sair e **só depois** apaga a pasta extraída (~1,3 GB, 770 arquivos). O `.exe` a sobrescrever continua em uso até essa limpeza
 terminar. A versão anterior esperava 1,5 s + 20 × 500 ms e relançava o alvo mesmo sem ter
 copiado — em 11 de 11 aplicações observadas na telemetria o app voltou na versão antiga, sem aviso
 (`docs/bugs/closed/electron-main-atualizacao-in-app-reabre-a-versao-antiga-sem-aviso_2026-09-24T15-18.md`).

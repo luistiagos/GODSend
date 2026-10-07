@@ -9,6 +9,19 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.107] - 2026-10-07
+
+### Fixed
+- **O portátil (`xboxcompanion.exe`) diz por que não abriu, mostra progresso enquanto prepara o app e precisa de 1,3 GB a menos no disco (`src/electron-app/build/portable.nsi`, `scripts/portable-launcher-hook.js`, `scripts/build-portable.js`, `services/portableLauncherReport.ts`, `app/bootstrap.ts`)**:
+  - Chamado #148: cliente com Windows 10/11 baixou o arquivo completo, passou pelo SmartScreen e nada abriu — sem janela, sem mensagem, sem processo, sem telemetria. Foram 1 h 30 de suporte humano sem diagnóstico, e o cliente pediu reembolso.
+  - Medido na 2.12.106: o launcher que o electron-builder gera a partir do template dele roda em silêncio e ocupa **3.083 MB** do `%TEMP%` durante todo o uso do app: grava o pacote `.7z` (503 MB), extrai numa pasta intermediária (1.290 MB) e copia tudo de novo para o destino (1.290 MB). O plugin de extração não devolve erro e a única caixa de erro do template tem resposta silenciosa: sem espaço no disco do `%TEMP%` — o C:, mesmo com o `.exe` salvo em outro disco — nada aparece.
+  - **Launcher próprio** (`build/portable.nsi`): confere o espaço antes de gravar qualquer coisa e, se faltar, avisa em português quanto está livre, quanto é preciso e quanto liberar; mostra uma janela com barra de progresso desde o primeiro segundo e só a esconde quando a janela do app aparece; extrai o app uma vez, direto no destino, e apaga o pacote em seguida; confere o tamanho extraído e avisa quando o arquivo baixado está danificado ou quando o Windows não consegue iniciar o app.
+  - **Números** (mesma máquina, segunda abertura de cada `.exe`): pico no `%TEMP%` de 3.083 para 1.793 MB; com o app aberto, de 3.083 para 1.290 MB; janela do app de 21,1 para 12,2 s. Com o `%TEMP%` num disco de verdade com 782 MB livres, como o do cliente, a 2.12.106 sai sem mostrar nada e a 2.12.107 avisa em 0,3 s, antes de gravar qualquer coisa; com ~1.950 MB livres a 2.12.107 abre normalmente e a 2.12.106 só abre depois de uma segunda extração silenciosa.
+  - **Registro no painel:** cada falha grava uma linha em `<pasta do .exe>\godsend-data\launcher-failures.log`; na abertura seguinte, `portableLauncherReport.ts` envia à telemetria (`xbox-360-companion/portable-launcher`) e apaga o arquivo.
+  - **Build:** o electron-builder não tem opção para trocar o script do portátil. `scripts/build-portable.js` roda `portable-launcher-hook.js` no lugar do CLI dele; o gancho entrega o nosso script e recusa o build se o template do electron-builder mudar.
+  - **Testes:** `tests/unit/portableLauncher.test.cjs` compila o launcher sobre um app de mentira e prova abrir o app repassando o código de saída, a recusa por falta de espaço, o pacote danificado e o app que o Windows não inicia; com as checagens removidas, os três últimos falham. `tests/unit/portableLauncherReport.test.cjs` cobre a leitura do registro.
+  - Relato e validação: [chamado #148](docs/bugs/open/release-portable-extrai-1-35-gb-no-temp-em-silencio-e-nao-abre-sem-avisar-o-motivo_2026-10-06T22-40.md).
+
 ### Added
 - **Adicionado EA FC 26 Legacy Edition ao catálogo do Xbox 360 Companion com capa dedicada (`cache/hf_xbox360.json`, `cache/hf_.json`, `cache/covers/ea_fc_26_legacy_edition.jpg`, `src/electron-app/services/coverArtService.ts`, `src/electron-app/ipc/browseHandlers.ts`)**:
   - **Catálogo HuggingFace:** Incluído o título `EA FC 26 Legacy Edition` apontando para `https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/EA%20FC%2026%20Legacy%20Edition.zip` (10.98 GiB) nos manifestos locais e em produção na API remota (`emuladores.pythonanywhere.com`).

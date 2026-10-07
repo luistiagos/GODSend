@@ -458,9 +458,9 @@ const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
  * `resultFile` and relaunches `target`.
  *
  * The wait is on processes, not on a clock: the portable launcher IS `target`
- * (portable.nsi: `PORTABLE_EXECUTABLE_FILE = $EXEPATH`) and only exits after
- * `ExecWait` on Electron returns AND its `RMDir /r` of the ~1.3 GB extracted
- * app finishes. A fixed ~11 s budget lost that race on every machine in the
+ * (build/portable.nsi: `PORTABLE_EXECUTABLE_FILE = $EXEPATH`) and only exits
+ * after Electron does AND its `RMDir /r` of the ~1.3 GB extracted app
+ * finishes. A fixed ~11 s budget lost that race on every machine in the
  * field. `target` is relaunched even when the copy fails — it is the old
  * version then, and it reads `resultFile` at boot to tell the user.
  */

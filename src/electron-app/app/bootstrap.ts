@@ -86,6 +86,7 @@ import {
 import { autoUploadAuroraAssets, doAuroraLibrarySync } from "../services/autoSyncService";
 import { createMainWindow, setIsQuitting, getMainWindow, focusMainWindow } from "./window";
 import { checkPendingUpdateResult } from "../services/autoUpdateService";
+import { reportLauncherFailures } from "../services/portableLauncherReport";
 
 import * as configHandlers        from "../ipc/configHandlers";
 import * as xboxFtpHandlers       from "../ipc/xboxFtpHandlers";
@@ -179,6 +180,12 @@ export function bootstrapApp(): void {
       checkPendingUpdateResult();
     } catch (err: any) {
       appendAppEvent("UPDATE", `pending update check failed: ${err?.message || err}`);
+    }
+
+    try {
+      reportLauncherFailures();
+    } catch (err: any) {
+      appendAppEvent("LAUNCHER", `launcher failure report failed: ${err?.message || err}`);
     }
 
     createMainWindow();
