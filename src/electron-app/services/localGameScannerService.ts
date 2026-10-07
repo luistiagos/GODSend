@@ -3,6 +3,7 @@ import path from "path";
 import { listFat32UsbDrives, type UsbDriveInfo } from "./badAvatarUsbService";
 import { readConfig } from "./settingsService";
 import { xboxBuildGameNameMap } from "./auroraLibraryService";
+import { appendAppEvent } from "../infrastructure/serverLog";
 
 // Every disk access here is asynchronous, and that is load-bearing: the scan runs in Electron's
 // main process and walks every file of every game to size it. With fs.*Sync, an external HD with a
@@ -82,6 +83,54 @@ async function readDirEntries(dirPath: string): Promise<fs.Dirent[] | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * How long the expensive part of a game's analysis (sizing every file, probing STFS headers,
+ * reading the cover) is reused. The UI polls the scan every 5–7 s and the scan result itself lives
+ * only 15 s; redoing that work per poll kept an external HD busy most of the time. Directory
+ * listings are still redone on every scan, so a game copied or deleted shows up within 15 s — only
+ * the size of a folder that already existed can be up to this old.
+ */
+const GAME_INFO_TTL_MS = 10 * 60_000;
+const SLOW_SCAN_LOG_MS = 1_000;
+
+const gameInfoCache = new Map<string, { info: InstalledGameInfo; at: number }>();
+const scanStats = { analyzed: 0, reused: 0, filesSized: 0, slowestFolder: "", slowestMs: 0 };
+
+/** Only games are kept: a folder still being copied may not look like one yet. */
+async function cachedGameInfo(
+  fullPath: string,
+  driveLabel: string,
+  analyze: () => Promise<InstalledGameInfo | null>
+): Promise<InstalledGameInfo | null> {
+  const key = `${fullPath.toLowerCase()}|${driveLabel}`;
+  const hit = gameInfoCache.get(key);
+  if (hit && Date.now() - hit.at < GAME_INFO_TTL_MS) {
+    scanStats.reused++;
+    return hit.info;
+  }
+  scanStats.analyzed++;
+  const startedAt = Date.now();
+  const info = await analyze();
+  const elapsedMs = Date.now() - startedAt;
+  if (elapsedMs > scanStats.slowestMs) {
+    scanStats.slowestMs = elapsedMs;
+    scanStats.slowestFolder = path.basename(fullPath);
+  }
+  if (info) gameInfoCache.set(key, { info, at: Date.now() });
+  else gameInfoCache.delete(key);
+  return info;
+}
+
+let nameMapCache: { map: Map<string, string>; at: number } | null = null;
+
+/** xboxBuildGameNameMap reads and parses ~5 MB of bundled JSON synchronously; once per TTL is enough. */
+function gameNameMap(): Map<string, string> {
+  if (!nameMapCache || Date.now() - nameMapCache.at >= GAME_INFO_TTL_MS) {
+    nameMapCache = { map: xboxBuildGameNameMap(), at: Date.now() };
+  }
+  return nameMapCache.map;
 }
 
 /**
@@ -315,7 +364,7 @@ export async function scanGamesDirectory(
     if (!entry.isDirectory()) continue;
     if (isCorruptedFolderName(entry.name)) continue;
     const fullPath = path.join(gamesDir, entry.name);
-    const game = await parseGameFolder(fullPath, entry.name, driveLabel, nameMap);
+    const game = await cachedGameInfo(fullPath, driveLabel, () => parseGameFolder(fullPath, entry.name, driveLabel, nameMap));
     if (game) {
       games.push(game);
     }
@@ -337,6 +386,7 @@ async function getDirectorySizeBytes(dirPath: string, depth = 0): Promise<number
     if (entry.isDirectory()) {
       total += await getDirectorySizeBytes(full, depth + 1);
     } else if (entry.isFile()) {
+      scanStats.filesSized++;
       try {
         total += (await fsp.stat(full)).size;
       } catch {}
@@ -438,74 +488,90 @@ export async function scanContentDirectory(
     }
 
     const fullPath = path.join(contentDir, entry.name);
-
-    try {
-      // Check if this Title ID folder has any content subdirectories or files
-      const subdirs = await fsp.readdir(fullPath, { withFileTypes: true });
-      if (subdirs.length === 0) continue;
-
-      let hasValidContent = false;
-      for (const sub of subdirs) {
-        if (isCorruptedFolderName(sub.name)) continue;
-        if (sub.isDirectory()) {
-          const subUpper = sub.name.toUpperCase();
-          if (KNOWN_CONTENT_TYPES.has(subUpper) || subUpper.startsWith("000")) {
-            hasValidContent = true;
-            break;
-          }
-        } else if (sub.isFile()) {
-          hasValidContent = true;
-          break;
-        }
-      }
-      if (!hasValidContent) continue;
-
-      let titleName = nameMap?.get(tid) || tid;
-      const ini = await readGodsendIni(fullPath);
-      if (ini?.titleName) titleName = ini.titleName;
-
-      // If title name is still just the hex TID, look for a named container file inside subfolders
-      if (titleName === tid) {
-        try {
-          for (const sub of subdirs) {
-            if (isCorruptedFolderName(sub.name)) continue;
-            if (sub.isDirectory()) {
-              const files = await fsp.readdir(path.join(fullPath, sub.name), { withFileTypes: true });
-              for (const f of files) {
-                if (isCorruptedFolderName(f.name)) continue;
-                if (f.isFile() && !/^[0-9A-F]{40}$/i.test(f.name) && !/^\d+$/.test(f.name) && !f.name.endsWith(".data")) {
-                  titleName = f.name;
-                  break;
-                }
-              }
-            }
-            if (titleName !== tid) break;
-          }
-        } catch {}
-      }
-
-      if (isCorruptedFolderName(titleName)) continue;
-
-      const sizeBytes = await getDirectorySizeBytes(fullPath);
-
-      const localCoverUrl = await findLocalCoverDataUrl(fullPath);
-
-      games.push({
-        name: titleName,
-        titleId: tid,
-        path: fullPath,
-        drive: driveLabel,
-        format: "god",
-        folderName: entry.name,
-        sizeBytes,
-        localCoverUrl,
-      });
-    } catch {
-      /* skip individual entry */
+    const game = await cachedGameInfo(fullPath, driveLabel, () =>
+      parseContentTitleFolder(fullPath, entry.name, tid, driveLabel, nameMap)
+    );
+    if (game) {
+      games.push(game);
     }
   }
 
   return games;
+}
+
+/** One Content/0000000000000000/<TitleID> folder; null when it holds no content. */
+async function parseContentTitleFolder(
+  fullPath: string,
+  folderName: string,
+  tid: string,
+  driveLabel: string,
+  nameMap?: Map<string, string>
+): Promise<InstalledGameInfo | null> {
+  try {
+    // Check if this Title ID folder has any content subdirectories or files
+    const subdirs = await fsp.readdir(fullPath, { withFileTypes: true });
+    if (subdirs.length === 0) return null;
+
+    let hasValidContent = false;
+    for (const sub of subdirs) {
+      if (isCorruptedFolderName(sub.name)) continue;
+      if (sub.isDirectory()) {
+        const subUpper = sub.name.toUpperCase();
+        if (KNOWN_CONTENT_TYPES.has(subUpper) || subUpper.startsWith("000")) {
+          hasValidContent = true;
+          break;
+        }
+      } else if (sub.isFile()) {
+        hasValidContent = true;
+        break;
+      }
+    }
+    if (!hasValidContent) return null;
+
+    let titleName = nameMap?.get(tid) || tid;
+    const ini = await readGodsendIni(fullPath);
+    if (ini?.titleName) titleName = ini.titleName;
+
+    // If title name is still just the hex TID, look for a named container file inside subfolders
+    if (titleName === tid) {
+      try {
+        for (const sub of subdirs) {
+          if (isCorruptedFolderName(sub.name)) continue;
+          if (sub.isDirectory()) {
+            const files = await fsp.readdir(path.join(fullPath, sub.name), { withFileTypes: true });
+            for (const f of files) {
+              if (isCorruptedFolderName(f.name)) continue;
+              if (f.isFile() && !/^[0-9A-F]{40}$/i.test(f.name) && !/^\d+$/.test(f.name) && !f.name.endsWith(".data")) {
+                titleName = f.name;
+                break;
+              }
+            }
+          }
+          if (titleName !== tid) break;
+        }
+      } catch {}
+    }
+
+    if (isCorruptedFolderName(titleName)) return null;
+
+    const sizeBytes = await getDirectorySizeBytes(fullPath);
+
+    const localCoverUrl = await findLocalCoverDataUrl(fullPath);
+
+    return {
+      name: titleName,
+      titleId: tid,
+      path: fullPath,
+      drive: driveLabel,
+      format: "god",
+      folderName,
+      sizeBytes,
+      localCoverUrl,
+    };
+  } catch {
+    /* skip individual entry */
+    return null;
+  }
 }
 
 /**
@@ -591,14 +657,16 @@ async function scanDriveRoot(
       continue;
     }
     const fullPath = path.join(driveRoot, entry.name);
-    if (await hasDefaultXex(fullPath) || await hasGodOrContentSubfolder(fullPath) || NAME_TITLE_ID_REGEX.test(entry.name)) {
-      const game = await parseGameFolder(fullPath, entry.name, driveLabel, nameMap);
-      if (game) {
-        const pKey = game.path.toLowerCase();
-        if (!seenPaths.has(pKey)) {
-          seenPaths.add(pKey);
-          outGames.push(game);
-        }
+    const game = await cachedGameInfo(fullPath, driveLabel, async () =>
+      await hasDefaultXex(fullPath) || await hasGodOrContentSubfolder(fullPath) || NAME_TITLE_ID_REGEX.test(entry.name)
+        ? parseGameFolder(fullPath, entry.name, driveLabel, nameMap)
+        : null
+    );
+    if (game) {
+      const pKey = game.path.toLowerCase();
+      if (!seenPaths.has(pKey)) {
+        seenPaths.add(pKey);
+        outGames.push(game);
       }
     }
   }
@@ -634,6 +702,8 @@ const SCAN_CACHE_TTL_MS = 15_000;
 export function invalidateInstalledGamesCache(): void {
   cachedScanResult = null;
   lastScanTimestamp = 0;
+  gameInfoCache.clear();
+  nameMapCache = null;
 }
 
 /**
@@ -650,7 +720,9 @@ export async function scanUsbAndLocalGames(forceRefresh = false): Promise<Instal
 
   inFlightScanPromise = (async () => {
     try {
-      const nameMap = xboxBuildGameNameMap();
+      const startedAt = Date.now();
+      Object.assign(scanStats, { analyzed: 0, reused: 0, filesSized: 0, slowestFolder: "", slowestMs: 0 });
+      const nameMap = gameNameMap();
       const allGames: InstalledGameInfo[] = [];
       const seenPaths = new Set<string>();
       const processedRoots = new Set<string>();
@@ -720,6 +792,17 @@ export async function scanUsbAndLocalGames(forceRefresh = false): Promise<Instal
 
       // Sort alphabetically by name
       allGames.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+      // Without this, a slow scan reaches support only as gaps in the log (the 2026-10-03 case).
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs >= SLOW_SCAN_LOG_MS) {
+        appendAppEvent(
+          "browse",
+          `varredura de jogos instalados: ${allGames.length} jogo(s) em ${elapsedMs} ms ` +
+            `(${scanStats.analyzed} pasta(s) analisada(s), ${scanStats.reused} reaproveitada(s), ` +
+            `${scanStats.filesSized} arquivo(s) medido(s); mais lenta: "${scanStats.slowestFolder}" ${scanStats.slowestMs} ms)`
+        );
+      }
 
       cachedScanResult = allGames;
       lastScanTimestamp = Date.now();

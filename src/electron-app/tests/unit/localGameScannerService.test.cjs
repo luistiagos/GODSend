@@ -334,3 +334,40 @@ test("scanGamesDirectory: nao bloqueia o loop de eventos enquanto mede o jogo", 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("scanGamesDirectory: reaproveita a analise de jogo ja medido, mas lista jogo novo na hora", async () => {
+  // A UI consulta a lista a cada 5-7 s; remedir todo arquivo de todo jogo a cada consulta mantinha
+  // o HD externo ocupado quase o tempo todo.
+  const { invalidateInstalledGamesCache } = require("../../services/localGameScannerService.js");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-reuse-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const firstGame = path.join(gamesDir, "Primeiro Jogo");
+    fs.mkdirSync(firstGame, { recursive: true });
+    fs.writeFileSync(path.join(firstGame, "default.xex"), Buffer.alloc(1000));
+
+    const first = await scanGamesDirectory(gamesDir, "E:");
+    assert.equal(first.length, 1);
+    assert.equal(first[0].sizeBytes, 1000);
+
+    // Arquivo a mais dentro do jogo ja medido: dentro do prazo, o tamanho guardado e reaproveitado.
+    fs.writeFileSync(path.join(firstGame, "extra.bin"), Buffer.alloc(500));
+    // Jogo novo: a listagem do diretorio e refeita, entao ele aparece ja na varredura seguinte.
+    const secondGame = path.join(gamesDir, "Segundo Jogo");
+    fs.mkdirSync(secondGame);
+    fs.writeFileSync(path.join(secondGame, "default.xex"), Buffer.alloc(200));
+
+    const second = await scanGamesDirectory(gamesDir, "E:");
+    assert.deepEqual(second.map((g) => [g.name, g.sizeBytes]).sort(), [["Primeiro Jogo", 1000], ["Segundo Jogo", 200]]);
+
+    // Jogo apagado some, mesmo com a analise guardada.
+    fs.rmSync(secondGame, { recursive: true, force: true });
+    assert.deepEqual((await scanGamesDirectory(gamesDir, "E:")).map((g) => g.name), ["Primeiro Jogo"]);
+
+    invalidateInstalledGamesCache();
+    const third = await scanGamesDirectory(gamesDir, "E:");
+    assert.equal(third[0].sizeBytes, 1500);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
