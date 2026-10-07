@@ -148,3 +148,99 @@ voltando em seguida) é o que sustenta isso; falta reproduzir.
    processo antes de rejeitar, para que um loop bloqueado não vire "o Windows ainda está
    reconhecendo".
 6. Depois do item 1 no ar, reler os logs dos 19 reports abertos dessa mensagem e medir o alcance.
+
+## Análise antes da correção (2026-10-07, HEAD `b20d972`)
+
+### Símbolos abertos e o que confirmam
+
+- `services/localGameScannerService.ts::scanUsbAndLocalGames` — confirma o item 3 da causa raiz:
+  um único `await` (`listFat32UsbDrives()`), o resto é síncrono. Cache: `SCAN_CACHE_TTL_MS = 15_000`;
+  `inFlightScanPromise` só junta chamadas concorrentes. Em erro de I/O, cada função engole com
+  `catch {}` e devolve parcial — a varredura nunca rejeita por disco.
+- `parseGameFolder` — para cada jogo aceito roda `getDirectorySizeBytes` (profundidade 16, um
+  `statSync` por arquivo) **e**, quando o TitleID não vem do nome/ini/subpasta,
+  `probeStfsTitleId` (profundidade 4, `statSync` por arquivo e `openSync`+`readSync` de 0x364 bytes
+  em todo arquivo entre 0x364 B e 60 MB). Jogo XEX sem pacote STFS percorre a árvore inteira
+  **duas vezes** por varredura. `findLocalCoverDataUrl` lê até 5 MB síncrono.
+- `auroraLibraryService.ts::xboxBuildGameNameMap` — chamado **a cada varredura** (linha 670):
+  `readFileSync` + `JSON.parse` de ~5,5 MB (`digital.json` 3,7 MB, `xbox360.json` 740 KB, outros
+  cinco). Bloqueio menor, mas a cada 15 s.
+- `invalidateInstalledGamesCache` — exportada e **sem nenhum chamador** (`grep` em `src/`: só a
+  definição). O item 4 das tarefas propostas ("já existe") não tem onde se apoiar hoje.
+- Chamadores do canal `browse:get-installed-games` (`grep browseGetInstalledGames`): `App.tsx:291`
+  (contador, 7 s, toda tela), `HomePage.tsx:139` (5 s, quando `canSkipPreparation`),
+  `BrowsePage.tsx:1252/1333/1361`, `UsbGamesPage.tsx:243`. Nenhum passa `forceRefresh`.
+- `infrastructure/windowsUsbDeviceService.ts::runPowerShell` — `setTimeout(timeoutMs)` mata o
+  filho e rejeita com `usbEnumerationTimeout`; `close` resolve; quem chamar `finish` primeiro vence.
+  O timer não olha se o filho já terminou.
+
+### Reprodução do mecanismo do falso timeout (o que faltava)
+
+Script `repro-timeout.cjs` (scratchpad da sessão): mesma forma de `runPowerShell`, filho
+`powershell -Command "Write-Output ok"`, timeout de 2 s, loop bloqueado por *busy-wait*.
+
+```
+node repro-timeout.cjs 0     -> resolveu: close code=0 apos 444 ms      (controle)
+node repro-timeout.cjs 6000  -> REJEITOU: TIMEOUT apos 6040 ms          (2 de 2 execuções)
+```
+
+O filho termina em ~0,4 s, mas com o loop bloqueado 6 s o timer vence sempre: no Windows a
+saída do filho chega pela fase de *poll* do libuv, que roda **depois** da fase de timers na mesma
+volta do loop. Mecanismo **provado**.
+
+Desenho da correção validado no mesmo script (`repro-timeout-fix.cjs`): se o timer dispara mais
+de 1 s depois do prazo (o loop esteve bloqueado), rearma uma folga de 1 s em vez de rejeitar.
+
+```
+bloqueio 6000, filho rapido       -> resolveu apos 6034/6038/6061 ms   (3 de 3)
+bloqueio 0,    filho Start-Sleep 10 -> REJEITOU apos 2049 ms           (timeout real preservado)
+bloqueio 6000, filho Start-Sleep 10 -> REJEITOU apos 7043 ms           (prazo + 1 s de folga)
+```
+
+### Hipóteses descartadas
+
+- **Conferir `child.exitCode` no timer** (o item 5 como estava escrito): não resolve. O
+  `exitCode` só é preenchido quando o libuv processa a saída — na mesma fase de *poll* que entrega
+  o `close`, que ainda não rodou quando o timer dispara. Seria `null` exatamente no caso do bug.
+- **Worker thread para a varredura**: o scanner importa `badAvatarUsbService`, `settingsService`
+  e `auroraLibraryService` (Electron), que não carregam num worker; exigiria separar um módulo puro
+  e confiar no carregamento de worker de dentro do `app.asar`, sem como provar no build portátil
+  nesta sessão. `fs.promises` resolve o congelamento sem esse risco: cada operação vai ao pool de
+  threads do libuv e o loop fica livre entre elas.
+- **Só aumentar o TTL do cache**: diminui a frequência, mas cada varredura completa continuaria
+  congelando 70–105 s.
+- **Mexer nos chamadores do renderer** (item 3 das tarefas propostas): com a varredura assíncrona e
+  o resultado por jogo reaproveitado, o poll de 7 s passa a custar listagens de diretório. Mudar a
+  UI não é necessário para o sintoma; fica fora desta correção.
+- **"Xbox Games 360" tratado como um jogo só** (hipótese em "O que falta medir"): continua não
+  verificada — depende do disco do cliente. A instrumentação da T3 é o que vai mostrá-la (um jogo
+  com tamanho de biblioteca e tempo alto). Não corrigido às cegas.
+
+### Correção planejada
+
+- **T1 — `runPowerShell` não declara timeout com o loop atrasado.** Extrair o timer para
+  `setLoopAwareTimeout(timeoutMs, onExpire)` em `windowsUsbDeviceService.ts`: se disparar mais de
+  `LATE_TIMER_GRACE_MS = 1000` depois do prazo, rearma uma folga única de 1 s. Prova: teste unitário
+  com filho `node -e ""` e loop bloqueado (o `close` vence) + controle com filho que dorme (expira).
+- **T2 — varredura assíncrona.** Converter `localGameScannerService.ts` de `fs.*Sync` para
+  `fs.promises` (sequencial, um disco por vez): `readGodsendIni`, `hasGodOrContentSubfolder`,
+  `hasDefaultXex`, `parseGameFolder`, `getDirectorySizeBytes`, `findLocalCoverDataUrl`,
+  `probeStfsTitleId`, `scan*Directory`, `scanDriveRoot`, `getWindowsCandidateDriveRoots`. Contrato
+  do IPC inalterado. Prova: os 15 testes existentes passam com `await`, e um teste novo mostra que
+  callbacks `setImmediate` rodam **durante** a varredura (com o código síncrono: zero).
+- **T3 — não refazer o trabalho caro a cada 15 s + instrumentação.** Guardar por caminho de jogo
+  o resultado de `parseGameFolder`/entrada de `Content` por 10 min (`GAME_INFO_TTL_MS`); só
+  resultados não nulos (pasta em cópia que ainda não parece jogo é reavaliada na volta seguinte).
+  Jogo novo ou removido continua aparecendo/sumindo em 15 s, porque a listagem dos diretórios é
+  refeita. `xboxBuildGameNameMap` guardado pelo mesmo prazo. Log `APP_BROWSE` por varredura que
+  levar ≥ 1 s: duração, jogos, pastas analisadas, reaproveitadas, arquivos medidos.
+  `invalidateInstalledGamesCache` limpa também esses caches. Prova: teste de que a segunda varredura
+  reaproveita (contador de arquivos medidos não cresce) e de que jogo novo aparece.
+
+## Tasks
+
+| # | task | commit | estado | modelo | revisao |
+|---|---|---|---|---|---|
+| T1 | `runPowerShell`: timer que disparou atrasado ganha 1 s de folga antes de declarar timeout | -- | -- | -- | -- |
+| T2 | varredura de jogos instalados com `fs.promises` (loop livre durante a varredura) | -- | -- | -- | -- |
+| T3 | resultado por jogo e mapa de nomes reaproveitados por 10 min + log de duração da varredura | -- | -- | -- | -- |
