@@ -6,6 +6,7 @@ const usbDevices = require("../../infrastructure/windowsUsbDeviceService.js");
 const {
   invalidateUsbDriveListCache,
   listFat32UsbDrives,
+  setUsbPreparationActive,
 } = require("../../services/badAvatarUsbService.js");
 
 // Cada enumeracao real abre dois ou tres powershell.exe; em algumas maquinas cada
@@ -106,5 +107,23 @@ test(
     const stale = await listFat32UsbDrives(true);
     assert.equal(enumerations, 13);
     assert.equal(stale[0].rootPath, "E:\\");
+
+    // Durante o preparo, nem a formatacao (serial novo), nem "Atualizar", nem o contador de jogos
+    // abrem powershell.exe: num PC lento cada um deixa a revalidacao do preparo mais lenta.
+    enumerationError = null;
+    setUsbPreparationActive(true);
+    volumes = { ...volumes, "E:\\": 44 };
+    clock += 15_000;
+    free = 77;
+    const during = await listFat32UsbDrives(true);
+    await listFat32UsbDrives();
+    assert.equal(enumerations, 13);
+    assert.equal(during[0].rootPath, "E:\\");
+    assert.equal(during[0].freeBytes, 77);
+
+    // Terminado o preparo, a mudanca de volume que ele causou reenumera normalmente.
+    setUsbPreparationActive(false);
+    await listFat32UsbDrives();
+    assert.equal(enumerations, 14);
   },
 );

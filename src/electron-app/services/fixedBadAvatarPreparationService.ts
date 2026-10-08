@@ -30,6 +30,7 @@ import { buildTransactionalWritePlan, validateXboxTargetRelativePath } from "../
 import { assessWriteCapacity } from "../infrastructure/writeCapacityPolicy";
 import {
   enumerateSafeWindowsUsbDevices,
+  explainSlowEnumeration,
   requireSafeWindowsUsbTarget,
 } from "../infrastructure/windowsUsbDeviceService";
 
@@ -368,7 +369,8 @@ async function waitForFormattedDevice(root: string, expectedVolumeBytes: number)
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
-  throw lastError || new Error("O dispositivo não voltou a ficar disponível após a formatação.");
+  if (lastError) throw await explainSlowEnumeration(lastError, root);
+  throw new Error("O dispositivo não voltou a ficar disponível após a formatação.");
 }
 
 function createThrottledUsbTargetRevalidator(root: string, fingerprint: string): () => Promise<void> {

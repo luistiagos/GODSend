@@ -211,3 +211,46 @@ falha dura com a unidade presente. A mensagem atribui ao USB um atraso que é do
 - **T5** continua dependente do bug de telemetria do preparo (fora desta correção). A linha de log
   com a duração de cada PowerShell lento (≥ 2 s) e de cada prazo estourado entra no T1 e responde o
   "O que falta medir".
+
+## Correção aplicada (2.12.108, 2026-10-07)
+
+T1–T4 implementadas como planejado, sem desvio. Símbolos novos/alterados:
+
+- `windowsUsbDeviceService.ts`: `enumerationTimeoutFor()` (exportada, pura) / `enumerationTimeout()`;
+  `runPowerShell(script, timeoutMs, label, learnDuration = true)` mede sucesso, guarda as 5 últimas
+  durações e loga `powershell (<label>) respondeu em N ms` (≥ 2 s) e `excedeu o prazo de N ms`;
+  `recoverNativeListing` sem `!includeHealth`; `REMOVABLE_RECOVERY_TIMEOUT_MS` 7 → 12 s;
+  `ENUMERATE_REMOVABLE_SCRIPT` sem `Add-Type`; `fillAllocationUnits()` (statfs) em todas as linhas
+  com cluster 0, inclusive em `revalidateWithScript`; `explainSlowEnumeration()` (exportada) usada
+  em `requireSafeWindowsUsbTarget`. Probe de integridade e ejeção com prazo fixo (ejeção não alimenta
+  a medida).
+- `fixedBadAvatarPreparationService.ts::waitForFormattedDevice` — último erro passa por
+  `explainSlowEnumeration`.
+- `badAvatarUsbService.ts::setUsbPreparationActive` + curto-circuito no início de
+  `listWindowsUsbDrivesOnVolumeChange`; ligado/desligado em `ipc/badAvatarHandlers.ts`
+  (`tools:badavatar-prepare`, no `try`/`finally`).
+
+### Provas
+
+- `node --test tests/unit/powershellSlowMachine.test.cjs` contra o código **anterior**: falha em
+  17 074 ms com `O Windows ainda está reconhecendo...` (`timeoutMs: 12000`) — a foto do cliente.
+  Com a correção: verde em 18,2 s (nativa 6 s → 2ª tentativa; depois revalidação numa tentativa só).
+- Mutações no JS compilado, uma por vez, cada uma derruba o seu teste: devolver o `!includeHealth`
+  (falha em 17 s), prazo fixo em `enumerationTimeout` (falha: duas tentativas), sem
+  `fillAllocationUnits` (falha: cluster 0), sem o curto-circuito do preparo
+  (`usbDriveListCache.test.cjs` falha: enumerou durante o preparo).
+- `npm run test:safety` (tsc + typecheck do renderer + unitários): **255/255**.
+- Script nativo, `powershell.exe -File`, 3 rodadas intercaladas de 5 nesta máquina: antes (com
+  `Add-Type`) medianas 790/775/753 ms; depois 563/419/479 ms.
+- `electron tests/electron/usb-enumeration-smoke.cjs` (Electron 42, PowerShell real): termina com
+  `[]` e saída 0. **Sem pendrive nesta máquina** (C:\ e D:\ fixos; VHD não aparece como removível),
+  então o caminho com dispositivo real e a igualdade `statfs.bsize` × `GetDiskFreeSpace` num FAT32
+  ficam para o campo.
+- `go build` do backend (banner 2.12.108) ok.
+
+### Pendente
+
+- Confirmação em campo: próximo report de máquina lenta deve trazer as linhas
+  `powershell (...) respondeu em N ms` e nenhum preparo falhando com a letra presente.
+- T5 continua dependente de
+  [`electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md`](electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md).

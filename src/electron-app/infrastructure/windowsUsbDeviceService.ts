@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { writeFileSync, mkdtempSync, rmSync } from "fs";
+import { writeFileSync, mkdtempSync, rmSync, promises as fsPromises } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -18,9 +18,34 @@ import {
 
 const USB_ENUMERATION_TIMEOUT_MS = 12_000;
 const REMOVABLE_ENUMERATION_TIMEOUT_MS = 5_000;
-const REMOVABLE_RECOVERY_TIMEOUT_MS = 7_000;
+const REMOVABLE_RECOVERY_TIMEOUT_MS = 12_000;
 const ENUMERATION_RECOVERY_DELAY_MS = 750;
 const HEALTH_PROBE_TIMEOUT_MS = 3_000;
+const ENUMERATION_TIMEOUT_CEILING_MS = 30_000;
+const SLOW_MACHINE_TIMEOUT_FACTOR = 3;
+const RECENT_DURATION_SAMPLES = 5;
+const SLOW_POWERSHELL_LOG_MS = 2_000;
+
+const recentPowerShellDurationsMs: number[] = [];
+
+/**
+ * Deadline for an enumeration script on a machine whose recent PowerShell runs took
+ * `recentDurationsMs`. The bases were tuned where a powershell.exe answers in ~0.5 s; on
+ * machines where it takes 5–8 s (slow PC, antivirus inspecting every process) they expired with
+ * the drive mounted and listed, and the preparation — which has no last good list to fall back
+ * on — failed with "O Windows ainda está reconhecendo...". Never below the base, never above the
+ * ceiling, so a child that is really stuck still expires.
+ */
+export function enumerationTimeoutFor(baseMs: number, recentDurationsMs: readonly number[]): number {
+  const slowest = Math.max(0, ...recentDurationsMs);
+  return Math.max(baseMs, Math.min(ENUMERATION_TIMEOUT_CEILING_MS, slowest * SLOW_MACHINE_TIMEOUT_FACTOR));
+}
+
+// Only successes are measured: a timeout may be a real hang (Storage Management after a flaky
+// disconnect), and learning from it would stretch every later wait toward the ceiling.
+function enumerationTimeout(baseMs: number): number {
+  return enumerationTimeoutFor(baseMs, recentPowerShellDurationsMs);
+}
 
 type UsbEnumerationTimeoutError = Error & {
   code?: string;
@@ -40,6 +65,28 @@ function usbEnumerationTimeout(timeoutMs: number): UsbEnumerationTimeoutError {
 
 function isUsbEnumerationTimeout(error: unknown): boolean {
   return (error as UsbEnumerationTimeoutError | undefined)?.code === "USB_ENUMERATION_TIMEOUT";
+}
+
+/**
+ * The timeout message blames the device ("ainda está reconhecendo... outra porta USB"). When the
+ * drive letter answers, Windows has already mounted it and the time went to PowerShell itself —
+ * a customer told to swap ports changes nothing. Any other error is returned untouched.
+ */
+export async function explainSlowEnumeration(error: unknown, rootPath: string): Promise<unknown> {
+  if (!isUsbEnumerationTimeout(error)) return error;
+  try {
+    await fsPromises.stat(normalizeRoot(rootPath));
+  } catch {
+    return error;
+  }
+  const slow = new Error(
+    "Seu pendrive ou HD está conectado, mas o computador está demorando para responder à " +
+      "verificação de segurança do Windows (computador lento ou antivírus analisando). " +
+      "Não é preciso trocar de porta: aguarde alguns segundos e tente de novo.",
+  ) as UsbEnumerationTimeoutError;
+  slow.code = "USB_ENUMERATION_TIMEOUT";
+  slow.timeoutMs = (error as UsbEnumerationTimeoutError).timeoutMs;
+  return slow;
 }
 
 function wait(ms: number): Promise<void> {
@@ -72,7 +119,17 @@ export function setLoopAwareTimeout(timeoutMs: number, onExpire: () => void): ()
   return () => clearTimeout(timer);
 }
 
-function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): Promise<string> {
+/**
+ * @param label Names the script in the log lines about slow or expired runs.
+ * @param learnDuration Feed this run's duration into enumerationTimeout(). Off for scripts that
+ * are slow by nature (ejection), which say nothing about how fast this machine starts PowerShell.
+ */
+function runPowerShell(
+  script: string,
+  timeoutMs: number,
+  label: string,
+  learnDuration = true,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     // Write script to a temp file so PowerShell uses -File instead of -Command.
     // -Command has trouble parsing complex multiline scripts (hashtables, if/else
@@ -89,6 +146,7 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
       return;
     }
 
+    const startedAt = performance.now();
     const child = spawn(
       powerShellExe(),
       ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
@@ -111,6 +169,7 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
       child.kill();
       finish(() => {
         cleanup();
+        appendAppEvent("usb", `powershell (${label}) excedeu o prazo de ${timeoutMs} ms`);
         reject(usbEnumerationTimeout(timeoutMs));
       });
     });
@@ -123,8 +182,19 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
     child.on("close", (code) => {
       finish(() => {
         cleanup();
-        if (code === 0) resolve(stdout);
-        else reject(new Error(stderr.trim() || "Não foi possível enumerar os dispositivos USB."));
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || "Não foi possível enumerar os dispositivos USB."));
+          return;
+        }
+        const durationMs = Math.round(performance.now() - startedAt);
+        if (learnDuration) {
+          recentPowerShellDurationsMs.push(durationMs);
+          if (recentPowerShellDurationsMs.length > RECENT_DURATION_SAMPLES) recentPowerShellDurationsMs.shift();
+        }
+        if (durationMs >= SLOW_POWERSHELL_LOG_MS) {
+          appendAppEvent("usb", `powershell (${label}) respondeu em ${durationMs} ms (prazo ${timeoutMs} ms)`);
+        }
+        resolve(stdout);
       });
     });
   });
@@ -138,23 +208,14 @@ function runPowerShell(script: string, timeoutMs = USB_ENUMERATION_TIMEOUT_MS): 
 // a fallback. Health/repair hints used to be read here with Get-Volume, which cost
 // 1.2 s on a healthy machine and hung on exactly the machines this script exists
 // for; they now come from annotateRemovableHealth(), out of band.
+//
+// AllocationUnitBytes stays 0 here and fillAllocationUnits() reads it from fs.statfs. It used to
+// come from GetDiskFreeSpace through Add-Type, which compiles C# with csc.exe on every run — the
+// costliest step of the script, and worse on the slow machines where enumerations time out.
 const ENUMERATE_REMOVABLE_SCRIPT = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 $rows = @()
 $mountvol = Join-Path $env:SystemRoot 'System32\mountvol.exe'
-
-try {
-  Add-Type -Namespace XboxCompanion -Name NativeDisk -MemberDefinition @'
-[DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
-public static extern bool GetDiskFreeSpace(
-  string rootPath,
-  out uint sectorsPerCluster,
-  out uint bytesPerSector,
-  out uint freeClusters,
-  out uint totalClusters
-);
-'@
-} catch {}
 
 foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
   try {
@@ -164,22 +225,6 @@ foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
     if (-not $volumeGuid) {
       $volumeGuid = 'removable|' + $root + '|' + [string]$drive.TotalSize + '|' + [string]$drive.VolumeLabel
     }
-    [uint32]$sectorsPerCluster = 0
-    [uint32]$bytesPerSector = 0
-    [uint32]$freeClusters = 0
-    [uint32]$totalClusters = 0
-    [int64]$allocationUnitBytes = 0
-    try {
-      if ([XboxCompanion.NativeDisk]::GetDiskFreeSpace(
-        $root,
-        [ref]$sectorsPerCluster,
-        [ref]$bytesPerSector,
-        [ref]$freeClusters,
-        [ref]$totalClusters
-      )) {
-        $allocationUnitBytes = [int64]$sectorsPerCluster * [int64]$bytesPerSector
-      }
-    } catch {}
 
     $rows += [PSCustomObject]@{
       RootPath = $root
@@ -188,7 +233,7 @@ foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
       SizeBytes = [int64]$drive.TotalSize
       PartitionSizeBytes = [int64]$drive.TotalSize
       FreeBytes = [int64]$drive.AvailableFreeSpace
-      AllocationUnitBytes = $allocationUnitBytes
+      AllocationUnitBytes = 0
       DiskNumber = -1
       PartitionNumber = -1
       DiskUniqueId = $volumeGuid
@@ -360,6 +405,27 @@ function normalizeRoot(rootPath: string): string {
 }
 
 /**
+ * Cluster size for rows whose script could not read it (the native script never does, nor the
+ * Win32_DiskDrive fallback). On Windows libuv fills statfs' bsize with SectorsPerAllocationUnit ×
+ * BytesPerSector from FileFsFullSizeInformation — the same numbers GetDiskFreeSpace returns. A
+ * failure leaves 0, which assessWriteCapacity already treats as unknown.
+ */
+async function fillAllocationUnits(devices: SafeUsbDevice[]): Promise<SafeUsbDevice[]> {
+  await Promise.all(
+    devices
+      .filter((device) => !device.allocationUnitBytes)
+      .map(async (device) => {
+        try {
+          device.allocationUnitBytes = (await fsPromises.statfs(normalizeRoot(device.rootPath))).bsize;
+        } catch {
+          // keep 0
+        }
+      }),
+  );
+  return devices;
+}
+
+/**
  * Fills in the health/repair hints that ENUMERATE_REMOVABLE_SCRIPT deliberately
  * leaves out, in a process of its own.
  *
@@ -398,7 +464,9 @@ foreach ($letter in @(${letters})) {
 if ($rows.Count -eq 0) { '[]' } else { @($rows) | ConvertTo-Json -Compress -Depth 3 }
 `;
 
-  const output = (await runPowerShell(script, HEALTH_PROBE_TIMEOUT_MS)).trim();
+  // Fixed deadline on purpose: the hints are best-effort, and waiting longer for them on a slow
+  // machine would delay the whole device list.
+  const output = (await runPowerShell(script, HEALTH_PROBE_TIMEOUT_MS, "diagnostico de integridade")).trim();
   if (!output) return;
   const parsed = JSON.parse(output);
   const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
@@ -452,7 +520,7 @@ export async function enumerateSafeWindowsUsbDevices(
 ): Promise<SafeUsbDevice[]> {
   if (process.platform !== "win32") return [];
   const systemDrive = process.env.SystemDrive || "C:";
-  const parseOutput = (rawOutput: string): SafeUsbDevice[] => {
+  const parseOutput = async (rawOutput: string): Promise<SafeUsbDevice[]> => {
     const output = rawOutput.trim();
     if (!output) return [];
     let parsed: any;
@@ -462,20 +530,29 @@ export async function enumerateSafeWindowsUsbDevices(
       throw new Error("O Windows retornou dados inválidos ao enumerar os dispositivos USB.");
     }
     const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
-    return rows
-      .filter((row) => row?.RootPath)
-      .map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive));
+    return fillAllocationUnits(
+      rows
+        .filter((row) => row?.RootPath)
+        .map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive)),
+    );
   };
 
+  // Also without includeHealth: the preparation's revalidation has no last good list to fall
+  // back on, so a second, longer native attempt is all that stands between a slow PowerShell and
+  // a failed preparation (finishRemovableEnumeration skips the health probe there).
   let nativeRecoveryAttempted = false;
   const recoverNativeListing = async (reason: string): Promise<SafeUsbDevice[] | null> => {
-    if (!includeHealth || nativeRecoveryAttempted) return null;
+    if (nativeRecoveryAttempted) return null;
     nativeRecoveryAttempted = true;
     appendAppEvent("usb", `${reason}; tentando novamente pela enumeracao nativa`);
     await wait(ENUMERATION_RECOVERY_DELAY_MS);
     try {
-      const removable = parseOutput(
-        await runPowerShell(ENUMERATE_REMOVABLE_SCRIPT, REMOVABLE_RECOVERY_TIMEOUT_MS),
+      const removable = await parseOutput(
+        await runPowerShell(
+          ENUMERATE_REMOVABLE_SCRIPT,
+          enumerationTimeout(REMOVABLE_RECOVERY_TIMEOUT_MS),
+          "enumeracao nativa, nova tentativa",
+        ),
       );
       if (removable.length > 0) {
         return finishRemovableEnumeration(
@@ -494,8 +571,12 @@ export async function enumerateSafeWindowsUsbDevices(
   };
 
   try {
-    const removable = parseOutput(
-      await runPowerShell(ENUMERATE_REMOVABLE_SCRIPT, REMOVABLE_ENUMERATION_TIMEOUT_MS),
+    const removable = await parseOutput(
+      await runPowerShell(
+        ENUMERATE_REMOVABLE_SCRIPT,
+        enumerationTimeout(REMOVABLE_ENUMERATION_TIMEOUT_MS),
+        "enumeracao nativa",
+      ),
     );
     if (removable.length > 0) {
       return finishRemovableEnumeration(removable, includeHealth);
@@ -509,7 +590,13 @@ export async function enumerateSafeWindowsUsbDevices(
   }
 
   try {
-    const devices = parseOutput(await runPowerShell(ENUMERATE_USB_SCRIPT));
+    const devices = await parseOutput(
+      await runPowerShell(
+        ENUMERATE_USB_SCRIPT,
+        enumerationTimeout(USB_ENUMERATION_TIMEOUT_MS),
+        "enumeracao fisica",
+      ),
+    );
     appendAppEvent(
       "usb",
       `enumeracao fisica encontrou ${devices.length} unidade(s): ${devices.map((device) => device.rootPath).join(", ") || "nenhuma"}`,
@@ -554,7 +641,7 @@ try {
 }
 `;
   try {
-    const res = await runPowerShell(script, 10_000);
+    const res = await runPowerShell(script, 10_000, "ejecao", false);
     if (res.includes("OK")) {
       appendAppEvent("usb", `Dispositivo ${driveLetter}: ejetado com sucesso.`);
       return { ok: true };
@@ -574,9 +661,13 @@ export async function requireSafeWindowsUsbTarget(
   }
 
   const normalizedRoot = normalizeRoot(rootPath);
-  const matches = (await enumerateSafeWindowsUsbDevices()).filter(
-    (device) => normalizeRoot(device.rootPath) === normalizedRoot,
-  );
+  let devices: SafeUsbDevice[];
+  try {
+    devices = await enumerateSafeWindowsUsbDevices();
+  } catch (error) {
+    throw await explainSlowEnumeration(error, normalizedRoot);
+  }
+  const matches = devices.filter((device) => normalizeRoot(device.rootPath) === normalizedRoot);
   if (matches.length !== 1) {
     throw new Error(
       "Não foi possível identificar uma única unidade USB física para o destino selecionado.",
@@ -629,7 +720,9 @@ async function revalidateWithScript(
   expectedFingerprint: string,
 ): Promise<SafeUsbDevice | null> {
   const systemDrive = process.env.SystemDrive || "C:";
-  const output = (await runPowerShell(script, timeoutMs)).trim();
+  const output = (
+    await runPowerShell(script, enumerationTimeout(timeoutMs), "revalidacao pela outra enumeracao")
+  ).trim();
   if (!output) return null;
 
   const parsed = JSON.parse(output);
@@ -641,7 +734,7 @@ async function revalidateWithScript(
   if (candidates.length !== 1) return null;
 
   assertDeviceStillMatches(expectedFingerprint, candidates[0]);
-  return candidates[0];
+  return (await fillAllocationUnits(candidates))[0];
 }
 
 

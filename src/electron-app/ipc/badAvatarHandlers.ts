@@ -9,6 +9,7 @@ import {
   isBadAvatarPreparationEnabled,
   isRunningAsAdmin,
   listFat32UsbDrives,
+  setUsbPreparationActive,
 } from "../services/badAvatarUsbService";
 import { getWebContentsForPush } from "../app/window";
 import { inspectTrustedManifestReadiness } from "../services/preparationReadinessService";
@@ -96,6 +97,7 @@ export function register(ipcMain: IpcMain): void {
       return { ok: false, error: "Já existe uma preparação em andamento." };
     }
     preparationInProgress = true;
+    setUsbPreparationActive(true);
     const wc = getWebContentsForPush();
     try {
       const result = await prepareFixedBadAvatarDevice(request, (progress) => {
@@ -106,6 +108,7 @@ export function register(ipcMain: IpcMain): void {
       return { ok: false, error: err?.message || String(err) };
     } finally {
       preparationInProgress = false;
+      setUsbPreparationActive(false);
     }
   });
 

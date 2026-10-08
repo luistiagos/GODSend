@@ -382,6 +382,16 @@ let usbListCache: UsbDriveInfo[] | null = null;
 let usbListLastGood: UsbDriveInfo[] | null = null;
 let usbListGeneration = 0;
 let usbListInFlight: { generation: number; drives: Promise<UsbDriveInfo[]> } | null = null;
+let usbPreparationActive = false;
+
+/**
+ * While a preparation runs, the Home list and the game counter keep polling, and on a slow
+ * machine each extra powershell.exe makes the preparation's own revalidation slower — report
+ * 9529 has two enumerations interleaved. Until it ends, the list answers with the last good one.
+ */
+export function setUsbPreparationActive(active: boolean): void {
+  usbPreparationActive = active;
+}
 
 /**
  * Forces the next listing to re-enumerate. For what changes neither letter nor
@@ -430,6 +440,10 @@ async function readMountedVolumes(): Promise<string> {
 }
 
 async function listWindowsUsbDrivesOnVolumeChange(): Promise<UsbDriveInfo[]> {
+  if (usbPreparationActive && usbListLastGood) {
+    await refreshUsbDriveFreeBytes(usbListLastGood);
+    return usbListLastGood;
+  }
   const volumes = await readMountedVolumes();
   // Monotonic: a wall clock set backwards would keep the list unsettled for as long.
   const now = performance.now();

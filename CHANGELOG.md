@@ -9,6 +9,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.108] - 2026-10-07
+
+### Fixed
+- **Preparo do pendrive/HD falhava em PC lento com "O Windows ainda está reconhecendo seu pendrive ou HD", com o dispositivo listado e liberado (`infrastructure/windowsUsbDeviceService.ts`, `services/badAvatarUsbService.ts`, `services/fixedBadAvatarPreparationService.ts`, `ipc/badAvatarHandlers.ts`)**:
+  - Reports `9527`–`9530` (4 máquinas, 2 já na 2.12.107): nesses PCs cada `powershell.exe` leva 5–8 s (aqui, ~0,5 s), e os prazos da enumeração USB eram fixos (nativa 5 s, física 12 s). A lista sobrevivia graças à nova tentativa e à última lista confiável; o preparo, que só tinha nativa 5 s → física 12 s, falhava com o pendrive presente. O loop de eventos estava livre — não é o bug da varredura síncrona da 2.12.107.
+  - **Prazo que acompanha a máquina:** `runPowerShell` mede cada execução bem-sucedida e as enumerações passam a esperar `max(prazo base, 3 × a mais lenta das 5 últimas)`, com teto de 30 s. Só sucesso conta: timeout pode ser travamento de verdade. O probe de integridade (best-effort) e a ejeção ficam com prazo fixo.
+  - **Nova tentativa nativa também no preparo** (antes só a lista tinha), com prazo de 12 s em vez de 7 s.
+  - **Sem `Add-Type` na enumeração nativa:** o cluster (`allocationUnitBytes`) passa a vir de `fs.promises.statfs` — no Windows o libuv calcula `bsize` com os mesmos números do `GetDiskFreeSpace` (conferido na fonte da v1.52.1 e medido igual em C:\ e D:\). Sem compilar C# a cada chamada, o script caiu de ~770 para ~480 ms nesta máquina. Linhas do fallback `Win32_DiskDrive`, que vinham com cluster 0 e travavam no "unidade de alocação inválida", também ganham o valor.
+  - **Sem PowerShell concorrente ao preparo:** enquanto ele roda, a lista da Home e o contador de jogos devolvem a última lista confiável.
+  - **Mensagem honesta:** no preparo, prazo estourado com a letra da unidade respondendo diz que o pendrive está conectado e o computador está demorando, sem mandar trocar de porta.
+  - **Log:** PowerShell que leva 2 s ou mais grava `powershell (<script>) respondeu em N ms`, e prazo estourado grava `excedeu o prazo de N ms` — o próximo report diz quanto cada máquina leva.
+  - **Testes:** `tests/unit/powershellSlowMachine.test.cjs` troca o `powershell.exe` por um processo que responde em 6 s: na 2.12.107 o teste falha em 17 s com a mensagem da foto do cliente; com a correção o preparo encontra o pendrive, e depois de um sucesso lento a revalidação passa numa tentativa só. `usbDriveListCache.test.cjs` prova que a lista não abre PowerShell durante o preparo. Cada correção revertida isoladamente derruba o seu teste.
+  - Relato e análise: [`docs/bugs/open/electron-main-powershell-lento-…`](docs/bugs/open/electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40.md).
+
 ## [2.12.107] - 2026-10-07
 
 ### Fixed
