@@ -355,7 +355,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 | Bug aberto | O que toca | Risco para T1–T4 |
 |---|---|---|
 | [`electron-main-powershell-lento-…_2026-10-07T20-40`](electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40.md) — correção aplicada na **2.12.108** (`1ea25b6`), aguardando campo | prazos do `runPowerShell`, `ENUMERATE_REMOVABLE_SCRIPT` sem `Add-Type`, enumeração suspensa durante o preparo, mensagens de `requireSafeWindowsUsbTarget` / `waitForFormattedDevice` | **mesmos arquivos.** T1 acrescenta propriedades às chamadas que já existem e, no pendrive, roda o `ENUMERATE_USB_SCRIPT` uma vez no portão — **nenhum script novo, nenhum prazo alterado**. T2 roda dentro do script elevado que já existe. Rodar os testes desse bug depois de T1 e T2 |
-| [`electron-main-falha-no-preparo-…-telemetria_2026-10-04T23-28`](electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md) — **não implementado** | `reportError` no `catch` de `tools:badavatar-prepare` (`badAvatarHandlers.ts`) | T4 depende dele: implementá-lo primeiro (é pequeno). A reprovação do portão de T1 chega à telemetria por ele |
+| [`electron-main-falha-no-preparo-…-telemetria_2026-10-04T23-28`](electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md) — **não implementado** | `reportError` no `catch` de `tools:badavatar-prepare` (`badAvatarHandlers.ts`) | T4 depende dele: implementá-lo primeiro (é pequeno). **Depois de T1:** a reprovação do portão **depois de formatar** já reporta sozinha (`badavatar-layout`). Quando o handler passar a reportar todo erro, essa falha vai sair duas vezes, com componentes diferentes; decidir ali se isso é aceitável. A reprovação **sem formatar** e a falha da conferência do script elevado (T2) só chegam à telemetria por este bug |
 | [`electron-main-varredura-sincrona-…_2026-10-05T17-25`](electron-main-varredura-sincrona-de-jogos-instalados-congela-a-janela-e-gera-falso-timeout-de-usb_2026-10-05T17-25.md) — T1 commitada (`9258bfe`) | `setLoopAwareTimeout` em `windowsUsbDeviceService.ts` | nenhum: não tocar nessa função |
 | [`release-companion-32-bits-…_2026-10-07T23-30`](release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md) | empacotamento (`fat32format.exe` ia32) | sem conflito de código; testar T2 também no build 32 bits (PowerShell em WOW64) |
 | [`badavatar-perfil-do-exploit-nao-aparece-…_2026-09-23T15-20`](badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md) | sem código pendente (correção na 2.12.99) | mesma família de sintoma. A hipótese "Unidade de Memória × Dispositivo USB" de lá deve ser lida com a régua da seção "Evidência" daqui, e o lid `45367823446171` da tabela de lá é o caso 2 |
@@ -371,7 +371,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 ## Critérios para fechar
 
 - [ ] H1–H3 decididas no #153 e registradas aqui
-- [ ] T1 e T2 com teste unitário
+- [x] T1 e T2 com teste unitário (`a6ac2df`, `5c08a61`; ver "Testes executados")
 - [ ] Hardware: pendrive GPT preparado sai MBR, com partição única, e o Xbox o lista como "Dispositivo USB — N GB livres"
 - [ ] T3 e T4 no ar: o layout do dispositivo chega à telemetria em todo preparo
 - [ ] T6: docs e orientação do suporte atualizados
@@ -380,9 +380,80 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
-| T1 | portão de layout (MBR, 1 partição, tipo FAT32, setor 512, ≤ 2 TiB) nos dois caminhos do preparo | -- | -- | -- | -- |
-| T2 | formatador volta a garantir MBR e partição única, com conferência no script | -- | -- | -- | -- |
+| T1 | portão de layout (MBR, 1 partição, tipo FAT32, setor 512, ≤ 2 TiB) nos dois caminhos do preparo | `a6ac2df` | commitado, sem release | claude-opus-5-5 | -- |
+| T2 | formatador volta a garantir MBR e partição única, com conferência no script | `5c08a61` | commitado, sem release; falta o teste em hardware | claude-opus-5-5 | -- |
 | T3 | arquivo de layout do preparo em `.xbox-downloader/` | -- | -- | -- | -- |
 | T4 | telemetria do preparo concluído com o layout (depende do bug de telemetria do preparo) | -- | -- | -- | -- |
 | T5 | decidir H1–H3 no chamado #153 | -- | -- | -- | -- |
 | T6 | docs (`AGENTS.md`, `CAPACIDADE-E-ESPACO.md`) e orientação do suporte | -- | -- | -- | -- |
+
+## Correção aplicada (T1 e T2, 2026-10-08, sem release)
+
+**T1 — portão de layout** (`a6ac2df`)
+
+- `infrastructure/xboxDiskLayoutPolicy.ts::assessXboxLayout` é a regra, numa função pura. Exige MBR, 1 partição,
+  tipo 11/12, setor lógico de 512 bytes, FAT32 e volume ≤ 2 TiB. Linha sem layout físico dá `unknown`.
+- `windowsUsbDeviceService.ts`:
+  - o `ENUMERATE_USB_SCRIPT` conta todas as partições antes do filtro por letra e devolve `PartitionCount`,
+    `MbrType`, `LogicalSectorSize` e `PhysicalSectorSize`;
+  - `readWindowsUsbDiskLayout(root)` roda esse script uma vez para a letra.
+- `fixedBadAvatarPreparationService.ts::requireXboxReadableLayout` roda depois da conferência de FAT32 e antes
+  do plano:
+  - linha nativa (pendrive): lê o layout físico. O HD já chega com ele;
+  - layout desconhecido: passa, e o log ganha a linha `layout do disco … nao conferido`;
+  - sem formatar: *"O Xbox 360 não vai ler este dispositivo como está. <motivos> Marque “Formatar antes” e tente
+    novamente."*;
+  - setor diferente de 512, com ou sem formatar: *"Este dispositivo não funciona no Xbox 360. <motivos> Use outro
+    pendrive ou HD."*;
+  - depois de formatar: `reportError("badavatar-layout", …)` com os códigos, o layout e o modelo (sem o
+    serial), e mensagem de falha do formatador;
+  - toda decisão com layout conhecido deixa no log do app a linha `layout do disco: <resumo> -> …`. Esse log vai
+    anexo a qualquer report.
+- `PhysicalUsbDevice` ganhou os quatro campos. `createDeviceFingerprint` não mudou.
+
+**T2 — formatador** (`5c08a61`)
+
+- Em `buildGuardedWindowsFat32Script`:
+  - antes de qualquer formatador, `Get-XboxLayoutProblem` (estilo diferente de MBR, ou contagem diferente de 1)
+    decide `$needsNewTable`, e o log ganha `Layout de chegada: …`;
+  - o ramo é escolhido por `$targetBytes`: `min(disco, 2 TiB)` quando a tabela vai ser recriada; senão, o tamanho
+    da partição;
+  - ≤ 32 GB: `Format-Volume`, `fat32format` e `format.com` só rodam sem `$needsNewTable`. Com ele, o script vai
+    direto ao `diskpart clean` + `convert mbr` + `format fs=fat32`;
+  - > 32 GB: `if ($needsNewTable -or -not $vol)` recria a partição, sem sistema de arquivos, antes do
+    `fat32format`;
+  - depois de formatar: `Update-Disk`, `Get-Disk` e `Get-Partition -DiskNumber`. Se o disco não for MBR com 1
+    partição, `throw`. Tipo fora de 11/12: `Set-Partition -MbrType 12`, e confere de novo. Por fim, grava
+    `Particao final: <bytes> bytes`.
+- `readFormattedPartitionBytes` lê essa linha, `formatVolumeFat32` devolve `{ partitionBytes }`, e o preparo
+  passa esse tamanho a `waitForFormattedDevice`.
+- Disco MBR com partição única, o caso comum, segue o caminho de antes. A mudança de 03/09, que evitou o modal e
+  o bloqueio da unidade, continua valendo para ele.
+
+## Testes executados (2026-10-08)
+
+| Prova | Resultado |
+|---|---|
+| `npx tsc` e `npm run renderer:typecheck` | sem erro |
+| `node --test tests/unit/*.test.cjs` | **277/277**: os 258 de antes, 14 de `xboxDiskLayoutPolicy.test.cjs` e 5 novos em `fat32FormatGuard.test.cjs` |
+| Mutação no JS compilado, uma de cada vez | as 6 reprovaram: sem a checagem de MBR (4 falhas); portão que ignora a formatação (1); ramo ≤ 32 GB sem o teste de `$needsNewTable` (1); contagem que aceita 2 (1); sem o teste de `$null` (1); sem a conferência final (1) |
+| `readWindowsUsbDiskLayout("E:\\")` no pendrive desta máquina, só leitura | a enumeração normal devolve a linha nativa, com `partitionStyle ""`. A leitura física devolve MBR, 1 partição, tipo 12, 512/512, FAT32 → `ok`, em **2,6 s**. Letra inexistente → `null`, com a linha no log |
+| `Get-XboxLayoutProblem` e `Get-Fat32MbrTypeProblem` sobre os `Get-Disk`/`Get-Partition` reais, só leitura | `PartitionStyle` chega como `String`. NVMe GPT → `disco GPT, nao MBR`. USB MBR com 1 partição tipo 12 → sem problema |
+
+**Ainda não provado:**
+
+- o script elevado não rodou em disco nenhum, porque o shell não é administrador. Falta ver o caminho com a
+  tabela recriada, a conferência final, o `Set-Partition -MbrType` num volume montado e se o `Update-Disk` é
+  necessário;
+- a linha de `prepareFixedBadAvatarDevice` que passa `partitionBytes` a `waitForFormattedDevice` só foi conferida
+  por leitura e por `tsc`, porque o preparo não roda fora do Electron;
+- custo: o portão soma um PowerShell ao preparo de pendrive (~2,6 s nesta máquina).
+
+**Próximo passo para fechar T2:** com um build, preparar com "Formatar antes":
+
+- um pendrive real de até 32 GB convertido para GPT (ver "Como reproduzir");
+- um pendrive acima de 32 GB;
+- os mesmos testes no build 32 bits (WOW64).
+
+Em cada um, conferir no log do formatador `Layout de chegada: GPT` → `Layout final: MBR, 1 particao, tipo 12`,
+e no Xbox a linha *"Dispositivo USB — N GB livres"*.
