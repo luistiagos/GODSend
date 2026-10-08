@@ -71,7 +71,7 @@ launcher mostrou *"requer windows 64bits"*. O agente de suporte não tinha link 
 | T1 | atualizador ciente da arquitetura + testes | feito (`2743a2b`) |
 | T2 | `build-and-upload.ps1` publica ia32 e mescla o `version.json` | feito (`be4dd5c`) |
 | T3 | build ia32 + prova de abertura e preparo | feito com limites (ver "Execução da T3"); versão 2.12.109 em `d4cce82` |
-| T4 | publicação (com o dono) e link para o guia do agente | pendente: aguarda OK do dono para o upload |
+| T4 | publicação (com o dono) e link para o guia do agente | publicado só o 32 bits (ver "Publicação"); guia do agente aguarda aprovação do texto |
 
 ## Passagem de bastão (2026-10-07 ~23:00, a pedido do dono)
 
@@ -140,3 +140,20 @@ Passos 1–3 da passagem de bastão acima estão feitos.
   permissão não mudam. Candidato a bug próprio: usar o prazo adaptativo da 2.12.108 também aqui.
 - **Não provado:** Windows 32 bits nativo (não há máquina/VM aqui) e preparo completo de pendrive
   no ia32.
+
+## Publicação (2026-10-08 ~02:10 UTC)
+
+Decisão do dono: **publicar só o 32 bits**; clientes x64 continuam na 2.12.107.
+
+- Comando: `.\build-and-upload.ps1 -Arch ia32 -SkipBuild -PortablePath C:\cc32wt\dist\xbox-360-companion-Portable-2.12.109-ia32.exe`
+  (antes, o mesmo com `-DryRun`). Saída: HF `XBOX360Companion/xbox-360-companion-Portable-2.12.109-ia32.exe`,
+  R2 `xboxcompanion32.exe` (511.227.349 bytes) e `version.json` publicados, exit 0.
+- Conferência externa:
+  - `curl -r 0-0` em `https://versions.digitalstoregames.com/xboxcompanion32.exe` e em
+    `.../XBOX360Companion/xboxcompanion32.exe` → `206`, `0-0/511227349`.
+  - `curl -s .../xboxcompanion32.exe | sha256sum` → `e8a7c965…009f`, igual ao `.sha256` publicado
+    e ao build.
+  - `version.json`: topo `2.12.107` / `29d4b703…` (x64 intacto), `ia32.version` `2.12.109` /
+    `e8a7c965…`.
+- **Push do `main`:** não feito por esta sessão (bloqueado pela permissão da ferramenta); fica com o
+  dono. O binário publicado é o commit `d4cce82`.
