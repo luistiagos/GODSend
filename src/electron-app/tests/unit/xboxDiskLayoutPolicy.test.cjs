@@ -4,9 +4,11 @@ const path = require("node:path");
 
 // O portao escreve no log do app; fora do Electron o log cai em %APPDATA%, e sem isto as linhas do
 // teste iriam para o log real da maquina.
-process.env.APPDATA = fs.mkdtempSync(path.join(os.tmpdir(), "xbox-layout-test-"));
+const appData = fs.mkdtempSync(path.join(os.tmpdir(), "xbox-layout-test-"));
+process.env.APPDATA = appData;
 
 const test = require("node:test");
+test.after(() => fs.rmSync(appData, { recursive: true, force: true }));
 const assert = require("node:assert/strict");
 
 const {
