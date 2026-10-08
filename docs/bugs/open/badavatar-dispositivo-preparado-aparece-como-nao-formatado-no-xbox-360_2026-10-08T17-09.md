@@ -185,7 +185,7 @@ explica o caso 1**, porque o disco da cliente já está em MBR, com partição �
 - **H1 — o pendrive não é compatível com o console.** Nome genérico (*"Mass Storage Device"*, fabricante
   *"Mass"*), layout correto no Windows, e o console **trava no logo só com ele**. Testes:
   (a) o mesmo preparo num pendrive de marca (SanDisk/Kingston, até 32 GB), no mesmo console;
-  (b) *Testar autenticidade* do Companion (`fakeDriveProbeService`) neste pendrive.
+  (b) *Testar Capacidade* (botão verde da aba de jogos do pendrive, [`UsbGamesPage.tsx:434-443`](../../../src/electron-app/renderer/components/UsbGamesPage.tsx#L434-L443)) do Companion (`fakeDriveProbeService`) neste pendrive.
 - **H2 — o byte de tipo da partição no MBR não é FAT32** (`0x0B`/`0x0C`). O `Format-Volume` reformata a partição
   existente, e **não verifiquei** se ele reescreve esse byte (nem o `fat32format`). Teste no PC, sem formatar nada:
   `Get-Partition -DriveLetter G | Format-List MbrType,Offset,Size` (12 = FAT32 LBA; 7 = NTFS/exFAT).
@@ -240,7 +240,7 @@ garantir** o layout do disco. Ele **não pode garantir** o hardware, mas pode de
 - **T5 — Decidir H1–H3 no #153.** Não depende de código:
   - pedir à cliente as duas linhas de PowerShell de H2 e H3;
   - testar um pendrive de marca no mesmo console;
-  - rodar *Testar autenticidade* no pendrive dela.
+  - rodar *Testar Capacidade* (botão verde da aba de jogos do pendrive, [`UsbGamesPage.tsx:434-443`](../../../src/electron-app/renderer/components/UsbGamesPage.tsx#L434-L443)) no pendrive dela.
 
   Registrar o resultado aqui.
 - **T6 — Docs e suporte.**
