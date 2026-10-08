@@ -385,7 +385,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 | T3 | arquivo de layout do preparo em `.xbox-downloader/` | -- | -- | -- | -- |
 | T4 | telemetria do preparo concluído com o layout (depende do bug de telemetria do preparo) | -- | -- | -- | -- |
 | T5 | decidir H1–H3 no chamado #153 | -- | -- | -- | -- |
-| T6 | docs (`AGENTS.md`, `CAPACIDADE-E-ESPACO.md`) e orientação do suporte | -- | -- | -- | -- |
+| T6 | docs (`AGENTS.md`, `CAPACIDADE-E-ESPACO.md`) e orientação do suporte | `8e458ef` | docs do repo commitados; falta a orientação do suporte (fora deste repo) | claude-opus-5-5 | -- |
 
 ## Correção aplicada (T1 e T2, 2026-10-08, sem release)
 
@@ -471,7 +471,7 @@ e no Xbox a linha *"Dispositivo USB — N GB livres"*.
      e confere `Get-Disk` (MBR), `Get-Partition` (1, tipo 12) e a linha `Particao final`. Prova o caminho
      recriado, a conferência, o `Set-Partition` e o `Update-Disk`.
   2. **Hardware** (critério de fechamento): "Próximo passo para fechar T2", acima.
-  3. **T6** (docs): `AGENTS.md` seção `fat32Format.ts` — trocar "Acima de 32 GB o caminho principal formata a
+  3. ~~**T6** (docs)~~ **feito em `8e458ef`** (ver adendo abaixo): `AGENTS.md` seção `fat32Format.ts` — trocar "Acima de 32 GB o caminho principal formata a
      partição existente…" e a frase dos "quatro caminhos de `diskpart`" pela invariante nova (GPT/2 partições →
      `clean` + `convert mbr`; conferência no script; portão `xboxDiskLayoutPolicy.ts`); idem
      `docs/CAPACIDADE-E-ESPACO.md`; registrar o portão na seção de `windowsUsbDeviceService.ts`
@@ -479,3 +479,15 @@ e no Xbox a linha *"Dispositivo USB — N GB livres"*.
   4. **T4** depende do bug `electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria`; T3 e T5 seguem
      como na seção "Correção planejada".
 - **Prova de que nada regrediu:** `cd src/electron-app && npx tsc && node --test tests/unit/*.test.cjs` → 277/277.
+
+**Adendo (2026-10-08, sessão de T6):** `AGENTS.md` — a entrada de `fat32Format.ts` passou a enunciar a
+invariante (sucesso só com MBR, 1 partição, tipo 11/12; GPT ou contagem ≠ 1 → `clean` + `convert mbr`
+antes de qualquer formatador; ramo por `$targetBytes`; conferência final e `Particao final`); a de
+`windowsUsbDeviceService.ts` ganhou os campos novos do `ENUMERATE_USB_SCRIPT` e a regra
+"`readWindowsUsbDiskLayout` nunca em polling"; entrada nova para `xboxDiskLayoutPolicy.ts` com o portão
+`requireXboxReadableLayout` e a decisão aberta (a). `docs/CAPACIDADE-E-ESPACO.md`: o parágrafo "acima de
+32 GB não reparticiona" foi trocado pela escolha por tabela de chegada. Texto conferido contra
+`fat32Format.ts` (linhas 123–135, 280–515), `xboxDiskLayoutPolicy.ts` e
+`fixedBadAvatarPreparationService.ts::requireXboxReadableLayout`; `readWindowsUsbDiskLayout` tem um único
+chamador (`grep`). **Resta de T6:** a orientação do suporte (agente de WhatsApp/manual), fora deste repo.
+Próximos passos seguem 1, 2 e 4 acima.
