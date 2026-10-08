@@ -9,6 +9,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.109] - 2026-10-07
+
+### Added
+- **Versão 32 bits publicada (`xboxcompanion32.exe`)** — chamado #157: cliente com Windows 32 bits recebia "Requer Windows 64 bits" e não havia outro link.
+  - `build-and-upload.ps1` gera e envia também o portátil `ia32`: `XBOX360Companion/xboxcompanion32.exe` (e na raiz) no R2, `xbox-360-companion-Portable-<versão>-ia32.exe` no HuggingFace. Parâmetros novos `-Arch x64|ia32|all` (padrão `all`) e `-DryRun`.
+  - O `version.json` ganha o bloco `ia32` e passa a ser **mesclado** com o publicado: publicar só uma arquitetura preserva o bloco da outra; publicar só `ia32` sem conseguir ler o publicado é recusado (os campos de topo, lidos por todo app x64, viriam vazios).
+
+### Fixed
+- **Cópia 32 bits se atualizaria para o x64** (`services/autoUpdateService.ts::selectManifestBuild`): o atualizador usava o link único do `version.json`, que é o x64. Agora a cópia `ia32` só atualiza pelo bloco `ia32`; sem ele, não atualiza. O x64 continua lendo os campos de topo, sem mudança para quem já está instalado.
+  - Relato e análise: [`docs/bugs/open/release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md`](docs/bugs/open/release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md)
+
 ## [2.12.108] - 2026-10-07
 
 ### Fixed
