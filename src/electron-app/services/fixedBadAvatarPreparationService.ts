@@ -28,11 +28,14 @@ import {
 import { executeTransactionalWriteToDevice } from "../infrastructure/simulatedTransactionalWriter";
 import { buildTransactionalWritePlan, validateXboxTargetRelativePath } from "../infrastructure/transactionalWritePlan";
 import { assessWriteCapacity } from "../infrastructure/writeCapacityPolicy";
+import type { PhysicalUsbDevice } from "../infrastructure/deviceSafetyPolicy";
 import {
   enumerateSafeWindowsUsbDevices,
   explainSlowEnumeration,
+  readWindowsUsbDiskLayout,
   requireSafeWindowsUsbTarget,
 } from "../infrastructure/windowsUsbDeviceService";
+import { assessXboxLayout } from "../infrastructure/xboxDiskLayoutPolicy";
 
 const PACKAGE_INDEX_FILE_NAME = "badavatar-package.json";
 const DEVICE_REVALIDATION_INTERVAL_MS = 10_000;
@@ -373,6 +376,84 @@ async function waitForFormattedDevice(root: string, expectedVolumeBytes: number)
   throw new Error("O dispositivo não voltou a ficar disponível após a formatação.");
 }
 
+function describeDiskLayout(device: PhysicalUsbDevice): string {
+  return [
+    device.partitionStyle || "estilo ?",
+    `${device.partitionCount} particao(oes)`,
+    `tipo ${device.mbrType}`,
+    `setor ${device.logicalSectorSize}/${device.physicalSectorSize}`,
+    device.fileSystem || "sistema de arquivos ?",
+    `${device.partitionSizeBytes} bytes`,
+    `"${device.friendlyName}"`,
+  ].join(", ");
+}
+
+/**
+ * "Preparado" tem de significar "o console lê". O Xbox 360 lista como "Não Formatado" um FAT32 em
+ * GPT, com uma segunda partição (mesmo sem letra), com o tipo de partição errado ou com setor de
+ * 4 KB, e o preparo declarava esse dispositivo pronto porque só conferia o sistema de arquivos. A
+ * regra mora em `xboxDiskLayoutPolicy.ts`; aqui se decide o que dizer e a quem.
+ *
+ * Num pendrive a linha vem da enumeração nativa, que não vê layout, e o layout é lido uma vez pelo
+ * script físico. Layout desconhecido (essa leitura não respondeu) passa e fica no log, e isso é
+ * deliberado: reprovar ali tiraria o preparo sem formatar das máquinas em que o `Get-Disk` não
+ * responde. Com "Formatar antes", o script elevado já conferiu o layout que entregou.
+ */
+export async function requireXboxReadableLayout(
+  driveRoot: string,
+  device: PhysicalUsbDevice,
+  formatted: boolean,
+  deps: {
+    readLayout?: (driveRoot: string) => Promise<PhysicalUsbDevice | null>;
+    report?: typeof reportError;
+  } = {},
+): Promise<void> {
+  const readLayout = deps.readLayout ?? readWindowsUsbDiskLayout;
+  const report = deps.report ?? reportError;
+
+  let source = device;
+  let layout = assessXboxLayout(device);
+  if (layout.verdict === "unknown") {
+    const physical = await readLayout(driveRoot);
+    if (physical) {
+      source = physical;
+      layout = assessXboxLayout(physical);
+    }
+  }
+  if (layout.verdict === "unknown") {
+    appendAppEvent("BADAVATAR", `layout do disco ${driveRoot} nao conferido: a enumeracao fisica nao o informou`);
+    return;
+  }
+
+  const summary = describeDiskLayout(source);
+  appendAppEvent(
+    "BADAVATAR",
+    `layout do disco: ${summary} -> ${layout.verdict === "ok" ? "o Xbox 360 le" : `reprovado (${layout.codes.join(", ")})`}`,
+  );
+  if (layout.verdict === "ok") return;
+
+  const reasons = layout.reasons.join(" ");
+  if (!layout.fixableByFormat) {
+    throw new Error(`Este dispositivo não funciona no Xbox 360. ${reasons} Use outro pendrive ou HD.`);
+  }
+  if (!formatted) {
+    throw new Error(
+      `O Xbox 360 não vai ler este dispositivo como está. ${reasons} Marque “Formatar antes” e tente novamente.`,
+    );
+  }
+  // Acabamos de formatar: o layout errado saiu do nosso formatador, e é isso que a telemetria precisa ver.
+  report(
+    "badavatar-layout",
+    "services/fixedBadAvatarPreparationService.ts",
+    "prepareFixedBadAvatarDevice",
+    `Formatacao terminou com layout que o Xbox 360 nao le (${layout.codes.join(", ")}): ${summary}`,
+  );
+  throw new Error(
+    `A formatação terminou, mas o disco ficou num formato que o Xbox 360 não lê. ${reasons} ` +
+      "Fale com o suporte e informe esta mensagem.",
+  );
+}
+
 function createThrottledUsbTargetRevalidator(root: string, fingerprint: string): () => Promise<void> {
   let lastFullValidationAt = 0;
   let pendingFullValidation: Promise<void> | null = null;
@@ -449,6 +530,9 @@ export async function prepareFixedBadAvatarDevice(
   if (String(device.fileSystem || "").toUpperCase() !== "FAT32") {
     throw new Error("O dispositivo precisa estar em FAT32. Marque “Formatar antes” e tente novamente.");
   }
+
+  onProgress({ status: "Conferindo se o Xbox 360 vai ler o dispositivo…", percent: 13 });
+  await requireXboxReadableLayout(request.driveRoot, device, request.formatDrive);
 
   onProgress({ status: `Verificando o pacote ${manifest.release}…`, percent: 14 });
   const transactionScope = request.isRghOnly

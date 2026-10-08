@@ -268,7 +268,8 @@ $mountvol = Join-Path $env:SystemRoot 'System32\mountvol.exe'
 try {
   $disks = @(Get-Disk -ErrorAction SilentlyContinue | Where-Object { $_.BusType -eq 'USB' })
   foreach ($disk in $disks) {
-    $mounted = @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter })
+    $partitions = @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue)
+    $mounted = @($partitions | Where-Object { $_.DriveLetter })
     foreach ($partition in $mounted) {
       $volume = Get-Volume -Partition $partition -ErrorAction SilentlyContinue
       $rootPath = $partition.DriveLetter.ToString().ToUpperInvariant() + ':\'
@@ -293,6 +294,10 @@ try {
         Manufacturer = [string]$disk.Manufacturer
         BusType = [string]$disk.BusType
         PartitionStyle = [string]$disk.PartitionStyle
+        PartitionCount = [int]$partitions.Count
+        MbrType = [int]$partition.MbrType
+        LogicalSectorSize = [int]$disk.LogicalSectorSize
+        PhysicalSectorSize = [int]$disk.PhysicalSectorSize
         DriveType = if ($volume.DriveType) { [string]$volume.DriveType } else { '' }
         DiskPath = [string]$disk.Path
         OperationalStatus = $op
@@ -386,6 +391,10 @@ function parsePhysicalDevice(row: any): PhysicalUsbDevice {
     manufacturer: asString(row.Manufacturer),
     busType: asString(row.BusType),
     partitionStyle: asString(row.PartitionStyle),
+    partitionCount: asNumber(row.PartitionCount),
+    mbrType: asNumber(row.MbrType),
+    logicalSectorSize: asNumber(row.LogicalSectorSize),
+    physicalSectorSize: asNumber(row.PhysicalSectorSize),
     driveType: asString(row.DriveType),
     diskPath: asString(row.DiskPath),
     operationalStatus: asString(row.OperationalStatus),
@@ -610,6 +619,46 @@ export async function enumerateSafeWindowsUsbDevices(
     }
     throw error;
   }
+}
+
+/**
+ * The physical row (partition style, partition count, MBR type, sector size) for the drive at
+ * `rootPath`, for the preparation's console-compatibility gate.
+ *
+ * A pendrive is listed by ENUMERATE_REMOVABLE_SCRIPT, which cannot see any of that, so the gate
+ * runs the physical script once per preparation. Never call this from a poll: it is Storage
+ * Management, the service the native listing exists to stay clear of.
+ *
+ * Returns null when the layout cannot be read (PowerShell slow or failing, no single row for
+ * the letter) and logs why; the caller decides what an unknown layout means. A row from the
+ * Win32_DiskDrive fallback comes back with an empty partition style, which is unknown too.
+ */
+export async function readWindowsUsbDiskLayout(rootPath: string): Promise<PhysicalUsbDevice | null> {
+  if (process.platform !== "win32") return null;
+  const normalizedRoot = normalizeRoot(rootPath);
+  let rows: any[];
+  try {
+    const output = (
+      await runPowerShell(
+        ENUMERATE_USB_SCRIPT,
+        enumerationTimeout(USB_ENUMERATION_TIMEOUT_MS),
+        "layout do disco",
+      )
+    ).trim();
+    const parsed = output ? JSON.parse(output) : [];
+    rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+  } catch (error: any) {
+    appendAppEvent("usb", `layout do disco ${normalizedRoot} indisponivel: ${error?.message || String(error)}`);
+    return null;
+  }
+  const matches = rows.filter(
+    (row) => row?.RootPath && normalizeRoot(asString(row.RootPath)) === normalizedRoot,
+  );
+  if (matches.length !== 1) {
+    appendAppEvent("usb", `layout do disco ${normalizedRoot}: ${matches.length} linha(s) na enumeracao fisica`);
+    return null;
+  }
+  return parsePhysicalDevice(matches[0]);
 }
 
 export async function safelyEjectWindowsDrive(rootPath: string): Promise<{ ok: boolean; error?: string }> {

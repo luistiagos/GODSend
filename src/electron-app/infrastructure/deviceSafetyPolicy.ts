@@ -28,6 +28,14 @@ export interface PhysicalUsbDevice {
   manufacturer: string;
   busType: string;
   partitionStyle: string;
+  // Physical layout, read only by ENUMERATE_USB_SCRIPT; 0 means unknown (native and CIM rows).
+  // Deliberately absent from createDeviceFingerprint: the fingerprint seeds the transaction id.
+  /** Every partition on the disk, including the ones without a drive letter. */
+  partitionCount: number;
+  /** MBR partition type byte (11/12 = FAT32); 0 on GPT. */
+  mbrType: number;
+  logicalSectorSize: number;
+  physicalSectorSize: number;
   driveType: string;
   diskPath: string;
   operationalStatus: string;
