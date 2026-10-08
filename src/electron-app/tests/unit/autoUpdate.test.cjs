@@ -2,7 +2,48 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 
-const { isNewerVersion } = require("../../services/autoUpdateService.js");
+const { isNewerVersion, selectManifestBuild } = require("../../services/autoUpdateService.js");
+
+// ── Arquitetura (bug: cópia 32 bits se atualizaria para o x64) ──────────────
+const X64_URL = "https://versions.digitalstoregames.com/XBOX360Companion/xboxcompanion.exe?v=2.12.109";
+const IA32_URL = "https://versions.digitalstoregames.com/XBOX360Companion/xboxcompanion32.exe?v=2.12.109";
+const manifestX64Only = {
+  version: "2.12.109",
+  downloadUrl: X64_URL,
+  portableUrl: X64_URL,
+  sha256: "aa",
+  size: 10,
+};
+
+test("selectManifestBuild: cópia 32 bits usa só o bloco ia32", () => {
+  const manifest = {
+    ...manifestX64Only,
+    ia32: { version: "2.12.109", downloadUrl: IA32_URL, sha256: "bb", size: 9 },
+  };
+  const build = selectManifestBuild(manifest, "ia32");
+  assert.equal(build.downloadUrl, IA32_URL);
+  assert.equal(build.sha256, "bb");
+  assert.equal(build.size, 9);
+});
+
+test("selectManifestBuild: cópia 32 bits sem bloco ia32 não atualiza, nunca recebe o x64", () => {
+  assert.equal(selectManifestBuild(manifestX64Only, "ia32"), null);
+  assert.equal(selectManifestBuild({ ...manifestX64Only, ia32: { version: "2.12.109" } }, "ia32"), null);
+});
+
+test("selectManifestBuild: x64 continua nos campos de topo e ignora o bloco ia32", () => {
+  const manifest = {
+    ...manifestX64Only,
+    ia32: { version: "2.12.200", downloadUrl: IA32_URL, sha256: "bb", size: 9 },
+  };
+  const build = selectManifestBuild(manifest, "x64");
+  assert.equal(build.version, "2.12.109");
+  assert.equal(build.downloadUrl, X64_URL);
+  assert.equal(build.sha256, "aa");
+  // Manifesto antigo só com portableUrl continua servindo o x64.
+  const legacy = { version: "2.12.107", portableUrl: X64_URL };
+  assert.equal(selectManifestBuild(legacy, "x64").downloadUrl, X64_URL);
+});
 
 test("isNewerVersion: compara versões semver corretamente", () => {
   // Patch versions

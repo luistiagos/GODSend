@@ -28,6 +28,40 @@ export interface VersionManifest {
   notes?: string;
   portableUrl?: string;
   hfUrl?: string;
+  /** Windows 32-bit build. The top-level fields are the x64 build, which a 32-bit copy must never download. */
+  ia32?: ManifestBuild;
+}
+
+export interface ManifestBuild {
+  version: string;
+  releaseDate?: string;
+  downloadUrl: string;
+  sha256?: string;
+  size?: number;
+  notes?: string;
+}
+
+/**
+ * The build of the manifest this copy may update to, or null when there is none
+ * for its architecture. A 32-bit copy only takes the `ia32` block: the top-level
+ * link is the x64 portable, which would replace it and then refuse to start
+ * ("requer Windows 64 bits").
+ */
+export function selectManifestBuild(manifest: VersionManifest, arch: string): ManifestBuild | null {
+  if (arch === "ia32") {
+    const build = manifest.ia32;
+    return build && build.version && build.downloadUrl ? build : null;
+  }
+  const downloadUrl = manifest.downloadUrl || manifest.portableUrl;
+  if (!manifest.version || !downloadUrl) return null;
+  return {
+    version: manifest.version,
+    releaseDate: manifest.releaseDate,
+    downloadUrl,
+    sha256: manifest.sha256,
+    size: manifest.size,
+    notes: manifest.notes,
+  };
 }
 
 export interface UpdateCheckResult {
@@ -189,7 +223,18 @@ export async function checkForUpdates(force = false): Promise<UpdateCheckResult>
     };
   }
 
-  const latestVersion = manifest.version;
+  const build = selectManifestBuild(manifest, process.arch);
+  if (!build) {
+    appendAppEvent("UPDATE", `Check result: no ${process.arch} build in the manifest (latest x64=${manifest.version})`);
+    return {
+      ok: true,
+      updateAvailable: false,
+      currentVersion,
+      latestVersion: currentVersion,
+    };
+  }
+
+  const latestVersion = build.version;
   const updateAvailable = isNewerVersion(latestVersion, currentVersion);
 
   if (!force && updateAvailable && getSkippedUpdateVersion() === latestVersion) {
@@ -199,11 +244,11 @@ export async function checkForUpdates(force = false): Promise<UpdateCheckResult>
       currentVersion,
       latestVersion,
       skipped: true,
-      releaseDate: manifest.releaseDate,
-      notes: manifest.notes,
-      downloadUrl: manifest.downloadUrl,
-      sha256: manifest.sha256,
-      size: manifest.size,
+      releaseDate: build.releaseDate,
+      notes: build.notes,
+      downloadUrl: build.downloadUrl,
+      sha256: build.sha256,
+      size: build.size,
     };
   }
 
@@ -217,11 +262,11 @@ export async function checkForUpdates(force = false): Promise<UpdateCheckResult>
     updateAvailable,
     currentVersion,
     latestVersion,
-    releaseDate: manifest.releaseDate,
-    notes: manifest.notes,
-    downloadUrl: manifest.downloadUrl || manifest.portableUrl,
-    sha256: manifest.sha256,
-    size: manifest.size,
+    releaseDate: build.releaseDate,
+    notes: build.notes,
+    downloadUrl: build.downloadUrl,
+    sha256: build.sha256,
+    size: build.size,
   };
 }
 
