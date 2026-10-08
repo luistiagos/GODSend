@@ -268,3 +268,31 @@ nada foi gravado no dispositivo.
 - Script nativo com o pendrive presente, 2 rodadas intercaladas de 5: antes 670/649 ms, depois
   525/483 ms (medianas).
 - Não executado: o preparo completo (formata/grava o pendrive) — depende de autorização do dono.
+
+### Prova ponta a ponta: preparo real com PowerShell lento (2026-10-07, autorizado pelo dono)
+
+`electron scratchpad/e2e-prepare.cjs` sobre o código 2.12.108 compilado: cada `powershell.exe` **real**
+só inicia depois de 6 s (o PC do cliente), a lista é listada como a tela faz ao abrir, e durante o
+preparo a lista é consultada a cada 2 s, como o polling da Home. Preparo **sem formatar** (o dono não
+estava como administrador; formatar abriria UAC), pendrive `E:\` FAT32 de 15,5 GB.
+
+- Abertura da lista: `enumeracao nativa excedeu o prazo de 5000 ms` → `nova tentativa respondeu em
+  6830 ms (prazo 12000 ms)` → `enumeracao nativa recuperada encontrou 1 unidade(s): E:\`. O probe de
+  integridade estoura os 3 s, como esperado (prazo fixo, best-effort). É a sequência do `9530`, agora
+  terminando com a unidade encontrada.
+- Depois disso o prazo da nativa passou a 20–22 s (3 × 6,6–7,4 s). Todas as enumerações passaram,
+  levando de 6,5 a 7,4 s cada; nenhuma estourou durante o preparo.
+- Resultado: `100% Dispositivo preparado com sucesso.` em 804,8 s; release
+  `1.1-autostart-aurora-freestyle-dashlaunch-xexmenu`, 620 arquivos (418 gravados, 202 reaproveitados).
+  393 consultas da lista durante o preparo; os 41 `powershell.exe` abertos no período são as
+  revalidações do próprio preparo (uma a cada ~17 s = 10 s de intervalo + ~7 s de PowerShell).
+- No código 2.12.107 a primeira revalidação (`requireSafeWindowsUsbTarget`, nativa 5 s → física 12 s)
+  estouraria nessa mesma máquina simulada — é o que `powershellSlowMachine.test.cjs` prova (falha em
+  17 s).
+
+**Observação fora do escopo:** num PC assim, cada revalidação de 10 s em 10 s custa ~7 s de
+PowerShell, e o preparo fica bem mais lento (805 s aqui). Não falha mais, mas é candidato a
+melhoria: espaçar a revalidação completa quando a enumeração é lenta, mantendo o `fs.access` barato
+a cada chamada. Não implementado.
+
+Não coberto: o caminho com "Formatar antes" (`waitForFormattedDevice`), que pede administrador.
