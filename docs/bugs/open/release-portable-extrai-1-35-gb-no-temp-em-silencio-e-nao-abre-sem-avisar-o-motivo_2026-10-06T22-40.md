@@ -337,3 +337,27 @@ Próximo passo exato, em ordem, cada um depende de decisão do dono:
    (`digitalstoregamesproject`) — janela de progresso, as três mensagens, ~1,9 GB livres no C:.
 5. **Fechar o bug** (`git mv` para `docs/bugs/closed/`) quando um cliente real confirmar ou o
    painel mostrar `xbox-360-companion/portable-launcher` seguido de abertura.
+
+### Andamento (2026-10-07, noite)
+
+- **1. Push:** feito com autorização, `9b24e64..6f21c04` (10 commits, incluindo os do scanner).
+- **2. Publicação:** o dono rodou `build-and-upload.ps1` com build novo (`dist/…-2.12.107.exe` de
+  12:37, depois de `91d20dc`/`2d372b2`; o CHANGELOG da 2.12.107 já cobre o scanner).
+  `version.json` público: 2.12.107, 528.194.658 bytes, sha256 `29d4b703…9494b5b`.
+- **3. Medição do arquivo público:** o `xboxcompanion.exe?v=2.12.107` baixado tem o mesmo sha256.
+  Com `-TempDir C:\t107\temp`: janela de progresso em 0,3 s, janela do app em 9,5 s, pico de
+  **1.793 MB** (app 1.290 + `app.7z` 503), **1.290 MB** com o app aberto, exit 0, nada sobra no
+  TEMP. Com `XBOX360COMPANION_LAUNCHER_EXTRA_MB=99999999`: aviso de espaço do disco C: em 0,3 s,
+  nada gravado, exit 2.
+- **Achado da medição: `%TEMP%` com caminho longo.** A primeira medição usou um TEMP com 139
+  caracteres até `…\nsXXXX.tmp\app`. Ali o launcher mostrou "Não foi possível preparar os
+  arquivos" duas vezes, sempre com `extracao-incompleta extraido_kb=1219445 esperado_kb=1320634`.
+  O Defender não registrou nenhuma detecção. Causa: o maior caminho relativo do app tem 123
+  caracteres, então com esse prefixo um arquivo de 50 MB passa de MAX_PATH e o Nsis7z o pula sem
+  avisar. Com o TEMP típico de cliente (`C:\Users\<nome>\AppData\Local\Temp`, ~52 caracteres até
+  `app`) nenhum arquivo passa do limite. O template da 2.12.106 extraía no mesmo lugar e falharia
+  em silêncio; a 2.12.107 pelo menos avisa e registra. Só vira problema se o TEMP do cliente
+  passar de ~136 caracteres. Não é regressão e não bloqueia a release. Se aparecer
+  `extracao-incompleta` no painel com o TEMP longo, a correção é extrair num caminho mais curto
+  ou com prefixo `\\?\`.
+- **Próximo:** passos 4 (agente de suporte, fora deste repo) e 5 (fechar o bug).
