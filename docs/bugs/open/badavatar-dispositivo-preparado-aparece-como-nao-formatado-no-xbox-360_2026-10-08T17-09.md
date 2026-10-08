@@ -213,9 +213,13 @@ garantir** o layout do disco. Ele **não pode garantir** o hardware, mas pode de
   - volume ≤ 2 TiB.
 
   Sem formatar, a reprovação manda marcar "Formatar antes". Formatando, a reprovação é bug do formatador e tem de
-  chegar à telemetria. Os dados vêm do `ENUMERATE_USB_SCRIPT`, sem nenhum PowerShell novo:
+  chegar à telemetria. Os dados vêm do `ENUMERATE_USB_SCRIPT`, sem nenhum script novo:
   - `PartitionCount`, da chamada `Get-Partition -DiskNumber` que já existe (antes do filtro por letra);
   - `MbrType`, `LogicalSectorSize` e `PhysicalSectorSize`, propriedades dos objetos que o script já lê.
+
+  **Corrigido na implementação:** num pendrive o preparo não roda o `ENUMERATE_USB_SCRIPT` (a enumeração nativa
+  responde primeiro e não tem estilo de partição), então o portão roda esse script **uma vez** para ler o layout.
+  Ver "Análise antes de implementar T1 e T2".
 
   Regra pura `assessXboxLayout(device)`, com teste unitário por caso: GPT, 2 partições, `MbrType` 7, setor 4096 e
   layout certo.
@@ -249,6 +253,99 @@ garantir** o layout do disco. Ele **não pode garantir** o hardware, mas pode de
   - Ensinar ao suporte e ao agente que "Não Formatado" = o console não lê, e o que pedir nesse caso: tela de
     Armazenamento, estilo de partição e modelo do pendrive. A KB do agente vive no `digitalstoregamesproject`.
 
+## Análise antes de implementar T1 e T2 (2026-10-08)
+
+### O que o código faz (aberto, não inferido)
+
+- `windowsUsbDeviceService.ts::enumerateSafeWindowsUsbDevices` roda primeiro o `ENUMERATE_REMOVABLE_SCRIPT` e
+  devolve as linhas dele sempre que existe alguma unidade `Removable`. O `ENUMERATE_USB_SCRIPT` só roda quando não
+  há removível (HD USB, que o Windows chama de `Fixed`), quando o nativo falha, ou na revalidação cruzada
+  (`planRevalidationRetry`). A linha nativa traz `PartitionStyle = ''` e `DiskNumber = -1`.
+  **Num pendrive (o caso 1) o preparo não tem estilo de partição nenhum.** O script nativo não pode ganhar
+  `Get-Disk`: ele existe para quando o Storage Management trava (comentário acima de `ENUMERATE_REMOVABLE_SCRIPT`).
+- `ENUMERATE_USB_SCRIPT` filtra `Get-Partition -DiskNumber` por letra, e o fallback `Win32_DiskDrive` também
+  devolve `PartitionStyle = ''`.
+- `fixedBadAvatarPreparationService.ts::waitForFormattedDevice(root, expectedVolumeBytes)` recebe o tamanho da
+  partição de **antes** da formatação e reprova se a que volta diferir mais que max(16 MiB, 1 %).
+  **Recriar a tabela muda esse tamanho:**
+  - GPT → MBR ganha ~17 MB (a MSR de 16 MB mais o alinhamento), o que estoura a tolerância num pendrive de 1 GB;
+  - um disco GPT acima de 2 TiB cai para 2 TiB;
+  - um disco com uma segunda partição oculta cresce.
+
+  Sem ajuste, T2 só trocaria "pronto em GPT" por *"A capacidade mudou após a formatação"*.
+- `fat32Format.ts::buildGuardedWindowsFat32Script` escolhe o ramo por `$partition.Size` (a partição montada). Com
+  a tabela recriada, a partição final ocupa o disco inteiro. Num disco > 32 GB com partição ≤ 32 GB, o ramo
+  ≤ 32 GB cairia no `format fs=fat32` do diskpart, que recusa volume > 32 GB, e depois no NTFS + `fat32format`,
+  que é o `GetLastError()=5` documentado no `AGENTS.md`.
+- `formatWindowsFat32`: do script elevado só voltam o código de saída e o log, que o `finally` apaga.
+- `deviceSafetyPolicy.ts::createDeviceFingerprint`: não pode receber campo novo, porque o fingerprint alimenta
+  `deterministicTransactionId` e mudar a identidade quebraria a retomada de preparos interrompidos.
+- `telemetry.ts::reportError(component, file, method, message, pageUrl, extraLogs)` deduplica por
+  `component|message` na sessão e anexa a cauda do log do app.
+
+### Comandos que provaram algo
+
+Nesta máquina, sem elevação e só com leitura:
+
+- `Get-Disk | Select Number,BusType,PartitionStyle,LogicalSectorSize,PhysicalSectorSize` → disco USB: MBR,
+  512/512; os NVMe: GPT, 512/4096.
+- `Get-Partition | Select DiskNumber,PartitionNumber,DriveLetter,Type,MbrType,GptType,Size` → o pendrive FAT32
+  tem `MbrType 12` (`FAT32 XINT13`). Em GPT o `MbrType` é nulo, e todo disco de dados GPT criado pelo Windows tem
+  uma partição `Reserved` (MSR) sem letra, então a contagem dá 2.
+- `(Get-Command Set-Partition).Parameters['MbrType']` → `System.UInt16`. `Update-Disk` aceita `-Number`.
+- Baseline antes da mudança: `npx tsc` + `node --test tests/unit/*.test.cjs` → **258/258**.
+- O shell não é administrador (`IsInRole(Administrator)` = False), então o script elevado **não** foi rodado
+  num VHD.
+
+### Hipóteses descartadas nesta etapa
+
+| Ideia | Por que caiu |
+|---|---|
+| Ler o layout no script nativo | ele não pode chamar Storage Management |
+| Ler o layout por `DeviceIoControl` (`IOCTL_DISK_GET_PARTITION_INFO_EX` abre o volume sem privilégio) | exigiria `Add-Type`, tirado na 2.12.108 por custo, ou módulo nativo, que o projeto não carrega |
+| Reprovar quando o layout **não puder ser lido** | numa máquina onde o `Get-Disk` não responde, o preparo sem formatar pararia de funcionar para sempre (e formatar também depende do Storage Management). Fica assim: layout desconhecido passa e vai para o log; layout lido e errado reprova |
+| Pôr o layout em `assessDeviceSafety` | os códigos de lá tratam de segurança e todos bloqueiam a formatação; GPT se resolve formatando |
+
+### Plano corrigido
+
+**T1**
+- `ENUMERATE_USB_SCRIPT` ganha `PartitionCount` (todas as partições, antes do filtro por letra), `MbrType`,
+  `LogicalSectorSize` e `PhysicalSectorSize`. `parsePhysicalDevice` os lê, e 0 significa desconhecido.
+- `windowsUsbDeviceService.ts::readWindowsUsbDiskLayout(root)` (novo) roda o `ENUMERATE_USB_SCRIPT` uma vez, com
+  o prazo adaptativo de sempre, e devolve a linha da letra ou `null`, com o motivo no log. **É um PowerShell a
+  mais no preparo de pendrive.** No HD a linha já é física e nada novo roda. Nenhum script novo, nenhum prazo
+  novo, e nada de polling chama essa função.
+- `infrastructure/xboxDiskLayoutPolicy.ts::assessXboxLayout` (função pura) devolve `ok | rejected | unknown`, com
+  os códigos `NOT_MBR`, `PARTITION_COUNT`, `MBR_TYPE`, `SECTOR_SIZE`, `NOT_FAT32` e `VOLUME_TOO_LARGE`.
+  `fixableByFormat` é falso quando há `SECTOR_SIZE`, que formatar não muda.
+- O portão em `prepareFixedBadAvatarDevice` fica depois da conferência de FAT32 e antes do plano:
+  - sem formatar: pede para marcar "Formatar antes";
+  - setor diferente de 512: diz que o dispositivo não serve ao Xbox 360;
+  - depois de formatar: `reportError("badavatar-layout", …)` e mensagem de falha do formatador. Esse report não
+    espera o bug de telemetria do preparo.
+- Prova: `tests/unit/xboxDiskLayoutPolicy.test.cjs`, com GPT, 2 partições, `MbrType` 7, setor 4096, > 2 TiB,
+  não FAT32, layout certo e desconhecido.
+
+**T2**
+- Antes de formatar, o script elevado calcula `Get-XboxLayoutProblem $disk $partitions` → `$needsNewTable`.
+  - No ramo ≤ 32 GB, `$needsNewTable` pula os três formatadores que trabalham na partição existente e vai direto
+    ao `diskpart clean` + `convert mbr`.
+  - No ramo > 32 GB, entra no `$rawPartitionCmds` antes do `fat32format`.
+  - Com a tabela recriada, o ramo é escolhido por `min(tamanho do disco, 2 TiB)`.
+- Depois de formatar, o próprio script confere o layout (`Update-Disk`, `Get-Disk`, `Get-Partition -DiskNumber`):
+  - se não for MBR com 1 partição: `throw`;
+  - tipo fora de 11/12: `Set-Partition -MbrType 12` uma vez, e confere de novo. **Isso é deliberado:** sem a
+    correção, se H2 for verdadeira, todo preparo desses pendrives pararia na conferência sem ter saída;
+  - grava `Particao final: <bytes> bytes` no log.
+- `formatWindowsFat32` lê essa linha antes de apagar o log, `formatVolumeFat32` devolve `{ partitionBytes }`, e o
+  preparo passa esse tamanho a `waitForFormattedDevice`.
+- Prova: `fat32FormatGuard.test.cjs`.
+  - As funções de decisão e de conferência rodam no PowerShell com objetos falsos: GPT, MBR com 2 partições, MBR
+    com 1, tipo 7 e tipo 12.
+  - O script tem a decisão nos dois ramos e a conferência dentro do `try`.
+  - A linha `Particao final` é lida.
+  - O teste com pendrive GPT de verdade continua no critério de fechamento.
+
 ## Coordenação com os bugs abertos que mexem no mesmo código
 
 Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
@@ -257,7 +354,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 
 | Bug aberto | O que toca | Risco para T1–T4 |
 |---|---|---|
-| [`electron-main-powershell-lento-…_2026-10-07T20-40`](electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40.md) — correção aplicada na **2.12.108** (`1ea25b6`), aguardando campo | prazos do `runPowerShell`, `ENUMERATE_REMOVABLE_SCRIPT` sem `Add-Type`, enumeração suspensa durante o preparo, mensagens de `requireSafeWindowsUsbTarget` / `waitForFormattedDevice` | **mesmos arquivos.** T1 só acrescenta propriedades às chamadas que já existem — **nenhum PowerShell novo, nenhum prazo alterado** — e T2 roda dentro do script elevado que já existe. Rodar os testes desse bug depois de T1 e T2 |
+| [`electron-main-powershell-lento-…_2026-10-07T20-40`](electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40.md) — correção aplicada na **2.12.108** (`1ea25b6`), aguardando campo | prazos do `runPowerShell`, `ENUMERATE_REMOVABLE_SCRIPT` sem `Add-Type`, enumeração suspensa durante o preparo, mensagens de `requireSafeWindowsUsbTarget` / `waitForFormattedDevice` | **mesmos arquivos.** T1 acrescenta propriedades às chamadas que já existem e, no pendrive, roda o `ENUMERATE_USB_SCRIPT` uma vez no portão — **nenhum script novo, nenhum prazo alterado**. T2 roda dentro do script elevado que já existe. Rodar os testes desse bug depois de T1 e T2 |
 | [`electron-main-falha-no-preparo-…-telemetria_2026-10-04T23-28`](electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md) — **não implementado** | `reportError` no `catch` de `tools:badavatar-prepare` (`badAvatarHandlers.ts`) | T4 depende dele: implementá-lo primeiro (é pequeno). A reprovação do portão de T1 chega à telemetria por ele |
 | [`electron-main-varredura-sincrona-…_2026-10-05T17-25`](electron-main-varredura-sincrona-de-jogos-instalados-congela-a-janela-e-gera-falso-timeout-de-usb_2026-10-05T17-25.md) — T1 commitada (`9258bfe`) | `setLoopAwareTimeout` em `windowsUsbDeviceService.ts` | nenhum: não tocar nessa função |
 | [`release-companion-32-bits-…_2026-10-07T23-30`](release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md) | empacotamento (`fat32format.exe` ia32) | sem conflito de código; testar T2 também no build 32 bits (PowerShell em WOW64) |
