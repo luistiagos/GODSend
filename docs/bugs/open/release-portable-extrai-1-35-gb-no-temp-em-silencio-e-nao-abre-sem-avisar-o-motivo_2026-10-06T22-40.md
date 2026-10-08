@@ -390,6 +390,26 @@ sobre o Xbox 360 Companion (portátil) e acrescentar, para a 2.12.107 em diante:
 Prova de que terminou: o agente responde certo a "baixei e não abre, não aparece nada" e a
 "apareceu que não há espaço no disco C:". Ao terminar, marcar o passo 4 como feito aqui.
 
+**Passo 4 feito (2026-10-08, local; falta push e deploy do backend).** Doc no outro repositório:
+`digitalstoregamesproject/docs/modules/chatbot-whatsapp/areas/prompt-kb/bugs/2026-10-07-guia-do-companion-diz-que-abre-em-silencio-e-nao-conhece-os-avisos-do-launcher-2-12-107.md`.
+- O texto mudou em `digitalstoregamesbackend/mysite/templates/prompts/fragments/instrucoes/xbox360.md`
+  (commit `34e2a8d`, aprovado pelo dono): a janelinha de progresso, ~1,9 GB no C:, e uma seção
+  "Se o Xbox Companion não abrir" com as três mensagens. Antes ele dizia "a descompactação é
+  silenciosa", e em produção o agente mandava esperar 30 a 60 s e procurar perto do relógio.
+- Prova (eval pago, `--runs 3`, casos novos em `52c56b4`): "baixei e dei dois cliques mas não
+  aparece nada" foi de 0/3 para 3/3 (agora pergunta pela janelinha com barra de progresso);
+  print da caixa "Não há espaço livre suficiente no disco C:" 3/3 antes e depois (libera no C:,
+  não manda baixar de novo nem mexer no antivírus).
+- `instructions/xboxcompanion_agents_guide.md` (também diz "abre silenciosamente") ficou como
+  está: nenhum código carrega esse arquivo.
+
+**Achado para o passo 5 (chamado #148, `Wpp_proccess`, 2026-10-07 UTC):** às 13:51 (133894) o
+operador disse ao cliente que podia ser falta de espaço ("mínimo de 3gb livres"); às 14:20 (133901)
+o cliente mandou o print da tela "Modo de Instalação": o app abriu, e ele preparou o pendrive até
+14:50. Foi com a **2.12.106** (o build da 2.12.107 é de 12:37 no horário local, 15:37 UTC). O
+cliente não escreveu que liberou espaço, então a ordem dos fatos é indício a favor da hipótese 1,
+não prova. Não atende ao critério do passo 5, que pede a 2.12.107.
+
 ### Passo 5 — critério para fechar (confirmado pelo dono em 2026-10-07)
 
 Fechar (`git mv` para `docs/bugs/closed/`) só com **uma** destas provas: um cliente real
