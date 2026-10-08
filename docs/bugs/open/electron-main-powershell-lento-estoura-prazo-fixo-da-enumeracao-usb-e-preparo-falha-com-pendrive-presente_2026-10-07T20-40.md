@@ -254,3 +254,17 @@ T1–T4 implementadas como planejado, sem desvio. Símbolos novos/alterados:
   `powershell (...) respondeu em N ms` e nenhum preparo falhando com a letra presente.
 - T5 continua dependente de
   [`electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md`](electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md).
+
+### Prova com pendrive real (2026-10-07, mesma sessão)
+
+Pendrive `USB DISK 2.0` 15,5 GB em `E:\`, FAT32, rótulo `BADAVATAR` (Get-Disk nº 2, MBR). Só leitura —
+nada foi gravado no dispositivo.
+
+- Cluster: `GetDiskFreeSpace` (método antigo, via `Add-Type`) = **8192**; `fs.statfsSync('E:\').bsize`
+  = **8192**; o script antigo devolvia `"AllocationUnitBytes":8192`. Igual (`scratchpad/compare-cluster.js`).
+- `EXPECT_USB_ROOT=E: electron tests/electron/usb-enumeration-smoke.cjs` (Electron 42, PowerShell
+  real): saída 0; `E:\`, `FAT32`, `allocationUnitBytes: 8192`, `safety.allowed: true`, e
+  `requireSafeWindowsUsbTarget` revalidou com o mesmo fingerprint.
+- Script nativo com o pendrive presente, 2 rodadas intercaladas de 5: antes 670/649 ms, depois
+  525/483 ms (medianas).
+- Não executado: o preparo completo (formata/grava o pendrive) — depende de autorização do dono.
