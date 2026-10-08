@@ -76,3 +76,16 @@ cliente relatou no celular ([132825]) não veio deste link.
 4. Decidir sobre assinatura de código. O planejamento já lista "instalador e binários assinados"
    (`docs/PLANEJAMENTO.md`) e "assinatura de código" para o instalador público
    (`docs/IMPLEMENTACAO-E-PENDENCIAS.md`); este doc é o custo medido que faltava para priorizar.
+
+## Evidência de campo: o cliente do #148 passou da segunda janela (2026-10-06 22:25 UTC)
+
+Mesma sessão (`12210927591471@lid`). Às 20:57 UTC o operador humano mandou ([133120]): na
+janela *"Verifique se você confia em xboxcompanion.exe antes de abrir"*, clicar **na setinha ▼ ao
+lado do botão "Excluir"** e escolher **"Manter mesmo assim"**. Às 22:25 UTC ([133149]) o cliente
+já estava na tela azul de execução (*"O Windows protegeu o computador"*), e as Propriedades do
+arquivo ([133289]) mostram 503 MB, criado às 19:23:33 e modificado às 19:25:43 (hora local): o
+download concluiu em ~2 min depois de 6 h travado. Isso sustenta a hipótese 3 com os rótulos que
+funcionaram em campo; a tela real ainda não foi fotografada (tarefa 2).
+
+O que aconteceu **depois** do download (o programa não abre e não diz por quê) é outro bug:
+[[release-portable-extrai-1-35-gb-no-temp-em-silencio-e-nao-abre-sem-avisar-o-motivo_2026-10-06T22-40]].

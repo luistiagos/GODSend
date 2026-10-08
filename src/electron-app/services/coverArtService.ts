@@ -128,7 +128,38 @@ export const CUSTOM_COVER_URLS: Record<string, string> = {
   "ea sports fc 26 legacy edition": "https://down-br.img.susercontent.com/file/br-11134207-820li-mo2rdptzkiyp5c",
 };
 
+let customCoversLoaded = false;
+export function loadCustomCovers(): void {
+  if (customCoversLoaded) return;
+  customCoversLoaded = true;
+  const candidateDirs = [
+    path.join(process.cwd(), "cache"),
+    path.join(__dirname, "..", "..", "cache"),
+    path.join(__dirname, "..", "..", "..", "cache"),
+  ];
+  if ((process as any).resourcesPath) {
+    candidateDirs.unshift(path.join((process as any).resourcesPath, "cache"));
+  }
+  for (const dir of candidateDirs) {
+    const filePath = path.join(dir, "custom_covers.json");
+    if (fs.existsSync(filePath)) {
+      try {
+        const raw = fs.readFileSync(filePath, "utf8");
+        const parsed = JSON.parse(raw);
+        for (const [k, v] of Object.entries(parsed)) {
+          if (!CUSTOM_COVER_URLS[k] && typeof v === "string") {
+            CUSTOM_COVER_URLS[k] = v;
+          }
+        }
+        break;
+      } catch {}
+    }
+  }
+}
+loadCustomCovers();
+
 export async function fetchCustomCover(gameName: string): Promise<Buffer | null> {
+  loadCustomCovers();
   const norm = normalizeTitleKey(gameName);
   const url = CUSTOM_COVER_URLS[norm] || CUSTOM_COVER_URLS[gameName.trim().toLowerCase()];
   if (!url) return null;

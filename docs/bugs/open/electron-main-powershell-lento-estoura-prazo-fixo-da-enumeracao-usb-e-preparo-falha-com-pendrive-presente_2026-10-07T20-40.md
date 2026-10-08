@@ -296,3 +296,25 @@ melhoria: espaçar a revalidação completa quando a enumeração é lenta, mant
 a cada chamada. Não implementado.
 
 Não coberto: o caminho com "Formatar antes" (`waitForFormattedDevice`), que pede administrador.
+
+## Evidência de campo: o host `DESKTOP-1HAMO38` é o cliente do chamado #157 (triagem de 2026-10-07)
+
+Os reports `9528` e `9530` desta tabela (e `9535`/`9541`, abertos depois) vêm do notebook do
+cliente do **chamado #157** (sessão `255490944716923@lid`, Xbox 360 bloqueado, 2.12.107).
+A ligação foi feita pelo horário: o app sobe às 19:26:56 UTC e o cliente escreve "Tá carregando"
+às 19:24 e manda o print da tela de instalação às 19:28. Depois, o PES 2015 entra na fila às
+21:09:16 no log e o cliente escreve "adicionei a fila" às 21:09:51.
+
+- [134253] 19:32:08: print do cliente com *"o Windows está reconhecendo um pendrive ou HD ... aguardar
+  ou reconectar"* abaixo de **"Preparar pendrive/HD"**. É, muito provavelmente, a foto que abriu este doc.
+- [134261] 19:34:56: depois de tentar de novo, aparece o UAC do PowerShell, ou seja, o preparo andou.
+  [134271] 19:53:03: *"o notebook tá esquentando muito, e acabou desligando"*, no meio do preparo.
+- `9541`, pid 4108: `recibo do preparo gravado: modo bloqueado-lt, pacote 1.1-autostart-aurora-freestyle-dashlaunch-xexmenu`
+  às **20:55:44**, ainda na 2.12.107. [134386] 21:02:58: *"Pronto, o Xbox reconheceu o aurora"*.
+- Depois disso, entre 21:13 e 22:01, a mesma máquina continua com `enumeracao nativa excedeu o tempo`,
+  `recuperacao por enumeracao nativa falhou` e `mantendo a ultima lista confiavel` durante um download
+  de 46 min para `D:\`.
+
+Para a pendência do "não coberto" acima: o agente orientou **"Formatar antes" marcado**
+([134254]/[134256]), mas o log não registra se a caixa estava marcada nem se a formatação rodou.
+Não use este caso como prova do caminho `waitForFormattedDevice`.

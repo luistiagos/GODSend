@@ -30,14 +30,14 @@ type Deps struct {
 
 // jsonError writes a JSON error response.
 func jsonError(w stdhttp.ResponseWriter, code int, message string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"state": "Error", "message": message})
 }
 
 // jsonSuccess writes a JSON success response.
 func jsonSuccess(w stdhttp.ResponseWriter, data map[string]string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(data)
 }
 

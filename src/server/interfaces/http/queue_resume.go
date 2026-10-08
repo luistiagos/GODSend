@@ -44,12 +44,18 @@ func (d *Deps) relaunchGame(game, platformHint, priorityParam, logTag string) st
 	}
 
 	if hasConn && conn.Mode == "local" && conn.LocalRoot != "" {
-		// Verify against the ID this job was registered with, never adopt the
-		// device currently mounted there. On a mismatch the old ID is kept and
-		// the pipeline's own device guard waits for the right one.
 		if id, err := pipelineService.VerifyLocalDevice(conn.LocalRoot, conn.LocalDeviceID); err == nil {
 			conn.LocalDeviceID = id
 			d.App.XboxConnections.Store(game, conn)
+		} else if logTag == "RETRY" {
+			// On explicit user retry, adopt the device currently mounted at LocalRoot
+			if newID, prepErr := pipelineService.PrepareLocalDevice(conn.LocalRoot); prepErr == nil {
+				conn.LocalDeviceID = newID
+				d.App.XboxConnections.Store(game, conn)
+				d.App.Logf("RETRY: adotando novo identificador do dispositivo em %s para %q (id=%s)", conn.LocalRoot, game, newID)
+			} else {
+				d.App.Logf("%s: destino local de %q nao confere (%v) — aguardando o dispositivo correto", logTag, game, err)
+			}
 		} else {
 			d.App.Logf("%s: destino local de %q nao confere (%v) — aguardando o dispositivo correto", logTag, game, err)
 		}

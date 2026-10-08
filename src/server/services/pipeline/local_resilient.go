@@ -42,6 +42,7 @@ var (
 const localDeviceIdentityFile = ".xbox-downloader/xbox-companion-device-id"
 
 var localDevicePollInterval = 2 * time.Second
+var localDeviceWaitTimeout = 60 * time.Second
 
 type localCopyEntry struct {
 	sourcePath   string
@@ -259,7 +260,8 @@ func classifyLocalStorageFailure(connection *models.XboxConnection, phase string
 }
 
 func (s *Service) waitForLocalDevice(root, expectedID, gameName string) error {
-	s.App.Logf("LOCAL: dispositivo %s desconectado; aguardando reconexao", root)
+	s.App.Logf("LOCAL: dispositivo %s desconectado ou com identificador divergente; aguardando reconexao", root)
+	start := time.Now()
 	lastLog := time.Time{}
 	for {
 		if s.App.IsGameJobCancelled(gameName) {
@@ -270,8 +272,20 @@ func (s *Service) waitForLocalDevice(root, expectedID, gameName string) error {
 			s.App.LogStatus(gameName, "Processing", "Dispositivo reconectado. Retomando e verificando arquivos...")
 			return nil
 		}
-		if lastLog.IsZero() || time.Since(lastLog) >= 30*time.Second {
-			s.App.LogStatus(gameName, "Processing", "Pendrive/HD desconectado. Reconecte o mesmo dispositivo para retomar automaticamente...")
+		if localDeviceWaitTimeout > 0 && time.Since(start) >= localDeviceWaitTimeout {
+			st, err := os.Stat(root)
+			if err != nil || !st.IsDir() {
+				return fmt.Errorf("%w: tempo esgotado aguardando reconexao do dispositivo em %s", ErrLocalDelivery, root)
+			}
+			return fmt.Errorf("%w: o dispositivo montado em %s nao possui o identificador esperado (outro pendrive ou formatado)", ErrLocalDelivery, root)
+		}
+		if lastLog.IsZero() || time.Since(lastLog) >= 15*time.Second {
+			st, err := os.Stat(root)
+			if err != nil || !st.IsDir() {
+				s.App.LogStatus(gameName, "Processing", "Pendrive/HD desconectado. Reconecte o mesmo dispositivo para retomar automaticamente...")
+			} else {
+				s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Dispositivo em %s não corresponde ao esperado (outro pendrive ou formatado). Reconecte o original ou tente novamente.", root))
+			}
 			lastLog = time.Now()
 		}
 		time.Sleep(localDevicePollInterval)

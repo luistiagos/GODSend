@@ -164,6 +164,51 @@ func TestWaitForLocalDeviceIgnoresWrongReplacementAndResumesSameDevice(t *testin
 	}
 }
 
+func TestWaitForLocalDeviceTimesOutWhenDeviceNotReconnected(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "nonexistent-usb")
+	previousInterval := localDevicePollInterval
+	previousTimeout := localDeviceWaitTimeout
+	localDevicePollInterval = 5 * time.Millisecond
+	localDeviceWaitTimeout = 30 * time.Millisecond
+	defer func() {
+		localDevicePollInterval = previousInterval
+		localDeviceWaitTimeout = previousTimeout
+	}()
+
+	service := &Service{App: app.NewApp()}
+	err := service.waitForLocalDevice(root, "some-id", "Example")
+	if err == nil {
+		t.Fatal("esperava erro por tempo esgotado")
+	}
+	if !errors.Is(err, ErrLocalDelivery) {
+		t.Fatalf("esperava erro envolvido em ErrLocalDelivery, obteve: %v", err)
+	}
+}
+
+func TestWaitForLocalDeviceTimesOutWhenWrongDeviceConnected(t *testing.T) {
+	root := t.TempDir()
+	if _, err := PrepareLocalDevice(root); err != nil {
+		t.Fatal(err)
+	}
+	previousInterval := localDevicePollInterval
+	previousTimeout := localDeviceWaitTimeout
+	localDevicePollInterval = 5 * time.Millisecond
+	localDeviceWaitTimeout = 30 * time.Millisecond
+	defer func() {
+		localDevicePollInterval = previousInterval
+		localDeviceWaitTimeout = previousTimeout
+	}()
+
+	service := &Service{App: app.NewApp()}
+	err := service.waitForLocalDevice(root, "different-expected-id", "Example")
+	if err == nil {
+		t.Fatal("esperava erro por tempo esgotado com dispositivo divergente")
+	}
+	if !errors.Is(err, ErrLocalDelivery) {
+		t.Fatalf("esperava erro envolvido em ErrLocalDelivery, obteve: %v", err)
+	}
+}
+
 func TestLocalTorrentScratchIsPreservedUntilInstallReady(t *testing.T) {
 	a := app.NewApp()
 	a.TempDir = t.TempDir()
