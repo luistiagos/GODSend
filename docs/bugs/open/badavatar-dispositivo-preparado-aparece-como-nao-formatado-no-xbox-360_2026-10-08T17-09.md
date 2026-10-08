@@ -457,3 +457,25 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 
 Em cada um, conferir no log do formatador `Layout de chegada: GPT` → `Layout final: MBR, 1 particao, tipo 12`,
 e no Xbox a linha *"Dispositivo USB — N GB livres"*.
+
+## Passagem de bastão (2026-10-08, fim da sessão de T1/T2)
+
+- **Feito:** T1 `a6ac2df` (+ `5cb88f5`), T2 `5c08a61`, docs `3af68d6`/`667fc3c`. Árvore sem mudança minha
+  pendente. `main` está 7 commits à frente do `origin` (alguns de outras sessões); **push não feito**, é do dono.
+- **Decisões abertas para o dono:** (a) layout desconhecido passa (só log) — trocar para reprovar está em
+  `requireXboxReadableLayout`, no `if (layout.verdict === "unknown")`; (b) `Set-Partition -MbrType 12` incluído
+  antes de H2 ser decidida.
+- **Próximo passo exato, escolher um:**
+  1. **Teste em VHD (precisa de 1 UAC do dono):** script de teste que cria um VHD, converte para GPT, roda o
+     `buildGuardedWindowsFat32Script` gerado com o guarda de `BusType = USB` relaxado **só na cópia de teste**
+     e confere `Get-Disk` (MBR), `Get-Partition` (1, tipo 12) e a linha `Particao final`. Prova o caminho
+     recriado, a conferência, o `Set-Partition` e o `Update-Disk`.
+  2. **Hardware** (critério de fechamento): "Próximo passo para fechar T2", acima.
+  3. **T6** (docs): `AGENTS.md` seção `fat32Format.ts` — trocar "Acima de 32 GB o caminho principal formata a
+     partição existente…" e a frase dos "quatro caminhos de `diskpart`" pela invariante nova (GPT/2 partições →
+     `clean` + `convert mbr`; conferência no script; portão `xboxDiskLayoutPolicy.ts`); idem
+     `docs/CAPACIDADE-E-ESPACO.md`; registrar o portão na seção de `windowsUsbDeviceService.ts`
+     (`readWindowsUsbDiskLayout` nunca em polling).
+  4. **T4** depende do bug `electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria`; T3 e T5 seguem
+     como na seção "Correção planejada".
+- **Prova de que nada regrediu:** `cd src/electron-app && npx tsc && node --test tests/unit/*.test.cjs` → 277/277.
