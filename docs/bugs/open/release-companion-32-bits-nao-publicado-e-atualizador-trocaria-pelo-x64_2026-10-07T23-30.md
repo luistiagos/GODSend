@@ -72,3 +72,40 @@ launcher mostrou *"requer windows 64bits"*. O agente de suporte não tinha link 
 | T2 | `build-and-upload.ps1` publica ia32 e mescla o `version.json` | pendente |
 | T3 | build ia32 + prova de abertura e preparo | pendente |
 | T4 | publicação (com o dono) e link para o guia do agente | pendente |
+
+## Passagem de bastão (2026-10-07 ~23:00, a pedido do dono)
+
+A tabela de Tarefas acima está desatualizada. Estado conferido no git:
+
+| # | estado real | prova |
+|---|---|---|
+| T1 | **feito**: `selectManifestBuild` + testes em `tests/unit/autoUpdate.test.cjs` | commit `2743a2b` |
+| T2 | **feito**: `build-and-upload.ps1 -Arch x64\|ia32\|all` (padrão `all`), R2 `XBOX360Companion/xboxcompanion32.exe` + raiz, HF `xbox-360-companion-Portable-<v>-ia32.exe`, `version.json` mesclado com bloco `ia32` | commit `be4dd5c` |
+| T3 | **pendente**: nenhum portátil ia32 gerado (`dist/` só tem o backend `godsend-windows-ia32.exe`, de 12:35) | `ls dist \| grep ia32` |
+| T4 | **pendente**: nada publicado (`https://versions.digitalstoregames.com/xboxcompanion32.exe` → 404) | `curl -r 0-0 -w "%{http_code}"` |
+
+Situação do repo: `main` está **7 commits à frente de `origin/main`**, sem push. Isso inclui a
+2.12.108 (correção da enumeração USB em PC lento) e os dois commits acima. `package.json` está
+em **2.12.108**; o item 4 da Correção planejada pede bump para **2.12.109**, `CHANGELOG.md` e a
+linha ia32 no `readme.md`.
+
+**Autorização:** o dono deu OK em 2026-10-07 para alterar o script e **gerar e publicar** a versão
+com o 32 bits ("tem ok", na sessão retrobatnew-1b). A sessão anterior (retrobatnew-5f) pediu a
+confirmação na própria sessão. **Confirme com o dono antes do upload**, porque o upload publica
+também a 2.12.108/109 x64 para todos os clientes.
+
+**Próximos passos, nesta ordem:**
+
+1. Bump para 2.12.109 + `CHANGELOG.md` + `readme.md` (linha ia32), um commit.
+2. `.\build-and-upload.ps1 -Arch all -DryRun` e conferir no `version.json` que o bloco `ia32`
+   aponta para `xboxcompanion32.exe` e que os campos de topo continuam x64.
+3. Gerar o ia32 (`-SkipUpload`, se o script tiver; senão
+   `npm run build:electron:win:portable:ia32`) e fazer a **T3**: abrir o portátil ia32 neste PC
+   (x64/WOW64) e passar pela tela de preparo. Registrar aqui o limite de não haver Windows 32 bits
+   nativo para teste.
+4. Com o OK do dono: push + `.\build-and-upload.ps1 -Arch all`. Conferir que
+   `https://versions.digitalstoregames.com/xboxcompanion32.exe` dá 200 e que o `.sha256` confere.
+5. **T4, lado do agente:** pôr a URL final no doc
+   `digitalstoregamesproject/docs/modules/chatbot-whatsapp/areas/prompt-kb/bugs/2026-10-07-agente-xbox-diz-que-companion-nao-roda-em-windows-32-bits-e-existe-versao-32.md`.
+   A mudança no guia `xbox360_companion.md` está sob a moratória de prompts (exige caso de eval
+   e OK do dono).
