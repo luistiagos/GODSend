@@ -24,6 +24,23 @@ export interface FormatProgress {
 
 export type FormatProgressCallback = (p: FormatProgress) => void;
 
+export interface FormatVolumeResult {
+  /** Windows only: size of the partition the elevated script handed back after its layout check. */
+  partitionBytes?: number;
+}
+
+/**
+ * Size of the partition the elevated script handed back, from the "Particao final: <bytes> bytes"
+ * line it logs after checking the layout. Recreating the partition table changes that size (GPT
+ * to MBR, the 2 TiB MBR ceiling, a second partition absorbed), so it, and not the size measured
+ * before formatting, is what the device coming back has to match.
+ */
+export function readFormattedPartitionBytes(log: string): number | undefined {
+  const matches = [...String(log || "").matchAll(/^\uFEFF?Particao final: (\d+) bytes\s*$/gm)];
+  const bytes = matches.length > 0 ? Number(matches[matches.length - 1][1]) : NaN;
+  return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : undefined;
+}
+
 export interface WindowsFormatGuard {
   expectedVolumeGuid: string;
   expectedVolumeBytes: number;
@@ -62,6 +79,7 @@ $expectedVolumeGuid = '${escapedExpectedVolumeGuid}'
 $expectedVolumeBytes = [int64]${expectedVolumeBytes}
 $targetLabel = '${escapedLabel}'
 $limit32GB = [int64]34359738368
+$mbrMaxBytes = [int64]2199023255552
 $exePath = '${escapedExe}'
 $script:lastFat32Error = ''
 $script:cfaAllowlistAdded = $false
@@ -100,6 +118,25 @@ function Invoke-DiskpartScript([string[]]$commands) {
   } finally {
     Remove-Item -Path $dpScript -Force -ErrorAction SilentlyContinue
   }
+}
+
+# O Xbox 360 so le FAT32 em disco MBR com particao unica: em GPT, ou com uma segunda particao
+# mesmo sem letra, o console lista o dispositivo como "Nao Formatado". Format-Volume, fat32format
+# e format.com trabalham na particao existente e preservam a tabela que chegou; so o diskpart
+# clean + convert mbr a refaz. Ate a 2.12.63 o clean rodava em todo preparo, por efeito
+# colateral; da 2.12.64 em diante so como ultimo recurso, e um disco GPT saia do preparo GPT.
+function Get-XboxLayoutProblem($disk, $partitions) {
+  $style = [string]$disk.PartitionStyle
+  if ($style -ne 'MBR') { return "disco $style, nao MBR" }
+  $count = if ($null -eq $partitions) { 0 } else { @($partitions).Count }
+  if ($count -ne 1) { return "$count particoes no disco" }
+  return ''
+}
+
+function Get-Fat32MbrTypeProblem($partition) {
+  $type = [int]$partition.MbrType
+  if ($type -ne 11 -and $type -ne 12) { return "particao com tipo $type, nao FAT32 (11 ou 12)" }
+  return ''
 }
 
 # Acesso controlado a pastas (protecao contra ransomware do Defender): 0 desligado,
@@ -232,9 +269,8 @@ try {
   $partition = Get-Partition -DriveLetter '${letter}' -ErrorAction Stop
   $diskNo = [int]$partition.DiskNumber
   $disk = Get-Disk -Number $diskNo -ErrorAction Stop
-  $mountedCount = @(
-    Get-Partition -DiskNumber $diskNo -ErrorAction Stop | Where-Object { $_.DriveLetter }
-  ).Count
+  $arrivalPartitions = @(Get-Partition -DiskNumber $diskNo -ErrorAction Stop)
+  $mountedCount = @($arrivalPartitions | Where-Object { $_.DriveLetter }).Count
   if ($diskNo -eq 0 -or $disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem) {
     throw "O destino não é um disco USB externo seguro (disco=$diskNo, barramento=$($disk.BusType))."
   }
@@ -247,42 +283,56 @@ try {
   }
   "Volume GUID validado: $currentVolumeGuid" | Out-File -FilePath $log -Append -Encoding utf8
   "Disco USB validado: $diskNo ($($disk.FriendlyName))" | Out-File -FilePath $log -Append -Encoding utf8
+  "Layout de chegada: $($disk.PartitionStyle), $($arrivalPartitions.Count) particao(oes), tipo $($partition.MbrType), setor $($disk.LogicalSectorSize)" | Out-File -FilePath $log -Append -Encoding utf8
+  $arrivalProblem = Get-XboxLayoutProblem $disk $arrivalPartitions
+  $needsNewTable = [bool]$arrivalProblem
+  if ($needsNewTable) {
+    "O Xbox 360 nao le este layout ($arrivalProblem); a tabela de particoes sera recriada em MBR com particao unica." | Out-File -FilePath $log -Append -Encoding utf8
+  }
+  # Com a tabela recriada, a particao nova ocupa o disco inteiro (ate o teto de 2 TiB do MBR), e e
+  # esse tamanho que escolhe o formatador: o format fs=fat32 do diskpart recusa volume acima de
+  # 32 GB, e o recurso seguinte dele (NTFS + fat32format) e o acesso negado descrito mais abaixo.
+  $targetBytes = if ($needsNewTable) { [Math]::Min([double]$disk.Size, [double]$mbrMaxBytes) } else { [double]$partition.Size }
 
   Unblock-Fat32RawWrite $exePath
 
   $success = $false
 
-  if ($partition.Size -le $limit32GB) {
-    "Formatando unidade (<= 32 GB) diretamente..." | Out-File -FilePath $log -Append -Encoding utf8
-    try {
-      Close-ExplorerWindows '${letter}'
-      Format-Volume -DriveLetter '${letter}' -FileSystem FAT32 -NewFileSystemLabel $targetLabel -Force -Confirm:$false -ErrorAction Stop | Out-Null
-      $success = $true
-      "Format-Volume FAT32 realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
-    } catch {
-      "Format-Volume direto falhou ($($_.Exception.Message)). Tentando fat32format.exe ou format.com..." | Out-File -FilePath $log -Append -Encoding utf8
-    }
-
-    if (-not $success -and $exePath -and (Test-Path $exePath)) {
-      if (Invoke-Fat32FormatTool '${letter}' $exePath) {
-        $success = $true
-        "fat32format.exe realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
-      }
-    }
-
-    if (-not $success) {
+  if ($targetBytes -le $limit32GB) {
+    # Os tres formatadores deste bloco preservam a tabela que chegou; com $needsNewTable so o
+    # diskpart clean + convert mbr, logo abaixo, entrega o que o console le.
+    if (-not $needsNewTable) {
+      "Formatando unidade (<= 32 GB) diretamente..." | Out-File -FilePath $log -Append -Encoding utf8
       try {
         Close-ExplorerWindows '${letter}'
-        $fmtExe = Join-Path $env:SystemRoot 'System32\format.com'
-        $fmtOut = "Y" | & $fmtExe '${letter}:' /FS:FAT32 "/V:$targetLabel" /Q /X /Y 2>&1
-        $fmtCode = $LASTEXITCODE
-        ($fmtOut | Out-String).Trim() | Out-File -FilePath $log -Append -Encoding utf8
-        if ($fmtCode -eq 0) {
-          $success = $true
-          "format.com /FS:FAT32 realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
-        }
+        Format-Volume -DriveLetter '${letter}' -FileSystem FAT32 -NewFileSystemLabel $targetLabel -Force -Confirm:$false -ErrorAction Stop | Out-Null
+        $success = $true
+        "Format-Volume FAT32 realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
       } catch {
-        "format.com direto falhou ($($_.Exception.Message))." | Out-File -FilePath $log -Append -Encoding utf8
+        "Format-Volume direto falhou ($($_.Exception.Message)). Tentando fat32format.exe ou format.com..." | Out-File -FilePath $log -Append -Encoding utf8
+      }
+
+      if (-not $success -and $exePath -and (Test-Path $exePath)) {
+        if (Invoke-Fat32FormatTool '${letter}' $exePath) {
+          $success = $true
+          "fat32format.exe realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
+        }
+      }
+
+      if (-not $success) {
+        try {
+          Close-ExplorerWindows '${letter}'
+          $fmtExe = Join-Path $env:SystemRoot 'System32\format.com'
+          $fmtOut = "Y" | & $fmtExe '${letter}:' /FS:FAT32 "/V:$targetLabel" /Q /X /Y 2>&1
+          $fmtCode = $LASTEXITCODE
+          ($fmtOut | Out-String).Trim() | Out-File -FilePath $log -Append -Encoding utf8
+          if ($fmtCode -eq 0) {
+            $success = $true
+            "format.com /FS:FAT32 realizado com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
+          }
+        } catch {
+          "format.com direto falhou ($($_.Exception.Message))." | Out-File -FilePath $log -Append -Encoding utf8
+        }
       }
     }
 
@@ -370,8 +420,9 @@ try {
     )
 
     $vol = Get-Volume -DriveLetter '${letter}' -ErrorAction SilentlyContinue
-    if (-not $vol) {
-      "Volume não encontrado; inicializando particao limpa via diskpart..." | Out-File -FilePath $log -Append -Encoding utf8
+    if ($needsNewTable -or -not $vol) {
+      $recreateReason = if ($needsNewTable) { 'Recriando a tabela de particoes (MBR, particao unica) via diskpart...' } else { 'Volume não encontrado; inicializando particao limpa via diskpart...' }
+      $recreateReason | Out-File -FilePath $log -Append -Encoding utf8
       Close-ExplorerWindows '${letter}'
       & $mountvol '${letter}:\' '/D' 2>$null
       $dpOk = Invoke-DiskpartScript $rawPartitionCmds
@@ -434,6 +485,33 @@ try {
   if ($verifyVol -and $targetLabel -and ($verifyVol.FileSystemLabel -ne $targetLabel)) {
     Set-Volume -DriveLetter '${letter}' -NewFileSystemLabel $targetLabel -ErrorAction SilentlyContinue
   }
+
+  # FAT32 certo nao basta: o console le o disco pela tabela de particoes. O portao do preparo
+  # (xboxDiskLayoutPolicy.ts) repete esta regra no app; aqui ela roda no processo que acabou de
+  # mexer no disco. Update-Disk refresca o cache do Storage Management, que pode nao ter visto o
+  # diskpart.
+  Update-Disk -Number $diskNo -ErrorAction SilentlyContinue
+  $finalDisk = Get-Disk -Number $diskNo -ErrorAction Stop
+  $finalPartitions = @(Get-Partition -DiskNumber $diskNo -ErrorAction Stop)
+  $finalProblem = Get-XboxLayoutProblem $finalDisk $finalPartitions
+  if ($finalProblem) {
+    throw "A formatacao terminou, mas o Xbox 360 nao vai ler o disco: $finalProblem."
+  }
+  $finalPartition = $finalPartitions[0]
+  if (Get-Fat32MbrTypeProblem $finalPartition) {
+    # Formatar a particao existente pode manter o byte de tipo anterior (hipotese H2 do bug
+    # "Nao Formatado"). Sem esta correcao, esses dispositivos nunca passariam da conferencia.
+    "Particao marcada com tipo $($finalPartition.MbrType), nao FAT32; corrigindo para 12 (FAT32 LBA)..." | Out-File -FilePath $log -Append -Encoding utf8
+    Set-Partition -DiskNumber $diskNo -PartitionNumber $finalPartition.PartitionNumber -MbrType 12 -ErrorAction Stop
+    $finalPartition = Get-Partition -DiskNumber $diskNo -PartitionNumber $finalPartition.PartitionNumber -ErrorAction Stop
+    $typeProblem = Get-Fat32MbrTypeProblem $finalPartition
+    if ($typeProblem) {
+      throw "A formatacao terminou, mas o Xbox 360 nao vai ler o disco: $typeProblem."
+    }
+  }
+  "Layout final: MBR, 1 particao, tipo $($finalPartition.MbrType)." | Out-File -FilePath $log -Append -Encoding utf8
+  # Lida por readFormattedPartitionBytes(): recriar a tabela muda o tamanho que o app confere.
+  "Particao final: $([int64]$finalPartition.Size) bytes" | Out-File -FilePath $log -Append -Encoding utf8
   "Formatação FAT32 concluída com sucesso." | Out-File -FilePath $log -Append -Encoding utf8
 } catch {
   ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8
@@ -550,13 +628,14 @@ async function formatWindowsFat32(
   label: string,
   onProgress: FormatProgressCallback,
   guard?: WindowsFormatGuard,
-): Promise<void> {
+): Promise<FormatVolumeResult> {
   const letter = driveLetterFromRoot(driveRoot);
   const { expectedVolumeGuid, expectedVolumeBytes } = validateWindowsFormatGuard(guard);
   const exe = resolveFat32FormatExe();
   const ts = Date.now();
   const ps1Path = path.join(os.tmpdir(), `godsend_fat32_${ts}.ps1`);
   const logPath = `${ps1Path}.log`;
+  let partitionBytes: number | undefined;
 
   onProgress({ status: "Preparando dispositivo…", percent: 4 });
 
@@ -590,6 +669,7 @@ async function formatWindowsFat32(
         detail || "A formatação falhou. Feche outros programas usando o dispositivo e tente novamente.",
       );
     }
+    partitionBytes = readFormattedPartitionBytes(readLogTail(logPath, Number.POSITIVE_INFINITY));
   } finally {
     for (const p of [ps1Path, logPath]) {
       try { fs.unlinkSync(p); } catch { /* best-effort cleanup */ }
@@ -616,6 +696,7 @@ async function formatWindowsFat32(
     "-Command",
     closeScript,
   ]);
+  return { partitionBytes };
 }
 
 async function macPartitionDevice(mountPoint: string): Promise<string> {
@@ -728,20 +809,19 @@ export async function formatVolumeFat32(
   onProgress: FormatProgressCallback,
   label = "BADAVATAR",
   windowsGuard?: WindowsFormatGuard,
-): Promise<void> {
+): Promise<FormatVolumeResult> {
   onProgress({ status: "Formatting drive to FAT32…", percent: 3 });
 
   if (process.platform === "win32") {
-    await formatWindowsFat32(driveRoot, label, onProgress, windowsGuard);
-    return;
+    return formatWindowsFat32(driveRoot, label, onProgress, windowsGuard);
   }
   if (process.platform === "darwin") {
     await formatDarwinFat32(driveRoot, label, onProgress);
-    return;
+    return {};
   }
   if (process.platform === "linux") {
     await formatLinuxFat32(driveRoot, label, onProgress);
-    return;
+    return {};
   }
 
   throw new Error(`FAT32 formatting is not supported on ${process.platform}.`);

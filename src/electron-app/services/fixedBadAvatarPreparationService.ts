@@ -516,13 +516,15 @@ export async function prepareFixedBadAvatarDevice(
 
   if (request.formatDrive) {
     const expectedVolumeBytes = device.partitionSizeBytes || device.sizeBytes;
-    await formatVolumeFat32(request.driveRoot, (progress) => {
+    const formatted = await formatVolumeFat32(request.driveRoot, (progress) => {
       onProgress({ status: progress.status, percent: Math.min(12, progress.percent) });
     }, "BADAVATAR", {
       expectedVolumeGuid: device.volumeGuid,
       expectedVolumeBytes,
     });
-    device = await waitForFormattedDevice(request.driveRoot, expectedVolumeBytes);
+    // Quando o formatador recria a tabela (GPT, segunda partição), a partição muda de tamanho;
+    // o script elevado informa qual ficou, e é contra ela que o dispositivo que volta é conferido.
+    device = await waitForFormattedDevice(request.driveRoot, formatted.partitionBytes ?? expectedVolumeBytes);
   }
 
   const effectiveDeviceFingerprint = device.fingerprint;
