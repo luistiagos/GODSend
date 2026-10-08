@@ -68,10 +68,10 @@ launcher mostrou *"requer windows 64bits"*. O agente de suporte não tinha link 
 
 | # | tarefa | estado |
 |---|---|---|
-| T1 | atualizador ciente da arquitetura + testes | pendente |
-| T2 | `build-and-upload.ps1` publica ia32 e mescla o `version.json` | pendente |
-| T3 | build ia32 + prova de abertura e preparo | pendente |
-| T4 | publicação (com o dono) e link para o guia do agente | pendente |
+| T1 | atualizador ciente da arquitetura + testes | feito (`2743a2b`) |
+| T2 | `build-and-upload.ps1` publica ia32 e mescla o `version.json` | feito (`be4dd5c`) |
+| T3 | build ia32 + prova de abertura e preparo | feito com limites (ver "Execução da T3"); versão 2.12.109 em `d4cce82` |
+| T4 | publicação (com o dono) e link para o guia do agente | pendente: aguarda OK do dono para o upload |
 
 ## Passagem de bastão (2026-10-07 ~23:00, a pedido do dono)
 
@@ -109,3 +109,34 @@ também a 2.12.108/109 x64 para todos os clientes.
    `digitalstoregamesproject/docs/modules/chatbot-whatsapp/areas/prompt-kb/bugs/2026-10-07-agente-xbox-diz-que-companion-nao-roda-em-windows-32-bits-e-existe-versao-32.md`.
    A mudança no guia `xbox360_companion.md` está sob a moratória de prompts (exige caso de eval
    e OK do dono).
+
+## Execução da T3 (2026-10-07 22:50–23:00, sessão que fez T1/T2)
+
+Passos 1–3 da passagem de bastão acima estão feitos.
+
+- **Build a partir do commit, não da árvore:** worktree limpa em `d4cce82` (`C:\cc32wt`), para
+  que mudanças sem commit de outras sessões não entrem num binário publicado.
+  `npm run build:server` + `npm run build:electron:win:portable:ia32` →
+  `dist/xbox-360-companion-Portable-2.12.109-ia32.exe`, **511.227.349 bytes**.
+- **Armadilha encontrada:** `src/electron-app/assets/badavatar-1.1/` (726 MB, o pacote do preparo)
+  está no `.gitignore`. Sem copiá-lo para a worktree o portátil sai com 151 MB e **sem o pacote do
+  preparo**. Quem gerar o ia32 fora da árvore principal precisa copiar essa pasta.
+- **Achado fora do escopo:** `npm run build:server:win:ia32` (só 386) falha no `verify` exigindo o
+  `godsend.exe` x64. O `build-and-upload.ps1` usa `build:server` (todas), então não bloqueia.
+- **Arquitetura dos binários** (PE machine `0x14c`): `Xbox360Companion.exe`, `godsend-backend.exe`,
+  `aria2c.exe`, `fat32format.exe`, `elevate.exe` do `win-ia32-unpacked`.
+- **Abertura real** (este PC é x64; o ia32 roda em WOW64): launcher → `Xbox360Companion.exe` →
+  `godsend-backend.exe` próprio (filho do app, escutando em 127.0.0.1:8080 com conexões do app);
+  janela "Xbox 360 Companion" aberta. Log do app: `arch: ia32` e
+  `APP_UPDATE Check result: no ia32 build in the manifest (latest x64=2.12.107)` — **o app real
+  recusou o x64** do `version.json` publicado (prova da T1 fora do teste unitário).
+- **USB:** `enumeracao nativa encontrou 1 unidade(s): E:\` e `lista enviada à interface: ... E:\:permitida`
+  a cada 5 s. O preparo em si **não foi executado** (formata a mídia; `E:` não é mídia de teste).
+- **Limite medido — diagnóstico de integridade estoura no 32 bits:** a sondagem best-effort
+  (`windowsUsbDeviceService.ts::annotateRemovableHealth`, prazo fixo `HEALTH_PROBE_TIMEOUT_MS` = 3 s)
+  excedeu o prazo 2 de 2 vezes no ia32. Mesmo `Get-Volume -DriveLetter E`, 3 execuções:
+  PowerShell 64 bits 2352/2028/1878 ms; **PowerShell 32 bits (SysWOW64) 5064/3690/4086 ms**.
+  Efeito: a unidade aparece sem a dica "precisa de reparo" (fica Healthy/OK neutro); a lista e a
+  permissão não mudam. Candidato a bug próprio: usar o prazo adaptativo da 2.12.108 também aqui.
+- **Não provado:** Windows 32 bits nativo (não há máquina/VM aqui) e preparo completo de pendrive
+  no ia32.
