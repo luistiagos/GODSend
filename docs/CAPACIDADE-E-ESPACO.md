@@ -55,11 +55,21 @@ permite). Isso é deliberado: o Xbox 360 lê FAT32 em MBR. Trocar para GPT devol
 capacidade no Windows e tornaria o disco ilegível no console — **não é uma otimização
 pendente, é um requisito do alvo**.
 
-Acima de 32 GB ([`fat32Format.ts:145`](../src/electron-app/infrastructure/fat32Format.ts#L145))
-o caminho principal **não reparticiona**: roda o `fat32format.exe` na partição existente.
-O `diskpart` só entra quando o volume não existe ou quando o `fat32format` falha — que é
-justamente o que acontece com um HD de 4 TB que chega com partição GPT de 3,64 TiB, e é
-por esse caminho que ele termina em 2 TiB.
+Antes de escolher o formatador, o script elevado olha a tabela que chegou
+(`Get-XboxLayoutProblem` em
+[`fat32Format.ts`](../src/electron-app/infrastructure/fat32Format.ts)). Disco GPT, ou com
+contagem de partições diferente de 1, **sempre** passa por `clean` + `convert mbr`, e o ramo
+(≤ 32 GB ou > 32 GB) é escolhido pelo tamanho que a partição nova vai ter: o do disco,
+limitado a 2 TiB. É por esse caminho que um HD de 4 TB que chega com partição GPT de
+3,64 TiB termina em 2 TiB. Só um disco que já é MBR com partição única é formatado no
+lugar (acima de 32 GB, `fat32format.exe` na partição existente) e mantém o tamanho que
+tinha.
+
+No fim, o script confere o disco (MBR, 1 partição, tipo FAT32 11/12) e grava
+`Particao final: <bytes> bytes`; o preparo usa esse número, e não o tamanho de antes, para
+reconhecer o volume formatado. O app repete a regra em
+[`xboxDiskLayoutPolicy.ts`](../src/electron-app/infrastructure/xboxDiskLayoutPolicy.ts) antes
+de declarar o dispositivo pronto.
 
 Consequência prática para recomendação de compra: **2 TB é o teto útil por disco**.
 Comprar 4 TB para Xbox 360 é pagar o dobro por metade aproveitável; para mais que isso,
