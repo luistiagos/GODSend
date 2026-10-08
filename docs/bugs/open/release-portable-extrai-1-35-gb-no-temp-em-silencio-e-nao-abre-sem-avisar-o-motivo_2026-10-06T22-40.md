@@ -360,4 +360,39 @@ Próximo passo exato, em ordem, cada um depende de decisão do dono:
   passar de ~136 caracteres. Não é regressão e não bloqueia a release. Se aparecer
   `extracao-incompleta` no painel com o TEMP longo, a correção é extrair num caminho mais curto
   ou com prefixo `\\?\`.
-- **Próximo:** passos 4 (agente de suporte, fora deste repo) e 5 (fechar o bug).
+- Push do registro acima: `6a0616f..a1af13d`.
+
+### Passagem de bastão — passo 4 (agente de suporte), decidido pelo dono em 2026-10-07
+
+O dono pediu que o passo 4 seja feito **em outra sessão**. Repositório:
+`C:\projects\digitalstoregamesproject`; achar lá onde mora o conhecimento do agente de suporte
+sobre o Xbox 360 Companion (portátil) e acrescentar, para a 2.12.107 em diante:
+
+- Ao abrir o `xboxcompanion.exe`, aparece logo uma janela "Xbox 360 Companion 2.12.107" com
+  barra de progresso ("Abrindo o Xbox 360 Companion: x% (… / 1289 MB)" e depois "Iniciando…"),
+  que some quando o app aparece (~10 s). Antes da 2.12.107 não aparecia nada nesse intervalo.
+- O programa precisa de **~1,9 GB livres no disco C:** (pasta temporária do Windows) a cada
+  abertura, mesmo com o `.exe` salvo em outro disco. Com o app aberto ficam ~1,3 GB ocupados;
+  ao fechar, o espaço volta.
+- As três mensagens do launcher (texto exato em `src/electron-app/build/portable.nsi`) e a
+  orientação para cada uma:
+  1. "Não há espaço livre suficiente no disco C:…" (mostra o espaço livre, o necessário e quanto
+     liberar) → liberar espaço no C: (Lixeira, Limpeza de Disco) e abrir de novo.
+  2. "Não foi possível preparar os arquivos…" → baixar de novo, liberar espaço, liberar o
+     programa no antivírus.
+  3. "Os arquivos… foram preparados, mas o Windows não conseguiu iniciar o programa" → liberar
+     no antivírus; se continuar, baixar de novo.
+- Cada falha grava `<pasta do .exe>\godsend-data\launcher-failures.log`, enviado ao painel na
+  abertura seguinte (`xbox-360-companion/portable-launcher`). Se o cliente diz que "não abre e
+  não aparece nada" na 2.12.107, já não é o caso do chamado #148: perguntar se a janela de
+  progresso apareceu.
+
+Prova de que terminou: o agente responde certo a "baixei e não abre, não aparece nada" e a
+"apareceu que não há espaço no disco C:". Ao terminar, marcar o passo 4 como feito aqui.
+
+### Passo 5 — critério para fechar (confirmado pelo dono em 2026-10-07)
+
+Fechar (`git mv` para `docs/bugs/closed/`) só com **uma** destas provas: um cliente real
+confirma que a 2.12.107 abriu (ou que o aviso o fez liberar espaço e depois abriu), ou o painel
+mostra um evento `xbox-360-companion/portable-launcher` desse cliente seguido de abertura do app.
+Medição local não fecha o bug.
