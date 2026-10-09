@@ -85,14 +85,9 @@ function InstalledGameCard({ game, onOpenFolder, onDelete }: InstalledGameCardPr
     let active = true;
     const timeoutId = setTimeout(async () => {
       try {
-        // 1. Prefer Title ID if available (exact match), fallback to game name
-        let r: { ok: boolean; dataUrl?: string } | null = null;
-        if (game.titleId) {
-          r = await window.godsendApi.browseFetchCover(game.titleId);
-        }
-        if ((!r || !r.ok || !r.dataUrl) && game.name) {
-          r = await window.godsendApi.browseFetchCover(game.name);
-        }
+        // 1. A mod's own cover (by name) wins over its base game's TitleID; see browse:fetch-installed-cover
+        const r: { ok: boolean; dataUrl?: string } | null =
+          await window.godsendApi.browseFetchInstalledCover({ name: game.name, titleId: game.titleId });
         if (active) {
           setCover(r?.ok && r.dataUrl ? r.dataUrl : null);
         }

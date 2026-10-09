@@ -1,6 +1,7 @@
 /**
  * IPC handlers for the Browse view and download queue:
- *   browse:get-games, browse:queue-game, browse:get-disc-info, browse:fetch-cover
+ *   browse:get-games, browse:queue-game, browse:get-disc-info, browse:fetch-cover,
+ *   browse:fetch-installed-cover
  *   xbox:get-queue, xbox:remove-queue-item
  */
 
@@ -22,6 +23,7 @@ import {
   tryXboxCdnFromMicrosoftStoreSearch,
   fetchWikipediaCover,
   fetchCustomCover,
+  hasCustomCover,
   getCachedCoverFromDisk,
   saveCoverToDisk,
 } from "../services/coverArtService";
@@ -175,7 +177,7 @@ export function register(ipcMain: IpcMain): void {
   });
 
   // ── Fetch cover art for a game name (multi-source cascade, memory + disk cached) ──
-  ipcMain.handle("browse:fetch-cover", async (_event, gameName: string) => {
+  const fetchCover = async (gameName: string): Promise<{ ok: boolean; dataUrl?: string }> => {
     try {
       const base = baseTitleForCover(gameName);
 
@@ -251,6 +253,27 @@ export function register(ipcMain: IpcMain): void {
     } catch {
       return { ok: false };
     }
+  };
+
+  ipcMain.handle("browse:fetch-cover", (_event, gameName: string) => fetchCover(gameName));
+
+  // ── Cover for an installed game: the folder carries both a name and a TitleID ──
+  // A mod or translation runs with the base game's TitleID, so looking it up by TitleID shows
+  // the base game's cover (EA FC 26 Legacy Edition -> FIFA 17) while the catalog, which looks
+  // up by name, shows the mod's own cover. A name with a dedicated cover wins; otherwise the
+  // TitleID is the exact key and the name is the fallback.
+  ipcMain.handle("browse:fetch-installed-cover", async (_event, game: { name?: string; titleId?: string }) => {
+    const name = String(game?.name || "").trim();
+    const titleId = String(game?.titleId || "").trim();
+    if (name && hasCustomCover(name)) {
+      const custom = await fetchCover(name);
+      if (custom.ok && custom.dataUrl) return custom;
+    }
+    if (titleId) {
+      const byId = await fetchCover(titleId);
+      if (byId.ok && byId.dataUrl) return byId;
+    }
+    return name ? fetchCover(name) : { ok: false };
   });
 
   // ── Download queue ──────────────────────────────────────────────────────────

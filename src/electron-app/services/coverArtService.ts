@@ -158,10 +158,22 @@ export function loadCustomCovers(): void {
 }
 loadCustomCovers();
 
-export async function fetchCustomCover(gameName: string): Promise<Buffer | null> {
+function customCoverUrl(gameName: string): string | undefined {
   loadCustomCovers();
   const norm = normalizeTitleKey(gameName);
-  const url = CUSTOM_COVER_URLS[norm] || CUSTOM_COVER_URLS[gameName.trim().toLowerCase()];
+  return CUSTOM_COVER_URLS[norm] || CUSTOM_COVER_URLS[String(gameName || "").trim().toLowerCase()];
+}
+
+/**
+ * True when the name (or its bare base title) has a dedicated cover. Mods and translations run
+ * with the base game's TitleID, so a TitleID lookup would show the base game's cover instead.
+ */
+export function hasCustomCover(gameName: string): boolean {
+  return !!(customCoverUrl(gameName) || customCoverUrl(baseTitleForCover(String(gameName || ""))));
+}
+
+export async function fetchCustomCover(gameName: string): Promise<Buffer | null> {
+  const url = customCoverUrl(gameName);
   if (!url) return null;
   const buf = await fetchHttpImage(url);
   return buf && buf.length >= 100 ? buf : null;

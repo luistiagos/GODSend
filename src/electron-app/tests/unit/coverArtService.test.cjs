@@ -14,7 +14,16 @@ const {
   ensureTitleDatabaseLoaded,
   CUSTOM_COVER_URLS,
   getCachedCoverFromDisk,
+  hasCustomCover,
 } = require("../../services/coverArtService.js");
+
+test("coverArtService: hasCustomCover finds a mod's dedicated cover by name, never by its base TitleID", () => {
+  assert.equal(hasCustomCover("EA FC 26 Legacy Edition"), true);
+  assert.equal(hasCustomCover("EA FC 26 Legacy Edition (Xbox 360 RGH)"), true);
+  assert.equal(hasCustomCover("454109F4"), false);
+  assert.equal(hasCustomCover("Halo 3"), false);
+  assert.equal(hasCustomCover(""), false);
+});
 
 test("coverArtService: normalizeTitleKey handles typos, brackets, and roman numerals", () => {
   assert.equal(normalizeTitleKey("Grand Thief Auto 5"), "grand theft auto 5");

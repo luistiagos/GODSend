@@ -141,3 +141,67 @@ test("browse:get-games supplies nonempty diagnostics for message-less rejections
     assert.match(h.reports[0][5][0], /source=unified/);
   }
 });
+
+function createCoverHandlers({ custom = [], covers = {} } = {}) {
+  const handlers = new Map();
+  const lookups = [];
+  const mocks = {
+    "../services/settingsService": {},
+    "../infrastructure/backendHttp": {},
+    "../infrastructure/serverLog": { appendAppEvent: () => {} },
+    "../infrastructure/telemetry": { reportError: () => {} },
+    "../services/coverArtService": {
+      browseCoverCache: new Map(),
+      baseTitleForCover: (s) => s,
+      hasCustomCover: (name) => custom.includes(name),
+      // Every lookup key reaches the disk cache first; serving from it keeps the test offline.
+      getCachedCoverFromDisk: (key) => {
+        lookups.push(key);
+        return covers[key] || null;
+      },
+      fetchCustomCover: async () => null,
+      generateSearchCandidateEntries: () => [],
+      fetchXboxUnityCoverWithMeta: async () => null,
+      tryXboxCdnFromMicrosoftStoreSearch: async () => null,
+      fetchWikipediaCover: async () => null,
+      saveCoverToDisk: () => {},
+    },
+    "../services/localGameScannerService": {},
+    "../infrastructure/httpHelper": {},
+  };
+  const filename = path.resolve(__dirname, "../../ipc/browseHandlers.js");
+  const loaded = new Module(filename, module);
+  loaded.filename = filename;
+  loaded.paths = Module._nodeModulePaths(path.dirname(filename));
+  const realRequire = loaded.require.bind(loaded);
+  loaded.require = (id) => Object.hasOwn(mocks, id) ? mocks[id] : realRequire(id);
+  loaded._compile(fs.readFileSync(filename, "utf8"), filename);
+  loaded.exports.register({ handle: (name, handler) => handlers.set(name, handler) });
+  return { installedCover: (game) => handlers.get("browse:fetch-installed-cover")(null, game), lookups };
+}
+
+test("browse:fetch-installed-cover shows a mod's own cover instead of its base game's TitleID cover", async () => {
+  const h = createCoverHandlers({
+    custom: ["EA FC 26 Legacy Edition"],
+    covers: { "EA FC 26 Legacy Edition": "data:image/jpeg;base64,MOD", "454109F4": "data:image/jpeg;base64,FIFA17" },
+  });
+  const r = await h.installedCover({ name: "EA FC 26 Legacy Edition", titleId: "454109F4" });
+  assert.equal(r.dataUrl, "data:image/jpeg;base64,MOD");
+  assert.deepEqual(h.lookups, ["EA FC 26 Legacy Edition"]);
+});
+
+test("browse:fetch-installed-cover keeps the TitleID as the exact key for a game without a dedicated cover", async () => {
+  const h = createCoverHandlers({
+    covers: { "4D5307E6": "data:image/jpeg;base64,HALO3", "Halo 3": "data:image/jpeg;base64,BYNAME" },
+  });
+  const r = await h.installedCover({ name: "Halo 3", titleId: "4D5307E6" });
+  assert.equal(r.dataUrl, "data:image/jpeg;base64,HALO3");
+  assert.deepEqual(h.lookups, ["4D5307E6"]);
+});
+
+test("browse:fetch-installed-cover falls back to the name when the TitleID has no cover", async () => {
+  const h = createCoverHandlers({ covers: { "Homebrew X": "data:image/png;base64,HB" } });
+  const r = await h.installedCover({ name: "Homebrew X", titleId: "ABCDEF01" });
+  assert.equal(r.dataUrl, "data:image/png;base64,HB");
+  assert.deepEqual(h.lookups, ["ABCDEF01", "Homebrew X"]);
+});
