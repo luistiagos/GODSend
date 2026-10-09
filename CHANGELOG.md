@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [2.12.110] - 2026-10-09
 
 ### Fixed
+- **Jogo cuja gravação no pendrive falhou aparecia em "Jogos Instalados" e com selo "Baixado" na "Biblioteca Local" (`src/electron-app/services/localGameScannerService.ts`, `src/server/services/pipeline/local_resilient.go::copyTreeLocal`)**
+  - Caso: EA FC 26 Legacy Edition parou no meio da gravação (ver a entrada abaixo) e a pasta `E:\Games\EA FC 26 Legacy Edition - 454109F4`, sem `default.xex`, aparecia como jogo GOD de 3,81 GB pronto.
+  - Causa: o scanner aceitava a pasta só pelo TitleID do nome, que o instalador cria antes do primeiro arquivo; e a gravação não deixava no destino nada que dissesse que ficou pela metade.
+  - Correção: `copyTreeLocal` grava `.xbox-companion-installing` na pasta antes do primeiro arquivo e só apaga depois do último; `default.xex` e o cabeçalho GOD vão por último, para o console também não listar meio jogo. O scanner pula pasta marcada (inclusive `Content/<TID>/<tipo>`) a cada varredura e exige estrutura de jogo (`default.xex`, `godsend.ini`, pasta de tipo de conteúdo, subpasta de TitleID ou pacote STFS na raiz). A pasta parcial gravada por versão anterior, sem marca, também deixa de aparecer.
+  - Testes: `tests/unit/localGameScannerService.test.cjs` (3 casos novos, falham no código anterior), `TestCopyTreeLocalMarksFolderUntilLastFileAndWritesEntryPointsLast`, `TestCopyTreeLocalKeepsMarkerWhenCopyFails`.
+  - Relato e análise: [`docs/bugs/retest/pipeline-jogo-com-gravacao-interrompida-…`](docs/bugs/open/pipeline-jogo-com-gravacao-interrompida-aparece-como-instalado-e-baixado_2026-10-09T19-30.md).
 - **Jogo XEX com pasta de ~13 mil arquivos falhava no pendrive FAT32 com "rename … The directory or file cannot be created" (`src/server/services/pipeline/local_resilient.go::copyLocalEntry`)**
   - Caso: EA FC 26 Legacy Edition, pasta `data/sceneassets/faces` (13.147 arquivos), parava sempre no arquivo nº 12.572, e tentar de novo falhava no mesmo arquivo.
   - Causa: o temporário `<nome>.xbox-companion-part` ficava na pasta do jogo. O FAT do Windows prefere espaço nunca usado aos buracos, e o rename para o nome final pede outro número de entradas de 32 bytes; os buracos deixados não servem aos nomes seguintes, e a pasta chegava ao teto de 65.536 entradas do driver (`ERROR_CANNOT_MAKE`) com milhares desperdiçadas. Como nomes finais, a pasta precisa de 58.495.

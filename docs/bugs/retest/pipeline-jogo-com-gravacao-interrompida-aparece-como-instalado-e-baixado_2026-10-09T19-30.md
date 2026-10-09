@@ -1,10 +1,10 @@
 # Bug: jogo com gravação interrompida aparece em "Jogos Instalados" e na "Biblioteca Local" como se estivesse pronto
 
 - **Detectado em:** 2026-10-09, relato do dono com dois prints
-- **Origem:** a investigar (varredura de jogos instalados / biblioteca local x pipeline de gravação local)
+- **Origem:** `src/electron-app/services/localGameScannerService.ts::parseGameFolder` + `src/server/services/pipeline/local_resilient.go::copyTreeLocal`
 - **Errors (serviço):** N/A (local)
 - **Classe:** ux / fail
-- **Versões:** a conferir
+- **Versões:** observado na 2.12.110 em desenvolvimento (não publicada); corrigido na mesma 2.12.110
 - **Reincidência:** consequência do mesmo job de
   `pipeline-gravacao-local-fragmenta-pasta-fat32-ate-o-limite-de-65536-entradas-e-o-rename-falha_2026-10-09T12-00.md`
   (a falha de gravação em si é daquele doc; este trata só da exibição do jogo incompleto)
@@ -88,3 +88,33 @@ de job cancelado fica oculta e ocupa espaço até nova tentativa ou remoção ma
 |---|---|---|---|---|---|
 | T1 | scanner: pular pasta com marca de instalação e não aceitar pasta só pelo TitleID do nome (teste em `tests/unit/localGameScannerService.test.cjs`) | -- | -- | -- | -- |
 | T2 | copyTreeLocal: marca `.xbox-companion-installing` durante a gravação + pontos de entrada por último (teste Go em `local_resilient_test.go`) | -- | -- | -- | -- |
+
+## Correção aplicada
+
+Seguiu a correção planejada, sem desvio.
+
+- **T1** (`d27d796`, `localGameScannerService.ts`): `installInProgress()` pula a pasta com
+  `.xbox-companion-installing` em `scanGamesDirectory` e nas pastas da raiz do drive, e apaga a entrada dela do
+  cache; `scanContentDirectory` pula `<TID>` cuja pasta de tipo tem a marca. `parseGameFolder` só aceita pasta sem
+  estrutura (`godsend.ini`, `default.xex`, pasta de tipo, subpasta de TitleID) se houver pacote STFS de jogo **na
+  raiz** — sondado só ali (`probeStfsTitleId(fullPath, 4)`), porque resultado negativo não é cacheado e a árvore
+  parcial do EA FC tem 145 mil arquivos. A antiga "validação estrita" ficou redundante e saiu.
+- **T2** (`431ffe3`, `local_resilient.go`): `writeInstallInProgressMarker` antes do primeiro arquivo (depois das
+  checagens de espaço e limites), `os.Remove` da marca depois do `FlushVolumeBuffers` final; falha ao remover vira
+  `ErrLocalDelivery`. `orderEntryPointsLast` move `default.xex` da raiz e cada cabeçalho GOD (arquivo com irmão
+  `<nome>.data/`) para o fim, em ordenação estável.
+
+## Testes executados
+
+- `node --test tests/unit/localGameScannerService.test.cjs`: 20/20. Com o `.ts` do commit anterior compilado, os
+  3 novos falham (17 pass / 3 fail) — controle negativo. Suíte unitária inteira: 291/291.
+- `go test ./services/pipeline/ -run "Marker|CopyTreeLocal"`: ok. Controle negativo (chamadas de
+  `orderEntryPointsLast` e `writeInstallInProgressMarker` desligadas via `sed` numa cópia): os 2 testes novos
+  falham (marca ausente; ordem `[00007000/ABCDEF ... default.xex zzz.ini]`). `go test ./...` e `go vet`: verdes.
+- **Dados reais** (pendrive do dono, `E:` FAT32): `scanGamesDirectory("E:\Games")` + `scanContentDirectory` com o
+  JS compilado — código antigo: `Street Fighter II' HF` **e** `EA FC 26 Legacy Edition (god 454109F4)`; código
+  novo: só `Street Fighter II' HF`.
+
+Falta: ver as telas "Jogos Instalados" e "Biblioteca Local" com o app reiniciado (o Electron em execução é
+compartilhado e não foi reiniciado por esta sessão), e o backend `dist\godsend-windows-x64.exe` ainda é o antigo
+(em uso, PID 26108) — a marca só passa a ser gravada depois do próximo build do backend.
