@@ -11,7 +11,7 @@ O log registrou a desconexão durante `Data0021`, depois que `Data0000` a `Data0
 ## Contrato de recuperação
 
 1. Ao registrar o destino, o backend cria `.xbox-downloader/xbox-companion-device-id` e guarda essa identidade na tarefa.
-2. Cada arquivo é copiado para `<nome>.xbox-companion-part`, sincronizado no dispositivo, verificado por tamanho e SHA-256 e somente então renomeado para o nome definitivo.
+2. Cada arquivo é copiado para `.xbox-downloader/copy-staging/<CRC32 do caminho>.TMP` no **mesmo dispositivo**, sincronizado, verificado por tamanho e SHA-256 e somente então renomeado (entre pastas, só metadados) para o nome definitivo. A pasta do jogo recebe apenas nomes definitivos: um temporário ao lado do destino (`<nome>.xbox-companion-part`, esquema até a 2.12.109) fragmentava pastas FAT32 grandes até o teto de 65.536 entradas do driver, e o rename falhava com `ERROR_CANNOT_MAKE` (EA FC 26, pasta `faces`; ver `docs/bugs/open/pipeline-gravacao-local-fragmenta-pasta-fat32-…_2026-10-09T12-00.md`). Sobras `.xbox-companion-part` de versões antigas são apagadas antes da gravação.
 3. Se o destino desaparecer, a tarefa permanece em `Processing` com a mensagem para reconectar o mesmo dispositivo. Um disco diferente na mesma letra não é aceito.
 4. Na reconexão, arquivos definitivos íntegros são apenas verificados e reutilizados. O arquivo interrompido é refeito a partir do staging local.
 5. Se o staging GOD no USB tiver sido perdido, a ISO preservada no armazenamento temporário do PC é usada para reconstruí-lo.
@@ -72,6 +72,8 @@ Os testes de backend validam o comportamento no sistema de arquivos:
 
 - arquivo já completo conserva a data de modificação, provando que não foi regravado;
 - arquivo truncado e `.xbox-companion-part` inválido são reparados e verificados;
+- durante a gravação a pasta do destino só contém nomes definitivos, e um temporário íntegro na staging do dispositivo é promovido na retomada sem regravar;
+- com `GODSEND_FAT32_TEST_DIR` apontando para um volume FAT32 (`local_resilient_fat32_test.go`), 13.146 nomes no formato da pasta `faces` do EA FC 26 cabem com a staging, e o esquema antigo falha com `ERROR_CANNOT_MAKE` perto do arquivo nº 12.569;
 - troca de dispositivo sob a mesma letra/caminho é rejeitada;
 - espera termina somente quando o marcador do dispositivo original reaparece;
 - download concluído e íntegro não gera nova requisição HTTP;

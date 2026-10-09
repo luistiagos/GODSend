@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"net"
 	"net/url"
@@ -368,10 +369,39 @@ func buildLocalCopyManifest(srcDir string) ([]localCopyEntry, int64, error) {
 	return entries, totalSize, err
 }
 
+// localStagingDir holds the file being written, on the destination device but
+// outside the game folder. A temporary next to the destination
+// (<name>.xbox-companion-part, the old scheme) fragments a FAT32 directory: the
+// driver prefers never-used space to holes, the rename to the final name needs
+// a different number of 32-byte entries than the temporary, and the holes it
+// leaves are too small for the next names. A folder with ~13 thousand files
+// (EA FC 26 data/sceneassets/faces) then hits fastfat's 65,536-entry cap and
+// the rename fails with ERROR_CANNOT_MAKE although the final names fit.
+// Renaming across folders creates entries only in the target, so the game
+// folder receives nothing but final names.
+const localStagingDir = ".xbox-downloader/copy-staging"
+
+// legacyLocalPartSuffix is the pre-2.12.110 temporary next to the destination.
+// Leftovers are deleted so they release their entries in the game folder.
+const legacyLocalPartSuffix = ".xbox-companion-part"
+
+// localStagingPath names the temporary for dst. An upper-case 8.3 name takes a
+// single directory entry; a CRC32 collision only costs a recopy, because a
+// staged file is promoted only after its size and SHA-256 match the entry.
+func localStagingPath(root, dst string) string {
+	rel, err := filepath.Rel(root, dst)
+	if err != nil {
+		rel = dst
+	}
+	sum := crc32.ChecksumIEEE([]byte(filepath.ToSlash(rel)))
+	return filepath.Join(root, filepath.FromSlash(localStagingDir), fmt.Sprintf("%08X.TMP", sum))
+}
+
 // copyLocalEntry commits only a fully written and verified file. A valid
-// partial file left between copy and rename can be committed on resume.
-func copyLocalEntry(entry *localCopyEntry, dst string, onProgress func(bytesCopied int64)) error {
-	partial := dst + ".xbox-companion-part"
+// staged file left between copy and rename can be committed on resume.
+func copyLocalEntry(entry *localCopyEntry, root, dst string, onProgress func(bytesCopied int64)) error {
+	_ = os.Remove(dst + legacyLocalPartSuffix)
+	partial := localStagingPath(root, dst)
 	if st, err := os.Stat(partial); err == nil && st.Mode().IsRegular() && st.Size() == entry.size {
 		if matches, matchErr := localFileMatches(partial, entry); matchErr == nil && matches {
 			_ = os.Remove(dst)
@@ -384,6 +414,9 @@ func copyLocalEntry(entry *localCopyEntry, dst string, onProgress func(bytesCopi
 			ErrFAT32FileSizeLimit, filepath.Base(dst), float64(entry.size)/(1024*1024*1024))
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(partial), 0755); err != nil {
 		return err
 	}
 	in, err := os.Open(entry.sourcePath)
@@ -546,13 +579,14 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 			}
 			matches, copyErr := localFileMatches(dst, entry)
 			if copyErr == nil && matches {
-				_ = os.Remove(dst + ".xbox-companion-part")
+				_ = os.Remove(dst + legacyLocalPartSuffix)
+				_ = os.Remove(localStagingPath(root, dst))
 				updateProgress(entry.size-fileCopiedBytes, index)
 				break
 			}
 			fileCopiedBytes = 0
 			if copyErr == nil {
-				copyErr = copyLocalEntry(entry, dst, func(n int64) {
+				copyErr = copyLocalEntry(entry, root, dst, func(n int64) {
 					fileCopiedBytes += n
 					updateProgress(n, index)
 				})
@@ -627,11 +661,12 @@ func (s *Service) copyFileLocal(src, dst, root, gameName, message string) error 
 			return app.ErrJobCancelled
 		}
 		if matches, matchErr := localFileMatches(dst, &entry); matchErr == nil && matches {
-			_ = os.Remove(dst + ".xbox-companion-part")
+			_ = os.Remove(dst + legacyLocalPartSuffix)
+			_ = os.Remove(localStagingPath(root, dst))
 			_ = helpers.FlushVolumeBuffers(root)
 			return nil
 		}
-		if err := copyLocalEntry(&entry, dst, nil); err == nil {
+		if err := copyLocalEntry(&entry, root, dst, nil); err == nil {
 			_ = helpers.FlushVolumeBuffers(root)
 			return nil
 		} else if localDeviceMatches(root, expectedID) {

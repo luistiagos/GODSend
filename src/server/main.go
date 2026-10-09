@@ -22,7 +22,7 @@ import (
 )
 
 func main() {
-	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.109\n")
+	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.110\n")
 	a := app.NewApp()
 	defer a.ReleaseHomeLock()
 	if err := a.SetupPaths(); err != nil {

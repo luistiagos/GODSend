@@ -107,6 +107,110 @@ func TestCopyTreeLocalReusesGoodFilesAndRepairsInterruptedFile(t *testing.T) {
 	}
 }
 
+// O temporario ao lado do destino fragmentava a pasta FAT32 ate o teto de
+// 65.536 entradas (EA FC 26, pasta faces). Durante a gravacao a pasta do jogo so
+// pode conter nomes finais; o temporario mora na staging do mesmo dispositivo.
+func TestCopyLocalEntryKeepsTemporaryOutOfDestinationFolder(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "face_40110_0_0_0_0_0_0_0_0_textures.rx3")
+	payload := []byte("textura-com-conteudo")
+	if err := os.WriteFile(source, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(root, "Games", "EA FC 26", "data", "sceneassets", "faces")
+	dst := filepath.Join(folder, filepath.Base(source))
+	legacy := dst + legacyLocalPartSuffix
+	if err := os.MkdirAll(folder, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("sobra de versao antiga"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	partial := localStagingPath(root, dst)
+	if filepath.Dir(partial) != filepath.Join(root, filepath.FromSlash(localStagingDir)) {
+		t.Fatalf("temporario fora da staging do dispositivo: %s", partial)
+	}
+	if name := filepath.Base(partial); len(name) != len("XXXXXXXX.TMP") || name != strings.ToUpper(name) {
+		t.Fatalf("temporario deveria ser um nome 8.3 maiusculo (1 entrada no FAT): %s", name)
+	}
+
+	var seenDuringWrite []string
+	stagedDuringWrite := false
+	entry := localCopyEntry{sourcePath: source, relativePath: filepath.Base(source), size: int64(len(payload))}
+	err := copyLocalEntry(&entry, root, dst, func(int64) {
+		names, readErr := os.ReadDir(folder)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		for _, name := range names {
+			seenDuringWrite = append(seenDuringWrite, name.Name())
+		}
+		if _, statErr := os.Stat(partial); statErr == nil {
+			stagedDuringWrite = true
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seenDuringWrite) != 0 {
+		t.Fatalf("a pasta do destino recebeu algo alem do nome final durante a gravacao: %v", seenDuringWrite)
+	}
+	if !stagedDuringWrite {
+		t.Fatal("o temporario deveria existir na staging durante a gravacao")
+	}
+	if got, readErr := os.ReadFile(dst); readErr != nil || string(got) != string(payload) {
+		t.Fatalf("destino gravado incorretamente: %q, err=%v", got, readErr)
+	}
+	names, err := os.ReadDir(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0].Name() != filepath.Base(dst) {
+		t.Fatalf("a pasta do destino deveria conter so o nome final; sobra antiga nao foi apagada: %v", names)
+	}
+	if _, statErr := os.Stat(partial); !os.IsNotExist(statErr) {
+		t.Fatalf("temporario deveria ter sido promovido por rename; err=%v", statErr)
+	}
+}
+
+// Um temporario completo e integro deixado entre a copia e o rename (queda de
+// energia, pendrive arrancado) e promovido na retomada sem regravar a origem.
+func TestCopyLocalEntryPromotesValidStagedFileOnResume(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "Data0001")
+	payload := []byte("arquivo-completo-na-staging")
+	if err := os.WriteFile(source, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(root, "Games", "Example", "Data0001")
+	partial := localStagingPath(root, dst)
+	if err := os.MkdirAll(filepath.Dir(partial), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(partial, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	rewrote := false
+	entry := localCopyEntry{sourcePath: source, relativePath: "Data0001", size: int64(len(payload))}
+	if err := copyLocalEntry(&entry, root, dst, func(int64) { rewrote = true }); err != nil {
+		t.Fatal(err)
+	}
+	if rewrote {
+		t.Fatal("temporario integro deveria ser promovido, nao regravado")
+	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != string(payload) {
+		t.Fatalf("destino incorreto apos promocao: %q, err=%v", got, err)
+	}
+	if _, err := os.Stat(partial); !os.IsNotExist(err) {
+		t.Fatalf("temporario deveria ter saido da staging; err=%v", err)
+	}
+}
+
 func TestLocalDeviceIdentityRejectsReplacementAtSamePath(t *testing.T) {
 	root := t.TempDir()
 	id, err := PrepareLocalDevice(root)

@@ -9,6 +9,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.12.110] - 2026-10-09
+
+### Fixed
+- **Jogo XEX com pasta de ~13 mil arquivos falhava no pendrive FAT32 com "rename … The directory or file cannot be created" (`src/server/services/pipeline/local_resilient.go::copyLocalEntry`)**
+  - Caso: EA FC 26 Legacy Edition, pasta `data/sceneassets/faces` (13.147 arquivos), parava sempre no arquivo nº 12.572, e tentar de novo falhava no mesmo arquivo.
+  - Causa: o temporário `<nome>.xbox-companion-part` ficava na pasta do jogo. O FAT do Windows prefere espaço nunca usado aos buracos, e o rename para o nome final pede outro número de entradas de 32 bytes; os buracos deixados não servem aos nomes seguintes, e a pasta chegava ao teto de 65.536 entradas do driver (`ERROR_CANNOT_MAKE`) com milhares desperdiçadas. Como nomes finais, a pasta precisa de 58.495.
+  - Correção: o temporário vai para `.xbox-downloader/copy-staging/<CRC32>.TMP` no mesmo dispositivo e é promovido por rename entre pastas; a pasta do jogo só recebe nomes finais. Sobras `.xbox-companion-part` antigas são apagadas. A retomada continua promovendo temporário íntegro (tamanho e SHA-256).
+  - Testes: `TestCopyLocalEntryKeepsTemporaryOutOfDestinationFolder`, `TestCopyLocalEntryPromotesValidStagedFileOnResume` e, com `GODSEND_FAT32_TEST_DIR` num volume FAT32, `TestFAT32LegacyPartSuffixExhaustsDirectory` (controle) e `TestFAT32CopyTreeLocalFitsLargeDirectory`.
+  - Relato e análise: [`docs/bugs/open/pipeline-gravacao-local-fragmenta-pasta-fat32-…`](docs/bugs/open/pipeline-gravacao-local-fragmenta-pasta-fat32-ate-o-limite-de-65536-entradas-e-o-rename-falha_2026-10-09T12-00.md).
+
 ## [2.12.109] - 2026-10-07
 
 ### Added
