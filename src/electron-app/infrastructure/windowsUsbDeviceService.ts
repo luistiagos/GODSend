@@ -212,14 +212,28 @@ function runPowerShell(
 // AllocationUnitBytes stays 0 here and fillAllocationUnits() reads it from fs.statfs. It used to
 // come from GetDiskFreeSpace through Add-Type, which compiles C# with csc.exe on every run — the
 // costliest step of the script, and worse on the slow machines where enumerations time out.
+//
+// A USB HDD is reported as Fixed, so it never becomes a row here. Each mounted Fixed drive other
+// than the system one is emitted as a bare marker row instead (FixedDriveMarker = $true): the
+// native listing cannot tell its bus, but the marker tells enumerateSafeWindowsUsbDevices() that
+// the physical script has something to find next to the pendrive. Markers never become devices.
 const ENUMERATE_REMOVABLE_SCRIPT = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 $rows = @()
 $mountvol = Join-Path $env:SystemRoot 'System32\mountvol.exe'
+$systemRoot = ([string]$env:SystemDrive).TrimEnd('\').ToUpperInvariant() + '\'
 
 foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
   try {
-    if (-not $drive.IsReady -or $drive.DriveType -ne [System.IO.DriveType]::Removable) { continue }
+    if (-not $drive.IsReady) { continue }
+    if ($drive.DriveType -eq [System.IO.DriveType]::Fixed) {
+      $fixedRoot = $drive.Name.ToUpperInvariant()
+      if ($fixedRoot -ne $systemRoot) {
+        $rows += [PSCustomObject]@{ RootPath = $fixedRoot; DriveType = 'Fixed'; FixedDriveMarker = $true }
+      }
+      continue
+    }
+    if ($drive.DriveType -ne [System.IO.DriveType]::Removable) { continue }
     $root = $drive.Name.ToUpperInvariant()
     $volumeGuid = ((& $mountvol $root '/L' 2>$null) -join '').Trim()
     if (-not $volumeGuid) {
@@ -408,6 +422,11 @@ function parsePhysicalDevice(row: any): PhysicalUsbDevice {
   };
 }
 
+/** A marker row from ENUMERATE_REMOVABLE_SCRIPT for a Fixed drive: never a device. */
+function isFixedDriveMarker(row: any): boolean {
+  return row?.FixedDriveMarker === true;
+}
+
 function normalizeRoot(rootPath: string): string {
   const match = rootPath.trim().match(/^([a-z]):/i);
   return match ? `${match[1].toUpperCase()}:\\` : rootPath.trim();
@@ -529,7 +548,7 @@ export async function enumerateSafeWindowsUsbDevices(
 ): Promise<SafeUsbDevice[]> {
   if (process.platform !== "win32") return [];
   const systemDrive = process.env.SystemDrive || "C:";
-  const parseOutput = async (rawOutput: string): Promise<SafeUsbDevice[]> => {
+  const parseRows = (rawOutput: string): any[] => {
     const output = rawOutput.trim();
     if (!output) return [];
     let parsed: any;
@@ -539,11 +558,52 @@ export async function enumerateSafeWindowsUsbDevices(
       throw new Error("O Windows retornou dados inválidos ao enumerar os dispositivos USB.");
     }
     const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
-    return fillAllocationUnits(
-      rows
-        .filter((row) => row?.RootPath)
-        .map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive)),
-    );
+    return rows.filter((row) => row?.RootPath);
+  };
+  const toDevices = (rows: any[]): Promise<SafeUsbDevice[]> =>
+    fillAllocationUnits(rows.map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive)));
+  const parseOutput = (rawOutput: string): Promise<SafeUsbDevice[]> => toDevices(parseRows(rawOutput));
+
+  // The native rows plus whether a non-system Fixed drive (a possible USB HDD) is mounted.
+  let fixedDriveMounted = false;
+  const parseNativeOutput = (rawOutput: string): Promise<SafeUsbDevice[]> => {
+    const rows = parseRows(rawOutput);
+    fixedDriveMounted = rows.some(isFixedDriveMarker);
+    return toDevices(rows.filter((row) => !isFixedDriveMarker(row)));
+  };
+
+  // The native listing returns early with the pendrives, and a USB HDD (Fixed) is only ever found
+  // by the physical script — so with both plugged in the HDD vanished from the list. When a Fixed
+  // drive is mounted, ask the physical script for it. Its failure costs the HDD, never the pendrives.
+  const finishNative = async (
+    removable: SafeUsbDevice[],
+    logPrefix?: string,
+  ): Promise<SafeUsbDevice[]> => {
+    const devices = await finishRemovableEnumeration(removable, includeHealth, logPrefix);
+    if (!fixedDriveMounted) return devices;
+    const listed = new Set(devices.map((device) => normalizeRoot(device.rootPath)));
+    try {
+      const fixed = (
+        await parseOutput(
+          await runPowerShell(
+            ENUMERATE_USB_SCRIPT,
+            enumerationTimeout(USB_ENUMERATION_TIMEOUT_MS),
+            "enumeracao fisica de HD USB",
+          ),
+        )
+      ).filter((device) => !listed.has(normalizeRoot(device.rootPath)));
+      appendAppEvent(
+        "usb",
+        `enumeracao fisica de HD USB encontrou ${fixed.length} unidade(s): ${fixed.map((device) => device.rootPath).join(", ") || "nenhuma"}`,
+      );
+      return [...devices, ...fixed];
+    } catch (error: any) {
+      appendAppEvent(
+        "usb",
+        `enumeracao fisica de HD USB falhou; listando so os removiveis: ${error?.message || String(error)}`,
+      );
+      return devices;
+    }
   };
 
   // Also without includeHealth: the preparation's revalidation has no last good list to fall
@@ -556,7 +616,7 @@ export async function enumerateSafeWindowsUsbDevices(
     appendAppEvent("usb", `${reason}; tentando novamente pela enumeracao nativa`);
     await wait(ENUMERATION_RECOVERY_DELAY_MS);
     try {
-      const removable = await parseOutput(
+      const removable = await parseNativeOutput(
         await runPowerShell(
           ENUMERATE_REMOVABLE_SCRIPT,
           enumerationTimeout(REMOVABLE_RECOVERY_TIMEOUT_MS),
@@ -564,11 +624,7 @@ export async function enumerateSafeWindowsUsbDevices(
         ),
       );
       if (removable.length > 0) {
-        return finishRemovableEnumeration(
-          removable,
-          includeHealth,
-          "enumeracao nativa recuperada",
-        );
+        return finishNative(removable, "enumeracao nativa recuperada");
       }
     } catch (error: any) {
       appendAppEvent(
@@ -580,7 +636,7 @@ export async function enumerateSafeWindowsUsbDevices(
   };
 
   try {
-    const removable = await parseOutput(
+    const removable = await parseNativeOutput(
       await runPowerShell(
         ENUMERATE_REMOVABLE_SCRIPT,
         enumerationTimeout(REMOVABLE_ENUMERATION_TIMEOUT_MS),
@@ -588,7 +644,7 @@ export async function enumerateSafeWindowsUsbDevices(
       ),
     );
     if (removable.length > 0) {
-      return finishRemovableEnumeration(removable, includeHealth);
+      return finishNative(removable);
     }
   } catch (error: any) {
     appendAppEvent("usb", `enumeracao nativa falhou: ${error?.message || String(error)}`);
@@ -777,7 +833,7 @@ async function revalidateWithScript(
   const parsed = JSON.parse(output);
   const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
   const candidates = rows
-    .filter((row: any) => row?.RootPath)
+    .filter((row: any) => row?.RootPath && !isFixedDriveMarker(row))
     .map((row: any) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive))
     .filter((device) => normalizeRoot(device.rootPath) === normalizedRoot);
   if (candidates.length !== 1) return null;
