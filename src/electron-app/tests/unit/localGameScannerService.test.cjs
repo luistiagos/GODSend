@@ -371,3 +371,71 @@ test("scanGamesDirectory: reaproveita a analise de jogo ja medido, mas lista jog
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// docs/bugs/open/pipeline-jogo-com-gravacao-interrompida-aparece-como-instalado-e-baixado_2026-10-09T19-30.md
+test("scanGamesDirectory: pasta so com TitleID no nome e sem default.xex (copia interrompida) nao e jogo", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const partial = path.join(gamesDir, "EA FC 26 Legacy Edition - 454109F4");
+    fs.mkdirSync(path.join(partial, "data", "sceneassets", "faces"), { recursive: true });
+    fs.mkdirSync(path.join(partial, "audiodata"), { recursive: true });
+    fs.writeFileSync(path.join(partial, "CardsDLLzf.xex.dll"), Buffer.alloc(4096, 1));
+    fs.writeFileSync(path.join(partial, "accomplishments.ini"), "[x]\n");
+    fs.writeFileSync(path.join(partial, "data", "sceneassets", "faces", "face_1.rx3"), Buffer.alloc(2048, 2));
+
+    const results = await scanGamesDirectory(gamesDir, "E: (BADAVATAR)");
+    assert.deepEqual(results, []);
+
+    // Controle positivo: a mesma pasta com default.xex volta a ser um jogo XEX.
+    fs.writeFileSync(path.join(partial, "default.xex"), "fake-xex-binary");
+    const done = await scanGamesDirectory(gamesDir, "E: (BADAVATAR)");
+    assert.equal(done.length, 1);
+    assert.equal(done[0].format, "xex");
+    assert.equal(done[0].titleId, "454109F4");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanGamesDirectory: pasta com marca de instalacao em andamento nao aparece, nem vinda do cache", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
+  try {
+    const gamesDir = path.join(tmp, "Games");
+    const game = path.join(gamesDir, "Gears of War 3 - 4D5308AB");
+    fs.mkdirSync(game, { recursive: true });
+    fs.writeFileSync(path.join(game, "default.xex"), "fake-xex-binary");
+
+    // Primeira varredura: jogo completo, entra no cache de 10 min.
+    assert.equal((await scanGamesDirectory(gamesDir, "F:")).length, 1);
+
+    // Reinstalacao comeca: a marca tem de esconder o jogo ja na varredura seguinte.
+    const marker = path.join(game, ".xbox-companion-installing");
+    fs.writeFileSync(marker, "Gears of War 3\n");
+    assert.deepEqual(await scanGamesDirectory(gamesDir, "F:"), []);
+
+    // Gravacao termina e a marca some: o jogo volta.
+    fs.rmSync(marker);
+    assert.equal((await scanGamesDirectory(gamesDir, "F:")).length, 1);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanContentDirectory: TitleID com pasta de tipo ainda sendo gravada nao aparece", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
+  try {
+    const contentDir = path.join(tmp, "Content", "0000000000000000");
+    const typeDir = path.join(contentDir, "545408A7", "00000002");
+    fs.mkdirSync(typeDir, { recursive: true });
+    fs.writeFileSync(path.join(typeDir, "pkg"), Buffer.alloc(1024, 3));
+    fs.writeFileSync(path.join(typeDir, ".xbox-companion-installing"), "GTA V\n");
+
+    assert.deepEqual(await scanContentDirectory(contentDir, "F:"), []);
+
+    fs.rmSync(path.join(typeDir, ".xbox-companion-installing"));
+    assert.equal((await scanContentDirectory(contentDir, "F:")).length, 1);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

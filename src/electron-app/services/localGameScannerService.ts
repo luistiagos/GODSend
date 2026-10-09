@@ -96,6 +96,26 @@ const GAME_INFO_TTL_MS = 10 * 60_000;
 const SLOW_SCAN_LOG_MS = 1_000;
 
 const gameInfoCache = new Map<string, { info: InstalledGameInfo; at: number }>();
+
+/**
+ * Written by the backend (copyTreeLocal) into a game or content folder before the first file and
+ * removed only after the last one is flushed. While it exists the folder is not playable — a copy in
+ * progress, or one that failed — so it must not be listed as installed nor marked "Baixado".
+ */
+const INSTALL_IN_PROGRESS_MARKER = ".xbox-companion-installing";
+
+/**
+ * Checked on every scan, outside the 10-minute info cache: a reinstall over a folder that was
+ * already listed would otherwise keep showing the previous game until the cache expired.
+ */
+async function installInProgress(dirPath: string): Promise<boolean> {
+  if (!(await pathExists(path.join(dirPath, INSTALL_IN_PROGRESS_MARKER)))) return false;
+  const prefix = `${dirPath.toLowerCase()}|`;
+  for (const key of gameInfoCache.keys()) {
+    if (key.startsWith(prefix)) gameInfoCache.delete(key);
+  }
+  return true;
+}
 const scanStats = { analyzed: 0, reused: 0, filesSized: 0, slowestFolder: "", slowestMs: 0 };
 
 /** Only games are kept: a folder still being copied may not look like one yet. */
@@ -253,14 +273,28 @@ async function parseGameFolder(
     }
 
     // Check if any direct subdirectory is an 8-char hex TitleID (e.g. Games/Street Fighter/584107F4)
-    if (!titleId) {
-      const subs = (await readDirEntries(fullPath)) ?? [];
-      for (const sub of subs) {
-        if (sub.isDirectory() && !isCorruptedFolderName(sub.name) && HEX_8_REGEX.test(sub.name)) {
-          titleId = sub.name.toUpperCase();
-          break;
-        }
+    let hasTitleSubfolder = false;
+    const subs = (await readDirEntries(fullPath)) ?? [];
+    for (const sub of subs) {
+      if (sub.isDirectory() && !isCorruptedFolderName(sub.name) && HEX_8_REGEX.test(sub.name)) {
+        hasTitleSubfolder = true;
+        if (!titleId) titleId = sub.name.toUpperCase();
+        break;
       }
+    }
+
+    // A Title ID read from the folder name proves nothing: the installer names the folder
+    // "<game> - <TitleID>" before writing the first file, so a copy that failed halfway looks the
+    // same by name as a finished game (EA FC 26 listed as installed with no default.xex). Without
+    // any game structure, only a package right in the folder counts — probed at its root alone,
+    // because a negative result is not cached and a partial XEX tree can hold 145k files.
+    const hasStructure = !!ini || isDefaultXex || isGodSub || hasTitleSubfolder;
+    if (!hasStructure) {
+      const rootPackage = await probeStfsTitleId(fullPath, 4);
+      if (!rootPackage || rootPackage === SYSTEM_TITLE_ID) {
+        return null;
+      }
+      if (!titleId) titleId = rootPackage;
     }
 
     // Probe STFS LIVE/PIRS header if Title ID is still unknown
@@ -285,13 +319,6 @@ async function parseGameFolder(
       } else if (isGodSub || titleId) {
         format = "god";
       }
-    }
-
-    // STRICT VALIDATION:
-    // If it has NO godsend.ini, NO default.xex, NO GOD/Content subfolders, and NO valid titleId/STFS container,
-    // then this is NOT an Xbox 360 game (it's a random, non-game, or corrupted folder).
-    if (!ini && !isDefaultXex && !isGodSub && !titleId) {
-      return null;
     }
 
     if (!format) {
@@ -364,6 +391,7 @@ export async function scanGamesDirectory(
     if (!entry.isDirectory()) continue;
     if (isCorruptedFolderName(entry.name)) continue;
     const fullPath = path.join(gamesDir, entry.name);
+    if (await installInProgress(fullPath)) continue;
     const game = await cachedGameInfo(fullPath, driveLabel, () => parseGameFolder(fullPath, entry.name, driveLabel, nameMap));
     if (game) {
       games.push(game);
@@ -488,6 +516,19 @@ export async function scanContentDirectory(
     }
 
     const fullPath = path.join(contentDir, entry.name);
+    // Content is written into <TitleID>/<type>, so that is where an unfinished copy leaves the marker.
+    const typeDirs = (await readDirEntries(fullPath)) ?? [];
+    let copying = false;
+    for (const typeDir of typeDirs) {
+      if (typeDir.isDirectory() && await pathExists(path.join(fullPath, typeDir.name, INSTALL_IN_PROGRESS_MARKER))) {
+        copying = true;
+        break;
+      }
+    }
+    if (copying) {
+      gameInfoCache.delete(`${fullPath.toLowerCase()}|${driveLabel}`);
+      continue;
+    }
     const game = await cachedGameInfo(fullPath, driveLabel, () =>
       parseContentTitleFolder(fullPath, entry.name, tid, driveLabel, nameMap)
     );
@@ -657,6 +698,7 @@ async function scanDriveRoot(
       continue;
     }
     const fullPath = path.join(driveRoot, entry.name);
+    if (await installInProgress(fullPath)) continue;
     const game = await cachedGameInfo(fullPath, driveLabel, async () =>
       await hasDefaultXex(fullPath) || await hasGodOrContentSubfolder(fullPath) || NAME_TITLE_ID_REGEX.test(entry.name)
         ? parseGameFolder(fullPath, entry.name, driveLabel, nameMap)
