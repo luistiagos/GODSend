@@ -2,8 +2,8 @@
 
 - **Detectado em:** 2026-10-09, relato do dono com print (fila "EA FC 26 Legacy Edition", estado Erro)
 - **Origem:** gravação local em modo pendrive — `src/server/services/pipeline/local_resilient.go::copyLocalEntry`
-- **Estado:** passada 2 — causa raiz provada (reprodução no pendrive e simulação do alocador do FAT). Correção
-  planejada, **não implementada**
+- **Estado:** passada 3 — T1–T3 implementadas e testadas (2.12.110, não publicada). Falta a prova ponta a ponta
+  com o jogo real no pendrive do dono
 
 ## Sintoma
 
@@ -215,6 +215,60 @@ doc-sync no mesmo commit: `docs/RESILIENT-LOCAL-INSTALL.md` (linhas 14, 53 e 74 
 `E:` do dono. T2 reorganiza `faces` e a gravação conclui. **Risco:** o jogo tem 13,15 GB, mais a folga de cluster
 de 145 mil arquivos (~0,6 GB a 8 KiB), num pendrive de 14,44 GB; se `ensureFreeSpace` recusar, a prova vai para
 um pendrive maior. **Controle:** antes de T1, o teste em FAT32 real com o esquema atual falha em ~#12.572.
+
+## Correção aplicada (2.12.110)
+
+- **T1** — `local_resilient.go::copyLocalEntry(entry, root, dst, onProgress)`: temporário em
+  `localStagingPath(root, dst)` = `<root>/.xbox-downloader/copy-staging/%08X.TMP` (CRC32 IEEE do caminho de `dst`
+  relativo a `root`, com `/`). Apaga `<dst>.xbox-companion-part` (`legacyLocalPartSuffix`) antes de gravar. As
+  limpezas de `copyTreeLocal` e `copyFileLocal` (arquivo já íntegro) apagam a sobra antiga **e** o temporário da
+  staging. **Desvio:** pasta `copy-staging/` em vez de `staging/`, pelo motivo nas notas acima.
+- **T2** — `copyTreeLocal`: com volume FAT e `isFATDirectoryFull(copyErr)` (errno 82, só no Windows),
+  `rebuildSaturatedFATFolder(folder, manifestChildren[folder])` apaga os arquivos regulares do manifesto (e sobras
+  `.xbox-companion-part`) **daquela pasta**, mantendo e contando o resto; o laço (agora `entryLoop` com índice
+  explícito) recomeça no primeiro arquivo do manifesto naquela pasta, e `doneBytes` volta à soma das entradas
+  anteriores. Uma vez por pasta (`rebuiltFolders`); um segundo 82 encerra com `ErrLocalDelivery`. **Desvio:** o
+  plano dizia "apagar os arquivos regulares diretamente nessa pasta"; apagar só os do manifesto evita apagar DLC ou
+  arquivo do usuário numa pasta compartilhada (`Content/…/00000002`). Se, contando os que ficam, a pasta não cabe,
+  devolve `ErrFAT32DirectoryLimit` sem apagar nada. Também: arquivos de uma pasta **não** são contíguos no
+  `filepath.Walk` quando há subpasta no meio; recomeçar no primeiro arquivo dela e reconferir por hash o que vem
+  depois cobre esse caso.
+- **T3** — `fat_directory.go`: `fatDirentCount` (regra do simulador), `localManifestChildren` (nome real por pasta,
+  porque a caixa muda a contagem: `Data0000` ocupa 2, `data0000` 1), `checkFATDirectoryLimits` chamado em
+  `copyTreeLocal` logo após a checagem de 4 GB, antes de qualquer gravação. `ErrFAT32DirectoryLimit` entrou em
+  `fallback.go::isFAT32LimitError`: troca de provedor (ISO/GOD) em vez de interromper a cadeia. Não foi preciso
+  mexer em `huggingface.go`: o erro sobe de `InstallXEXLocal` embrulhado com `%w` ("Gravação local: %w").
+  `localWriteErrorText` troca o texto do errno 82 por português nas mensagens finais de `copyTreeLocal` e
+  `copyFileLocal`; o erro original vai para o log.
+
+## Testes executados
+
+- `go vet ./...` e `go test ./... -count=1` em `src/server`: verdes após cada task. `npm run build:server`: ok
+  (x64 e ia32) após cada task.
+- Novos: `TestCopyLocalEntryKeepsTemporaryOutOfDestinationFolder` (lista a pasta durante a escrita: só o nome final;
+  sobra antiga apagada), `TestCopyLocalEntryPromotesValidStagedFileOnResume`, `TestFATDirentCount`,
+  `TestLocalManifestChildrenListsFilesAndSubfolders`, `TestCopyTreeLocalRebuildsSaturatedFATFolderOnce` (82
+  injetado em `faces/c.bin`: `faces/a.bin`, já certo, é regravado; `aaa/first.bin` não; `alheio.txt` fica),
+  `TestCopyTreeLocalGivesUpWhenRebuiltFATFolderStillFull`, `TestCheckFATDirectoryLimits` (os 13.146 nomes
+  sintéticos contam **58.494**, o mesmo número do simulador; +1.600 nomes → recusa nomeando a pasta),
+  `TestCopyTreeLocalRejectsOversizedFATFolderBeforeWriting` (nada criado no destino),
+  `TestLocalWriteErrorTextTranslatesCannotMake`.
+- **Teste em FAT32 real** (`GODSEND_FAT32_TEST_DIR='E:\' go test ./services/pipeline/ -run TestFAT32 -v`), pasta
+  `E:\godsend-fat32-test-<n>` apagada no fim (conferido: `ls E:/ | grep godsend` → nada), `ok … 1869.957s`:
+  - **controle** `TestFAT32LegacyPartSuffixExhaustsDirectory`: o esquema antigo falhou no arquivo **#12.569**
+    (12.568 gravados), `face_16660_…`, com `rename …xbox-companion-part …: The directory or file cannot be created.`
+    — o texto do print e **o mesmo número que o simulador previu** para esses nomes a 8 KiB (794 s);
+  - **correção** `TestFAT32CopyTreeLocalFitsLargeDirectory`: `copyTreeLocal` gravou os **13.146** arquivos na mesma
+    pasta, staging vazia no fim (12m59s de gravação, com `Sync` e SHA-256 por arquivo).
+- **Instabilidade pré-existente, não regressão:** com `-count=10..40`, testes que gravam em `t.TempDir()` falham às
+  vezes na **limpeza** (`TempDir RemoveAll cleanup: … The directory is not empty`), nunca numa asserção. O código
+  de antes da T1 (`git archive a53aa46 src/server`) falha igual em `TestOptimizedStreamingLocalCopyAndManifest`
+  (2 de 40). Provável antivírus/indexador segurando arquivo recém-criado.
+
+## Pendente
+
+- **Prova ponta a ponta** (abaixo) com o app e o pendrive do dono: não executada nesta sessão — escreve GBs no
+  dispositivo do dono e leva horas; fica para o dono decidir quando.
 
 **Pendente, fora do código:** procurar na telemetria `The directory or file cannot be created` (e "Não é possível
 criar a pasta ou arquivo") para medir quantos clientes já caíram nisso. EA FC/FIFA com patch de faces é o caso
