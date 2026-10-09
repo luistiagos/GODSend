@@ -521,6 +521,40 @@ lê como ANSI. Nos logs dos 7 cenários, `Formatação FAT32 concluída` saiu co
 As mensagens de `throw` com acento chegam ao usuário do mesmo jeito. Ver
 [`electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40.md`](electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40.md).
 
+### Teste em hardware — passo 2 da passagem de bastão (2026-10-09)
+
+**Combinado com o dono:** pode apagar o pendrive `USB DISK 2.0` de 14,5 GB (disco 2, serial `247700023090`, E:,
+que estava BADAVATAR de 07/10); o dono liga um segundo pendrive acima de 32 GB; builds x64 e ia32.
+
+**Análise antes de rodar (símbolos abertos):**
+
+- `fat32Format.ts::formatWindowsFat32` apaga o `.ps1` e o `.ps1.log` no `finally` (linha 674). No sucesso, só
+  `Particao final` é lido do log, então `Layout de chegada` não chega ao log do app. A prova do caminho vem de
+  um vigia externo, com `Get-Disk`/`Get-Partition` por fora;
+- `windowsSystemExecutables.ts::powerShellExe` → `C:\Windows\System32\…\powershell.exe`. No build ia32 o WOW64
+  redireciona para `SysWOW64`, então o script elevado roda no **PowerShell 32 bits**. O
+  `Join-Path $env:SystemRoot 'System32\diskpart.exe'` do script vira `SysWOW64\diskpart.exe`, que existe. O
+  WOW64 exercita `Get-Disk`/`Set-Partition`/`diskpart` nesse interpretador;
+- `fixedBadAvatarPreparationService.ts::requireXboxReadableLayout` grava `layout do disco: … -> …` no log do app
+  (`serverLog.ts`: `%APPDATA%\Xbox 360 Companion\logs\godsend-server-<data UTC>.log`);
+- `main.ts` tem trava de instância única por userData. O app dev aberto por outra sessão usa
+  `xbox-360-companion-electron`, e o empacotado usa `Xbox 360 Companion`, então os dois rodam juntos;
+- o build em `dist/` era de 08/10 12:18, anterior a T1/T2. O build novo roda sem o `clean:compiled-js`, porque
+  o app dev da outra sessão roda sobre os `.js` compilados de `src/electron-app`. Esses `.js` estão no
+  `.gitignore`.
+
+**Ferramentas (scratchpad da sessão):**
+
+- `make-gpt.ps1`, elevado: confere número + serial + `BusType USB`, depois `diskpart clean` +
+  `convert gpt` + `create partition primary` + `format` + `assign` e grava o layout resultante;
+- `watch-fmt-log.ps1`: abre `godsend_fat32_*` do TEMP com `FileShare ReadWrite|Delete` e espelha o conteúdo até
+  o app apagar. Testado com um log falso apagado logo depois da última linha: as duas linhas foram copiadas.
+
+**Roteiro, por rodada:** pendrive → GPT (UAC 1) → controle positivo de T1: preparar **sem** "Formatar antes" deve
+recusar com *"O Xbox 360 não vai ler…"* → preparar **com** "Formatar antes" (UAC 2) → conferir log do formatador,
+`Get-Disk`/`Get-Partition` e a linha `layout do disco` → o dono liga no Xbox. Rodadas: x64 ≤ 32 GB, ia32
+≤ 32 GB, e o pendrive > 32 GB nos dois builds.
+
 ## Passagem de bastão (2026-10-08, atualizada no fim da sessão de T6)
 
 - **Feito:** T1 `a6ac2df` (+ `5cb88f5`), T2 `5c08a61`, T6 (docs do repo) `8e458ef`, docs do bug
