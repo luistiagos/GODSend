@@ -175,6 +175,27 @@ byte. Avaliar tratá-lo como `ErrFAT32FileSizeLimit` em `huggingface.go` (linha 
 ISO/GOD; no formato GOD o jogo vai num contêiner e não cria pastas enormes. Se um 82 ainda aparecer, traduzi-lo
 para o usuário em vez de mostrar o texto do Windows em inglês.
 
+### Notas da sessão de implementação (antes da primeira edição, 2026-10-09)
+
+- **`.xbox-downloader/` no Electron** (`grep -rn xbox-downloader src/electron-app`, sem `node_modules`): ninguém
+  varre a pasta inteira. `simulatedTransactionalWriter.ts:207` usa `.xbox-downloader/staging/<transactionId>` e só
+  apaga **a própria** subpasta (`rm(paths.stagingRoot, {recursive})`, linhas 256/291/429);
+  `localGameScannerService.ts:56` ignora a pasta na varredura de jogos; `cleanDeviceImage.ts:220` só proíbe
+  componentes de escreverem nela. **Desvio do plano:** para não dividir a pasta `staging/` com o writer
+  transacional do Electron (um `rm` futuro de `staging/` inteira apagaria o temporário no meio da cópia), o
+  temporário do backend vai para `.xbox-downloader/copy-staging/%08X.TMP`.
+- **Todos os chamadores põem `dst` sob `root`** (`local_install.go`: `InstallGameLocal`, `InstallContentLocal`,
+  `InstallXEXLocal`, `InstallContentFileLocal`, `InstallROMLocal` montam `base` com `filepath.Join(root, …)` ou
+  `joinSub(root, …)`, que só junta partes), então staging e destino estão sempre no mesmo volume.
+- **Nomes do teste em FAT real.** Os 13.147 nomes de `faces` são `desktop.ini` + 13.146 no padrão
+  `face_N_N_N_N_N_N_N_N_N_textures.rxN` (perfil por regex no diretório central do zip). Para o teste não depender
+  do zip, nomes sintéticos com a mesma distribuição: 7.238 `face_<5 dígitos>_0_…_textures.rx3` (4 entradas) +
+  5.908 `face_<6 dígitos>_…` (5 entradas) = 58.494 entradas com `.`/`..`. No simulador (`exec` das funções de
+  `scripts/fat32-dirent-sim.py` sobre essa lista): `part-suffix` falha em #12.641 (4 KiB), **#12.569 (8 KiB)**,
+  #12.524 (32 KiB); `staging-dir` completa nos três. Os sintéticos reproduzem o defeito.
+- `E:` (BADAVATAR, FAT32, 10,5 GB livres) está montado: o teste em FAT real roda numa pasta própria em `E:\`,
+  apagada no fim.
+
 ### Regras de commit do projeto
 
 Cada commit de código leva o bump de versão nos 4 lugares, uma entrada no `CHANGELOG.md` em `[Unreleased]` e o
