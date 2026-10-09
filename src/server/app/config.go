@@ -270,15 +270,17 @@ var ROMSystems = map[string]models.ROMSystem{
 
 const scratchOwnerFile = ".godsend-owner.pid"
 
-func scratchDirSize(dir string) int64 {
+func scratchDirSize(dir string) (int64, int) {
 	var total int64
+	var files int
 	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
 			total += info.Size()
+			files++
 		}
 		return nil
 	})
-	return total
+	return total, files
 }
 
 // cleanupStaleScratchDir removes processing data left by a backend that is no
@@ -357,23 +359,35 @@ func (a *App) cleanupStaleScratchDir(dir string, protected []string) {
 		return
 	}
 	var reclaimed int64
+	var files int
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
+	// This runs before the server listens: tens of thousands of leftover files
+	// kept the port closed for 78 s, and the log said nothing until the end.
+	start := time.Now()
+	announced := false
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
 		if containsProtectedScratch(path, protected) {
 			a.Logf("[INFO] Preserving scratch required by a pending job: %s", path)
 			continue
 		}
-		reclaimed += scratchDirSize(path)
+		if !announced {
+			a.Logf("[INFO] Cleaning stale processing data in %s (the server listens after this)...", dir)
+			announced = true
+		}
+		size, count := scratchDirSize(path)
+		reclaimed += size
+		files += count
 		if removeErr := os.RemoveAll(path); removeErr != nil {
 			a.Logf("[WARN] Could not clean stale scratch entry %s: %v", path, removeErr)
 		}
 	}
-	if reclaimed > 0 {
-		a.Logf("[INFO] Removed %.2f GB of stale processing data from %s", float64(reclaimed)/1073741824, dir)
+	if announced {
+		a.Logf("[INFO] Removed %.2f GB of stale processing data from %s (%d files in %s)",
+			float64(reclaimed)/1073741824, dir, files, time.Since(start).Round(100*time.Millisecond))
 	}
 }
 

@@ -118,3 +118,43 @@ limpeza já ter acontecido. Com T1 o sintoma some; o início continua lento ness
 |---|---|---|---|---|---|
 | T1 | Electron espera o backend abrir a porta antes de requisitar | -- | -- | -- | -- |
 | T2 | backend loga início, duração e contagem da limpeza do Temp | -- | -- | -- | -- |
+
+## Correção aplicada (2.12.110)
+
+Sem desvio do plano.
+
+- **T1** (`2a9816d`): `src/electron-app/infrastructure/backendReadiness.ts` (novo, sem imports);
+  `backendClient.ts::startGodsend` chama `markBackendStarting()` após o `spawn`, `markBackendListening()` na linha
+  `GODSEND_LISTEN_PORT=` (depois do `writeConfig` da porta) e `markBackendStopped()` em `error`/`close`;
+  `backendHttp.ts::backendGetWithStatus` e `::backendPost` viraram `async`, aguardam `waitForBackendListening()`
+  (120 s) e só então leem a porta.
+- **T2**: `src/server/app/config.go::cleanupStaleScratchDir` loga
+  `[INFO] Cleaning stale processing data in <dir> (the server listens after this)...` antes da primeira entrada não
+  protegida, e o total passa a terminar em `(<N> files in <duração>)`; `scratchDirSize` devolve bytes e contagem.
+  Só uma entrada protegida (ou nada) não anuncia limpeza.
+
+Não coberto (ver "Correção planejada"): requisições que não passam por `backendHttp.ts` (ex.: `http.get` direto de
+`xbox:get-queue` em `browseHandlers.ts`) ainda podem receber `ECONNREFUSED` nos primeiros segundos; não são o
+catálogo do relato.
+
+## Testes executados
+
+- `npx tsc` limpo; `node --test tests/unit/backendReadiness.test.cjs tests/unit/backendHttp.test.cjs
+  tests/unit/browseHandlers.test.cjs` → 18/18; `npm run test:safety` → **288/288**.
+- Mutação T1: retirar `await waitForBackendListening()` do `backendHttp.js` compilado → os 2 testes do gate falham
+  com `ECONNREFUSED`; restaurado com `npx tsc`.
+- `go test ./app/ -run CleanupStaleScratch` → 6/6; `go test ./... -count=1` → sem falha. Mutação T2: trocar o texto
+  da linha de início → `TestCleanupStaleScratchLogsStartAndFileCount` falha.
+- **Ponta a ponta com o backend real** (`scratchpad/e2e_readiness.cjs`: binário Go real, `GODSEND_HOME` isolado,
+  porta 8093, `Temp` com 60.000 arquivos, módulos compilados do app; o app aberto do dono não foi tocado):
+  - controle, sem o gate (`dist/godsend-windows-x64.exe`): `1.5s APP erro ECONNREFUSED ... 127.0.0.1:8093` — o erro do relato;
+  - com o gate, mesmo binário: limpeza termina e `Server bind` aos 15,2 s; `18.5s APP resposta HTTP 200 {"releases":[]}`;
+  - com o gate e o binário de T2: `1.3s Cleaning stale processing data in ...\Temp (the server listens after this)...`,
+    `18.5s Removed 0.03 GB ... (60000 files in 17.2s)`, `20.9s APP resposta HTTP 200`.
+
+## Pendente
+
+- `dist/godsend-windows-x64.exe` **não foi recompilado**: está em uso pelo app aberto (pid 36772, filho do Electron
+  39040). Ao reiniciar o app, rodar o build do backend (`docs/building.md`) para T2 entrar no runtime. T1 já está
+  no `.js` compilado e vale no próximo início do app.
+- Prova na UI real: reiniciar o app com um `Temp` grande e abrir o catálogo durante a limpeza.
