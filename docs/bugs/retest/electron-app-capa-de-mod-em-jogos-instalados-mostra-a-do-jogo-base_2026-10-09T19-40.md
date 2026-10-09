@@ -80,3 +80,36 @@ consulta o TitleID primeiro. Mais `npm run test:safety` e conferência na UI de 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
 | T1 | Jogos Instalados usa a capa própria do mod (por nome) antes da capa do TitleID | -- | -- | -- | -- |
+
+## Correção aplicada
+
+Conforme o plano, sem desvio (commit `37a9385`, T1):
+
+- `coverArtService.ts::hasCustomCover` — consulta `CUSTOM_COVER_URLS` pelo nome (e pelo título-base), sem baixar.
+- `browseHandlers.ts`: corpo de `browse:fetch-cover` virou a função local `fetchCover` (mesmo comportamento);
+  novo `browse:fetch-installed-cover({ name, titleId })`: capa própria por nome → TitleID → nome.
+- `preload.ts::browseFetchInstalledCover` e `UsbGamesPage.tsx::InstalledGameCard` passam a usá-lo.
+
+O cache de capa continua por chave: a entrada antiga `454109F4` (FIFA 17) segue existindo, mas a tela não a
+consulta mais para nome com capa própria — não é preciso limpar o cache do cliente.
+
+## Testes executados
+
+- `node --test tests/unit/browseHandlers.test.cjs tests/unit/coverArtService.test.cjs` → 23/23. Os novos:
+  mod devolve a capa custom e a **única** chave consultada é o nome; jogo sem capa própria consulta só o
+  TitleID; TitleID sem capa cai para o nome; `hasCustomCover("454109F4") === false`.
+- Controle negativo: com a condição `hasCustomCover` trocada por `false` no `ipc/browseHandlers.js` compilado,
+  o teste do mod falha (`pass 8 / fail 1`); recompilado, volta a passar.
+- `npm run test:safety` (tsc + typecheck do renderer + unit) → 295/295. Uma execução anterior deu 3 falhas em
+  `localGameScannerService` porque outra sessão commitou `d27d796` no scanner durante a corrida; repetida, 0 falhas.
+- Rede real, handlers reais registrados no Electron, cache de capa vazio (`APPDATA` temporário), hash SHA-1 do dataUrl:
+
+  | chamada | hash |
+  |---|---|
+  | `fetch-cover("EA FC 26 Legacy Edition")` (catálogo / Biblioteca Local) | `557b78e5c4ea` |
+  | `fetch-cover("454109F4")` (o que Jogos Instalados mostrava) | `2fdd4489c3dc` |
+  | `fetch-installed-cover({EA FC 26 Legacy Edition, 454109F4})` (novo) | `557b78e5c4ea` |
+  | `fetch-installed-cover({Halo 3, 4D5307E6})` / `fetch-cover("4D5307E6")` | `7864637d18c2` / `7864637d18c2` |
+
+Pendente para o `done/`: o dono abrir Jogos Instalados num build com o commit e ver a capa do mod no card
+`E:\Games\EA FC 26 Legacy Edition - 454109F4`.
