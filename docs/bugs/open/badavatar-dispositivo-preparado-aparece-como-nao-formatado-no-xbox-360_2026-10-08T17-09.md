@@ -458,10 +458,14 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 Em cada um, conferir no log do formatador `Layout de chegada: GPT` → `Layout final: MBR, 1 particao, tipo 12`,
 e no Xbox a linha *"Dispositivo USB — N GB livres"*.
 
-## Passagem de bastão (2026-10-08, fim da sessão de T1/T2)
+## Passagem de bastão (2026-10-08, atualizada no fim da sessão de T6)
 
-- **Feito:** T1 `a6ac2df` (+ `5cb88f5`), T2 `5c08a61`, docs `3af68d6`/`667fc3c`. Árvore sem mudança minha
-  pendente. `main` está 7 commits à frente do `origin` (alguns de outras sessões); **push não feito**, é do dono.
+- **Feito:** T1 `a6ac2df` (+ `5cb88f5`), T2 `5c08a61`, T6 (docs do repo) `8e458ef`, docs do bug
+  `3af68d6`/`667fc3c`/`9700a29`. Árvore sem mudança pendente destas sessões (o `pending_queue/…json` modificado é
+  de outra). `main` está 11 commits à frente do `origin` (alguns de outras sessões); **push não feito**, é do dono.
+- **Recomendado para a próxima sessão:** passo 1 (VHD) — é a prova mais barata do caminho que nunca rodou (script
+  elevado com tabela recriada) e só pede um UAC ao dono; o passo 2 (hardware) continua sendo o critério de
+  fechamento de T2. Resto de T6 (orientação do suporte) é fora deste repo e não bloqueia nada.
 - **Decisões abertas para o dono:** (a) layout desconhecido passa (só log) — trocar para reprovar está em
   `requireXboxReadableLayout`, no `if (layout.verdict === "unknown")`; (b) `Set-Partition -MbrType 12` incluído
   antes de H2 ser decidida.
