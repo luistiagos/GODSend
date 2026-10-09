@@ -1546,3 +1546,33 @@ Aberta em `C:\projects\retrobatnew` (nao no Downloader, como a frase de abertura
 **Fazer:** no Downloader, `.claude/skills/pipeline-correcao-bugs/{projeto.json,projeto.md}`, `docs/bugs/open/README.md`,
 `docs/bugs/retest/README.md` (com `## Status`; `closed/` faz o papel de `done/`); na fonte, `DESTINOS` += Downloader;
 `sync_copias.py --check` (falta) e `--commit`; `preflight --skip-spawn`. Remover a worktree de medida e `C:\projects\.bugfix-xbox360`.
+
+**Decisao do dono a mais (no meio da operacional):** eu tinha dito "conflito raro" no CHANGELOG; nao e (toda lane insere
+logo abaixo de `## [Unreleased]`). Escolha do dono: **`.gitattributes` com `CHANGELOG.md merge=union`** no Downloader.
+Provado num repo temporario: duas branches inserindo no mesmo ponto -> `git rebase` com CONFLITO sem o atributo, `ok` com
+ele, as duas linhas presentes.
+
+**T4 do Downloader FEITA, menos o trust (2026-10-09 ~14:30).** Downloader `main` publicado (`002d3c8..bab1af8`;
+`origin/main...main` = `0 0`), levando tambem os 24 commits de outras sessoes que estavam so locais (autorizado pelo dono):
+- `d5afe34` `projeto.json`, `projeto.md` (as 9 secoes de 22.10), `docs/bugs/{open,retest}/README.md`, `.gitattributes`;
+- `bab1af8` copia da fonte em `36ebcba` (`sync_copias.py --commit --destino <Downloader>`; a fonte estava limpa, sem `--fonte`).
+  `--check --destino <Downloader>` -> `[OK] ... igual a fonte`, rc 0.
+- Fonte: `36ebcba` (`DESTINOS` += Downloader). As copias do PS2Companion (7 `difere`) e do ARMSX2 (`DESIGN.md`) ficaram
+  como estavam: nao sao desta sessao; o proximo `sync_copias.py --commit` sem `--destino` as leva.
+- `preflight --skip-spawn` rodado da copia, em `C:\projects\Downloader-XBOX360-XEX-HDD-Games`: `[OK]` claude.exe, projeto
+  (lanes em `C:\projects\.bugfix-xbox360\lanes`), manual, "copia da skill igual a fonte", os 5 itens do `projeto.json`, `main`,
+  `claude agents`, "rodizio de contas desligado"; `[AVISO]` 26 commits locais e "a skill difere da de origin/main" (antes do
+  push); `[AVISO]` 3 arquivos reais nao commitados (`backendHttp.ts`, `backendClient.ts`, `backendReadiness.ts`: outra sessao).
+  **Controle positivo dos `gerados`:** os 7 `M` de runtime/Gradle (`.godsend.lock`, `pending_queue/...`, `.gradle/...`) NAO
+  aparecem entre os "reais". `[FALHA] trust` -> **acao do dono** (`claude.exe` num terminal no repo, aceitar, sair).
+- Worktree de medida removida (`git worktree list` so com a principal) e `C:\projects\.bugfix-xbox360` apagada (`Test-Path` False).
+
+**Pendencias do dono (Downloader):** trust; T5 (preflight com spawn). Fora de escopo, sem doc: o repo rastreia estado de
+runtime/IDE (`.godsend.lock`, `pending_queue/*.json`, 516 arquivos de `src/android-app/{.gradle,app/build}`) — tirar do indice e
+por no `.gitignore` e decisao dele; o pipeline ja os ignora por `gerados`.
+
+**Proxima: sessao D = Lemuroid**, passos 1-7 da 22.11, escrevendo em 22.11.D. Dois achados daqui que valem la: medir o
+maior caminho rastreado (`git ls-files | awk '{print length($0)}' | sort -n | tail -1`) contra o prefixo da lane
+(`<pipe_dir>\lanes\wt-planning\`) e escolher `pipe_dir` curto se passar de 259; e conferir que arquivos de runtime/IDE
+rastreados ficam em `gerados`. Frase de abertura: "Leia `C:\projects\retrobatnew\source\skills\pipeline-correcao-bugs\DESIGN.md`,
+secao 22.11 (e a 22.11.C), e faca a T4 do Lemuroid a partir do passo 1."
