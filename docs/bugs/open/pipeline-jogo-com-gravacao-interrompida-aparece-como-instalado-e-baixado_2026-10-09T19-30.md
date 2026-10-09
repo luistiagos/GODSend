@@ -25,3 +25,66 @@ usuario vai ter problemas achando que o jogo está funcional quando não está."
 3. Item da fila `pending_queue/0b51dd86eaf970cde0c9ce9a.json` (ver doc irmão): `state=Error`, destino `E:\`;
    pasta parcial `E:\Games\EA FC 26 Legacy Edition - 454109F4\` existe com parte dos arquivos (12.571 de 13.147
    só em `data/sceneassets/faces`; zip tem 13,15 GB descompactados, pasta mostrada com 3.81 GB).
+4. Raiz da pasta parcial no pendrive (`Get-ChildItem -Force "E:\Games\EA FC 26 Legacy Edition - 454109F4"`):
+   `audiodata/`, `data/`, `CardsDLLzf.xex.dll`, `accomplishments.ini` ... `ctlconfig.xml` — **sem `default.xex`**,
+   sem subpasta de TitleID, sem pasta de tipo de conteúdo (`00007000` etc.), sem `godsend.ini`.
+
+## Causa raiz
+
+As duas telas leem a **mesma** varredura de pastas do Electron, e nem ela nem a gravação têm noção de
+"instalação em andamento".
+
+1. **Fonte das duas telas.** "Jogos Instalados" (`UsbGamesPage.tsx:243`) e "Biblioteca Local"
+   (`BrowsePage.tsx:1360`) chamam `browseGetInstalledGames` -> IPC `browse:get-installed-games`
+   (`ipc/browseHandlers.ts:33`) -> `services/localGameScannerService.ts::scanUsbAndLocalGames`. O selo
+   "Baixado" e a lista da biblioteca local vêm dessa varredura. O outro lado da biblioteca local,
+   `GET /browse?platform=local` (`interfaces/http/handlers.go:74`), só lista `Transfer/` do PC
+   (`ScanTransferFolder`) — não contém o EA FC.
+2. **O scanner aceita a pasta só pelo nome.** `localGameScannerService.ts::parseGameFolder`: o nome
+   `"EA FC 26 Legacy Edition - 454109F4"` casa `NAME_TITLE_ID_REGEX` e preenche `titleId`; a "validação estrita"
+   (`if (!ini && !isDefaultXex && !isGodSub && !titleId) return null`) passa porque `titleId` existe, e o formato
+   cai em `god` (`else if (isGodSub || titleId) format = "god"`) — por isso o card mostra **GOD** num jogo XEX
+   sem `default.xex`. Um TitleID tirado do nome da pasta não prova que existe jogo nela.
+3. **A gravação escreve direto na pasta final, sem marca.** `services/pipeline/local_install.go::InstallXEXLocal`
+   / `InstallGameLocal` / `InstallContentLocal` chamam `local_resilient.go::copyTreeLocal(src, base, ...)` com
+   `base` = `Games/<nome> - <TitleID>` (ou `Content/0000000000000000/<TID>/<tipo>`). `copyTreeLocal` grava arquivo
+   por arquivo em `base` (o temporário fica em `.xbox-downloader/copy-staging`, mas cada arquivo pronto já vai para
+   o lugar final) e, em erro, só retorna (`return fmt.Errorf(...)`) — nada no destino diz que ficou pela metade.
+   A fila sabe (`pending_queue/*.json`, `state=Error`), o pendrive não.
+4. **Ordem de gravação expõe o jogo ao console também.** `buildLocalCopyManifest` usa `filepath.Walk` (ordem
+   lexical): `data/` vem antes de `default.xex`, e no GOD o cabeçalho `<hash>` vem antes de `<hash>.data/`. Num
+   XEX interrompido depois do `default.xex`, ou num GOD interrompido no `.data`, o Aurora listaria um jogo que não
+   inicia. (No caso relatado o `default.xex` ainda não tinha sido gravado.)
+5. **Cache do scanner.** `cachedGameInfo` guarda um jogo válido por 10 min (`GAME_INFO_TTL_MS`); qualquer checagem
+   de "em andamento" tem de rodar a cada varredura, fora desse cache, senão uma reinstalação sobre pasta já
+   conhecida continua aparecendo.
+
+## Hipóteses descartadas
+
+- **Backend lista o jogo pela pasta `Ready\EA FC 26 Legacy Edition` (download preservado):** não —
+  `/browse?platform=local` só varre `Transfer/` (`handlers.go:74`, `ScanTransferFolder`).
+- **Marca dentro da pasta seria apagada pela reorganização FAT32:** não — `rebuildSaturatedFATFolder` só apaga
+  arquivos regulares do manifesto e sobras `.xbox-companion-part`; o resto é mantido e contado.
+- **Mostrar o jogo como "incompleto" em vez de esconder:** recusado pelo pedido do dono ("só deve aparecer quando
+  estiver pronto para jogar").
+
+## Correção planejada
+
+- **Backend (`local_resilient.go::copyTreeLocal`)**: antes do primeiro arquivo, gravar
+  `<base>/.xbox-companion-installing` (texto com jogo e hora); apagar só depois do `FlushVolumeBuffers` final com
+  sucesso; em qualquer erro/cancelamento, a marca fica. Ordenar o manifesto para gravar por último os pontos de
+  entrada que o Aurora usa: `default.xex` na raiz de `base` e o cabeçalho GOD (arquivo com irmão `<nome>.data/`).
+- **Electron (`localGameScannerService.ts`)**: (a) `scanGamesDirectory` pula pasta com a marca, checando a cada
+  varredura antes do cache; `parseContentTitleFolder`/`scanContentDirectory` pula `<TID>` cuja pasta de tipo tenha
+  a marca; (b) `parseGameFolder` deixa de aceitar pasta só pelo TitleID do nome: exige `default.xex`,
+  `godsend.ini`, subpasta de tipo de conteúdo, subpasta de TitleID ou pacote STFS. (b) também esconde a pasta
+  parcial que já está no pendrive do dono, gravada por versão antiga sem marca.
+
+Fora do escopo (registrar à parte se preciso): FTP direto no console não passa por `copyTreeLocal`; pasta parcial
+de job cancelado fica oculta e ocupa espaço até nova tentativa ou remoção manual.
+
+## Tasks
+| # | task | commit | estado | modelo | revisao |
+|---|---|---|---|---|---|
+| T1 | scanner: pular pasta com marca de instalação e não aceitar pasta só pelo TitleID do nome (teste em `tests/unit/localGameScannerService.test.cjs`) | -- | -- | -- | -- |
+| T2 | copyTreeLocal: marca `.xbox-companion-installing` durante a gravação + pontos de entrada por último (teste Go em `local_resilient_test.go`) | -- | -- | -- | -- |
