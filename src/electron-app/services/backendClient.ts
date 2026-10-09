@@ -27,6 +27,7 @@ import {
 } from "./settingsService";
 import { normalizeIACookiePair } from "./iaCookie";
 import { reportError } from "../infrastructure/telemetry";
+import { markBackendStarting, markBackendListening, markBackendStopped } from "../infrastructure/backendReadiness";
 
 const GODSEND_LISTEN_PORT_RE = /GODSEND_LISTEN_PORT=(\d+)/;
 const GODSEND_FTP_COMPLETE_PREFIX = "GODSEND_FTP_COMPLETE:";
@@ -157,6 +158,7 @@ function startGodsend(): void {
   }
 
   appendAppEvent("BACKEND", `spawned pid=${godsendProcess.pid}`);
+  markBackendStarting();
 
   let sessionEnded = false;
   const endBackendSession = (reason: string, code: number | null, signal: string | null) => {
@@ -178,6 +180,7 @@ function startGodsend(): void {
             writeConfig({ serverPort: p });
             appendAppEvent("CONFIG", `serverPort=${p} (auto, requested port in use)`);
           }
+          markBackendListening();
         }
         if (line.startsWith(GODSEND_FTP_COMPLETE_PREFIX)) {
           const jsonStr = line.slice(GODSEND_FTP_COMPLETE_PREFIX.length);
@@ -208,12 +211,14 @@ function startGodsend(): void {
 
   godsendProcess.on("error", (error: Error) => {
     endBackendSession("spawn_error", null, null);
+    markBackendStopped();
     addOutputLine(`[ERROR] Failed to start process: ${error.message}`);
     godsendProcess = null;
   });
 
   godsendProcess.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
     endBackendSession("process_exit", code, signal);
+    markBackendStopped();
     addOutputLine(
       `[INFO] Process closed (code=${code}, signal=${signal || "none"})`
     );

@@ -1,6 +1,7 @@
 import http from "http";
 import { getConfiguredServerPort } from "../services/settingsService";
 import type { BackendResponse } from "./backendFailure";
+import { waitForBackendListening } from "./backendReadiness";
 
 // The Go backend listens on IPv4. Resolving localhost to ::1 can refuse a
 // connection even while the backend is running normally on 127.0.0.1.
@@ -35,7 +36,10 @@ function timeoutError(url: string, port: number, timeoutMs: number): Error {
  * the backend signals failure with a 4xx/5xx plus a JSON body, so a caller that
  * only looks at the body silently treats every failure as a success.
  */
-export function backendGetWithStatus(urlPath: string): Promise<BackendResponse> {
+export async function backendGetWithStatus(urlPath: string): Promise<BackendResponse> {
+  // A backend we just spawned may still be clearing old scratch before it
+  // listens. Read the port after the wait: the listen line can change it.
+  await waitForBackendListening();
   const port = getConfiguredServerPort();
   const url  = `http://${BACKEND_HOST}:${port}${urlPath}`;
   return new Promise((resolve, reject) => {
@@ -67,7 +71,8 @@ export function backendGet(urlPath: string): Promise<string> {
  * Fire a POST request with a JSON body to the local Go backend and resolve
  * with the parsed JSON response. Rejects on network error or timeout.
  */
-export function backendPost(urlPath: string, body: object, timeoutMs = 600000): Promise<any> {
+export async function backendPost(urlPath: string, body: object, timeoutMs = 600000): Promise<any> {
+  await waitForBackendListening();
   const port    = getConfiguredServerPort();
   const url     = `http://${BACKEND_HOST}:${port}${urlPath}`;
   const payload = JSON.stringify(body);
