@@ -189,6 +189,8 @@ explica o caso 1**, porque o disco da cliente já está em MBR, com partição �
 - **H2 — o byte de tipo da partição no MBR não é FAT32** (`0x0B`/`0x0C`). O `Format-Volume` reformata a partição
   existente, e **não verifiquei** se ele reescreve esse byte (nem o `fat32format`). Teste no PC, sem formatar nada:
   `Get-Partition -DriveLetter G | Format-List MbrType,Offset,Size` (12 = FAT32 LBA; 7 = NTFS/exFAT).
+  *(2026-10-08, VHD: partindo de tipo 7, `Format-Volume` e `fat32format` gravaram o tipo 12 sozinhos. Isso
+  enfraquece H2, mas não a descarta: falta pendrive real e `format.com`. Ver "Teste em VHD".)*
 - **H3 — setor lógico diferente de 512 bytes.** Teste:
   `Get-Disk -Number <n> | Format-List LogicalSectorSize,PhysicalSectorSize,Model,FirmwareVersion`.
 - **H4 (caso 2) — FAT32 de ~2 TB.** HD de 222 GB em FAT32 é lido (`[127275]`), mas não há caso lido acima disso. O
@@ -381,7 +383,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
 | T1 | portão de layout (MBR, 1 partição, tipo FAT32, setor 512, ≤ 2 TiB) nos dois caminhos do preparo | `a6ac2df` | commitado, sem release | claude-opus-5-5 | -- |
-| T2 | formatador volta a garantir MBR e partição única, com conferência no script | `5c08a61` | commitado, sem release; falta o teste em hardware | claude-opus-5-5 | -- |
+| T2 | formatador volta a garantir MBR e partição única, com conferência no script | `5c08a61` | commitado, sem release; VHD verde (7 cenários); falta o teste em hardware | claude-opus-5-5 | -- |
 | T3 | arquivo de layout do preparo em `.xbox-downloader/` | -- | -- | -- | -- |
 | T4 | telemetria do preparo concluído com o layout (depende do bug de telemetria do preparo) | -- | -- | -- | -- |
 | T5 | decidir H1–H3 no chamado #153 | -- | -- | -- | -- |
@@ -458,6 +460,67 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 Em cada um, conferir no log do formatador `Layout de chegada: GPT` → `Layout final: MBR, 1 particao, tipo 12`,
 e no Xbox a linha *"Dispositivo USB — N GB livres"*.
 
+### Teste em VHD — passo 1 da passagem de bastão (2026-10-08, 2 rodadas elevadas)
+
+**Ferramenta** (versionada): [`src/electron-app/scripts/vhd-format-test/`](../../../src/electron-app/scripts/vhd-format-test/).
+
+- `generate.cjs` gera um script por cenário com o `buildGuardedWindowsFat32Script` **compilado**. Usa o
+  `fat32format.exe` de `dist/win-unpacked` (mesmo SHA-256 de `dist/tools` e `dist/win-ia32-unpacked`). GUID e
+  capacidade saem com valores de mentira.
+- `run-elevated.ps1`, elevado:
+  - cria um VHDX dinâmico (`diskpart create vdisk` + `attach`) e confere que o disco é `File Backed Virtual` e um
+    número novo;
+  - monta o layout de chegada e troca GUID e capacidade pelos reais;
+  - **só na cópia de teste**, troca `$disk.BusType -ne 'USB'` por
+    `($disk.BusType -ne 'File Backed Virtual' -or $diskNo -ne <n do VHD>)`. Cada troca precisa casar exatamente
+    uma vez, senão aborta;
+  - roda o script no `System32\WindowsPowerShell\v1.0\powershell.exe`, confere o disco por fora (`Get-Disk`,
+    `Get-Partition`, `Get-Volume`) e desmonta e apaga o VHD.
+- `generate.cjs --verify` cobra, por cenário: exit 0, MBR, 1 partição, tipo 11/12, FAT32,
+  `readFormattedPartitionBytes(log) == Get-Partition.Size`, se a tabela foi recriada ou não, e a linha esperada
+  no log.
+
+Comandos: `npx tsc`; `node scripts/vhd-format-test/generate.cjs <dir>`; elevado
+`powershell -File scripts/vhd-format-test/run-elevated.ps1 -WorkDir <dir>`; `node scripts/vhd-format-test/generate.cjs --verify <dir>`.
+
+**Resultado da 2ª rodada (7 cenários, `verify` com exit 0; a 1ª rodada, S1–S5, deu o mesmo resultado):**
+
+| | Chegada (lida pelo harness) | Caminho no log | Final | `Particao final` |
+|---|---|---|---|---|
+| S1 | 8 GB, **GPT**, 2 partições (MSR 16 MB + FAT32) | `disco GPT, nao MBR` → `diskpart clean` + `convert mbr` + `format fs=fat32` | MBR, 1, tipo 12, FAT32 `BADAVATAR` | 8 587 837 440 = `Get-Partition` |
+| S2 | 8 GB, MBR, **2 partições** (FAT32 4 GB com letra + NTFS 2 GB sem letra) | `2 particoes no disco` → mesmo `diskpart` | MBR, 1, tipo 12; a partição cresceu de 4 GB para o disco inteiro | 8 587 837 440 = `Get-Partition` |
+| S3 | 8 GB, MBR, 1 partição NTFS **tipo 7** | sem recriar: `Format-Volume FAT32` | MBR, 1, **tipo 12** | = `Get-Partition` |
+| S4 | 40 GB, **GPT**, MSR + NTFS | ramo > 32 GB: `Recriando a tabela…` (partição crua) → `fat32format` | MBR, 1, tipo 12, FAT32, cluster de 32 KB | 42 947 575 808 = `Get-Partition` |
+| S5 | 40 GB, MBR, 1 partição NTFS tipo 7, **montada** | sem recriar: `fat32format` direto no volume montado | MBR, 1, **tipo 12** | = `Get-Partition` |
+| S6 | igual a S3; a cópia de teste remarca a partição como **tipo 7 depois de formatar**, logo antes da conferência final | `Particao marcada com tipo 7, nao FAT32; corrigindo para 12` | MBR, 1, tipo 12, volume FAT32 continua montado com a letra | = `Get-Partition` |
+| S7 | igual a S1; a cópia de teste **tira o `Update-Disk`** antes da conferência final | igual a S1 | MBR, 1, tipo 12 | = `Get-Partition` |
+
+Cada cenário levou de 5 a 9 s. Os discos ficaram `1, 0, 2` antes e depois, e todos os VHDs foram apagados.
+
+**O que isto prova:**
+
+- o caminho que nunca tinha rodado funciona elevado nos dois ramos. A tabela é recriada para GPT (S1, S4) e para
+  contagem ≠ 1 (S2). A conferência final passa, e `Particao final` bate com o disco. `readFormattedPartitionBytes`
+  lê a linha, e em S2 o tamanho novo difere do medido antes (4 GB → 8 GB), justamente o caso que o
+  `waitForFormattedDevice` precisava receber;
+- `Set-Partition -MbrType 12` funciona **com o volume FAT32 montado**: não desmonta nem perde a letra (S6);
+- **H2 enfraquecida** (não descartada): partindo de tipo 7, `Format-Volume` (S3) e `fat32format` (S5) gravaram o
+  tipo 12 sozinhos. O `format.com` não foi exercitado, porque só roda quando os dois falham. Em pendrive real
+  nada mudou: lá H2 continua não testada;
+- `Update-Disk` **não foi necessário** no VHD (S7): o `Get-Disk` do mesmo processo já viu o `diskpart`. Fica no
+  script, porque é barato e o pendrive real pode ter cache diferente;
+- no VHD, `fat32format` gravou no volume NTFS montado sem `GetLastError()=5` (S5). O acesso negado descrito no
+  comentário de `fat32Format.ts:405-411` é de pendrive real; o VHD não serve de prova contra ele.
+
+**Continua sem prova:** pendrive USB real (o guarda `BusType = USB` de produção, cache de mídia removível, o
+modal "Formate o disco"); o build 32 bits (WOW64); a leitura no Xbox. São o passo 2 (hardware), critério de
+fechamento de T2.
+
+**Achado fora do escopo, registrado à parte:** o script elevado é gravado em UTF-8 sem BOM, e o PowerShell 5.1 o
+lê como ANSI. Nos logs dos 7 cenários, `Formatação FAT32 concluída` saiu como `FormataÃ§Ã£o FAT32 concluÃ­da`.
+As mensagens de `throw` com acento chegam ao usuário do mesmo jeito. Ver
+[`electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40.md`](electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40.md).
+
 ## Passagem de bastão (2026-10-08, atualizada no fim da sessão de T6)
 
 - **Feito:** T1 `a6ac2df` (+ `5cb88f5`), T2 `5c08a61`, T6 (docs do repo) `8e458ef`, docs do bug
@@ -470,7 +533,7 @@ e no Xbox a linha *"Dispositivo USB — N GB livres"*.
   `requireXboxReadableLayout`, no `if (layout.verdict === "unknown")`; (b) `Set-Partition -MbrType 12` incluído
   antes de H2 ser decidida.
 - **Próximo passo exato, escolher um:**
-  1. **Teste em VHD (precisa de 1 UAC do dono):** script de teste que cria um VHD, converte para GPT, roda o
+  1. ~~**Teste em VHD**~~ **feito em 2026-10-08, 7/7 verdes** (ver "Teste em VHD", acima): script de teste que cria um VHD, converte para GPT, roda o
      `buildGuardedWindowsFat32Script` gerado com o guarda de `BusType = USB` relaxado **só na cópia de teste**
      e confere `Get-Disk` (MBR), `Get-Partition` (1, tipo 12) e a linha `Particao final`. Prova o caminho
      recriado, a conferência, o `Set-Partition` e o `Update-Disk`.
@@ -495,3 +558,10 @@ antes de qualquer formatador; ramo por `$targetBytes`; conferência final e `Par
 `fixedBadAvatarPreparationService.ts::requireXboxReadableLayout`; `readWindowsUsbDiskLayout` tem um único
 chamador (`grep`). **Resta de T6:** a orientação do suporte (agente de WhatsApp/manual), fora deste repo.
 Próximos passos seguem 1, 2 e 4 acima.
+
+**Adendo (2026-10-08, sessão do teste em VHD):** passo 1 feito. Foram duas rodadas elevadas: 5 cenários e
+depois 7, porque na 1ª o `Set-Partition` nunca rodou e o `Update-Disk` não foi isolado. As duas deram verde. O
+detalhe está em "Teste em VHD". A ferramenta ficou versionada em `src/electron-app/scripts/vhd-format-test/`
+e pode ser rodada de novo em qualquer mudança do formatador. O código de produção não mudou. **Próximo passo:**
+o 2 (hardware, critério de fechamento de T2), depois T4/T3/T5. Novo bug fora do escopo: acentos corrompidos nas
+mensagens do formatador elevado.
