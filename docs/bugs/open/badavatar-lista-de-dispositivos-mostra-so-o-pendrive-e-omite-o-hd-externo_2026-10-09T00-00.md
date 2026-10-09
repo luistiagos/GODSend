@@ -93,3 +93,31 @@ limita isso a cada troca de letra/serial (mais 15 s de acomodação). Não roda 
 
 Prova ponta a ponta: no app buildado, com o pendrive e o HD externo conectados, o dropdown mostra os dois.
 Controle: só o pendrive mostra só o pendrive, e só o HD mostra só o HD.
+
+## Correção aplicada
+
+Commit `0a719db`, conforme o plano, em `infrastructure/windowsUsbDeviceService.ts`:
+
+- `ENUMERATE_REMOVABLE_SCRIPT` emite `{ RootPath, DriveType: 'Fixed', FixedDriveMarker: $true }` para cada unidade
+  `Fixed` montada que não é o `$env:SystemDrive`. O marcador usa uma flag explícita, e não "linha sem `Label`",
+  para não confundir com a linha física do HD (também `DriveType: Fixed`).
+- `enumerateSafeWindowsUsbDevices`: `parseNativeOutput` separa marcadores e removíveis, e `finishNative` roda a
+  física quando há marcador e acrescenta as letras que ainda não estão na lista. A falha da física fica só no log
+  (`enumeracao fisica de HD USB falhou; listando so os removiveis`). Vale também para a nova tentativa
+  (`recoverNativeListing`).
+- `isFixedDriveMarker` filtra os marcadores também em `revalidateWithScript`.
+
+## Testes executados
+
+- `tests/unit/usbFixedDriveMerge.test.cjs` (novo, PowerShell simulado): **5/5 verdes**. Pendrive + HD -> `E:\`, `F:\`,
+  com o pendrive mantido como linha nativa (fingerprint inalterado); revalidação do HD com pendrive conectado;
+  controle sem `Fixed` -> só a nativa roda; física falhando -> mantém o pendrive; só marcadores -> cai na física.
+- **Contraprova:** com o patch revertido (`git apply -R`), o mesmo arquivo dá **4 falhas e 1 verde** (o controle).
+- Script nativo real nesta máquina: devolve o marcador `D:\` (NVMe interno), sem `C:\`, e a linha `E:\`.
+  `enumerateSafeWindowsUsbDevices(true)` real devolve só `E:\`, o que está certo: a física roda por causa do `D:`
+  e não acha nenhum outro USB.
+- Suíte `node --test tests/unit/*.test.cjs`: 279/282. As 3 falhas (`fat32FormatGuard`, `loopAwareTimeout`) passam
+  21/21 rodando os arquivos sozinhos. São testes de tempo sob carga e não tocam esta área.
+- **Pendente: prova ponta a ponta com o HD externo real.** Nesta máquina o Windows não enxerga o HD agora
+  (ver Evidência). Também confere a hipótese do UAS: se o `Get-Disk` mostrar o HD com `BusType` diferente de `USB`,
+  a física não o acha, e é outra correção.
