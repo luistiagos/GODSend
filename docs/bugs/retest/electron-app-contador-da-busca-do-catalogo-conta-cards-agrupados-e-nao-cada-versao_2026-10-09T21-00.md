@@ -38,5 +38,17 @@ sem considerar o agrupamento.
 
 - `npx tsc --noEmit -p .` em `src/electron-app`: sem erros.
 - `npx tsc --noEmit -p renderer/tsconfig.json`: sem erros.
-- Falta: abrir o catálogo no app e conferir que o número ficou **maior** que 2731 (contraprova: um jogo com
-  várias regiões, ao ser filtrado, tem tantas versões quantas o número passou a somar).
+- Contagem medida no backend que está rodando (`127.0.0.1:8082`), Xbox 360, aplicando o mesmo
+  `getBaseTitle`/`getComparisonKey` do `BrowsePage.tsx` sobre `/browse` e o agrupamento de discos de `/browse/releases`:
+
+  | Provedores no `/browse` (`priority`) | Nomes brutos | Cards agrupados (contagem antiga) | Versões (contagem nova) |
+  |---|---|---|---|
+  | `huggingface,ia,minerva` (padrão) | 3114 | 2731 | 3027 |
+  | `ia,minerva` | 2194 | 1957 | **2107** |
+
+- O app aberto pelo dono mostrou **"Filtrar 2107 títulos…"**. Esse é o valor novo com `ia,minerva`, em que a
+  contagem antiga daria 1957. Ou seja, o app já usava a correção (o bundle `renderer-dist/assets/index-7G1dg0Nx.js`
+  contém `releases.length,0`). O dono achou que nada tinha mudado porque o número caiu em relação aos 2731 do
+  primeiro print. Ele caiu porque, nessa carga, o catálogo do HuggingFace não entrou na lista. Com os três
+  provedores, o valor esperado é 3027.
+- Falta: recarregar o catálogo do Xbox 360 com os três provedores e conferir **3027**.
