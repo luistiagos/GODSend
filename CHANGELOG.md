@@ -9,6 +9,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Contador da busca do catálogo conta cada versão, não o card agrupado (`src/electron-app/renderer/components/BrowsePage.tsx::totalReleases`)**
+  - Antes: "Filtrar N títulos…" usava `uniqueBaseTitles.length`, ou seja, um por grupo de `groupedGames` (chave `getComparisonKey(getBaseTitle(...))`, que tira `(USA)`, `(Europe)` etc.). Um jogo com EU, JP e USA contava 1.
+  - Agora: soma `item.releases.length` de todos os grupos. Cada região/versão conta 1; um lançamento de vários discos continua contando 1, porque é um único download. A lista de cards e o filtro não mudam.
+
 ## [2.12.110] - 2026-10-09
 
 ### Fixed

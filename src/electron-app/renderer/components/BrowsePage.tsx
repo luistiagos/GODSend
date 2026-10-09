@@ -1513,6 +1513,14 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
     return items.sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
   }, [groupedGames]);
 
+  // The search bar counts every release (each region/version the user can pick), not the
+  // grouped cards: a game with EU, JP and USA versions is three titles. A multi-disc release
+  // is still one, because it is a single download.
+  const totalReleases = useMemo(
+    () => uniqueBaseTitles.reduce((sum, item) => sum + item.releases.length, 0),
+    [uniqueBaseTitles],
+  );
+
   const filteredBaseTitles = useMemo(() => {
     if (!filter.trim()) {
       return uniqueBaseTitles;
@@ -1710,7 +1718,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
               ref={filterRef}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder={`Filtrar ${uniqueBaseTitles.length} título${uniqueBaseTitles.length === 1 ? "" : "s"}…`}
+              placeholder={`Filtrar ${totalReleases} título${totalReleases === 1 ? "" : "s"}…`}
               className={cn(
                 "w-full pl-8 pr-3 py-1.5 text-[12px] rounded-md",
                 "bg-muted border border-border text-foreground placeholder:text-muted-foreground",
