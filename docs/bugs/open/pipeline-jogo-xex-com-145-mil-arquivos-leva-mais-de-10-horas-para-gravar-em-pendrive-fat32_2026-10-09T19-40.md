@@ -8,7 +8,8 @@
   a alternativa que sobra (gravacao FAT32 mais barata por arquivo) ainda nao foi medida
 - **Estado:** prova manual (passo 1) executada em 2026-10-09 ~20:20: **este jogo nao cabe no formato
   XDVDFS/GDFX**, entao nao existe GOD dele que o console leia inteiro. Nada gravado no pendrive, nada
-  implementado. Proximo passo na secao "Proxima sessao" (revisada)
+  implementado. Proximo passo na secao "Proxima sessao" (revisada). 2026-10-09 ~21:05: novo passo 1
+  analisado e instrumento de medicao pronto; medicao aguardando pendrive de teste (secao "Passo 1")
 
 ## Sintoma
 
@@ -148,16 +149,96 @@ Os scripts da prova ficaram so no scratchpad da sessao; a regra cabe aqui:
   ordinal 0, entrada em `ordinal*4`, `left`/`right` u16 nos bytes 0-3; comparar os nomes visitados com a
   listagem da pasta de origem.
 
+## Passo 1 — analise do codigo e bloqueio da medicao (2026-10-09 ~20:45)
+
+### Simbolos abertos (inteiros)
+
+- `local_resilient.go::copyTreeLocal` (551-730): por arquivo, chama `localFileMatches(dst)` e depois
+  `copyLocalEntryFunc`. Na retomada, todo arquivo que ja existe no destino com o tamanho certo e
+  **re-hasheado** (origem e destino, SHA-256) — a cada retomada, ~4 GB lidos do pendrive neste jogo. No fim,
+  `helpers.FlushVolumeBuffers(root)` e a remocao de `.xbox-companion-installing`.
+- `local_resilient.go::copyLocalEntry` (408-503), sequencia por arquivo novo: `Remove(dst+".xbox-companion-part")`,
+  `Stat`/`Remove` do staging, 2x `MkdirAll`, `OpenFile(staging, O_TRUNC)`, copia com buffer de 4 MB (hash junto),
+  **`out.Sync()`**, `Close`, `Stat(staging)` (confere tamanho), `Remove(dst)`, `Rename(staging, dst)` (ate 5x).
+  Em erro: apaga o staging e devolve o erro; `copyTreeLocal` decide (FAT cheio -> `rebuildSaturatedFATFolder`;
+  dispositivo trocado -> espera; 3 retentativas).
+- `helpers/freespace_windows.go::FlushVolumeBuffers` (71-107): abre `\\.\E:` com GENERIC_READ|WRITE; **se falhar
+  (sem admin) devolve `nil` sem flushar**. O app roda sem admin (conferido nesta maquina:
+  `IsInRole(Administrator)` = False), entao o flush de volume do fim da copia nao acontece; o que garante a
+  gravacao e o `out.Sync()` e o fechamento de cada arquivo (proximo item).
+- Politica de remocao do pendrive: nao ha `Classpnp\UserRemovalPolicy` em
+  `HKLM\SYSTEM\CurrentControlSet\Enum\USBSTOR\*` -> padrao do Windows, **remocao rapida**.
+- **fastfat em remocao rapida** (lido pela sessao `retrobatnew-e4` na amostra do WDK, Windows-driver-samples
+  `filesys/fastfat`, branch main — **nao** e o `fastfat.sys` instalado, e eu nao reli): `strucsup.c::FatInitializeVcb`
+  liga `VCB_STATE_FLAG_DEFERRED_FLUSH` em midia hotplug sem `WriteCacheEnableOverride`;
+  `cleanup.c::FatCommonCleanup`, com essa flag, ja descarrega o arquivo modificado **no fechamento** (e a FAT e a
+  pasta-pai se `FCB_STATE_FLUSH_FAT`); `flush.c::FatCommonFlushBuffers` (o `out.Sync()`) faz o mesmo e ainda repassa
+  `IRP_MJ_FLUSH_BUFFERS` ao dispositivo. Consequencias: (a) tirar so o `Sync` tende a ganhar pouco — o corte maior
+  provavel e o staging (criar e apagar uma entrada em outra pasta por arquivo); (b) em remocao rapida o `Close` ja
+  garante a gravacao, entao tirar o `Sync` nao deixa a copia sem garantia — so em "melhor desempenho"
+  (`WriteCacheEnableOverride=1`) o `Close` nao descarrega. **So a medicao decide** — por isso o instrumento abaixo
+  mede as variantes lado a lado, sem rebuild.
+
+### Hipotese de ganho, a confirmar na medicao
+
+O que sobra para cortar por arquivo, alem do `Sync`: a entrada criada no staging e apagada no rename (gravar
+direto no nome final elimina as duas). Gravar direto no destino nao volta a fragmentar a pasta (o problema da
+2.12.110 era o **nome temporario ao lado** do destino, com outro numero de entradas); o temporario em staging
+existe para a retomada e para o `default.xex` nao aparecer truncado — com o marcador
+`.xbox-companion-installing` e `orderEntryPointsLast`, so o ultimo arquivo (`default.xex`) precisa de staging.
+
+### Por que a medicao nao rodou
+
+As 20:40:44 o app do dono (godsend PID 34696) retomou a copia `LOCAL XEX: 144851 arquivos -> E:\Games\EA FC 26
+Legacy Edition - 454109F4`. O `E:` e o unico removivel conectado (`Win32_DiskDrive`: `USB DISK 2.0 USB Device`)
+e esta ocupado; medir nele agora distorce as duas medicoes e mexe no pendrive do dono sem autorizacao.
+
+### Instrumento pronto
+
+`src/server/services/pipeline/local_copy_bench_test.go` (`TestFAT32LocalCopyBench`): copia os primeiros N arquivos
+de uma pasta de origem para um volume FAT32 com 4 variantes — `atual` (o `copyLocalEntry` real; depois da mudanca,
+mede o codigo novo), `sem-sync`, `direto` (nome final, sem staging, sem Sync) e `direto-sync` — e imprime por
+variante: tempo, arquivos/min, MB/s, escritas no disco e escritas por arquivo (contador
+`Win32_PerfRawData_PerfDisk_LogicalDisk.DiskWritesPerSec` antes/depois). O tempo inclui a **drenagem**: depois do
+ultimo arquivo espera o contador ficar parado por 3 s, para a variante sem `Sync` nao ganhar empurrando escrita
+para depois do cronometro. Comando (pendrive de teste em `F:`, sem a copia do dono rodando no mesmo dispositivo):
+
+```powershell
+cd src/server
+$env:GODSEND_FAT32_TEST_DIR='F:\'
+$env:GODSEND_BENCH_SRC='C:\projects\Downloader-XBOX360-XEX-HDD-Games\Temp\EA FC 26 Legacy Edition_hf_ext\EA FC 26 Legacy Edition\data\sceneassets\kit'
+$env:GODSEND_BENCH_MAX_FILES='1000'
+go test ./services/pipeline/ -run TestFAT32LocalCopyBench -v -timeout 6h
+```
+
+Os 1.000 primeiros arquivos de `kit` somam 129 MB (~130 KB cada): pelas taxas da "Evidencia" (36-150 arq/min),
+7-28 min por variante. `GODSEND_BENCH_VARIANTS=atual,direto` escolhe e ordena as variantes;
+`GODSEND_BENCH_DRAIN_MAX` limita a drenagem (padrao 5m).
+
+Validacao do instrumento (2026-10-09 ~21:05, **so prova que roda**): `GODSEND_BENCH_ALLOW_NONFAT=1`, destino
+`%TEMP%` (SSD NTFS do sistema), 50 arquivos, `GODSEND_BENCH_DRAIN_MAX=4s`: as 4 variantes completam, a pasta de
+teste e apagada, `PASS` em 39,5 s. Os numeros dessa execucao **nao valem** (o disco do sistema nunca fica parado,
+entao as escritas contadas incluem as do Windows). Sem as variaveis o teste fica em `SKIP`; `go vet` limpo.
+
+### Reforco da prova GOD (sessao `retrobatnew-e4`)
+
+Limite que nao depende da ordem das entradas nem do empacotador: soma dos tamanhos das entradas
+(`(14 + nome + 3) & ~3`) menos a maior, sem padding de setor — `imgAssets\heads` >= 995.468,
+`sceneassets\faces` >= 710.208, `hair` >= 520.856, `sceneassets\heads` >= 405.244, contra o limite de 262.140
+(`hairlod` 255.028 e `kit` 225.632 cabem). Nenhum gerador de ISO/GOD representa essas 4 pastas, nao so o
+extract-xiso.
+
 ## Proxima sessao (revisada em 2026-10-09, depois da prova)
 
 O antigo passo 1 (prova manual) foi feito e derrubou a rota GOD para este jogo; o antigo passo 3 vira o
 principal.
 
 1. **Gravacao XEX mais barata por arquivo:** em `local_resilient.go::copyLocalEntry`, gravar direto no
-   destino e trocar o `out.Sync()` por arquivo por flush em lote. Antes de editar, abrir `copyLocalEntry` e
-   `copyTreeLocal` inteiros (esta analise so os citou) e medir num pendrive **de teste** (o `E:` do dono so
-   com autorizacao) com uma pasta de ~7 mil arquivos pequenos deste jogo (ex.: `data\sceneassets\kit`),
-   antes e depois. Metrica: arquivos/min e escritas/s no disco (mesmos contadores da secao "Evidencia").
+   destino e trocar o `out.Sync()` por arquivo por flush em lote. **Estado (2026-10-09 ~21:05):** funcoes
+   abertas e instrumento pronto (secao "Passo 1"); **falta so rodar a medicao**, bloqueada por hardware: plugar
+   um pendrive de teste (ou o dono autorizar o `E:` depois que a copia dele terminar) e rodar o comando da secao
+   "Instrumento pronto". Com os numeros: escolher a variante e so entao editar `copyLocalEntry` (manter staging
+   para o `default.xex`, ver "Hipotese de ganho"); a linha `atual`, rodada de novo, mede o codigo novo.
 2. **Medir o dispositivo, sem codigo:** o mesmo lote num pendrive USB 3.0 de marca e num HD externo. Se a
    ordem de grandeza mudar, orientar o cliente ("use pendrive USB 3.0 ou HD") pode resolver o caso extremo;
    decisao do dono.
