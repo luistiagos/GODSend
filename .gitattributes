@@ -1,0 +1,3 @@
+# Fixes em paralelo (pipeline-correcao-bugs) acrescentam entradas no mesmo ponto de [Unreleased]:
+# o driver nativo `union` junta as duas insercoes no merge/rebase em vez de parar em conflito.
+CHANGELOG.md merge=union

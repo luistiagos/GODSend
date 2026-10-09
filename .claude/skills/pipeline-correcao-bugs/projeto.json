@@ -1,0 +1,34 @@
+{
+  "_leia": "Config do PROJETO para o motor generico (scripts/pipeline.py). Nunca sobrescrita pela sincronizacao. Caminhos relativos a `raiz`; `{root}` e `{wt}` sao trocados nos cmd. Racional: DESIGN.md secao 22.11.C. `pipe_dir` CURTO de proposito: o repo rastreia caminhos de ate 203 caracteres (src/android-app/app/build) e o padrao estoura os 259 do Windows.",
+  "nome": "Downloader-XBOX360",
+  "pipe_dir": "../.bugfix-xbox360",
+  "remoto": "origin",
+  "base": "origin/main",
+  "rodizio_contas": false,
+  "commit_docs": "docs(bugs)",
+  "build": {
+    "cmd": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+            "Set-Location -LiteralPath '{wt}'; npm run build:server; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm --prefix src/electron-app run tsc; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm --prefix src/electron-app run renderer:typecheck; exit $LASTEXITCODE"],
+    "lock": "xbox-build",
+    "timeout_h": 1
+  },
+  "gerados": [
+    "^\\.godsend\\.lock$",
+    "^pending_queue/",
+    "^pending_ftp/",
+    "^src/android-app/(\\.gradle|app/build|build)/"
+  ],
+  "entradas_ignoradas": ["src/electron-app/node_modules", "dist/tools", "src/electron-app/assets/badavatar-1.1"],
+  "e2e": {"processos": ["godsend-windows-x64", "godsend-windows-ia32", "godsend", "godsend-backend"], "desktop": true},
+  "preflight": [
+    {"cmd": ["go", "version"], "msg": "go no PATH (build do servidor)"},
+    {"cmd": ["where", "npm"], "msg": "npm no PATH (build e testes do Electron)"},
+    {"existe": "src/electron-app/node_modules/.bin/tsc.cmd", "msg": "node_modules do Electron na arvore principal (copiado para cada lane)",
+     "fix": "npm install na raiz do repo (o postinstall instala o src/electron-app)"},
+    {"existe": "dist/tools/fat32format.exe", "msg": "dist/tools na arvore principal (aria2c/fat32format; copiado para cada lane, build sem rede)",
+     "fix": "npm run build:server na arvore principal (scripts/download-*.js baixa as ferramentas)"},
+    {"existe": "src/electron-app/assets/badavatar-1.1", "msg": "pacote BadAvatar na arvore principal (copiado para cada lane; o E2E de preparo grava ele)",
+     "fix": "npm --prefix src/electron-app run payload:update (reimporta o pacote; .gitignore)"}
+  ],
+  "proibido_na_sessao": "`npm run build:server`, `go build` nem `tsc` fora do helper (o `npm start`/Playwright da lane na etapa de teste e permitido: manual, secao Teste (E2E))"
+}
