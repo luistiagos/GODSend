@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"syscall"
 	"testing"
 	"time"
 
@@ -16,11 +15,6 @@ import (
 	"godsend/infrastructure/helpers"
 	"godsend/models"
 )
-
-// errorCannotMake is ERROR_CANNOT_MAKE: fastfat's answer when a directory
-// already has 65,536 entries of 32 bytes and a name needs a contiguous run
-// that is not there.
-const errorCannotMake = syscall.Errno(82)
 
 // fat32FacesNames reproduces the shape of EA FC 26's data/sceneassets/faces:
 // 7,238 names of 39 characters (4 entries each) and 5,908 of 40 (5 entries),
@@ -80,7 +74,7 @@ func TestFAT32LegacyPartSuffixExhaustsDirectory(t *testing.T) {
 			err = os.Rename(partial, dst)
 		}
 		if err != nil {
-			if !errors.Is(err, errorCannotMake) {
+			if !errors.Is(err, fatErrorCannotMake) {
 				t.Fatalf("arquivo #%d %s: esperava ERROR_CANNOT_MAKE, veio %v", i+1, name, err)
 			}
 			if i < 12000 {
