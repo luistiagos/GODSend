@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -603,6 +604,10 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 	if err := s.ensureFreeSpace(root, remainingSize); err != nil {
 		return fmt.Errorf("%w: %v", ErrLocalDelivery, err)
 	}
+	orderEntryPointsLast(entries)
+	if err := writeInstallInProgressMarker(dstDir, gameName); err != nil {
+		return fmt.Errorf("%w: marcar instalacao em andamento em %s: %v", ErrLocalDelivery, dstDir, err)
+	}
 	s.App.Logf("LOCAL %s: %d arquivos (%.2f GB) -> %s", label, len(entries), float64(totalSize)/1073741824, dstDir)
 
 	var doneBytes int64
@@ -718,7 +723,55 @@ entryLoop:
 		}
 	}
 	_ = helpers.FlushVolumeBuffers(root)
+	if err := os.Remove(filepath.Join(dstDir, installInProgressMarker)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("%w: concluir a instalacao em %s: %v", ErrLocalDelivery, dstDir, err)
+	}
 	return nil
+}
+
+// installInProgressMarker sits in the destination folder from before the first
+// file until the last one is flushed. Every return in between leaves it, so a
+// copy that failed or was cancelled stays marked: the Electron scanner
+// (localGameScannerService.ts, INSTALL_IN_PROGRESS_MARKER) does not list such a
+// folder as installed nor the game as downloaded. Without it a half-written
+// "<game> - <TitleID>" folder looked like a finished game by its name alone.
+// The FAT rebuild keeps it: rebuildSaturatedFATFolder removes manifest files only.
+const installInProgressMarker = ".xbox-companion-installing"
+
+func writeInstallInProgressMarker(dstDir, gameName string) error {
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return err
+	}
+	content := fmt.Sprintf("%s\n%s\n", gameName, time.Now().Format(time.RFC3339))
+	return os.WriteFile(filepath.Join(dstDir, installInProgressMarker), []byte(content), 0644)
+}
+
+// orderEntryPointsLast moves to the end the files the console uses to find a
+// game: default.xex at the top of the folder (XEX) and each GOD header, the
+// file next to its "<header>.data" folder. Lexical order wrote them early
+// (data/ < default.xex, header < header.data), so a copy that stopped midway
+// left the console a game it lists and cannot start.
+func orderEntryPointsLast(entries []localCopyEntry) {
+	dataOwners := make(map[string]bool)
+	for _, entry := range entries {
+		dir := strings.ToLower(filepath.Dir(entry.relativePath))
+		if strings.HasSuffix(dir, ".data") {
+			dataOwners[strings.TrimSuffix(dir, ".data")] = true
+		}
+	}
+	entryPoint := make(map[string]bool, 2)
+	for _, entry := range entries {
+		rel := strings.ToLower(entry.relativePath)
+		if rel == "default.xex" || dataOwners[rel] {
+			entryPoint[entry.relativePath] = true
+		}
+	}
+	if len(entryPoint) == 0 {
+		return
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		return !entryPoint[entries[i].relativePath] && entryPoint[entries[j].relativePath]
+	})
 }
 
 func (s *Service) copyFileLocal(src, dst, root, gameName, message string) error {
