@@ -38,6 +38,11 @@ var (
 	// ErrFAT32FileSizeLimit indicates a single file exceeds FAT32's 4 GB limit.
 	// Provider fallback should switch to an ISO/GOD provider rather than halting as a hardware fault.
 	ErrFAT32FileSizeLimit = errors.New("arquivo excede o limite de 4 GB do FAT32")
+	// ErrFAT32DirectoryLimit indicates a destination folder whose final names
+	// need more than FAT32's 65,536 directory entries. Like the 4 GB limit, it
+	// makes the fallback switch to an ISO/GOD provider: a GOD container never
+	// creates folders that large.
+	ErrFAT32DirectoryLimit = errors.New("pasta excede o limite de 65.536 entradas do FAT32")
 )
 
 const localDeviceIdentityFile = ".xbox-downloader/xbox-companion-device-id"
@@ -581,6 +586,13 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 				ErrFAT32FileSizeLimit, filepath.Base(entry.sourcePath), float64(entry.size)/(1024*1024*1024))
 		}
 	}
+	var manifestChildren map[string]map[string]string
+	if isFAT {
+		manifestChildren = localManifestChildren(dstDir, entries)
+		if err := checkFATDirectoryLimits(dstDir, manifestChildren); err != nil {
+			return err
+		}
+	}
 	remainingSize := totalSize
 	for i := range entries {
 		dst := filepath.Join(dstDir, entries[i].relativePath)
@@ -650,15 +662,17 @@ entryLoop:
 				// free entries long enough, and it never will without a rewrite.
 				folder := filepath.Dir(dst)
 				if rebuiltFolders[folder] {
-					return fmt.Errorf("%w: gravar %s: a pasta %s continua sem espaco para nomes depois de reorganizada: %v", ErrLocalDelivery, filepath.Base(entry.sourcePath), folder, copyErr)
+					s.App.Logf("LOCAL [%s]: pasta %s reorganizada e ainda sem entradas livres: %v", gameName, folder, copyErr)
+					return fmt.Errorf("%w: gravar %s: a pasta %s continua sem espaco para nomes depois de reorganizada (%s)", ErrLocalDelivery, filepath.Base(entry.sourcePath), folder, localWriteErrorText(copyErr))
 				}
 				rebuiltFolders[folder] = true
-				fits, rebuildErr := rebuildSaturatedFATFolder(folder, localManifestChildren(dstDir, entries)[folder])
+				fits, rebuildErr := rebuildSaturatedFATFolder(folder, manifestChildren[folder])
 				if rebuildErr != nil {
 					return fmt.Errorf("%w: reorganizar a pasta %s: %v", ErrLocalDelivery, folder, rebuildErr)
 				}
 				if !fits {
-					return fmt.Errorf("%w: gravar %s: a pasta %s nao cabe no limite de 65.536 entradas do FAT32: %v", ErrLocalDelivery, filepath.Base(entry.sourcePath), folder, copyErr)
+					// Files that are not the game's still occupy the folder.
+					return fmt.Errorf("%w: a pasta %s, somada aos arquivos que ja estavam nela, nao cabe no FAT32 do pendrive (jogos assim devem ser instalados no formato GOD)", ErrFAT32DirectoryLimit, folder)
 				}
 				restart := index
 				for i := 0; i < index; i++ {
@@ -700,7 +714,7 @@ entryLoop:
 				time.Sleep(time.Second)
 				continue
 			}
-			return fmt.Errorf("%w: gravar %s: %v", ErrLocalDelivery, filepath.Base(entry.sourcePath), copyErr)
+			return fmt.Errorf("%w: gravar %s: %s", ErrLocalDelivery, filepath.Base(entry.sourcePath), localWriteErrorText(copyErr))
 		}
 	}
 	_ = helpers.FlushVolumeBuffers(root)
@@ -753,7 +767,7 @@ func (s *Service) copyFileLocal(src, dst, root, gameName, message string) error 
 				time.Sleep(time.Second)
 				continue
 			}
-			return fmt.Errorf("%w: gravar %s: %v", ErrLocalDelivery, filepath.Base(src), err)
+			return fmt.Errorf("%w: gravar %s: %s", ErrLocalDelivery, filepath.Base(src), localWriteErrorText(err))
 		}
 		if err := s.waitForLocalDevice(root, expectedID, gameName); err != nil {
 			return err

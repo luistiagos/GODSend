@@ -17,6 +17,7 @@ func isFAT32LimitError(err error) bool {
 		return false
 	}
 	return errors.Is(err, ErrFAT32FileSizeLimit) ||
+		errors.Is(err, ErrFAT32DirectoryLimit) ||
 		strings.Contains(err.Error(), "excede o limite maximo de 4 GB") ||
 		strings.Contains(err.Error(), "incompativel com pendrive FAT32")
 }
@@ -191,7 +192,7 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			return
 		}
 		if isFAT32LimitError(err) {
-			s.App.Logf("FALLBACK WARNING: %s falhou por limite de 4 GB do FAT32 para %s — alternando para provedor ISO/GOD", p, gameName)
+			s.App.Logf("FALLBACK WARNING: %s falhou por limite do FAT32 para %s (%v) — alternando para provedor ISO/GOD", p, gameName, err)
 			recordError(p, err)
 			continue
 		}

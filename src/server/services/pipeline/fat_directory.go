@@ -2,7 +2,10 @@ package pipeline
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -53,10 +56,44 @@ func fatFitsShortName(name string) bool {
 	return true
 }
 
-// isFATDirectoryFull reports the directory-cap failure. Callers must have
-// established that the destination is a FAT volume.
+// isFATDirectoryFull reports the directory-cap failure. Errno 82 means
+// something else outside Windows, hence the GOOS guard.
 func isFATDirectoryFull(err error) bool {
-	return errors.Is(err, fatErrorCannotMake)
+	return runtime.GOOS == "windows" && errors.Is(err, fatErrorCannotMake)
+}
+
+// localWriteErrorText is the device error shown to the user. Go formats a
+// Windows errno in English; ERROR_CANNOT_MAKE in particular read as "The
+// directory or file cannot be created", which says nothing about the cause.
+func localWriteErrorText(err error) string {
+	if isFATDirectoryFull(err) {
+		return "o Windows recusou criar o arquivo porque a pasta atingiu o limite de 65.536 entradas do FAT32 (erro 82)"
+	}
+	return err.Error()
+}
+
+// checkFATDirectoryLimits fails, before any byte is written, when a folder of
+// the copy needs more entries as final names than a FAT directory holds.
+// Folders are checked in name order so the message is stable.
+func checkFATDirectoryLimits(dstDir string, children map[string]map[string]string) error {
+	folders := make([]string, 0, len(children))
+	for folder := range children {
+		folders = append(folders, folder)
+	}
+	sort.Strings(folders)
+	for _, folder := range folders {
+		need := fatFolderEntriesNeeded(children[folder])
+		if need <= fatMaxDirectoryEntries {
+			continue
+		}
+		shown, err := filepath.Rel(dstDir, folder)
+		if err != nil || shown == "." {
+			shown = filepath.Base(folder)
+		}
+		return fmt.Errorf("%w: a pasta '%s' do jogo tem %d itens que ocupam %d entradas de diretorio, acima do limite de %d do FAT32 do pendrive (jogos assim devem ser instalados no formato GOD)",
+			ErrFAT32DirectoryLimit, filepath.ToSlash(shown), len(children[folder]), need, fatMaxDirectoryEntries)
+	}
+	return nil
 }
 
 // localManifestChildren maps every destination folder of the manifest to the

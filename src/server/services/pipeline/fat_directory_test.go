@@ -3,7 +3,9 @@ package pipeline
 import (
 	"errors"
 	"os"
+	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -60,6 +62,9 @@ func TestLocalManifestChildrenListsFilesAndSubfolders(t *testing.T) {
 // copia por versoes que injetam ERROR_CANNOT_MAKE num arquivo.
 func fatRecoveryFixture(t *testing.T, failures func(name string, call int) bool) (*Service, string, string, string, map[string]int) {
 	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("ERROR_CANNOT_MAKE so existe no Windows")
+	}
 	source := filepath.Join(t.TempDir(), "source")
 	for rel, body := range map[string]string{
 		filepath.Join("aaa", "first.bin"):  "first",
@@ -158,5 +163,100 @@ func TestCopyTreeLocalGivesUpWhenRebuiltFATFolderStillFull(t *testing.T) {
 	}
 	if calls["faces/c.bin"] != 2 {
 		t.Fatalf("a pasta deveria ser reorganizada uma unica vez; c.bin tentado %d vezes", calls["faces/c.bin"])
+	}
+}
+
+// A pasta faces do EA FC 26 cabe como nomes finais (58.494 entradas); a mesma
+// forma com nomes mais longos nao cabe e e recusada antes de gravar.
+func TestCheckFATDirectoryLimits(t *testing.T) {
+	dstDir := filepath.Join("E:\\", "Games", "Jogo")
+	faces := filepath.Join(dstDir, "data", "sceneassets", "faces")
+	var entries []localCopyEntry
+	for _, name := range fatFacesNamesForTest() {
+		entries = append(entries, localCopyEntry{relativePath: filepath.Join("data", "sceneassets", "faces", name)})
+	}
+	children := localManifestChildren(dstDir, entries)
+	if need := fatFolderEntriesNeeded(children[faces]); need != 58494 {
+		t.Fatalf("faces deveria precisar de 58.494 entradas, contou %d", need)
+	}
+	if err := checkFATDirectoryLimits(dstDir, children); err != nil {
+		t.Fatalf("faces cabe como nomes finais: %v", err)
+	}
+
+	for i := 0; i < 1600; i++ { // +1.600 nomes de 5 entradas = 66.494
+		children[faces][fmt.Sprintf("face_9%05d_extra", i)] = fmt.Sprintf("face_9%05d_0_0_0_0_0_0_0_0_textures.rx3", i)
+	}
+	err := checkFATDirectoryLimits(dstDir, children)
+	if !errors.Is(err, ErrFAT32DirectoryLimit) {
+		t.Fatalf("esperava ErrFAT32DirectoryLimit, veio %v", err)
+	}
+	if !strings.Contains(err.Error(), "data/sceneassets/faces") || !strings.Contains(err.Error(), "66494") {
+		t.Fatalf("a mensagem deve nomear a pasta e a contagem: %v", err)
+	}
+	// O limite troca de provedor (ISO/GOD) em vez de parar a cadeia como falha de hardware.
+	wrapped := fmt.Errorf("Gravação local: %w", err)
+	if !isFAT32LimitError(wrapped) || isLocalStorageHalt(wrapped) {
+		t.Fatalf("limite de entradas deve alternar para ISO/GOD, nao interromper: %v", wrapped)
+	}
+}
+
+func fatFacesNamesForTest() []string {
+	names := make([]string, 0, 13146)
+	for i := 10000; i < 10000+7238; i++ {
+		names = append(names, fmt.Sprintf("face_%d_0_0_0_0_0_0_0_0_textures.rx3", i))
+	}
+	for i := 100000; i < 100000+5908; i++ {
+		names = append(names, fmt.Sprintf("face_%d_0_0_0_0_0_0_0_0_textures.rx3", i))
+	}
+	return names
+}
+
+// copyTreeLocal recusa a pasta grande demais antes de criar qualquer coisa no destino.
+func TestCopyTreeLocalRejectsOversizedFATFolderBeforeWriting(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source", "big")
+	if err := os.MkdirAll(source, 0755); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("n", 190) // 1 + ceil(194/13) = 16 entradas cada
+	for i := 0; i < 4200; i++ {      // 4.200 * 16 + 2 = 67.202
+		if err := os.WriteFile(filepath.Join(source, fmt.Sprintf("%s%04d", long, i)), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previousFAT := localIsFATVolume
+	t.Cleanup(func() { localIsFATVolume = previousFAT })
+	localIsFATVolume = func(string) bool { return true }
+
+	root := filepath.Join(t.TempDir(), "usb")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	deviceID, err := PrepareLocalDevice(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := app.NewApp()
+	a.XboxConnections.Store("Jogo", models.XboxConnection{Mode: "local", LocalRoot: root, LocalDeviceID: deviceID})
+	destination := filepath.Join(root, "Games", "Jogo")
+	err = (&Service{App: a}).copyTreeLocal(filepath.Dir(source), destination, root, "Jogo", "XEX")
+	if !errors.Is(err, ErrFAT32DirectoryLimit) {
+		t.Fatalf("esperava ErrFAT32DirectoryLimit, veio %v", err)
+	}
+	if _, statErr := os.Stat(destination); !os.IsNotExist(statErr) {
+		t.Fatalf("nada deveria ser criado no destino antes da recusa; err=%v", statErr)
+	}
+}
+
+func TestLocalWriteErrorTextTranslatesCannotMake(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("ERROR_CANNOT_MAKE so existe no Windows")
+	}
+	err := &os.LinkError{Op: "rename", Old: "a", New: "b", Err: fatErrorCannotMake}
+	text := localWriteErrorText(err)
+	if strings.Contains(text, "cannot be created") || !strings.Contains(text, "65.536 entradas do FAT32") {
+		t.Fatalf("erro 82 deveria aparecer em portugues com a causa: %q", text)
+	}
+	if other := errors.New("disk exploded"); localWriteErrorText(other) != "disk exploded" {
+		t.Fatal("outros erros passam como estao")
 	}
 }
