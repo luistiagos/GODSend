@@ -80,3 +80,96 @@ exemplo:
 Datas de gravação dos 619 arquivos: 233 em 01/09, 225 em 02/09, 59 em 03/09, o resto espalhado até 09/10.
 
 A classificação de cada grupo (legítimo x errado) e a contagem exata dos errados ficam para a investigação.
+
+## Causa raiz
+
+**O cache de capas em disco do usuário não tem versão nem validade, e é lido antes de qualquer resolução.**
+Capas gravadas por uma versão antiga do resolvedor (01–03/09) continuam servidas para sempre, mesmo depois
+que o resolvedor passou a achar a capa certa.
+
+A cadeia, aberta no código (2.12.110):
+
+1. O card do catálogo pede a capa pelo nome exibido: `renderer/components/BrowsePage.tsx::LocalGameCard`
+   (`:1119`), `openGame` (`:1417`) e `VersionSelectDialog` (`:1002`) → `preload.ts:93` → `browse:fetch-cover`.
+2. `ipc/browseHandlers.ts::fetchCover` (`:180`): `base = baseTitleForCover(gameName)`; consulta o mapa em memória
+   e **logo em seguida `getCachedCoverFromDisk(base)`** (`:188`). Achou arquivo → devolve, sem nenhuma busca.
+   Só sem arquivo roda a cascata (XboxUnity → Microsoft Store → Wikipedia) e grava o resultado com
+   `saveCoverToDisk(base, ...)` (`:251`). Em erro: `catch { return { ok: false } }` — card sem capa, nada gravado.
+3. `services/coverArtService.ts::getCachedCoverFromDisk` (`:367`): chave = `base` com `[^a-zA-Z0-9_-]` → `_`,
+   minúsculas. Procura `<chave>.jpg|.png` em `resources/cache/covers` (empacotado), `%APPDATA%\Xbox 360
+   Companion\cache\covers` (`getDiskCoverCacheDir`) e nas pastas do repo. **Nenhuma checagem de data, versão ou
+   origem.** O único descarte é `purgeCorruptedLegacyCoverCache` (`:346`): lista fixa de prefixos
+   (`LEGACY_CORRUPTED_CACHE_PREFIXES`, só GTA e LEGO), aplicada uma vez por processo.
+4. Para `Air Conflicts Pacific Carriers` (nome HF) a chave é `air_conflicts_pacific_carriers` → arquivo de
+   01/09 com a imagem do Vietnam.
+
+**Prova de que o resolvedor atual acerta e só o disco está errado** — script
+`resolve_dupes.js` (scratchpad da sessão): para cada uma das 186 chaves dos 73 grupos de bytes idênticos,
+acha o nome de catálogo que gera a chave e roda o `generateSearchCandidateEntries` + `fetchXboxUnityCoverWithMeta`
+compilados da 2.12.110:
+
+| desfecho com o código atual | chaves |
+|---|---|
+| resolvedor atual devolve **imagem diferente** da gravada em disco (disco velho) | **34** |
+| resolvedor atual devolve a mesma imagem (grupo legítimo: mesmo jogo, dois nomes; ou a chave dona da imagem) | 77 |
+| XboxUnity sem resposta para nenhum candidato | 63 |
+| chave sem nome correspondente no catálogo local | 12 |
+
+As 34 incluem `air_conflicts_pacific_carriers` → `413307D6`, `air_conflicts_secret_wars` → `4B5907E0`,
+`armored_core_4/5/for_answer/verdict_day` → 4 TitleIDs distintos, `call_of_duty_black_ops_2/3`, `_ghosts`,
+`_advanced_warfare` → 4 TitleIDs distintos, `assassins_creed_ii` / `_4_black_flag`.
+
+Para as 63 sem XboxUnity, `resolve_fallback.js` rodou as etapas 2 e 3 do `fetchCover` atual: **48 ficam sem capa**,
+13 recebem uma imagem da Wikipedia **diferente** da do disco, 2 recebem a mesma. Nenhuma reproduz hoje a capa de
+franquia. Logo: as capas de franquia vieram de um resolvedor que não existe mais.
+
+**Qual resolvedor gravou?** Não recuperável do git: `saveCoverToDisk` entrou no commit `ece2826`
+(2026-09-02 11:35), e os 233 arquivos de 01/09 são anteriores — foram gravados por um build da árvore de trabalho
+sem commit. O mecanismo exato importa pouco: qualquer erro de qualquer versão antiga fica congelado no disco do
+cliente, e é isso que se corrige.
+
+## Hipóteses descartadas
+
+- **O resolvedor atual escolhe a capa errada** — descartado: os TitleIDs `413307D6`/`4B5907E0`/`413307D9` estão
+  em `gist_title_ids.json`, vão para o topo dos candidatos e o XboxUnity devolve 3 imagens distintas (md5 acima);
+  as chaves gravadas hoje (`air_conflicts_-_*`, nome Minerva) estão certas.
+- **O XboxUnity tem a capa do Vietnam cadastrada no TitleID errado** — descartado: `api/Covers/413307D6` e
+  `4B5907E0` devolvem só itens do próprio TitleID, com imagens diferentes da `5669`.
+- **O catálogo traz URL de capa errada** — descartado: nenhuma entrada de `hf_xbox360.json`, `games.json` ou
+  `minerva_xbox360.json` tem campo de capa; a capa é sempre resolvida pelo nome.
+- **As capas empacotadas no instalador (`cache/covers` do repo → `resources/cache/covers`, lido primeiro)** —
+  descartado: são 304 capas de mods (pt-br, patches); os 144 grupos repetidos são apelidos do mesmo mod
+  (`x` / `x___xbox_360_rgh__`), nenhum par de jogos diferentes, e nenhuma das chaves erradas está lá.
+- **Mesmo bug do LEGO (`stripBrands`)** — descartado: "Air Conflicts", "Armored Core", "Call of Duty" não têm
+  prefixo de marca; aquele bug fechado também purgou só chaves LEGO/GTA por lista fixa.
+
+## Correção planejada
+
+**T1 — cache de capas versionado (corrige o sintoma em todo cliente).** Em
+`services/coverArtService.ts::purgeCorruptedLegacyCoverCache`: trocar a lista fixa de prefixos por uma versão do
+cache (`COVER_CACHE_VERSION`) gravada num marcador na pasta do usuário (`getDiskCoverCacheDir()`). Marcador
+ausente ou diferente → apagar os `.jpg`/`.png` **só da pasta do usuário** (nunca `resources/cache/covers` nem
+`cache/covers` do repo, que são as capas de mod empacotadas), gravar o marcador, limpar `browseCoverCache`.
+Comentário no constante: mudança no resolvedor que altere capa já resolvida exige subir a versão.
+Custo: na primeira abertura depois da atualização, cada card visível rebusca a capa (lazy, por
+`useIntersectionObserver`).
+Prova: teste unitário em `tests/unit/coverArtService.test.cjs` com `APPDATA` apontando para pasta temporária:
+arquivo velho sem marcador → removido e marcador gravado; com marcador atual → preservado. Prova ponta a ponta:
+app real com o cache do dono, os 3 cards Air Conflicts com capas distintas.
+
+**T2 — lookup de TitleID com chave compacta (evita perda de capa causada pelo T1).** Com o disco limpo, 48 das
+chaves erradas ficariam sem capa. Medido com `measure_lookup.js`: uma chave extra no `titleToIdMap` —
+possessivo colado (`assassin's` → `assassins`), sem espaços, sem sufixo final ` 1`, sem
+`GOTY`/`Game of the Year Edition`/`Special Edition`, `WW2` → `WWII` — dá TitleID a **17 das 63** sem XboxUnity
+(ex.: `Assassins Creed 1` → `555307D4`, `Assassins_Creed_Rogue` → `555308CE`, `Batman Arkham City GOTY` →
+`57520802`, `Call Of Duty Black Ops 1` → `41560855`). Onde: `indexTitleInMap` e `lookupTitleIds` em
+`generateSearchCandidateEntries`. Cuidado: 175 de 5121 chaves compactas do dataset têm mais de um TitleID (regiões);
+o comportamento atual já adiciona todos os IDs da chave — sem mudança nisso.
+Prova: testes unitários com esses nomes → TitleID esperado em `candidates[0]`; e os testes existentes verdes.
+
+## Tasks
+
+| # | task | commit | estado | modelo | revisao |
+|---|---|---|---|---|---|
+| T1 | cache de capas em disco versionado; versao nova descarta as capas gravadas por resolvedores antigos | -- | -- | -- | -- |
+| T2 | lookup de TitleID por chave compacta (possessivo, " 1", GOTY/edicoes, WW2) | -- | -- | -- | -- |
