@@ -291,3 +291,29 @@ test("coverArtService: EA FC 26 Legacy Edition custom cover and curated TitleID 
 });
 
 
+
+test("coverArtService: catalog spellings without apostrophe, with ' 1' or edition tags still find the TitleID", () => {
+  // Names from the catalog whose cover used to come from a stale disk cache (bug of 2026-10-09).
+  const expected = {
+    "Assassins Creed 1": "555307D4",
+    "Assassin’s Creed [RF]": "555307D4",
+    "Assassins_Creed_Rogue": "555308CE",
+    "Assassins_Creed_Brotherhood": "5553085D",
+    "Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)": "5553083B",
+    "Batman Arkham City GOTY": "57520802",
+    "Call Of Duty Black Ops 1": "41560855",
+    "Dragon Ball Raging Blast 1": "4E4D0803",
+    "Grid 1": "434D07FF",
+  };
+  for (const [name, tid] of Object.entries(expected)) {
+    assert.equal(generateSearchCandidates(name)[0], tid, name);
+  }
+});
+
+test("coverArtService: games of the same franchise keep distinct TitleIDs", () => {
+  assert.equal(generateSearchCandidates("Air Conflicts Pacific Carriers")[0], "413307D6");
+  assert.equal(generateSearchCandidates("Air Conflicts Secret Wars")[0], "4B5907E0");
+  assert.equal(generateSearchCandidates("Air Conflicts Vietnam")[0], "413307D9");
+  // An exact spelling wins over the spelling-insensitive key.
+  assert.equal(generateSearchCandidates("Assassin's Creed II")[0], "5553083B");
+});

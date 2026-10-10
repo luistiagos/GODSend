@@ -210,6 +210,25 @@ export function stripPossessives(s: string): string {
     .trim();
 }
 
+/**
+ * Spelling-insensitive key for a normalized title: catalog names drop the apostrophe ("Assassins Creed"),
+ * number the first game ("Call Of Duty Black Ops 1") and tag editions ("Batman Arkham City GOTY"), while
+ * the TitleID datasets carry the plain release name. Prefixed with "~" so it never collides with a
+ * normalized key.
+ */
+export function compactTitleKey(normKey: string): string {
+  const s = String(normKey || "")
+    .replace(/[’`]/g, "")
+    .replace(/\b([a-z0-9]+) s\b/g, "$1s")
+    .replace(/\bww2\b/g, "wwii")
+    .replace(/\b(game of the year edition|goty|special edition)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/ 1$/, "")
+    .replace(/^the /, "");
+  return s ? "~" + s.replace(/ /g, "") : "";
+}
+
 export const BRAND_PREFIX_REGEX = /^(EA Sports|Tom Clancy's|Tom Clancys|Peter Jackson's|Sid Meier's|James Bond(?: 007)?|Disney's|Disneys|Disney|LEGO|Lego|Marvel's|Marvels|Marvel|Adidas)\s+/i;
 
 export function extractBrandPrefix(s: string): string | null {
@@ -240,6 +259,7 @@ function indexTitleInMap(rawTitle: string, tid: string): void {
     const both = stripPossessives(noArt);
     if (both && both !== noArt && both !== noPoss) addKey(both);
   }
+  addKey(compactTitleKey(n));
 }
 
 export function ensureTitleDatabaseLoaded(): void {
@@ -469,6 +489,11 @@ export function generateSearchCandidateEntries(gameName: string): SearchCandidat
     if (noArt && noPoss) {
       const both = stripPossessives(noArt);
       if (both && !keysToCheck.includes(both)) keysToCheck.push(both);
+    }
+    // Spelling-insensitive key last, and only when no exact spelling matched: an exact key is more precise.
+    if (!keysToCheck.some((k) => titleToIdMap.has(k))) {
+      const compact = compactTitleKey(normKey);
+      if (compact) keysToCheck.push(compact);
     }
 
     for (const k of keysToCheck) {
