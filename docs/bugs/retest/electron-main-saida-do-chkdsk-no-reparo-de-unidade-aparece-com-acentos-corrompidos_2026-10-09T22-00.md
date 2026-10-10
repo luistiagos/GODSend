@@ -89,4 +89,37 @@ Fora do escopo (registrar se aparecer): outros `spawn` que leem saída de ferram
 ## Tasks
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
-| T1 | decodificar a saída do chkdsk na página ANSI do Windows | -- | -- | -- | -- |
+| T1 | decodificar a saída do chkdsk na página ANSI do Windows | `f9842ce` | retest | claude-opus-5-5 | -- |
+
+## Correcao aplicada
+
+Conforme o plano, sem desvio (commit `f9842ce`):
+
+1. `src/electron-app/infrastructure/windowsAnsiCodePage.ts` (novo): `parseAnsiCodePage`,
+   `textDecoderLabelForCodePage`, `windowsAnsiCodePage` (lê o ACP com `reg.exe` de System32, uma vez, em cache;
+   1252 se falhar) e `createAnsiDecoder` (fallback `windows-1252`).
+2. `services/driveRepairService.ts::repairDrive`: busca o ACP antes do `spawn` e decodifica stdout e stderr com
+   um `TextDecoder` por stream (`stream: true`). As linhas do diálogo e o `result.output` (onde rodam as regex de
+   "corrigiu"/"encontrou erros") passam a sair com acento certo.
+
+## Testes executados
+
+- `npm run tsc` — ok.
+- `node --test tests/unit/windowsAnsiCodePage.test.cjs` — 5/5: parse do `reg query`, mapeamento das páginas,
+  decode dos bytes do print (`conclu\xeddo` → `concluído`, `N\xfamero de S\xe9rie ... \xe9` → `Número de Série ... é`),
+  controle negativo (o decode antigo, UTF-8, dá `conclu�do`), DBCS partido entre pedaços (Shift_JIS), e o ACP
+  real da máquina.
+- Suíte unitária inteira (`node --test tests/unit/*.test.cjs`) — 304/304.
+- Prova real no runtime do app (`ELECTRON_RUN_AS_NODE=1 electron proof.cjs`, Electron 42.4.1): `chkdsk C:` real
+  (só leitura, sem admin) pelo módulo compilado:
+
+  ```
+  ACP: 1252 label: windows-1252
+  --- ANTES (UTF-8):  Acesso negado, pois voc� n�o tem privil�gios suficientes ou ...
+  --- DEPOIS (ACP):   Acesso negado, pois você não tem privilégios suficientes ou ...
+  U+FFFD antes: 7 depois: 0
+  ```
+
+**Não feito:** o reparo real (`chkdsk /f /x`) pelo diálogo do app. Ele exige admin e desmonta à força o pendrive —
+o `E:` estava em uso pelo dono. Falta a prova no app: abrir **Reparar Sistema de Arquivos** num pendrive descartável e
+ver "concluído" / "Número de Série" com acento.
