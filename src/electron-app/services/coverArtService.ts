@@ -322,25 +322,14 @@ function getDiskCoverCacheDir(): string {
   return dir;
 }
 
-// Known corrupted/misassigned legacy cover keys that must be purged from disk
-const LEGACY_CORRUPTED_CACHE_PREFIXES = [
-  "grand_theft_auto_5",
-  "grand_theft_auto_4",
-  "grand_theft_auto_v",
-  "grand_theft_auto_iv",
-  "gta_5",
-  "gta_4",
-  "gta_v",
-  "gta_iv",
-  "grand_theft_auto_-_episodes_from_liberty_city",
-  "grand_theft_auto_san_andreas",
-  "gta_san_andreas_hd_br",
-  "grand_thief_auto",
-  "lego_the_lord_of_the_rings",
-  "lego_lord_of_the_rings",
-  "lego_marvel_avengers",
-  "lego_marvel_s_avengers"
-];
+// Version of the covers saved in the user's disk cache. The disk cache is read before any lookup and
+// never expires, so a cover saved by an older resolver is served forever. BUMP THIS whenever a resolver
+// change would pick a different cover for a title already resolved: the next start discards every cover
+// in the user's cache and each card resolves again. Covers shipped in resources/cache/covers are not touched.
+// v2: discards the covers saved by the September 2026 resolvers (same franchise cover on different games,
+// e.g. Air Conflicts Pacific Carriers / Secret Wars with Vietnam's) and the old GTA/LEGO ones.
+export const COVER_CACHE_VERSION = "2";
+const COVER_CACHE_VERSION_FILE = ".cover-cache-version";
 
 let legacyCachePurged = false;
 export function purgeCorruptedLegacyCoverCache(): void {
@@ -349,19 +338,26 @@ export function purgeCorruptedLegacyCoverCache(): void {
   try {
     const cacheDir = getDiskCoverCacheDir();
     if (!fs.existsSync(cacheDir)) return;
-    const files = fs.readdirSync(cacheDir);
-    for (const f of files) {
-      const lower = f.toLowerCase();
-      for (const prefix of LEGACY_CORRUPTED_CACHE_PREFIXES) {
-        if (lower.startsWith(prefix)) {
-          try { fs.unlinkSync(path.join(cacheDir, f)); } catch {}
-          break;
-        }
-      }
+    const markerPath = path.join(cacheDir, COVER_CACHE_VERSION_FILE);
+    let current = "";
+    try { current = fs.readFileSync(markerPath, "utf8").trim(); } catch {}
+    if (current === COVER_CACHE_VERSION) return;
+
+    let allRemoved = true;
+    for (const f of fs.readdirSync(cacheDir)) {
+      if (!/\.(jpe?g|png)$/i.test(f)) continue;
+      try { fs.unlinkSync(path.join(cacheDir, f)); } catch { allRemoved = false; }
     }
+    // A cover that could not be removed would be served again: keep the old version so the next start retries.
+    if (allRemoved) fs.writeFileSync(markerPath, COVER_CACHE_VERSION);
     // Also clear in-memory cache
     browseCoverCache.clear();
   } catch {}
+}
+
+/** Test hook: lets a test run the purge again in the same process. */
+export function resetCoverCachePurgeForTests(): void {
+  legacyCachePurged = false;
 }
 
 export function getCachedCoverFromDisk(key: string): string | null {

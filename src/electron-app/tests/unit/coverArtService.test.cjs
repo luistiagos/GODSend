@@ -15,7 +15,42 @@ const {
   CUSTOM_COVER_URLS,
   getCachedCoverFromDisk,
   hasCustomCover,
+  COVER_CACHE_VERSION,
+  resetCoverCachePurgeForTests,
 } = require("../../services/coverArtService.js");
+
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+// The disk cache lives under %APPDATA%; never let a test purge the real one of whoever runs the suite.
+const TEST_APPDATA = fs.mkdtempSync(path.join(os.tmpdir(), "cover-cache-test-"));
+process.env.APPDATA = TEST_APPDATA;
+const USER_COVERS_DIR = path.join(TEST_APPDATA, "Xbox 360 Companion", "cache", "covers");
+const FAKE_JPEG = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(200, 7)]);
+
+test("coverArtService: a cover saved before the current cache version is discarded, not served", () => {
+  fs.mkdirSync(USER_COVERS_DIR, { recursive: true });
+  // The exact stale file seen on the owner's machine: Pacific Carriers' key holding Vietnam's image.
+  fs.writeFileSync(path.join(USER_COVERS_DIR, "air_conflicts_pacific_carriers.jpg"), FAKE_JPEG);
+  fs.rmSync(path.join(USER_COVERS_DIR, ".cover-cache-version"), { force: true });
+  resetCoverCachePurgeForTests();
+
+  assert.equal(getCachedCoverFromDisk("Air Conflicts Pacific Carriers"), null);
+  assert.equal(fs.existsSync(path.join(USER_COVERS_DIR, "air_conflicts_pacific_carriers.jpg")), false);
+  assert.equal(fs.readFileSync(path.join(USER_COVERS_DIR, ".cover-cache-version"), "utf8"), COVER_CACHE_VERSION);
+});
+
+test("coverArtService: a cover saved under the current cache version is kept and served", () => {
+  fs.mkdirSync(USER_COVERS_DIR, { recursive: true });
+  fs.writeFileSync(path.join(USER_COVERS_DIR, ".cover-cache-version"), COVER_CACHE_VERSION);
+  fs.writeFileSync(path.join(USER_COVERS_DIR, "air_conflicts_secret_wars.jpg"), FAKE_JPEG);
+  resetCoverCachePurgeForTests();
+
+  const cover = getCachedCoverFromDisk("Air Conflicts Secret Wars");
+  assert.ok(cover && cover.startsWith("data:image/jpeg;base64,"));
+  assert.equal(fs.existsSync(path.join(USER_COVERS_DIR, "air_conflicts_secret_wars.jpg")), true);
+});
 
 test("coverArtService: hasCustomCover finds a mod's dedicated cover by name, never by its base TitleID", () => {
   assert.equal(hasCustomCover("EA FC 26 Legacy Edition"), true);
