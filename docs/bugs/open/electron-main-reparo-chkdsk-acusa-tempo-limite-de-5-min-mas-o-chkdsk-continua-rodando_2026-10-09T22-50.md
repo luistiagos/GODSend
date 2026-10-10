@@ -93,3 +93,28 @@ app novo, sem mensagem de tempo limite e com a duração no log (precisa do dono
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
 | T1 | reparo sem kill por prazo, `code null` = falha, duração no log, aviso no modal | -- | -- | -- | -- |
+
+## Correcao aplicada
+
+Como planejado, sem desvio:
+- `driveRepairService.ts::repairDrive` — removido o `setTimeout` de 5 min que matava o `cmd.exe` e
+  resolvia com "excedeu o tempo limite"; o reparo agora termina quando o chkdsk termina. O log passa a
+  dizer a duração e o código real: `finalizado em 16m 12s (código 0, reparado: true)`, ou `código nenhum`
+  quando o processo morreu por sinal.
+- nova função pura `driveRepairService.ts::summarizeChkdskExit(code, output)` — `code === null` vira
+  `ok:false, exitCode:-1`, "O CHKDSK foi interrompido..."; o resto da regra (0/1/2/3 + texto) é a mesma de antes.
+- `DriveRepairModal.tsx` — o texto do quadro informativo avisa que pode passar de 15 minutos em pendrive
+  com muitos arquivos e que não se deve remover a unidade nem fechar o programa.
+- Como o primeiro `resolve` não acontece mais aos 5 min, `repairInProgress` só é liberado no fim real
+  do chkdsk (sem segundo reparo concorrente).
+
+## Testes executados
+
+- `npm run tsc` e `npm run renderer:typecheck` — limpos.
+- `node --test tests/unit/driveRepairService.test.cjs` — 3/3 pass (2 testes novos de `summarizeChkdskExit`).
+- Controle positivo: trocado `if (code === null)` por `if (false)` no JS compilado → **1 fail** (o teste do
+  `code null`); restaurado com `npm run tsc` → 3/3.
+- **Pendente (ponta a ponta):** reparo real de `E:` pelo app rebuildado, com o pendrive do dono: o diálogo
+  deve terminar com "Nenhum erro encontrado" sem a mensagem de tempo limite, e o log deve trazer
+  `finalizado em ...`. O `renderer-dist` não foi rebuildado nesta sessão porque tem mudanças de outra
+  sessão sem commit.

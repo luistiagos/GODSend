@@ -109,7 +109,7 @@ export default function DriveRepairModal({
           <div className="rounded-xl border border-border/60 bg-muted/15 p-3.5 text-xs text-muted-foreground leading-relaxed flex items-start gap-2.5">
             <ShieldAlert className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              O utilitário CHKDSK verificará todas as tabelas de alocação FAT32, corrigirá ponteiros de cluster desincronizados e removerá ou recuperará entradas de arquivos corrompidas.
+              O utilitário CHKDSK verificará todas as tabelas de alocação FAT32, corrigirá ponteiros de cluster desincronizados e removerá ou recuperará entradas de arquivos corrompidas. Em pendrives com muitos arquivos isso pode levar mais de 15 minutos — não remova a unidade nem feche o programa até terminar.
             </div>
           </div>
 

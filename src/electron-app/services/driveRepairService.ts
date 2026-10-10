@@ -134,6 +134,41 @@ if ($vol) {
 }
 
 /**
+ * Turns the chkdsk exit into the result shown to the user.
+ * A null code means the process was killed by a signal, not that chkdsk passed —
+ * it used to go through `code ?? 0` and get logged as "código 0, reparado: true".
+ */
+export function summarizeChkdskExit(
+  code: number | null,
+  output: string,
+): { ok: boolean; exitCode: number; repaired: boolean; summary: string } {
+  if (code === null) {
+    return {
+      ok: false,
+      exitCode: -1,
+      repaired: false,
+      summary: "O CHKDSK foi interrompido antes de terminar. Execute o reparo novamente.",
+    };
+  }
+  // chkdsk exit codes: 0 = No errors found, 1 = Errors found and fixed, 2 = Cleanup/garbage collected, 3 = Cannot check / errors not fixed
+  const repaired = code === 0 || code === 1 || /corrigiu|corrigidos|corrigido|recuperado|fixed|recovered|clean/i.test(output);
+  const hasFailure = code > 1 && !repaired;
+
+  let summary = "Reparo concluído com sucesso. O sistema de arquivos foi restaurado.";
+  if (code === 0 && !/encontrou erros/i.test(output)) {
+    summary = "Nenhum erro encontrado. O sistema de arquivos está íntegro.";
+  } else if (hasFailure) {
+    summary = `O CHKDSK concluiu com avisos (código ${code}). Verifique o relatório detalhado.`;
+  }
+  return { ok: !hasFailure, exitCode: code, repaired, summary };
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000);
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+}
+
+/**
  * Runs a non-interactive CHKDSK /F /X repair on the target drive and streams output in real time.
  */
 export async function repairDrive(
@@ -185,40 +220,22 @@ export async function repairDrive(
     child.stdout.on("data", handleData(createAnsiDecoder(codePage)));
     child.stderr.on("data", handleData(createAnsiDecoder(codePage)));
 
-    const timeout = setTimeout(() => {
-      child.kill();
-      resolve({
-        ok: false,
-        rootPath: normalized,
-        exitCode: -1,
-        output: fullOutput,
-        summary: "O reparo do disco excedeu o tempo limite de 5 minutos.",
-        repaired: false,
-        error: "Tempo limite excedido.",
-      });
-    }, 5 * 60 * 1000);
+    // No timeout: a /f repair is never killed halfway through writing the FAT, and on a
+    // pendrive with tens of thousands of files it takes well over 5 minutes (16 min for
+    // 65,912 files). Killing would not even stop it — child.kill() ends only cmd.exe,
+    // chkdsk keeps running. stdin closes after `echo Y`, so no prompt can hang it.
+    const startedAt = Date.now();
 
     child.on("close", (code) => {
-      clearTimeout(timeout);
-      const exitCode = code ?? 0;
-      // chkdsk exit codes: 0 = No errors found, 1 = Errors found and fixed, 2 = Cleanup/garbage collected, 3 = Cannot check / errors not fixed
-      const repaired = exitCode === 0 || exitCode === 1 || /corrigiu|corrigidos|corrigido|recuperado|fixed|recovered|clean/i.test(fullOutput);
-      const hasFailure = exitCode > 1 && !repaired;
-
-      let summary = "Reparo concluído com sucesso. O sistema de arquivos foi restaurado.";
-      if (exitCode === 0 && !/encontrou erros/i.test(fullOutput)) {
-        summary = "Nenhum erro encontrado. O sistema de arquivos está íntegro.";
-      } else if (hasFailure) {
-        summary = `O CHKDSK concluiu com avisos (código ${exitCode}). Verifique o relatório detalhado.`;
-      }
+      const { ok, exitCode, repaired, summary } = summarizeChkdskExit(code, fullOutput);
 
       appendAppEvent(
         "usb",
-        `Reparo CHKDSK em ${driveLetter}: finalizado (código ${exitCode}, reparado: ${repaired})`,
+        `Reparo CHKDSK em ${driveLetter}: finalizado em ${formatElapsed(Date.now() - startedAt)} (código ${code ?? "nenhum"}, reparado: ${repaired})`,
       );
 
       resolve({
-        ok: !hasFailure,
+        ok,
         rootPath: normalized,
         exitCode,
         output: fullOutput,
@@ -228,7 +245,6 @@ export async function repairDrive(
     });
 
     child.on("error", (err) => {
-      clearTimeout(timeout);
       resolve({
         ok: false,
         rootPath: normalized,
