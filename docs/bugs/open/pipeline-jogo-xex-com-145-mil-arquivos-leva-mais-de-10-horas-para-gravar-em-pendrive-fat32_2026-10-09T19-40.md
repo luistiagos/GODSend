@@ -193,6 +193,12 @@ As 20:40:44 o app do dono (godsend PID 34696) retomou a copia `LOCAL XEX: 144851
 Legacy Edition - 454109F4`. O `E:` e o unico removivel conectado (`Win32_DiskDrive`: `USB DISK 2.0 USB Device`)
 e esta ocupado; medir nele agora distorce as duas medicoes e mexe no pendrive do dono sem autorizacao.
 
+**Rechecado em 2026-10-09 21:09 (horario local) — continua bloqueado:** `Win32_DiskDrive` ainda lista so
+`USB DISK 2.0 USB Device` como removivel (`E:` FAT32 `BADAVATAR`, 7,51 GB livres); godsend PID 34696 vivo e
+gravando (`WriteTransferCount` +7,4 MB e `DiskWritesPerSec` do `E:` +538 em 10 s). Destino com **38.009
+arquivos / 6,53 GB** de 144.851; pelas taxas da "Evidencia" (36-150 arq/min) faltam ~12-50 h. Medicao nao
+rodada; `E:` nao tocado.
+
 ### Instrumento pronto
 
 `src/server/services/pipeline/local_copy_bench_test.go` (`TestFAT32LocalCopyBench`): copia os primeiros N arquivos
