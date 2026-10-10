@@ -173,3 +173,62 @@ Prova: testes unitários com esses nomes → TitleID esperado em `candidates[0]`
 |---|---|---|---|---|---|
 | T1 | cache de capas em disco versionado; versao nova descarta as capas gravadas por resolvedores antigos | -- | -- | -- | -- |
 | T2 | lookup de TitleID por chave compacta (possessivo, " 1", GOTY/edicoes, WW2) | -- | -- | -- | -- |
+
+## Correção aplicada
+
+Sem desvio do plano.
+
+- **T1** (`cb80de1`) — `services/coverArtService.ts`: a lista fixa `LEGACY_CORRUPTED_CACHE_PREFIXES` saiu;
+  `purgeCorruptedLegacyCoverCache` agora compara `COVER_CACHE_VERSION` (`"2"`) com o marcador
+  `.cover-cache-version` na pasta do usuário. Diferente ou ausente → apaga os `.jpg/.jpeg/.png` **só dessa pasta**
+  e grava o marcador; se algum arquivo não puder ser apagado (travado), não grava o marcador e tenta de novo no
+  próximo início. Comentário no constante: mudança de resolvedor que troque capa já resolvida exige subir a versão.
+  `resetCoverCachePurgeForTests` exposto para os testes.
+  O arquivo de teste agora aponta `APPDATA` para uma pasta temporária: antes, `npm run test:safety` lia o cache real
+  de quem roda a suíte, e com o T1 o apagaria.
+- **T2** (`5ed966a`) — `compactTitleKey` (possessivo sem apóstrofo, `’`, `WW2`→`WWII`, sem `GOTY`/`Game of the Year
+  Edition`/`Special Edition`, sem ` 1` final, sem `the` inicial, sem espaços, prefixo `~`), indexada em
+  `indexTitleInMap` e consultada em `lookupTitleIds` **só quando nenhuma grafia exata casou**.
+
+Efeito para o cliente: na primeira abertura da versão com o T1, o app descarta todas as capas do cache do usuário e
+cada card visível rebusca a sua. As capas de mod empacotadas (`resources/cache/covers`) não são tocadas.
+
+## Testes executados
+
+- `node --test tests/unit/coverArtService.test.cjs` → 18/18. Testes novos: capa velha sem marcador é descartada
+  (o arquivo exato do caso, `air_conflicts_pacific_carriers.jpg`), capa com marcador atual é servida; nomes
+  `Assassins Creed 1`, `Assassin’s Creed [RF]`, `Assassins_Creed_Rogue`, `Batman Arkham City GOTY`,
+  `Call Of Duty Black Ops 1`, `Grid 1`… → TitleID certo em `candidates[0]`; os 3 Air Conflicts com TitleIDs
+  distintos; grafia exata vence a compacta.
+- **Controle negativo** de cada task: com o descarte desligado no JS compilado, o teste do T1 falha (15/16); com
+  `compactTitleKey` devolvendo `""`, o teste do T2 falha (17/18). Recompilado e verde de novo.
+- `npm run test:safety` (tsc + typecheck do renderer + unit) → **299/299**.
+- **Catálogo inteiro (T2)**: 8010 nomes Xbox 360 (`hf_xbox360`, `games`, `minerva_xbox360`, `xbox360`) — com
+  TitleID: 4852 sem o T2 → **5147** com o T2 (+295). Amostra revisada à mão, todos o mesmo jogo (`Asuras Wrath` →
+  `ASURA'S WRATH`, `Fallout 3 GOTY` → `Fallout 3`, `NHL 14` → `NHL14`, `Cabelas …` → `Cabela's …`). Só 3 nomes
+  tiveram o 1º TitleID trocado, todos `Magna Carta 2`: da versão coreana (`4E4D0811`) para a americana
+  (`4E4D080B`), o mesmo jogo.
+- **Ponta a ponta no app real** (`e2e_covers.js`, scratchpad da sessão): Electron real (`main.js` compilado), via
+  Playwright, com `APPDATA` e `PORTABLE_EXECUTABLE_DIR` isolados (não toca a instância aberta do dono), semeado com
+  os 3 arquivos velhos copiados do cache do dono. As capas são pedidas por `window.godsendApi.browseFetchCover`, a
+  mesma chamada do card:
+
+  | | Pacific Carriers | Secret Wars | Vietnam |
+  |---|---|---|---|
+  | semeado (cache do dono, 01/09) | `2f23739c` | `2f23739c` | `2f23739c` |
+  | **controle** (marcador já na versão 2 = sem descarte = comportamento antigo) | `2f23739c` ✗ | `2f23739c` ✗ | `2f23739c` |
+  | **correção** (sem marcador, como o cliente que atualiza) | `b645a4c3` ✓ | `1326aafb` ✓ | `2f23739c` ✓ |
+
+  O controle reproduz o print do dono; com a correção, as três são as do XboxUnity por TitleID (4583, 4787, 5669)
+  e o cache é regravado com elas, mais o marcador `2`.
+- **Não feito:** o print dos cards no catálogo. Na instância isolada o backend não sobe
+  (`ECONNREFUSED 127.0.0.1:8080`, o dono já tem uma instância rodando), então a lista do catálogo não carrega. A
+  chamada IPC acima é a mesma que o card faz.
+
+## Pendente para fechar
+
+- Publicar a versão (processo de release do `AGENTS.md`) e o dono abrir o app atualizado: os cards
+  `Air Conflicts *`, `Armored Core *`, `Call of Duty *`, `Assassin's Creed *` com capas distintas.
+- `verificacao:` — na máquina do dono, depois de abrir a versão nova:
+  `cat "$APPDATA/Xbox 360 Companion/cache/covers/.cover-cache-version"` → `2`, e
+  `md5sum "$APPDATA/Xbox 360 Companion/cache/covers/air_conflicts_pacific_carriers.jpg"` ≠ `2f23739c…`.
