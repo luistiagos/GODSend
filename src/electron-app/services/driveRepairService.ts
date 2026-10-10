@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { normalizeDriveRoot } from "../infrastructure/deviceSafetyPolicy";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { powerShellExe, system32Exe } from "../infrastructure/windowsSystemExecutables";
+import { createAnsiDecoder, windowsAnsiCodePage } from "../infrastructure/windowsAnsiCodePage";
 
 
 export interface DriveHealthDiagnostic {
@@ -156,6 +157,9 @@ export async function repairDrive(
 
   appendAppEvent("usb", `Iniciando reparo de volume CHKDSK na unidade ${driveLetter}:`);
 
+  // chkdsk writes to a pipe in the ANSI code page, not UTF-8 — see windowsAnsiCodePage.ts.
+  const codePage = await windowsAnsiCodePage();
+
   return new Promise((resolve) => {
     // We execute cmd.exe /c "echo Y | chkdsk <Letter>: /f /x" to ensure non-interactive auto-confirmation.
     // The chkdsk path goes in unquoted on purpose: Node escapes an inner `"` as `\"`, which cmd
@@ -168,8 +172,9 @@ export async function repairDrive(
 
     let fullOutput = "";
 
-    const handleData = (chunk: Buffer | string) => {
-      const text = chunk.toString();
+    // One decoder per stream: `stream: true` keeps a DBCS character split across chunks intact.
+    const handleData = (decoder: TextDecoder) => (chunk: Buffer) => {
+      const text = decoder.decode(chunk, { stream: true });
       fullOutput += text;
       const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
       for (const line of lines) {
@@ -177,8 +182,8 @@ export async function repairDrive(
       }
     };
 
-    child.stdout.on("data", handleData);
-    child.stderr.on("data", handleData);
+    child.stdout.on("data", handleData(createAnsiDecoder(codePage)));
+    child.stderr.on("data", handleData(createAnsiDecoder(codePage)));
 
     const timeout = setTimeout(() => {
       child.kill();
