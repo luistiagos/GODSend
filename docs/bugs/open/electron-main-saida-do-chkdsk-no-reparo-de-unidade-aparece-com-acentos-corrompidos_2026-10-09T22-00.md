@@ -28,3 +28,65 @@ A linha gerada pelo próprio app (`[INÍCIO] Iniciando verificação e reparo ..
 ## Evidencia
 
 - Print do dono (diálogo aberto durante o reparo de `E:`).
+
+## Causa raiz
+
+- `services/driveRepairService.ts::repairDrive` sobe `cmd.exe /c "echo Y | chkdsk.exe E: /f /x"` e, em
+  `handleData`, converte cada pedaço com `chunk.toString()` — **UTF-8**. As linhas vão para
+  `onProgress` → `ipc/driveMaintenanceHandlers.ts` (`tools:drive-repair-progress`) → `DriveRepairModal`.
+  O mesmo texto vai em `result.output` (e é nele que rodam as regex `corrigiu|...` e `encontrou erros`).
+- Com a saída num pipe, o `chkdsk` grava na **página de código ANSI** do Windows (ACP), um byte por caractere.
+  Em UTF-8, cada byte ≥ 0x80 solto é inválido e vira `U+FFFD` (`�`) — exatamente um `�` por letra
+  acentuada, como no print.
+- A linha `[INÍCIO] ...` sai certa porque é texto do próprio app, não do `chkdsk`.
+
+Provas (máquina de dev, Windows 11 pt-BR):
+
+```
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage" /v ACP    -> 1252
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage" /v OEMCP  -> 437
+cmd /c chcp (via spawn do Node)                                           -> 437
+```
+
+`cmd /c "echo N | chkdsk.exe C:"` (sem admin, só leitura; spawn do Node, bytes crus):
+
+```
+hex: ea e3 e9 | windows-1252: Acesso negado, pois você não tem privilégios suficientes ou
+hex: e1 e7 e3 | windows-1252: Invoque este utilitário durante a execução em modo privilegiado
+```
+
+`ê` = 0xEA, `ã` = 0xE3: é **1252 (ACP)**. Em 437 (OEM), `ê` seria 0x88.
+
+## Hipoteses descartadas
+
+- **Saída na página OEM (437/850), como o `cmd` interno.** Descartada pelos bytes acima: 0xEA/0xE3/0xE9 são
+  1252; em 437 seriam 0x88/—/0x82. O `chkdsk /?` também saiu com `ó` = 0xF3 (1252).
+- **Forçar `chcp 65001` antes do `chkdsk`.** O `chkdsk` não segue a página do console (console em 437, saída em
+  1252), então trocar o `chcp` não muda a saída.
+- **Mesma causa do bug do formatador** (`.ps1` sem BOM). Lá o texto corrompido é do script lido errado pelo
+  PowerShell (`Ã§`, dois caracteres por letra); aqui é a saída de processo externo lida como UTF-8 (`�`, um por letra).
+- **`Buffer.toString("latin1")` como correção.** Acertaria pt-BR (0xA0–0xFF batem com 1252), mas erra 0x80–0x9F e
+  qualquer Windows com ACP diferente (1250, 1251, 932...). `TextDecoder` com o rótulo da ACP cobre tudo.
+- **`TextDecoder` sem suporte a páginas legadas no Electron.** Conferido no runtime do app
+  (`ELECTRON_RUN_AS_NODE=1 electron -e ...`, Electron 42.4.1, ICU 78.2): `windows-1250/1251/1252/874`,
+  `shift_jis`, `gbk`, `euc-kr`, `big5` todos existem; `windows-1252` decodifica `ea e3 e9` como `êãé`.
+
+## Correcao planejada
+
+1. Novo `infrastructure/windowsAnsiCodePage.ts`:
+   - `parseAnsiCodePage(regOutput)` — extrai o número do `reg query ... /v ACP`;
+   - `textDecoderLabelForCodePage(cp)` — 125x/874 → `windows-<cp>`, 932 → `shift_jis`, 936 → `gbk`,
+     949 → `euc-kr`, 950 → `big5`, resto/inválido → `windows-1252`;
+   - `windowsAnsiCodePage()` — async, `reg.exe` via `system32Exe`, com cache; em erro devolve 1252;
+   - `createWindowsAnsiDecoder()` — `TextDecoder` com o rótulo acima (fallback `windows-1252`).
+2. `services/driveRepairService.ts::repairDrive` — um decoder por stream (stdout/stderr), `decode(chunk,
+   {stream:true})`, para que um caractere DBCS partido entre dois pedaços não quebre.
+3. Testes: `tests/unit/windowsAnsiCodePage.test.cjs` (parse, mapeamento, decode de `ea e3 e9` e de "concluído");
+   prova real: script que roda o `chkdsk C:` (só leitura) pelo mesmo decoder e mostra o texto acentuado certo.
+
+Fora do escopo (registrar se aparecer): outros `spawn` que leem saída de ferramenta do Windows como UTF-8.
+
+## Tasks
+| # | task | commit | estado | modelo | revisao |
+|---|---|---|---|---|---|
+| T1 | decodificar a saída do chkdsk na página ANSI do Windows | -- | -- | -- | -- |
