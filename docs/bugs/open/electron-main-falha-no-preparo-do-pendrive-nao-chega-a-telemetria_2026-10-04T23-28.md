@@ -132,3 +132,5 @@ e é por causa deste ponto cego que não há como medir.
 - `CHANGELOG.md` — `## [Unreleased]` / `### Fixed` (sem subir versão: manual, seção Dev). doc-sync: nenhum canal/rota/serviço novo.
 - Plano de teste: sem ajustes.
 - Compile-check: `pipeline.py build` rc 0 (build-server + `tsc` + `renderer:typecheck`). Offline: `node --test tests/unit/badAvatarHandlers.test.cjs` -> 4 pass / 0 fail; `node --test tests/unit/*.test.cjs` -> 310 pass / 0 fail (a linha de base do manual, 258, é anterior a outros testes já integrados no main).
+
+- 2026-10-11: `enqueue-test` recusou (saida 9: `CHANGELOG.md` nao reservado; o manual diz que ele nao entra na reserva, mas o helper exige) e o `claim` deu saida 8 (reservado por `electron-main-reparo-chkdsk-acusa-tempo-limite-de-5-min-mas-o-chkdsk-continua-rodando_2026-10-09T22-50`). Codigo commitado; `park` ate o dono liberar. Na retomada: `sync`, conferir a entrada do CHANGELOG e `enqueue-test`.
