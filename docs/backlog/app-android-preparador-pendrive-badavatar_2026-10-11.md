@@ -130,7 +130,40 @@ como premissa a provar, sem travar a escrita.
   retomada não acha o diário.
 - Nada no código trata a pasta `Xbox360/` que o console cria ao configurar o pendrive (R1).
 
-**O que a spec precisa entregar:**
+**T0 — PRIMEIRA TAREFA, antes da spec (pedido do dono, 2026-10-11): medir complexidade e tempo.**
+
+Pergunta do dono: quanto falta, em complexidade e em tempo, para terminar a **versão mobile do
+Xbox Companion**, sendo que a **v1 se resume a pegar o pendrive já formatado pelo Xbox 360 e
+gravar nele o desbloqueio**? A resposta decide se vale seguir para a spec e com que tamanho.
+
+O que entregar, gravado nesta seção do doc (nunca só no chat):
+1. **Duas bases comparadas**, com o que cada uma já tem e o que falta para a v1:
+   - (a) partir do `src/android-app/` (GODsend-360 Android: backend Go embutido como
+     `libgodsend.so`, WebView, assistente "Wi-Fi x Pendrive", varredura de unidades montadas). Abrir
+     `MainActivity.kt`, `GodsendBackendService.kt` e o README da pasta, e ver o que funciona de fato;
+   - (b) app novo e mínimo (Kotlin nativo, uma tela).
+   Recomendar uma das duas. A decisão anterior do dono era "app novo"; se a medição apontar (a),
+   levar a ele com os números.
+2. **Lista de trabalho da v1**, cada item com complexidade (baixa/média/alta) e estimativa em
+   dias de desenvolvimento. Mínimo: acesso ao pendrive (R3), download do pacote do R2 com
+   conferência SHA-256 (R4), conferência do catálogo (`loadManifest`), arquivos gerados iguais
+   byte a byte (`readyToPlayConfiguration.ts`), retirada do estado de outro console, gravação
+   com retomada, recibo, telas e textos para leigo, publicação (Play Store ou APK, R5), e o
+   passo de publicar o pacote no R2 a cada troca.
+3. **O que pode ficar fora da v1** para encurtar, e quanto isso economiza. Candidatos: retomada
+   transacional completa (versus regravar tudo), leitura do layout do disco (R2), quarentena do
+   estado de outro console.
+4. **Riscos que mudam a estimativa** e quanto cada um pesa: R1 (espaço depois do "Configurar
+   agora"; se não sobrar espaço, a v1 precisa de um passo a mais), R3 (desempenho do SAF com
+   cerca de 640 arquivos), R5 (Play Store recusar).
+5. **Prova sem console:** quanto custa montar o teste por equivalência (pendrive preparado pelo
+   celular, conferido no PC contra o Companion), incluindo um teste automatizado, se der.
+
+Como medir: estimar por item, a partir do código que já existe (o tamanho das funções que vão ser
+portadas). Não estimar no escuro. Registrar as premissas (uma pessoa? experiência com Android?)
+e perguntar ao dono só o que mudar o número.
+
+**Depois do T0, se o dono aprovar seguir — o que a spec precisa entregar:**
 1. O QUE, em critérios EARS, cada um com a prova que roda. Partir dos 5 critérios de aceite
    acima. O critério 5 é o único que exige console.
 2. R2/R3: o caminho de acesso ao USB no Android (SAF ou USB Host com escrita FAT32 própria),
@@ -146,4 +179,5 @@ como premissa a provar, sem travar a escrita.
 
 **Frase de abertura da próxima sessão:** *"Leia a seção 'Passagem de bastão (2026-10-11)' de
 `docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md` no repo
-`C:\projects\Downloader-XBOX360-XEX-HDD-Games` e escreva a spec do app Android preparador."*
+`C:\projects\Downloader-XBOX360-XEX-HDD-Games` e comece pela T0: medir complexidade e tempo da v1
+da versão mobile do Xbox Companion, antes de escrever a spec."*
