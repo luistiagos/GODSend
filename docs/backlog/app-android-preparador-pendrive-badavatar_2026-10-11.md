@@ -396,6 +396,9 @@ Recomendação: **sim, com duas condições**, e corrigir o guia do agente **já
   pergunta "app reduzido antes do completo?" passam a depender de quanto falta no Companion mobile.
   Essa medição foi passada a outra sessão:
   [`xbox-companion-mobile-quanto-falta_2026-10-11.md`](xbox-companion-mobile-quanto-falta_2026-10-11.md).
+  **Resultado (2026-10-11):** o completo leva ~3,5 a 5 semanas, então o reduzido vale, mas como a
+  primeira versão do próprio `src/android-app/` (mesmo id, chave e atualizador), não como app novo:
+  a base (b) do T0 fica substituída. Detalhes na seção "Resultado" daquele doc.
 - **Alternativa sem app próprio, a testar em paralelo** (bug de origem, opção 3): uma imagem `.img`
   gerada pela loja e gravada pelo EtchDroid, que já está na Play Store. Não precisa de app nem de
   formatar no console, mas a partição fica do tamanho da imagem, o que limita o espaço para jogos no
