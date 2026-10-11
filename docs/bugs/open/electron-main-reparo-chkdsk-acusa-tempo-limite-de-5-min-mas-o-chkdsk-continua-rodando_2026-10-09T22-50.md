@@ -229,3 +229,28 @@ A causa é a da seção `## Causa raiz` acima e o fix já foi aplicado. Conferid
 - dev: effort medium, ultrathink nao — um teste com `spawn` falso e relógio falso mais uma entrada de changelog; o
   único cuidado é a ordem do stub no `require.cache` e esperar o `await windowsAnsiCodePage()` antes do `tick`.
 - teste: effort medium, ultrathink nao — T3 mecânica e o complemento sem disco; o T2 real vai para "falta para close".
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+Como planejado; o codigo de producao nao muda (o fix e o b9be24c, ja na base).
+- `src/electron-app/tests/unit/driveRepairService.test.cjs` — teste novo `repairDrive: sem prazo; resolve só no close,
+  com a duração e o código real no log`. Stub de `infrastructure/serverLog.js` em `require.cache` no TOPO do arquivo
+  (antes do primeiro `require` do servico), `child_process.spawn` trocado por um `EventEmitter` falso e restaurado em
+  `t.after`, `process.platform` forcado a `win32` so fora do Windows. Desvio pequeno do plano: o cache de
+  `windowsAnsiCodePage()` e aquecido com relogio REAL antes do `mock.timers.enable` (o `execFile` do `reg.exe` tem
+  `timeout` e nao deve cair no relogio falso). Casos: `tick(6 min)` sem resolver → `data` chega ao `onProgress` →
+  `close 0` → `ok`, `exitCode 0`, "Nenhum erro encontrado..." e log `finalizado em 6m 0s (código 0`; segundo
+  `repairDrive` com `close null` → `ok:false`, `exitCode -1`, log `(código nenhum`. O chunk de saida e ASCII para nao
+  depender da ACP da maquina.
+- `CHANGELOG.md` `[Unreleased]` / `### Fixed` — entrada do b9be24c (porque, simbolos, aviso do modal, link do doc). Versao nao sobe.
+
+Provas (rodadas na lane, apos `pipeline.py build` rc 0):
+- `node --test tests/unit/driveRepairService.test.cjs` → 4 pass / 0 fail.
+- Controle positivo: `setTimeout(() => { child.kill(); resolve({... "excedeu o tempo limite de 5 minutos." }) }, 300000)`
+  inserido no `services/driveRepairService.js` compilado → 3 pass / **1 fail** (`repairDrive resolveu antes do close
+  (prazo de volta?)`); `.js` restaurado da copia → 4 pass.
+- `node --test tests/unit/*.test.cjs` → 307 pass / 0 fail.
+- Log do dono intocado: `%APPDATA%\xbox-360-companion-electron\logs\` com os mesmos tamanhos antes e depois (o ultimo,
+  `godsend-server-2026-10-10.log`, 44212 bytes).
+
+Plano de teste: sem ajuste.
