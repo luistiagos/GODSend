@@ -173,5 +173,8 @@ wt-2 (fonte do bug B) --(espera o slot)--> ...
   alheio): fechar o app libera a fila.
 - Commits locais na arvore principal: publicar antes com
   `git -C C:\projects\Downloader-XBOX360-XEX-HDD-Games push origin main`, que nao mexe na arvore de trabalho.
-- Rodizio de contas: desligado (`"rodizio_contas": false`, DESIGN 22.3): no limite de uso, a execucao espera o
-  reset.
+- Rodizio de contas: LIGADO (`"rodizio_contas": true`, decisao do dono em 2026-10-11, contra o padrao de DESIGN
+  22.7 item 1). Motivo: na execucao 20261010-2242 a sessao de planning de um bug parou ~5 h no limite de uso,
+  sem nenhuma outra sessao viva para retoma-la apos o reset. Risco aceito (DESIGN 22.3): os vigias de cota nao se
+  coordenam entre projetos; **nao rode ao mesmo tempo uma execucao de outro projeto com rodizio** (o retrobatnew
+  tem): os dois disputariam o arquivo de credenciais, e o que terminar primeiro devolve o `/login` no meio do outro.

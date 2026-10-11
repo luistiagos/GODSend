@@ -4,7 +4,7 @@
   "pipe_dir": "../.bugfix-xbox360",
   "remoto": "origin",
   "base": "origin/main",
-  "rodizio_contas": false,
+  "rodizio_contas": true,
   "commit_docs": "docs(bugs)",
   "build": {
     "cmd": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
