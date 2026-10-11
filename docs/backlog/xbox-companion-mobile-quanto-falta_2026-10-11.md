@@ -1,7 +1,7 @@
 # Backlog: quanto falta para terminar o Xbox Companion mobile (Android)
 
-- **Estado:** partes 1 a 5 respondidas por leitura de código em 2026-10-11 (seção "Resultado");
-  nada executado em aparelho. Aguarda o dono nas duas perguntas do fim do resultado.
+- **Estado:** partes 1 a 5 respondidas (2026-10-11); dono decidiu v1 = só preparo, nome xboxcompanion;
+  falta confirmar o applicationId. Próximo: spec da v1.
 - **Aberto em:** 2026-10-11, a pedido do dono
 - **Doc irmão:** [`app-android-preparador-pendrive-badavatar_2026-10-11.md`](app-android-preparador-pendrive-badavatar_2026-10-11.md),
   com a medição do **preparo do pendrive** no Android (seção "T0 — resultado"). Aquele doc
@@ -331,11 +331,43 @@ T0 — `MANAGE_EXTERNAL_STORAGE` e binário de 15 MB — só pesava na Play Stor
 2. **Nome e `applicationId` definitivos** do Companion mobile (hoje `com.godsend.app`, "GODsend-360").
    Trava o primeiro APK que chega a um cliente.
 
+### Respostas do dono (2026-10-11)
+
+1. **A v1 só prepara o pendrive ou HD que o cliente já formatou no Xbox 360.** Catálogo, download de
+   jogos, jogo no pendrive e o resto ficam para versões seguintes, como atualização do mesmo APK.
+2. **Nome: `xboxcompanion`.**
+
+**O que isso muda**
+- **Escopo da v1 = caminho (1) da parte 4**, sem a parte de jogos: F (identidade) + C (preparo) +
+  G (atualização do APK, para as versões seguintes chegarem por cima) + a parte de I que fala do
+  preparo (formatar no console, instalar apps desconhecidos) + H só no Kotlin (opcional, 0,5) + J
+  depois do primeiro cliente. **~7 a 9 sessões e 3 a 4 rodadas: ~2 a 2,5 semanas.** Os itens A, B,
+  D e E (DNS do Go, `aria2c`, jogo no pendrive, telas de catálogo) saem da v1.
+- **O Go não é necessário na v1.** O preparo é Kotlin + SAF + download do R2; nada passa pelo
+  servidor. Recomendação para a spec: a v1 abre uma tela nativa do preparo e **não inicia** o
+  `GodsendBackendService` (o binário pode continuar no APK, desligado, ou sair até a versão de
+  jogos). Assim os riscos do Go no Android (DNS, SELinux, binário velho, 32 bits) não entram na v1,
+  e o `MANAGE_EXTERNAL_STORAGE` pode sair do manifesto. Decidir na spec.
+- **HD externo entra no escopo.** O doc irmão deixava "recusar ou avisar" para a spec. Agora é
+  aceitar, com dois cuidados: (a) o OTG do celular costuma não alimentar HD de 2,5" sem fonte
+  própria ou hub com energia — o texto precisa dizer isso, e o app deve tratar o volume que some no
+  meio da gravação (a retomada do item C já cobre); (b) HD formatado no console é grande, então o
+  R1 (espaço reservado pelo "Configurar agora") tende a pesar menos que no pendrive. Sem HD do dono
+  para testar, a prova com HD fica para o primeiro cliente ou para uma rodada com hub alimentado.
+- **Nome e id.** Rótulo do app: "xboxcompanion" (exibido no ícone; confirmar se o texto na tela
+  é "Xbox Companion", como o Windows usa "Xbox 360 Companion"). O `applicationId` precisa de
+  formato de pacote; **proposta: `com.digitalstoregames.xboxcompanion`** (o domínio da loja, o mesmo
+  do R2). O Windows usa `com.abbu.godsend` (herdado do upstream, em `src/electron-app/package.json`),
+  que não serve. **Esse id é definitivo** — depois do primeiro APK num cliente não muda mais, então
+  o dono confirma antes do primeiro build de release.
+
 ## Frase de abertura da próxima sessão
 
-*"Leia a seção 'Resultado (2026-10-11)' de
-`docs/backlog/xbox-companion-mobile-quanto-falta_2026-10-11.md` no repo
-`C:\projects\Downloader-XBOX360-XEX-HDD-Games` e, com as respostas do dono às duas perguntas do
-fim, escreva a spec da primeira versão (caminho 1: preparo do pendrive dentro de `src/android-app/`,
-com F e G), reaproveitando a T0 do doc irmão. Se houver celular conectado, comece pela rodada A
-(DNS e caminho bruto do OTG)."*
+*"Leia 'Resultado (2026-10-11)' e 'Respostas do dono' em
+`docs/backlog/xbox-companion-mobile-quanto-falta_2026-10-11.md` e a 'T0 — resultado' de
+`docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md`, no repo
+`C:\projects\Downloader-XBOX360-XEX-HDD-Games`, e escreva a spec da v1 do xboxcompanion Android:
+só preparar pendrive ou HD já formatado no Xbox 360, dentro de `src/android-app/`, sem iniciar o
+backend Go, com SAF, pacote mobile gerado no PC e publicado no R2, gravação com retomada,
+atualização do APK pelo R2 e APK avulso. Confirmar o `applicationId` com o dono antes de qualquer
+build de release."*
