@@ -135,3 +135,4 @@ e é por causa deste ponto cego que não há como medir.
 
 - 2026-10-11: `enqueue-test` recusou (saida 9: `CHANGELOG.md` nao reservado; o manual diz que ele nao entra na reserva, mas o helper exige) e o `claim` deu saida 8 (reservado por `electron-main-reparo-chkdsk-acusa-tempo-limite-de-5-min-mas-o-chkdsk-continua-rodando_2026-10-09T22-50`). Codigo commitado; `park` ate o dono liberar. Na retomada: `sync`, conferir a entrada do CHANGELOG e `enqueue-test`.
 - 2026-10-11: CHKDSK liberou; `sync` sobre origin/main @ 2e886d2 sem conflito. Novo `claim` do `CHANGELOG.md` deu saida 8 (agora reservado por `backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20`); `park` de novo.
+- 2026-10-11: iso2god liberou; `sync` sobre origin/main @ e5e658f sem conflito; `claim` do `CHANGELOG.md` ok. Rebuild rc 0; `node --test tests/unit/*.test.cjs` -> 311 pass / 0 fail. `enqueue-test`.
