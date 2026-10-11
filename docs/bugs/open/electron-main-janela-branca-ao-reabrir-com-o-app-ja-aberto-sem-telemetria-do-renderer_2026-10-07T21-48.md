@@ -272,3 +272,7 @@ Implementado conforme o Planejamento, sem desvio.
 
 **Ajustes ao Plano de teste:** nenhum. A linha do `second-instance` agora termina com o estado da janela; o
 sinal esperado no E2E e `second-instance event received; restoring and focusing window minimized=... crashed=...`.
+
+**Rebase (2026-10-11):** o `CHANGELOG.md` ficou reservado por tres bugs da onda em sequencia (park x3). Apos o
+`sync` sobre `origin/main` @ `7bce045` e o `claim`: build do helper rc 0; `node --test tests/unit/*.test.cjs` ->
+319 pass / 0 fail.
