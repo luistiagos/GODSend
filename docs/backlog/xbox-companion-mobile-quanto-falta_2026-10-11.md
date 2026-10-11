@@ -1,7 +1,8 @@
 # Backlog: quanto falta para terminar o Xbox Companion mobile (Android)
 
 - **Estado:** partes 1 a 5 respondidas (2026-10-11); dono decidiu v1 = só preparo, nome visível "Xbox Companion";
-  applicationId mantido em com.godsend.app (padrão do esboço). Próximo: spec da v1.
+  applicationId mantido em com.godsend.app (padrão do esboço). Spec da v1 escrita:
+  [`docs/specs/xbox-companion-android-v1-preparo_2026-10-11.md`](../specs/xbox-companion-android-v1-preparo_2026-10-11.md).
 - **Aberto em:** 2026-10-11, a pedido do dono
 - **Doc irmão:** [`app-android-preparador-pendrive-badavatar_2026-10-11.md`](app-android-preparador-pendrive-badavatar_2026-10-11.md),
   com a medição do **preparo do pendrive** no Android (seção "T0 — resultado"). Aquele doc

@@ -1,7 +1,7 @@
 # Backlog: app Android que só prepara o pendrive BadAvatar
 
-- **Estado:** backlog. T0 (complexidade e tempo) feito em 2026-10-11, aguardando o dono decidir
-  se segue para a spec (ver "T0 — resultado")
+- **Estado:** T0 feito; o preparo virou a v1 do próprio `src/android-app/` (base b substituída).
+  Spec: [`docs/specs/xbox-companion-android-v1-preparo_2026-10-11.md`](../specs/xbox-companion-android-v1-preparo_2026-10-11.md)
 - **Aberto em:** 2026-10-11, a pedido do dono
 - **Origem:** clientes da Plataforma Xbox 360 com console travado ou LT **sem computador**. O
   agente de suporte do WhatsApp diz que "sem PC não tem como" (chamados #95 e #167). Análise
