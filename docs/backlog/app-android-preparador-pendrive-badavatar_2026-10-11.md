@@ -362,6 +362,39 @@ desenvolvedor → Depuração por Wi-Fi → `adb pair <ip:porta>` e depois `adb 
 que deixe passar dados. Em Android 10 ou anterior: `adb tcpip 5555` com o cabo, depois tirar o cabo
 e plugar o OTG.
 
+**Vale lançar o app reduzido antes do Companion Android completo? (pergunta do dono, 2026-10-11)**
+
+Recomendação: **sim, com duas condições**, e corrigir o guia do agente **já**, independente do app.
+
+- **Demanda medida** (bug de origem, seção "Evidencia"): 28 conversas de clientes do Xbox que
+  escreveram "não tenho computador/PC" entre 2026-08-01 e 2026-10-07 (~3 por semana), e 46
+  recusas do agente em 34 conversas. Pelo menos um pediu estorno por não ter PC (msg [24560]).
+- **O guia está errado hoje, com ou sem app.** Ele diz "sem PC não tem como", mas o material da
+  loja e o próprio dono ensinam o caminho manual pelo celular (Xploid, doc `1ig4bDek...`). Essa
+  correção é a T2(c) do bug de origem, custa só texto e para a perda agora. Não depende do app.
+- **O app reduzido não se joga fora.** O Companion Android completo vai precisar exatamente
+  destas peças: acesso ao pendrive por SAF, download conferido do R2, gravação com retomada e o
+  pacote mobile. O app reduzido é a primeira versão do completo, não um produto paralelo.
+  **Condição 1:** nascer com o `applicationId`, o nome e a chave de assinatura definitivos do
+  Companion Android, para que a versão completa chegue como atualização do mesmo APK (APK avulso
+  só se atualiza por cima com o mesmo id e a mesma chave). Assim não há dois apps para manter nem
+  cliente para migrar.
+- **Custo:** 6 a 8 sessões de agente e ~1,5 a 2 semanas de calendário (ver "Prazo refeito").
+  Contra o caminho manual (baixar um `.rar` de 12,2 GB, ~25 GB livres no celular, extrair com
+  7Zipper, copiar), o app reduz o processo a quatro passos.
+- **Condição 2 — o R1 não está provado.** Os primeiros clientes são o teste do console. O agente
+  só oferece o app de forma ampla depois que um cliente acompanhado pelo suporte rodar o BadAvatar
+  a partir de um pendrive feito só pelo app. Até lá, o app é oferecido como "novo, com
+  acompanhamento", e o caminho manual fica no guia como plano B.
+- **Quando não valeria:** se o Companion Android completo estivesse a menos de ~3 semanas de sair.
+  Hoje não há plano dele no repo: o `src/android-app/` é o GODsend, de jogos, sem preparo. Se o
+  dono tiver um prazo que eu não conheço, isso muda a conta.
+- **Alternativa sem app próprio, a testar em paralelo** (bug de origem, opção 3): uma imagem `.img`
+  gerada pela loja e gravada pelo EtchDroid, que já está na Play Store. Não precisa de app nem de
+  formatar no console, mas a partição fica do tamanho da imagem, o que limita o espaço para jogos no
+  mesmo pendrive, salvo se a hipótese de declarar uma partição maior passar no teste. Também
+  depende de um app de terceiros.
+
 **Próximo passo proposto, se o dono aprovar:** antes de fechar a spec, um teste rápido de 0,5 a 1
 dia num celular real: gravar os 617 arquivos por SAF num pendrive, medir o tempo e testar
 `renameDocument` e nomes com maiúsculas diferentes. É o que tira a maior incerteza de
