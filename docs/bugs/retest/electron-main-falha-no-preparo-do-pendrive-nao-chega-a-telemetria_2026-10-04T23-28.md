@@ -1,5 +1,35 @@
 # Bug: falha no preparo do pendrive/HD (BadAvatar/RGH) não chega à telemetria — o handler devolve `{ ok: false }` e a tela só mostra o erro
 
+## Status
+
+- **Corrigido e testado:** 2026-10-11 (pipeline 20261010-2242, teste rodada 1 aprovado).
+- **Commit do fix:** `203484d` (sobre `origin/main` @ `e5e658f`; o SHA publicado pode mudar no rebase do `publish`).
+- **Onde:** `src/electron-app/ipc/badAvatarHandlers.ts::register`, handler `tools:badavatar-prepare` (`catch` grava
+  `APP_BADAVATAR falha no preparo: …` e chama `reportError` com modo, formatar, unidade, última fase e stack); teste
+  `src/electron-app/tests/unit/badAvatarHandlers.test.cjs`.
+- **Evidencia:** `C:\projects\.bugfix-xbox360\evidencia\20261011-1357-electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28\`
+  (driver `t2-prepare-telemetry.cjs`: Playwright `_electron` sobre o `main.js` da lane com `APPDATA` temporário — o
+  `config.json` compartilhado não foi tocado —, `errorReportingEndpoint` apontando para um listener HTTP local;
+  `base-*`/`fix-*` = `result.json`, prints e log de cada rodada).
+  - **Offline:** `node --test tests/unit/badAvatarHandlers.test.cjs` 4 pass / 0 fail; com o `catch` da base
+    (reporte e evento removidos do `.js` compilado) os casos (a) e (b) FALHAM e (c)/(d) passam.
+  - **Controle positivo (base, mesmo `.js` sem o reporte, app real):** tela "Preparar dispositivo" aberta pelo menu
+    "Mais opções e ferramentas", nenhum disco escolhido; `window.godsendApi.toolsBadAvatarPrepare({ driveRoot: "Z:\\",
+    expectedDeviceFingerprint: "nao-e-um-fingerprint", … })` -> `{ ok:false, error:"Atualize a lista e selecione novamente o
+    pendrive ou HD." }`, **0 POST** no listener e **nenhuma** linha `falha no preparo` no log (`base-result.json`).
+  - **T2 (fix, mesmo caminho, backend `godsend-windows-x64` PID 49564 com Path em `lanes\wt-1\dist`, banner do backend na
+    Home):** mesmo retorno (texto ao usuário inalterado); **1 POST** `project=xbox-360-companion/electron-main`,
+    `method=tools:badavatar-prepare`, `message` = o erro, logs com `modo=badavatar; formatar=false; unidade=Z:\; fase=antes
+    do primeiro progresso` e o stack; linha `APP_BADAVATAR falha no preparo: …` no log. Segunda chamada: mesmo retorno,
+    nova linha de log e nenhum POST novo (dedup da sessão, esperado). A tela segue renderizando (`fix-03-apos-chamada.png`).
+  - **T3:** `go test -count=1 ./...` em `src/server` rc 0 (9 pacotes `ok`, `t3-go-test.txt`);
+    `npm run test:safety` 311 pass / 0 fail (base do manual 258 é anterior a testes já integrados; o dev mediu 311 após o sync).
+  - **T4:** logs das duas rodadas (`base-godsend-server-*.log`, `fix-godsend-server-*.log`): única linha de erro comum é
+    `QUEUE RESUME … restaurado como Erro` (fila rastreada da lane, presente na base); nada novo atribuível ao fix.
+- **Falta para `closed/`:** versão publicada (subida de versão + `build-and-upload.ps1`, do dono); um preparo real que
+  falhe num pendrive/HD (disco proibido no teste) e a medição em produção — quantos preparos falham por dia e com que
+  mensagem (tarefa 3), que decide se o `mkdir UNKNOWN` é caso isolado.
+
 - **Detectado em:** 2026-10-04 23:28 (chamado #144 do painel, sessão `165291833184337@lid`, telefone `553196998502`)
 - **Origem:** conversa de suporte + leitura de `src/electron-app/ipc/badAvatarHandlers.ts` (handler `tools:badavatar-prepare`), `src/electron-app/renderer/components/BadAvatarUsbPage.tsx` (chamada a `toolsBadAvatarPrepare`) e `src/electron-app/services/fixedBadAvatarPreparationService.ts::prepareFixedBadAvatarDevice`
 - **Classe:** diagnóstico (ponto cego de telemetria) — esconde uma falha funcional
