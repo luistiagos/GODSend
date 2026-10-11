@@ -1,7 +1,9 @@
 # Spec: Xbox Companion Android v1 — preparar pendrive ou HD já formatado no Xbox 360
 
-- **Estado:** spec escrita (2026-10-11). Falta o dono responder as 2 perguntas do fim
-  ("Perguntas ao dono") — nenhuma trava as tasks T1 a T4. Nada implementado.
+- **Estado:** spec escrita (2026-10-11). As 2 perguntas do fim ("Perguntas ao dono") foram
+  passadas a uma investigação sem console (o dono não tem console):
+  [`docs/backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](../backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md).
+  Ela trava só C12, C13 e os textos da T9; T1 a T6 e T8 andam em paralelo. Nada implementado.
 - **Origem:** [`docs/backlog/xbox-companion-mobile-quanto-falta_2026-10-11.md`](../backlog/xbox-companion-mobile-quanto-falta_2026-10-11.md)
   (seções "Resultado" e "Respostas do dono") e
   [`docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md`](../backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md)
@@ -443,6 +445,12 @@ só console prova — C13 e C27); compatibilidade do SAF/OTG por fabricante (T1 
 
 ## Perguntas ao dono
 
+**Em investigação (2026-10-11):** o dono não tem console e pediu que se investigue como o console
+trata o pendrive. A investigação está em
+[`docs/backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](../backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md)
+e, ao terminar, troca as duas perguntas abaixo pela resposta e ajusta C12, C13, a decisão 5 e a
+T9. Até lá, o texto abaixo é o comportamento provisório.
+
 1. **Pendrive sem espaço porque o console reservou tudo ("Configurar agora").** A spec manda o
    cliente reformatar no console escolhendo "Personalizar" e deixar ≥ 1 GB livre, e o app **nunca
    apaga** a `Xbox360/`. A alternativa é o app oferecer apagar a `Xbox360/` com confirmação (+0,5
@@ -453,7 +461,12 @@ só console prova — C13 e C27); compatibilidade do SAF/OTG por fabricante (T1 
 
 ## Frase de abertura da próxima sessão
 
-*"Leia a spec `docs/specs/xbox-companion-android-v1-preparo_2026-10-11.md` no repo
+São duas frentes independentes; podem ir para duas sessões.
+
+**Investigação (perguntas 1 e 2):** a frase de abertura está no fim de
+[`docs/backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](../backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md).
+
+**Implementação:** *"Leia a spec `docs/specs/xbox-companion-android-v1-preparo_2026-10-11.md` no repo
 `C:\projects\Downloader-XBOX360-XEX-HDD-Games` (seções 3, 5 e 6) e execute a T2 (pacote mobile) e a
 T4 (verificador de equivalência), que não dependem do celular. Em paralelo, prepare a T1 (teste
 rápido do SAF) para a rodada R1 do dono."*
