@@ -20,6 +20,7 @@ import {
 import {
   inspectFixedPayloadReadiness,
   prepareFixedBadAvatarDevice,
+  type FixedPreparationProgress,
   type FixedPreparationRequest,
 } from "../services/fixedBadAvatarPreparationService";
 import { appendAppEvent } from "../infrastructure/serverLog";
@@ -99,13 +100,37 @@ export function register(ipcMain: IpcMain): void {
     preparationInProgress = true;
     setUsbPreparationActive(true);
     const wc = getWebContentsForPush();
+    let lastProgress: FixedPreparationProgress | null = null;
     try {
       const result = await prepareFixedBadAvatarDevice(request, (progress) => {
+        lastProgress = progress;
         if (wc && !wc.isDestroyed()) wc.send("tools:badavatar-prepare-progress", progress);
       });
       return { ok: true, result };
     } catch (err: any) {
-      return { ok: false, error: err?.message || String(err) };
+      // Caught failures never reach the bootstrap.ts hooks, so a failed preparation used to
+      // exist only on the customer's screen. Report it with the phase it stopped in
+      // [[electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28]].
+      const message = err?.message || String(err);
+      // The callback assignment is invisible to control-flow narrowing (it would read as `null`).
+      const phase = lastProgress as FixedPreparationProgress | null;
+      const context =
+        `modo=${request?.isRghOnly ? "rgh" : "badavatar"}; formatar=${request?.formatDrive === true}; ` +
+        `unidade=${request?.driveRoot}; fase=` +
+        (phase
+          ? `${phase.status} (${phase.percent}%${phase.detail ? `, ${phase.detail}` : ""})`
+          : "antes do primeiro progresso");
+      appendAppEvent("BADAVATAR", `falha no preparo: ${context}; ${message}`);
+      reportError(
+        "electron-main",
+        "badAvatarHandlers.ts",
+        "tools:badavatar-prepare",
+        message,
+        "",
+        err?.stack ? [context, err.stack] : [context],
+        false,
+      );
+      return { ok: false, error: message };
     } finally {
       preparationInProgress = false;
       setUsbPreparationActive(false);

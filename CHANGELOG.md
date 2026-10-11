@@ -21,6 +21,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Correção: o leitor para só no marcador `0xFFFF` ou num registro zerado (`nameLen == 0`) e aceita arquivo vazio, que a extração já gravava com 0 byte. `maxXDVDFSUsedPrefix` (corte do GOD) ignora extent de 0 byte, cujo setor pode apontar para qualquer lugar e acusaria "ISO truncada".
   - Testes: `utils/xdvdfs_dir_test.go` (4 casos falham no código anterior; o de setor preenchido com zeros garante a parada antiga).
   - Relato e análise: [`docs/bugs/retest/backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-…`](docs/bugs/retest/backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20.md).
+- **Falha no preparo do pendrive/HD (BadAvatar/RGH) agora chega à telemetria (`src/electron-app/ipc/badAvatarHandlers.ts::tools:badavatar-prepare`)**
+  - Antes: o `catch` do handler só devolvia `{ ok: false, error }` e a tela mostrava a mensagem; erro capturado não passa pelos hooks de `bootstrap.ts`, então um `mkdir UNKNOWN` que a cliente via "toda hora" deu 0 reportes.
+  - Agora: o handler grava `APP_BADAVATAR falha no preparo: …` no log e chama `reportError` com o modo (`badavatar`/`rgh`), `formatar`, a unidade, a última fase do progresso e o stack. O texto mostrado ao usuário e o "preparação em andamento" (que não reporta) não mudam. Teste: `tests/unit/badAvatarHandlers.test.cjs`.
+  - Doc: [docs/bugs/open/electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md](docs/bugs/open/electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md)
 
 ### Changed
 - **Contador da busca do catálogo conta cada versão, não o card agrupado (`src/electron-app/renderer/components/BrowsePage.tsx::totalReleases`)**

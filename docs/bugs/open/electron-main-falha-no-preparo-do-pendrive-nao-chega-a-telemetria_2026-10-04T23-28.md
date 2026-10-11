@@ -123,3 +123,12 @@ e é por causa deste ponto cego que não há como medir.
 
 - dev: effort medium, ultrathink nao — troca localizada num handler, formato copiado de `browseHandlers.ts`; o teste novo segue um harness pronto.
 - teste: effort medium, ultrathink nao — offline determinístico; o T2 exige montar o listener local e restaurar o `config.json`, sem classificação sutil.
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+- `src/electron-app/ipc/badAvatarHandlers.ts::register`, handler `tools:badavatar-prepare` — o callback de progresso guarda o último `FixedPreparationProgress` em `lastProgress` (tipo agora importado do serviço). No `catch`: monta `context` = `modo=<rgh|badavatar>; formatar=<bool>; unidade=<driveRoot>; fase=<status> (<percent>%[, <detail>])` ou `fase=antes do primeiro progresso`; grava `appendAppEvent("BADAVATAR", "falha no preparo: " + context + "; " + message)`; chama `reportError("electron-main", "badAvatarHandlers.ts", "tools:badavatar-prepare", message, "", [context, stack?], false)`. O `return { ok:false, error: message }` e o `finally` não mudaram; o fingerprint não vai no contexto. "Preparação em andamento" segue retornando antes do `try` (não reporta).
+  - Nota de implementação: a atribuição dentro do callback não é vista pelo narrowing do TS (no `catch`, `lastProgress` seria `null`), por isso `const phase = lastProgress as FixedPreparationProgress | null`.
+- `src/electron-app/tests/unit/badAvatarHandlers.test.cjs` (novo) — harness de `browseHandlers.test.cjs` (`new Module` + `require` interceptado) sobre `ipc/badAvatarHandlers.js`; casos (a) falha na fase `Gravando… (40%, 3/10)` com `formatDrive:true` -> 1 reporte com contexto + stack, sem fingerprint, 1 evento `BADAVATAR`, `setUsbPreparationActive` `[true,false]`; (b) RGH antes do primeiro progresso -> `modo=rgh`, `fase=antes do primeiro progresso`; (c) segunda chamada com a primeira pendente -> "Já existe uma preparação em andamento." e 0 reportes/eventos, a primeira conclui; (d) sucesso -> 0 reportes.
+- `CHANGELOG.md` — `## [Unreleased]` / `### Fixed` (sem subir versão: manual, seção Dev). doc-sync: nenhum canal/rota/serviço novo.
+- Plano de teste: sem ajustes.
+- Compile-check: `pipeline.py build` rc 0 (build-server + `tsc` + `renderer:typecheck`). Offline: `node --test tests/unit/badAvatarHandlers.test.cjs` -> 4 pass / 0 fail; `node --test tests/unit/*.test.cjs` -> 310 pass / 0 fail (a linha de base do manual, 258, é anterior a outros testes já integrados no main).
