@@ -387,8 +387,15 @@ Recomendação: **sim, com duas condições**, e corrigir o guia do agente **já
   a partir de um pendrive feito só pelo app. Até lá, o app é oferecido como "novo, com
   acompanhamento", e o caminho manual fica no guia como plano B.
 - **Quando não valeria:** se o Companion Android completo estivesse a menos de ~3 semanas de sair.
-  Hoje não há plano dele no repo: o `src/android-app/` é o GODsend, de jogos, sem preparo. Se o
-  dono tiver um prazo que eu não conheço, isso muda a conta.
+  ~~Hoje não há plano dele no repo: o `src/android-app/` é o GODsend, de jogos, sem preparo.~~
+  **Corrigido em 2026-10-11, pelo dono:** o `src/android-app/` **é** o Xbox Companion mobile em
+  andamento. Ele roda o mesmo backend Go (`src/server/`) que o Companion de Windows usa (o Electron
+  fala com ele por `services/backendClient.ts`; ver `AGENTS.md`, seção 3). Falta nele o preparo do
+  pendrive, não o produto. O dono decidiu que a versão mobile **não formata o pendrive**: o cliente
+  formata no Xbox 360, guiado pela documentação e pelo agente. A comparação "(a) x (b)" do T0 e a
+  pergunta "app reduzido antes do completo?" passam a depender de quanto falta no Companion mobile.
+  Essa medição foi passada a outra sessão:
+  [`xbox-companion-mobile-quanto-falta_2026-10-11.md`](xbox-companion-mobile-quanto-falta_2026-10-11.md).
 - **Alternativa sem app próprio, a testar em paralelo** (bug de origem, opção 3): uma imagem `.img`
   gerada pela loja e gravada pelo EtchDroid, que já está na Play Store. Não precisa de app nem de
   formatar no console, mas a partição fica do tamanho da imagem, o que limita o espaço para jogos no

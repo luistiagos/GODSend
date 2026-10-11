@@ -675,6 +675,10 @@ Escopo, riscos abertos (espaço que o "Configurar agora" do console deixa, leitu
 escrita no Android, distribuição do pacote de 726 MB, Play Store, ausência de Xbox de teste) e
 critérios de aceite em
 [`docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md`](backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md).
+A decisão entre lançar esse app reduzido antes ou terminar o Companion mobile (`src/android-app/`)
+com o preparo dentro depende de quanto falta no Companion mobile. Essa medição está em
+[`docs/backlog/xbox-companion-mobile-quanto-falta_2026-10-11.md`](backlog/xbox-companion-mobile-quanto-falta_2026-10-11.md).
+O mobile não formata o pendrive: o cliente formata no Xbox 360.
 
 ## 9. Ordem recomendada de implementação
 
