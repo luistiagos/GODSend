@@ -1,6 +1,7 @@
 # Backlog: app Android que só prepara o pendrive BadAvatar
 
-- **Estado:** backlog (não iniciado)
+- **Estado:** backlog. T0 (complexidade e tempo) feito em 2026-10-11, aguardando o dono decidir
+  se segue para a spec (ver "T0 — resultado")
 - **Aberto em:** 2026-10-11, a pedido do dono
 - **Origem:** clientes da Plataforma Xbox 360 com console travado ou LT **sem computador**. O
   agente de suporte do WhatsApp diz que "sem PC não tem como" (chamados #95 e #167). Análise
@@ -163,6 +164,189 @@ Como medir: estimar por item, a partir do código que já existe (o tamanho das 
 portadas). Não estimar no escuro. Registrar as premissas (uma pessoa? experiência com Android?)
 e perguntar ao dono só o que mudar o número.
 
+### T0 — resultado (2026-10-11)
+
+**Resposta curta:** a v1 dá **15 a 22 dias de desenvolvimento** de uma pessoa que conhece Android
+(17 na conta item a item, mais uma folga para diferenças entre aparelhos), cerca de 3 a 4,5
+semanas, com **APK avulso**. A complexidade geral é média: nada ali é pesquisa, e o único item
+alto é gravar com retomada pelo SAF. O que mais mexe no prazo não é código: é o R1 (só um console
+prova) e a Play Store (se for a escolha, +3 a 5 dias de trabalho e pelo menos 14 dias de
+calendário). **Recomendação: base (b), app novo**, o que confirma a decisão anterior do dono.
+
+**Premissas**
+- Uma pessoa com experiência em Kotlin/Android, ou um agente escrevendo o código com o dono
+  testando no celular. "Dias" são dias úteis de desenvolvimento, sem contar a espera pelo console.
+- O ambiente desta máquina está pronto (conferido): SDK em `D:\DevCaches\Android\Sdk`, JDK 17,
+  `adb`, `gradlew`, e o `src/android-app/` já gerou um `app-debug.apk`. Montar o ambiente custa ~0.
+- Nenhum celular conectado (`adb devices` vazio): **nada do SAF foi medido em aparelho**, e os
+  números de desempenho abaixo são estimativa.
+- v1 = o cliente formata no console e o app grava o desbloqueio. O app não formata, não tem modo
+  RGH, não baixa jogos e não manda telemetria.
+
+**O que foi aberto (`arquivo::símbolo` — o que faz)**
+- `src/android-app/.../MainActivity.kt` (114 linhas): só um WebView em `http://127.0.0.1:8080` e
+  o pedido de `MANAGE_EXTERNAL_STORAGE`.
+- `src/android-app/.../service/GodsendBackendService.kt` (172): serviço em primeiro plano que
+  executa `libgodsend.so` (15,5 MB, compilado em 2026-08-04) com WakeLock de 24 h.
+- `src/server/interfaces/http/handlers_tools.go::handleToolsStorageDrives`: o "modo pendrive" do
+  GODsend só lista `/storage/*` e testa escrita gravando um arquivo; não sabe nada de BadAvatar.
+  `grep -i "badavatar|exploitProfile|launch.ini"` em `src/server`: dois comentários e nenhum código.
+- `services/fixedBadAvatarPreparationService.ts` (667): o fluxo inteiro. `loadManifest` (40
+  linhas) valida o catálogo e recalcula o `bundleSha256`.
+- `infrastructure/readyToPlayConfiguration.ts` (185): **os três arquivos gerados são strings
+  fixas** que só dependem de `READY_TO_PLAY_CONFIGURATION_VERSION` (`"4"`). Nada vem do dispositivo.
+- `infrastructure/foreignConsoleState.ts` (124): o filtro são 4 regex. A quarentena só move, no
+  pendrive, cópias byte a byte do estado que veio no pacote.
+- `infrastructure/transactionalWritePlan.ts` (231) + `simulatedTransactionalWriter.ts` (461) +
+  `transactionJournal.ts` (274): diário no próprio pendrive com estados
+  `planned → staging → committing → completed`, `.partial` + rename e backup do alvo. A retomada
+  só acha o diário se `transactionId` e `planHash` baterem. **Um alvo que já confere em SHA-256 é
+  reaproveitado sem regravar**, então o Companion de Windows aceita depois um pendrive gravado pelo
+  app sem conflito.
+- `infrastructure/writeCapacityPolicy.ts` (214): espaço livre calculado com arredondamento por cluster.
+- `services/preparedDeviceState.ts::detectPreparedDeviceState`: recebe só a pasta raiz e a lista
+  do perfil, então roda **sem adaptação** contra o pendrive plugado no PC. É a base do teste de
+  equivalência.
+- `infrastructure/preparationReceipt.ts` (59): nada lê o recibo, e um campo opcional novo não
+  quebra o `schemaVersion: 1`.
+- Do lado do Windows, cada peça já tem teste em `src/electron-app/tests/unit/` (14 arquivos:
+  `readyToPlayConfiguration`, `foreignConsoleState`, `transactionJournal`,
+  `simulatedTransactionalWriter`, `preparedDeviceState`, `preparationReceipt`,
+  `writeCapacityPolicy`, `xboxDiskLayoutPolicy`...).
+
+**O pacote ativo em números** (`assets/badavatar-1.1.manifest.json`, lido com um script node):
+- 643 arquivos e 724,1 MB. O estado de outro console são 26 arquivos e 0,5 MB, e depois do filtro
+  ficam **617 arquivos e 723,5 MB**.
+- Por tamanho: 321 arquivos com até 4 KB, 166 com até 64 KB, 88 com até 1 MB, 36 com até 16 MB e
+  6 maiores que 16 MB (juntos, 524 MB). O tempo por arquivo pesa nos 487 pequenos; o volume de
+  dados pesa em 6 arquivos.
+- O perfil do exploit é **um arquivo** (`Content/E0002FF78DFBDE7B/...`, 0,3 MB).
+
+**1. As duas bases**
+
+| | (a) `src/android-app/` | (b) app novo mínimo |
+|---|---|---|
+| o que já tem | esqueleto Gradle que compila, serviço em primeiro plano, pedido de permissão | nada (copia o esqueleto Gradle de (a)) |
+| lógica do preparo | **nenhuma**: o backend Go não tem nada do BadAvatar, e seria preciso portar o TS para Go | portar para Kotlin (o mesmo trabalho) |
+| acesso ao pendrive | caminho bruto `/storage/<id>` com `MANAGE_EXTERNAL_STORAGE` | SAF, sem permissão especial |
+| peso | +15,5 MB de binário Go, WebView, HTTP sem TLS no localhost, telas em HTML dentro do Go | uma activity |
+| loja | `MANAGE_EXTERNAL_STORAGE` é restrita na Play Store (gerenciador de arquivos, backup, antivírus), e o app baixa jogos: dois motivos de recusa | nenhuma permissão restrita |
+| economia | ~1 dia (esqueleto + serviço) | — |
+
+**Recomendação: (b).** A base (a) não tem nada da parte cara, porque a lógica do preparo não existe
+em Go. Partir dela traria a permissão que trava a loja e um produto que baixa jogos, o oposto de
+"só o desbloqueio". De (a), aproveitar só o `build.gradle.kts` e o modelo do serviço em primeiro
+plano. O veredito vem da leitura do código, que é pequeno o bastante para ler inteiro; o app não
+foi executado em aparelho.
+
+**Simplificação que muda a estimativa: gerar no PC, só copiar no celular.** Os três arquivos
+gerados e o filtro do estado alheio não dependem do pendrive. Então o script que publica o
+pacote no R2 roda no PC, chama as próprias funções TS (`generateAuroraReadyToPlayFilterLua`,
+`generateReadyToPlayMarker`, `generateReadyToPlayLaunchIni`, `isForeignConsoleStatePath`) e
+publica um **pacote mobile já final**, com manifesto próprio: SHA-256 de cada arquivo final
+(inclusive os gerados), o `bundleSha256` de origem e a `READY_TO_PLAY_CONFIGURATION_VERSION`. O app
+só copia e confere. Assim os arquivos saem iguais byte a byte por construção, sem porte manual,
+e o app não carrega nenhuma regra que precise acompanhar o Companion.
+
+**2. Lista de trabalho da v1 (base b)**
+
+| # | item | complexidade | dias |
+|---|---|---|---|
+| 1 | esqueleto: módulo, `applicationId`, ícone, keystore de release | baixa | 0,5 |
+| 2 | pacote mobile e publicação no R2 (R4): script node (manifesto ativo → tira o estado alheio → gera os 3 arquivos com as funções TS → manifesto mobile → zip → `rclone` + `.sha256`, como no `upload-r2.ps1`), passo novo em `docs/ATUALIZAR-PACOTE-BADAVATAR.md`, teste unitário "gerado == função TS" | média | 1,5 |
+| 3 | download no app: HTTP com retomada (Range), conferir o `.sha256` do zip e o SHA de cada arquivo contra o manifesto mobile, serviço em primeiro plano para não parar com a tela apagada, avisos de Wi-Fi e de espaço no celular | média | 2 |
+| 4 | acesso ao pendrive por SAF (R3): `StorageVolume.createOpenDocumentTreeIntent` (API 29+) e `ACTION_OPEN_DOCUMENT_TREE` (API 26–28); recusar pasta que não seja a raiz de um volume removível; guardar a permissão; o UUID do volume vira a impressão digital (estável entre conexões, muda ao formatar, que é o que a retomada precisa); espaço livre por `DocumentsContract.Root` | média | 2 |
+| 5 | conferências antes de gravar: espaço com folga de cluster (versão curta de `assessWriteCapacity`; o SAF não informa o tamanho do cluster, então usar o pior caso do FAT32), sinal de FAT32 formatado pelo console (UUID no formato `XXXX-XXXX` e a pasta `Xbox360/` que o console cria) e o tratamento da `Xbox360/` (R1) | média | 1 |
+| 6 | gravação com retomada, na versão simplificada (ver parte 3): ordem fixa, primeiro os arquivos comuns, depois os gerados e **por último o perfil do exploit**; cada arquivo vai para `.partial`, é relido e conferido em SHA-256 e então renomeado (`renameDocument`); a retomada pula o que já confere em tamanho e SHA; nomes comparados sem diferenciar maiúsculas (o FAT não diferencia e o SAF sim: uma pasta `AURORA` antiga viraria `Aurora (1)`) | alta | 3 |
+| 7 | recibo `.xbox-downloader/preparo.json` com `mode: "bloqueado-lt"` e um campo opcional de origem (`"android"`), mantendo `schemaVersion: 1`; ajustar o tipo no TS | baixa | 0,5 |
+| 8 | telas e textos para leigo: baixar → formatar no console (passo a passo com fotos) → plugar e escolher o pendrive → gravando ("não tire o pendrive") → pronto, e o que fazer no console; cada erro diz o que fazer; nenhum texto diz que o console foi desbloqueado. Fora do repo: o agente de suporte do WhatsApp passa a oferecer o app (bug de origem) | média | 3 |
+| 9 | publicação como APK avulso: build assinado no R2 (`XBOX360Companion/...`) e um link para o suporte enviar | baixa | 0,5 |
+| 10 | testes: unitários em Kotlin (manifesto, ordem de gravação, retomada sobre um sistema de arquivos falso), 1 d; teste de equivalência no PC, 1 d; tirar o pendrive no meio da gravação em 2 ou 3 celulares, 1 d | média | 3 |
+| | **soma** | | **17** |
+| | folga para diferenças entre aparelhos (SAF e OTG variam por fabricante) | | −2 a +5 |
+| | **v1** | | **15 a 22** |
+
+**3. O que fica fora da v1 e quanto economiza** (a lista acima já não inclui estes itens; o número
+é quanto custaria colocá-los de volta)
+- **Retomada transacional completa** (diário no pendrive, estados, backup do alvo; porte de ~970
+  linhas de TS e de 3 arquivos de teste): +3 a 4 d. A versão simplificada cumpre o critério 3:
+  como o perfil do exploit é gravado por último e `detectPreparedDeviceState` só responde
+  "preparado" quando ele existe, um pendrive interrompido nunca parece pronto. Perde-se o "tudo ou
+  nada" para arquivos que já existiam e foram substituídos, o que não pesa num pendrive recém-formatado
+  pelo console.
+- **Leitura do layout do disco (R2) por USB Host:** +4 a 6 d, mais risco de aparelho (tomar a
+  interface USB desmonta o volume, e depois é preciso esperar ele voltar para gravar pelo SAF).
+  Fica fora porque quem formatou foi o console: o layout é, por construção, um que o console lê.
+  O `assessXboxLayout` existe por causa do formatador do PC.
+- **Quarentena do estado de outro console no pendrive:** +1 d. Num pendrive formatado pelo console
+  não há nada para tirar. O filtro (não gravar o estado alheio) continua, aplicado no PC ao publicar.
+- **Portar `readyToPlayConfiguration.ts` para Kotlin:** +1 d, com risco de diferença de byte.
+  Substituído pela geração no PC.
+- **Play Store:** +3 a 5 d de trabalho (conta, ficha, política de privacidade, formulário de
+  segurança de dados). Para conta pessoal nova, o Google exige um teste fechado de 14 dias com 12
+  testadores antes de publicar (regra em vigor desde 2023–2024; confirmar na spec). São pelo menos
+  2 semanas de calendário, com risco de recusa no fim.
+- **Total que fica fora da v1:** 12 a 17 dias de trabalho, mais o calendário da loja.
+
+**4. Riscos que mudam a estimativa**
+- **R1, espaço depois do "Configurar agora".** Um pendrive de até 16 ou 32 GB fica inteiro
+  reservado, então o mais provável é sobrar pouco ou nada. Em código, as duas saídas são baratas:
+  o app apaga a `Xbox360/` com confirmação (+0,5 d), ou o texto manda usar "Personalizar" e deixar
+  pelo menos 1 GB livre (+0,25 d, com mais chance de erro do leigo). O peso de verdade é a prova:
+  só um console diz se o BadAvatar roda com a `Xbox360/` presente ou apagada. No pior caso, um
+  ciclo a mais com console (dias de calendário, não de desenvolvimento). Também só o console prova
+  que o Android monta o pendrive do jeito que o console o deixa; o risco é baixo (deve ser um FAT32
+  comum), mas não está provado.
+- **R3, desempenho do SAF.** Estimativa, não medida: 617 arquivos × 50 a 150 ms por arquivo dá 0,5
+  a 1,5 min; 723 MB a 5 a 20 MB/s num pendrive USB 2.0 dá 0,6 a 2,5 min; reler para conferir, cerca
+  de 0,5 min. **Total esperado: 2 a 5 min**, risco baixo para o prazo. O que pesa é a
+  compatibilidade (aparelho que não monta OTG, `renameDocument` que falha), e isso já está na folga.
+  Para a spec: a releitura logo depois de gravar pode vir do cache do Android e não do pendrive. A
+  conferência que vale é a do PC (teste de equivalência).
+- **R5, Play Store recusar.** Com APK avulso na v1, o prazo de desenvolvimento não muda. Muda o
+  funil: o cliente precisa liberar "instalar apps desconhecidos", que é uma tela a mais de
+  instrução, já contada no item 8. Se o dono quiser a loja: +3 a 5 d e pelo menos 14 dias de
+  calendário, com chance de recusa depois disso.
+- **Espaço no celular.** Baixar o zip exige ~730 MB livres no celular, e celular cheio é comum
+  nesse público. A alternativa é baixar arquivo por arquivo do R2 direto para o pendrive: não
+  ocupa o celular, mas o pendrive tem de ficar plugado durante o download. O custo é parecido;
+  decidir na spec.
+
+**5. Prova sem console**
+- **Teste de equivalência no PC** (1 d, já no item 10): script node que recebe a letra do pendrive
+  gravado pelo celular e confere (1) cada arquivo do manifesto mobile em tamanho e SHA-256, (2) os
+  três arquivos gerados iguais à saída das funções de `readyToPlayConfiguration.ts` na versão
+  atual, (3) nenhum arquivo do estado alheio, (4) `detectPreparedDeviceState` ===
+  `"preparado-bloqueado-lt"`, (5) o recibo com a origem Android e, já que roda no Windows, (6)
+  `assessXboxLayout` sobre o `readWindowsUsbDiskLayout`. Fecha os critérios 1, 2 e a parte de layout
+  do 4 sem console.
+- **Automação no emulador** (+1 a 1,5 d, opcional): o emulador Android tem cartão SD virtual que
+  aparece como volume removível. Um teste instrumentado grava nele (o UIAutomator escolhe a pasta
+  no seletor do SAF), `adb pull` copia o conteúdo e o mesmo script confere. Prova a cadeia inteira
+  sem hardware, mas não substitui o pendrive real por OTG.
+- **O que continua sem prova:** o estado inicial "formatado pelo console" é simulado (FAT32
+  formatado no PC, mais uma pasta `Xbox360/` para ocupar espaço). O critério 5 só fecha com console.
+
+**Hipóteses descartadas**
+- Partir de (a) para economizar: a parte cara (o preparo) não existe no Go. A economia é de ~1 dia,
+  e o custo é a permissão restrita, o binário de 15 MB e um produto de jogos.
+- Embutir o pacote no APK, o que tiraria o item 3 (~1,5 d): o APK teria ~750 MB, cada troca de
+  pacote exigiria um APK novo, e isso contraria o R4 (decidido: R2).
+- Ler o layout por USB Host na v1: não ganha nada num disco que o console formatou (ver parte 3).
+
+**Perguntas ao dono, só as que mudam o número**
+1. Quem desenvolve: um agente escrevendo o código com o dono testando no celular, ou uma pessoa?
+   Com agente, o código encolhe para poucos dias, e o gargalo passa a ser o teste em aparelho, que
+   depende do dono.
+2. Existe um celular Android com adaptador OTG e um pendrive para testes? Sem isso, os itens 4, 6
+   e 10 não fecham.
+3. v1 em APK avulso (recomendado) ou na Play Store? A loja soma 3 a 5 d e pelo menos 2 semanas.
+
+**Próximo passo proposto, se o dono aprovar:** antes de fechar a spec, um teste rápido de 0,5 a 1
+dia num celular real: gravar os 617 arquivos por SAF num pendrive, medir o tempo e testar
+`renameDocument` e nomes com maiúsculas diferentes. É o que tira a maior incerteza de
+desenvolvimento (R3). O R1 continua dependendo do console.
+
 **Depois do T0, se o dono aprovar seguir — o que a spec precisa entregar:**
 1. O QUE, em critérios EARS, cada um com a prova que roda. Partir dos 5 critérios de aceite
    acima. O critério 5 é o único que exige console.
@@ -177,7 +361,8 @@ e perguntar ao dono só o que mudar o número.
 
 **Não fazer nesta etapa:** código, publicação no R2, pergunta ao dono sobre R4.
 
-**Frase de abertura da próxima sessão:** *"Leia a seção 'Passagem de bastão (2026-10-11)' de
+**Frase de abertura da próxima sessão** (T0 feito; usar depois que o dono responder às três
+perguntas de "T0 — resultado"): *"Leia 'T0 — resultado' e 'Depois do T0' em
 `docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md` no repo
-`C:\projects\Downloader-XBOX360-XEX-HDD-Games` e comece pela T0: medir complexidade e tempo da v1
-da versão mobile do Xbox Companion, antes de escrever a spec."*
+`C:\projects\Downloader-XBOX360-XEX-HDD-Games`. Respostas do dono: <quem desenvolve>, <celular+OTG
+sim/não>, <APK ou Play Store>. Escreva a spec da v1 (base b, pacote mobile gerado no PC)."*
