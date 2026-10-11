@@ -14,7 +14,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Caso: pendrive FAT32 com 65.912 arquivos; o `chkdsk /f /x` levou 16 min. O diálogo mostrava o relatório completo ("Nenhuma ação necessária") e, embaixo, o erro de tempo limite.
   - Causa: o `setTimeout` de 5 min chamava `child.kill()`, que no Windows mata só o `cmd.exe` de `cmd /c "echo Y | chkdsk ..."`; o chkdsk seguia escrevendo no pipe, o `close` chegava com `code null` e o `code ?? 0` gravava no log um "código 0, reparado: true" inventado. O handler `tools:drive-repair` também liberava um segundo reparo na mesma unidade aos 5 min.
   - Agora: sem prazo (interromper um `/f` no meio da gravação da FAT pode corromper o volume); `code null` vira falha ("O CHKDSK foi interrompido", `exitCode -1`); o log traz a duração e o código real (`finalizado em 16m 12s (código 0, ...)`). O `DriveRepairModal.tsx` avisa que pode passar de 15 minutos e que a unidade não deve ser removida. Teste: `tests/unit/driveRepairService.test.cjs` (`repairDrive` com `spawn` e relógio falsos).
-  - Bug: [docs/bugs/open/electron-main-reparo-chkdsk-acusa-tempo-limite-de-5-min-mas-o-chkdsk-continua-rodando_2026-10-09T22-50.md](docs/bugs/open/electron-main-reparo-chkdsk-acusa-tempo-limite-de-5-min-mas-o-chkdsk-continua-rodando_2026-10-09T22-50.md)
+  - Bug: [docs/bugs/retest/electron-main-reparo-chkdsk-acusa-tempo-limite-de-5-min-mas-o-chkdsk-continua-rodando_2026-10-09T22-50.md](docs/bugs/retest/electron-main-reparo-chkdsk-acusa-tempo-limite-de-5-min-mas-o-chkdsk-continua-rodando_2026-10-09T22-50.md)
 
 ### Changed
 - **Contador da busca do catálogo conta cada versão, não o card agrupado (`src/electron-app/renderer/components/BrowsePage.tsx::totalReleases`)**

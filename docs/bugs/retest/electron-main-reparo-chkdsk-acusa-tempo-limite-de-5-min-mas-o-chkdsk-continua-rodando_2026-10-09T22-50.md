@@ -1,5 +1,40 @@
 # Bug: reparo CHKDSK acusa "tempo limite de 5 minutos" mas o chkdsk continua rodando até o fim
 
+## Status
+
+- **Corrigido:** 2026-10-10 (fix de produção) e 2026-10-11 (teste de regressão + CHANGELOG); testado na lane `wt-2`
+  em 2026-10-11 16:30–16:40 UTC (pipeline 20261010-2242, teste rodada 1).
+- **Commits:** `b9be24c` (fix: reparo sem prazo, `code null` = falha, duração no log, aviso no modal) e o commit
+  `fix(usb): teste de repairDrive ...` deste branch (teste novo + entrada no `CHANGELOG.md` `[Unreleased]`/`Fixed`).
+- **Onde:** `src/electron-app/services/driveRepairService.ts::repairDrive` (sem `setTimeout`; resolve só no
+  `close`/`error`), `::summarizeChkdskExit` (`null` → `ok:false`, `exitCode -1`),
+  `renderer/components/DriveRepairModal.tsx` (aviso de mais de 15 min); teste `tests/unit/driveRepairService.test.cjs`.
+- **Evidência:** `C:\projects\.bugfix-xbox360\evidencia\20261011-chkdsk-e2e\` (`e2e-chkdsk.cjs`, `e2e.log`,
+  `result.json`, prints `01-home.png`/`01b-apos-avancar.png`/`02-usb-games.png`).
+  - **T2 (sem disco, no app da lane):** Electron lançado por Playwright sobre o `main.js` da lane; backend
+    `wt-2\dist\godsend-windows-x64.exe` (log: `Executable: C:\projects\.bugfix-xbox360\lanes\wt-2\dist\...`, banner
+    `Xbox 360 Companion Backend Server v2.12.110`). `window.godsendApi.toolsDriveRepair("Q:\\")` (Q: confirmado
+    inexistente: drives C, D, E) → `{ok:false, exitCode:3, output:"Não é possível abrir o volume para acesso direto."}`
+    em 97 ms, 1 linha de progresso; log `APP_USB Reparo CHKDSK em Q: finalizado em 0m 0s (código 3, reparado: false)`
+    — duração e código real, sem `-1` nem `0` inventado. A página Jogos Instalados não foi aberta: no modo simples
+    o assistente "Modo de Instalação" não tem o botão sem pendrive preparado, e o passo "Pendrive" é a tela de
+    preparo, que o manual proíbe.
+  - **Controle positivo:** o sintoma de UI pede chkdsk de mais de 5 min em disco real (nenhum liberado) e a base já
+    tem o `b9be24c`; o controle feito é o do teste: `setTimeout(() => { child.kill(); resolve({... "excedeu o tempo
+    limite de 5 minutos." }) }, 300000)` reposto no `services/driveRepairService.js` compilado → 3 pass / **1 fail**
+    (`repairDrive resolveu antes do close (prazo de volta?)`); restaurado (byte a byte) → 4 pass.
+  - **T3:** após o `sync` sobre `a29deeb`: `go test -count=1 ./...` em `src/server` rc 0, 9 pacotes `ok`;
+    `npm --prefix src/electron-app run test:safety` rc 0, 307 pass / 0 fail. Os logs do dono em
+    `%APPDATA%\xbox-360-companion-electron\logs\` mantiveram os mesmos tamanhos.
+  - **T4:** log da janela (`%APPDATA%\Electron\logs\godsend-server-2026-10-11.log`, pid 46260; lançado por
+    `main.js`, o userData é `Electron`): só um erro, `QUEUE RESUME: "FIFA STREET 26 ..." restaurado como Erro`,
+    que vem da fila de runtime da lane e não tem relação com o fix. Nenhum processo sobrou; o `config.json` do dono
+    ficou intocado.
+- **Falta para `closed/`:** versão publicada (subir versão + `build-and-upload.ps1`, do dono); reparo real do
+  pendrive `E:` (65.912 arquivos) pelo app publicado: o diálogo termina sem "excedeu o tempo limite", com o
+  relatório do chkdsk, e o log traz `finalizado em ~16m (código 0, reparado: true)` (depende de disco real, que
+  não está liberado no teste).
+
 - **Detectado em:** 2026-10-09 22:50 (relato do dono, print do app no Windows pt-BR)
 - **Origem:** `src/electron-app/services/driveRepairService.ts::repairDrive` → `src/electron-app/ipc/driveMaintenanceHandlers.ts` (`tools:drive-repair`) → `renderer/components/DriveRepairModal.tsx`
 - **Errors (serviço):** N/A (local)
