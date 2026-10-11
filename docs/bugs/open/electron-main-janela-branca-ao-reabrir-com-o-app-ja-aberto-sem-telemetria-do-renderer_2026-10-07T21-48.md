@@ -65,3 +65,181 @@ O que falta medir: qualquer uma das três aparece no log assim que existirem os 
 | T1 | registrar `render-process-gone` (motivo + exitCode), `unresponsive`/`responsive` e `did-fail-load` da janela principal no log de app, e mandar `render-process-gone` para a telemetria | `bootstrap.ts` / criação da `BrowserWindow` | forçar `webContents.forcefullyCrashRenderer()` em build de teste e ver a linha no log e o report |
 | T2 | no `render-process-gone`, recarregar a janela (ou mostrar aviso) em vez de deixar branca | idem | mesma prova da T1, com a janela voltando |
 | T3 | com a telemetria no ar, reabrir este doc com a causa do próximo caso | — | — |
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** corrigir — a causa da tela branca não é provável sem dado, mas a falta de telemetria (o que impede
+diagnosticá-la) e a recuperação do caso "renderer caiu" são código deste repo, testáveis na lane injetando a falha.
+**Complexidade:** media — lógica nova no processo principal do Electron (handlers de `webContents`/`app` +
+recarga com trava contra laço), sem IPC, rota nem UI nova.
+**Severidade:** medio — falha com contorno (sair pela bandeja e reabrir), num subconjunto (uma ocorrência
+registrada); sem log, toda nova ocorrência é diagnóstico às cegas.
+**Arquivos a alterar (reserva da onda):**
+- `src/electron-app/app/window.ts` — nova `watchRendererHealth(win, deps)` chamada em `createMainWindow`: loga
+  `render-process-gone`/`unresponsive`/`responsive`/`did-fail-load`/`console-message` de nível `error`, reporta à
+  telemetria e recarrega no `render-process-gone`
+- `src/electron-app/app/bootstrap.ts` — `app.on("child-process-gone")` (processo GPU) no `bootstrapApp`; o log do
+  `second-instance` passa a levar o estado da janela
+- `src/electron-app/tests/unit/rendererHealth.test.cjs` — novo, teste de unidade com `webContents` falso
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa da tela branca segue **não provada**: nada no log a distingue. O que está provado é por que o log não
+tem nada:
+
+- `src/electron-app/app/window.ts::createMainWindow` — cria a `BrowserWindow` (sandbox, contextIsolation), e só
+  registra em `webContents` os eventos `will-navigate` (política de navegação) e `did-finish-load` (limpa cache).
+  Em `minimize` chama `hide()` (vai para a bandeja); em `close` sem `isQuitting` também `hide()`. **Nenhum
+  handler de `render-process-gone`, `unresponsive`, `did-fail-load` nem `console-message`**: queda, travamento ou
+  erro do renderer não deixam linha no log.
+- `src/electron-app/app/window.ts::focusMainWindow` — `restore()` se minimizada, `show()` se invisível, `focus()`.
+  Não olha se o renderer está vivo (`webContents.isCrashed()`), então reabrir a janela de um renderer morto mostra
+  a área branca sem recarregar nem avisar.
+- `src/electron-app/app/bootstrap.ts::bootstrapApp` — `second-instance` grava só
+  `second-instance event received; restoring and focusing window` e chama `focusMainWindow()`. Não registra o
+  estado da janela (minimizada, visível, renderer caído, carregando). `webContents.once("did-finish-load")` sobe o
+  backend uma vez só (`once`): recarregar a página NÃO reinicia o backend (relevante para a T2).
+  `installCrashLogging` cobre só `uncaughtException`/`unhandledRejection` do processo principal. Não existe
+  `app.on("child-process-gone")`: queda do processo GPU (hipótese 3) também não deixa rastro.
+- `src/electron-app/renderer/main.tsx` — `window` `error` e `unhandledrejection` chamam
+  `godsendApi.reportError` → IPC `telemetry:report` (`bootstrap.ts::registerIpcHandlers`) → `reportError` com
+  componente `electron-renderer`. **Vai para a telemetria como report separado, mas NUNCA para o arquivo de log**
+  (`reportError` só lê a cauda do log, não escreve nele). Por isso o log anexo ao report `9541` não tem
+  "nenhuma linha do renderer" mesmo que o renderer tenha reportado erro. Não há ErrorBoundary no React
+  (`grep -rn "ErrorBoundary\|getDerivedStateFromError" renderer` vazio).
+- `src/electron-app/infrastructure/telemetry.ts::reportError` — nunca lança (try/catch geral); desliga com
+  `errorReporting:false` (padrão `true`, `settingsService.ts::getConfiguredErrorReporting`); dedup por
+  `component|message` no processo (mesma mensagem só sai uma vez por sessão); anexa a cauda de 256 KB do log do
+  dia. Endpoint trocável por `errorReportingEndpoint` na config (usado no Plano de teste).
+- `src/electron-app/infrastructure/serverLog.ts::appendAppEvent` — grava `APP_<CATEGORIA>`; `appendLine` é
+  síncrono e em erro só faz `console.error` (não lança).
+- `src/electron-app/infrastructure/electronTray.ts::createTray` — `Open`/duplo clique fazem `show()`+`focus()`
+  direto na referência da janela, sem passar por `focusMainWindow` (mesma cegueira; não muda neste fix).
+- Biblioteca (Electron 42.4.1, `node_modules/electron/electron.d.ts`): `WebContents` emite
+  `render-process-gone (event, details{reason, exitCode})`, `unresponsive`/`responsive` (sem argumentos),
+  `did-fail-load (event, errorCode, errorDescription, validatedURL, isMainFrame, ...)` e
+  `console-message (details: Event<{message, level:'info'|'warning'|'error'|'debug', lineNumber, sourceId}>)`
+  (assinatura nova, objeto único). `App` emite `child-process-gone (event, details{type:'GPU'|..., reason,
+  exitCode})`, que **não inclui renderer**. Existem `webContents.isCrashed()`, `isLoading()`, `reload()`,
+  `forcefullyCrashRenderer()`.
+- Biblioteca (react-dom 19.2.5, `cjs/react-dom-client.production.js:5888`): `defaultOnUncaughtError` →
+  `reportGlobalError` = `window.reportError` → evento `error` na `window` (e erro no console). Ou seja, um erro de
+  render sem ErrorBoundary **desmonta a árvore inteira (tela branca com renderer vivo)** e cai no listener do
+  `main.tsx` → report `electron-renderer`, e também num `console-message` de nível `error`.
+
+### Provas (comando literal -> resultado)
+
+- `grep -rn "render-process-gone\|unresponsive\|did-fail-load\|child-process-gone\|console-message\|forcefullyCrashRenderer\|webContents.on\|webContents.once" --include=*.ts --include=*.tsx .`
+  em `src/electron-app` (sem `node_modules`) → 3 linhas: `bootstrap.ts:199` (`once did-finish-load`),
+  `window.ts:88` (`will-navigate`), `window.ts:112` (`did-finish-load`). Nenhum evento de saúde do renderer.
+- `grep -rn "ErrorBoundary\|getDerivedStateFromError" renderer` → vazio.
+- `grep -n '"version"' node_modules/electron/package.json` → `42.4.1`; `node_modules/react-dom/package.json` →
+  `19.2.5`.
+- `grep -n "function defaultOnUncaughtError" -A3 node_modules/react-dom/cjs/react-dom-client.production.js` →
+  `reportGlobalError(error)`; `reportGlobalError` = `reportError` global quando existe.
+- Telemetria: não foi possível conferir se houve report `xbox-360-companion/electron-renderer` do host
+  `DESKTOP-1HAMO38` entre 21:30 e 22:01 UTC de 2026-10-07 (`JWT_SECRET_KEY`/`TRIAGEM_TOKEN` ausentes na sessão do
+  pipeline). **Essa consulta é a primeira coisa a fazer quando houver credencial**: um report desses ali prova a
+  hipótese 4 sem esperar novo caso.
+
+### Hipoteses descartadas (e por que)
+
+Nenhuma das três do doc foi descartada; nenhuma é provável sem dado. Acrescentada a hipótese **4**: erro de
+render no React sem ErrorBoundary desmonta a árvore (janela branca, renderer vivo e responsivo, main e backend
+normais — combina com o log). Descartado nesta análise:
+
+- "O `second-instance` recria ou recarrega a janela e é isso que deixa branco" — não: `focusMainWindow` só faz
+  `restore`/`show`/`focus`, e a janela ficou branca entre 21:40 e 21:54 com dois `second-instance` no meio.
+- "O backend caiu e a UI ficou vazia" — não: o backend baixava a 2,8 MB/s até 21:55 e `APP_BROWSE` respondia em
+  21:44; uma UI sem backend mostra a tela com erro de conexão, não branca.
+- Corrigir a hipótese 3 (repintura ao restaurar) ou pôr ErrorBoundary (hipótese 4) agora — não: seria correção
+  especulativa sem saber a causa (YAGNI). A T1 captura as duas; a T2 só recupera o caso que o próprio evento
+  prova (renderer caído).
+
+### Tarefas
+
+- [ ] T1 `src/electron-app/app/window.ts::watchRendererHealth` (nova, exportada; chamada em `createMainWindow`
+  logo após o `new BrowserWindow`; dependências injetáveis `{ log, report, now }`, padrão `appendAppEvent`,
+  `reportError`, `Date.now`) — categoria de log `RENDERER`:
+  - `render-process-gone`: log `render-process-gone reason=<reason> exitCode=<n>`; telemetria
+    `report("electron-main", "window.ts", "render-process-gone", "renderer gone: reason=<reason> exitCode=<n>")`
+    (não-terminal), exceto `reason === "clean-exit"` ou `getIsQuitting()`;
+  - `unresponsive`: log + telemetria `"renderer unresponsive"` (mensagem fixa: o dedup segura a 1 por sessão);
+    `responsive`: log com a duração desde o `unresponsive`;
+  - `did-fail-load` com `isMainFrame` e `errorCode !== -3` (ERR_ABORTED): log
+    `did-fail-load code=<n> desc=<s> url=<url>`;
+  - `console-message` só `level === "error"`: log `console error <sourceId>:<line> <message>` truncado (ex.: 500
+    chars), com teto de linhas por sessão (ex.: 50) para não inundar o log. Isso põe no log o erro que hoje só
+    vai à telemetria (hipótese 4).
+  - Comentário cita `[[electron-main-janela-branca-ao-reabrir-com-o-app-ja-aberto-sem-telemetria-do-renderer_2026-10-07T21-48]]`.
+  - Teste: `tests/unit/rendererHealth.test.cjs` com `EventEmitter` como `webContents`/janela e `log`/`report`
+    falsos: cada evento gera a linha esperada; `clean-exit` não reporta; `did-fail-load` de subframe e `-3` não
+    logam; `console-message` `warning` não loga e o teto corta na N-ésima linha.
+- [ ] T2 mesmo símbolo — no `render-process-gone` (não `clean-exit`, não `getIsQuitting()`, janela não
+  destruída) chamar `webContents.reload()` e logar `reloading after render-process-gone`; trava contra laço: no
+  máximo 1 recarga a cada 60 s (`now()` injetado), senão loga `not reloading: crash loop` e não recarrega. O
+  `once("did-finish-load")` do `bootstrap.ts` não reinicia o backend; o `did-finish-load` do `window.ts` só limpa
+  cache; `App.tsx:108` rebusca o buffer do console no mount. Teste: no mesmo arquivo, `reload` falso chamado 1 vez
+  no primeiro crash, 0 vez num segundo crash a <60 s, 1 vez de novo a >60 s; 0 vez com `isQuitting`.
+- [ ] T1b `src/electron-app/app/bootstrap.ts::bootstrapApp` — `app.on("child-process-gone", (_e, d) => ...)`: só
+  `d.type === "GPU"` e `d.reason !== "clean-exit"`: log `RENDERER gpu-process-gone reason=<r> exitCode=<n>` e
+  telemetria `"gpu process gone: reason=<r>"`. E o log do `second-instance` passa a levar o estado antes do foco:
+  `minimized=<b> visible=<b> crashed=<b> loading=<b>` (via `getMainWindow()`, protegido contra janela
+  nula/destruída — `focusMainWindow` já é). Teste: `singleInstance.test.cjs` continua verde; o GPU é provado só
+  no E2E (o `app` do Electron não existe no `node --test`).
+- [ ] `CHANGELOG.md` `[Unreleased]` `### Fixed` (sem subir versão, regra do manual).
+
+### Plano de teste
+
+- **Offline (sem slot):** `node --test tests/unit/rendererHealth.test.cjs tests/unit/singleInstance.test.cjs`
+  (após o `tsc` do helper) → todos `pass`; mais o build do helper.
+- **Preparação comum (no slot):** copiar `%APPDATA%\xbox-360-companion-electron\config.json` para a evidência;
+  pôr `"errorReportingEndpoint": "http://127.0.0.1:18999/logErr"` e subir um servidor Node de 10 linhas que grava
+  cada POST num arquivo da evidência (não poluir a telemetria de produção). Devolver o `config.json` no fim.
+- **T2 reproducao como o usuario (E2E, no slot):** o cliente estava com o app aberto, mandou para a bandeja,
+  clicou de novo no executável e viu a janela branca. Na lane: `npm start` (ou Playwright `_electron.launch` no
+  `main.js` da lane); esperar a Home com o console do backend (banner `Xbox 360 Companion Backend Server`);
+  minimizar a janela (vai para a bandeja: `isVisible()===false`). Injetar a falha que o cliente não sabe
+  provocar, via `electronApp.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())`.
+  Clicar de novo no "executável": rodar `npx electron .` em `src/electron-app` da lane (segunda instância → sai e
+  dispara `second-instance` na primeira). **Sinais com o fix:** no log do dia
+  (`%APPDATA%\xbox-360-companion-electron\logs\godsend-server-<data>.log`) as linhas
+  `APP_RENDERER render-process-gone reason=crashed exitCode=...`, `APP_RENDERER reloading after render-process-gone`
+  e `APP_LIFECYCLE second-instance ... crashed=false` (ou `true` se o foco vier antes da recarga); a janela volta
+  visível com a Home renderizada (screenshot da janela por `page.screenshot` do novo `firstWindow`/PrintWindow); o
+  servidor local recebeu 1 POST com `message` `renderer gone: reason=crashed ...` e `project`
+  `xbox-360-companion/electron-main`; o processo `godsend-windows-x64` é o mesmo PID de antes (backend não
+  reiniciou). Repetir o crash em <60 s → `not reloading: crash loop`, sem recarga.
+  Complementos na mesma sessão: (a) **travamento**: `page.evaluate(() => setTimeout(() => { const t = Date.now(); while (Date.now() - t < 40000) {} }, 0))`
+  → log `APP_RENDERER unresponsive` e, ~40 s depois, `responsive after <n> ms`, 1 POST `renderer unresponsive`;
+  (b) **GPU**: no main, `app.getAppMetrics().find(m => m.type === "GPU").pid` e `process.kill(pid)` →
+  `APP_RENDERER gpu-process-gone reason=killed ...` e 1 POST; (c) **erro do React** (hipótese 4):
+  `page.evaluate(() => console.error("teste-pipeline-renderer"))` → `APP_RENDERER console error ... teste-pipeline-renderer`.
+- **Controle positivo:** este projeto não tem `deploy --at-base` (o helper recusa, saída 2). Se a sessão de
+  teste tiver como rodar a T2 com o código da base (fluxo principal sem o commit do fix), o sinal esperado é: após
+  `forcefullyCrashRenderer()` + segunda instância a janela fica **branca** (screenshot) e o log tem só
+  `second-instance event received; restoring and focusing window`, nenhuma linha `APP_RENDERER` e nenhum POST no
+  servidor local — exatamente o rastro do report `9541`. Sem esse caminho, o controle se faz em duas partes que
+  não exigem a base rodando: (1) **a injeção reproduz o sintoma**: no app COM o fix, o segundo
+  `forcefullyCrashRenderer()` em menos de 60 s cai na trava (`not reloading: crash loop`) e a janela fica branca
+  no `second-instance` seguinte (screenshot), provando que a receita produz a tela branca e que o screenshot a
+  detecta; (2) **a base não registra nada**: o grep da seção Provas rodado com `git show origin/main:<arquivo>`
+  sobre `app/window.ts` e `app/bootstrap.ts` não acha nenhum dos eventos.
+- **T3 regressao direcionada:** `go test -count=1 ./...` em `src/server` (rc 0, 9 pacotes) e
+  `npm --prefix src/electron-app run test:safety` (linha de base 258 pass / 0 fail, mais os testes novos).
+  Fluxos vizinhos pela UI: minimizar → bandeja → `Open` e duplo clique restauram a janela funcionando; fechar no
+  X esconde (não sai); `Quit` da bandeja encerra (log `before-quit`, sem `render-process-gone` reportado — é
+  `clean-exit`/`isQuitting`); abrir o app e navegar Catálogo/Fila/Configurações sem nenhuma linha
+  `APP_RENDERER console error` nova num uso normal (se aparecer, anotar: é erro real do renderer que hoje passa
+  despercebido, não regressão).
+- **Falta para close (fora do pipeline):** a causa real só vem do próximo caso de cliente com a versão
+  publicada (T3 do doc); consultar no painel o report `electron-renderer` do host `DESKTOP-1HAMO38` em
+  2026-10-07 21:30-22:01 UTC.
+
+### Sessoes seguintes
+
+- dev: effort medium, ultrathink nao — handlers localizados num arquivo, contrato de evento já conferido no
+  `electron.d.ts`; o único ponto de cuidado (trava da recarga, `clean-exit`/`isQuitting`) está especificado e
+  coberto por teste.
+- teste: effort medium, ultrathink nao — receita E2E concreta (injeção por Playwright, segunda instância, servidor
+  local de telemetria); exige cuidado com a config do dono, não raciocínio sobre classificação.

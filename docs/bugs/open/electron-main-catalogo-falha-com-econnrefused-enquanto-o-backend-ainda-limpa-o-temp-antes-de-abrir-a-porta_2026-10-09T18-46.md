@@ -158,3 +158,113 @@ catálogo do relato.
   39040). Ao reiniciar o app, rodar o build do backend (`docs/building.md`) para T2 entrar no runtime. T1 já está
   no `.js` compilado e vale no próximo início do app.
 - Prova na UI real: reiniciar o app com um `Temp` grande e abrir o catálogo durante a limpeza.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** sem-codigo — os dois commits da correção (T1 `2a9816d`, T2 `8f6fd36`) já estão em `origin/main`, e
+nada no código falta para o sintoma relatado. Faltam a prova na UI do app (T2 abaixo), mover o doc para `retest/`
+(com `## Status`) e a versão publicada. Quem faz: a prova e a mudança de pasta, uma sessão de teste manual ou o dono
+fora do pipeline; a versão, o dono (`chore(release)` + `build-and-upload.ps1`).
+**Complexidade:** media — lógica nova no Electron (`infrastructure/`) mais um log no backend Go; não toca IPC, UI,
+disco nem pipeline de download.
+**Severidade:** medio — só aparece quando o backend demora para abrir a porta (início lento: `Temp` antigo com
+dezenas de milhares de arquivos); há contorno ("Tentar de novo" depois que a porta abre).
+**Arquivos a alterar (reserva da onda):** nenhum (veredito sem-codigo).
+
+Por que não `corrigir`: o dev não teria o que commitar, e o `enqueue-test` do helper recusa um branch sem commit de
+código (`pipeline.py::cmd_enqueue_test`, "nenhum commit de codigo no branch"). O plano iria parar na Etapa 3.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa raiz acima continua valendo. Conferi na worktree (HEAD `d7bd9ad`, origin/main) que a correção está no
+código:
+
+- `src/electron-app/infrastructure/backendReadiness.ts` — estado `starting` + lista de waiters;
+  `waitForBackendListening(120000)` resolve na hora quando `starting` é false e nunca rejeita (vencido o prazo,
+  resolve e a requisição sai com o erro real).
+- `src/electron-app/services/backendClient.ts::startGodsend` — `markBackendStarting()` logo após o
+  `appendAppEvent("BACKEND", "spawned pid=…")`; `markBackendListening()` no handler de stdout quando casa
+  `GODSEND_LISTEN_PORT_RE` (depois do `writeConfig` da porta); `markBackendStopped()` em `error` e `close`. Os
+  retornos antecipados (binário ausente, `spawn` que lança) acontecem antes do `markBackendStarting()`, então não
+  deixam o estado preso em "iniciando".
+- `src/electron-app/infrastructure/backendHttp.ts::backendGetWithStatus` / `::backendPost` — `async`; fazem
+  `await waitForBackendListening()` antes de ler `getConfiguredServerPort()`. `::backendGet` passa por
+  `backendGetWithStatus`.
+- `src/electron-app/ipc/browseHandlers.ts::browse:get-games` (o handler do relato) chama `backendGetWithStatus`, ou
+  seja, passa pela espera. `browse:get-release-groups` usa `backendGet`, que também espera.
+- `src/server/main.go::main` (l. 187–198) — `ListenOnAvailablePortAt` devolve o listener **já aberto** e só então
+  imprime `GODSEND_LISTEN_PORT=` via `a.Logf`. `src/server/app/app.go::Logf` é `fmt.Printf` no stdout, e esse é o
+  stream que o Electron lê. Logo, quando o waiter é liberado a porta já aceita conexão: o kernel enfileira o
+  `connect` no backlog até o `server.Serve` (l. 220).
+- `src/server/app/config.go::cleanupStaleScratchDir` — anuncia `Cleaning stale processing data in <dir> (the server
+  listens after this)...` antes da primeira entrada não protegida e fecha com `(<N> files in <duração>)`; falha de
+  `RemoveAll` vira `[WARN]` e o laço segue.
+
+### Provas (comando literal -> resultado)
+
+- `git merge-base --is-ancestor 2a9816d origin/main && echo T1-in-origin` -> `T1-in-origin`;
+  idem para `8f6fd36` -> `T2-in-origin`.
+- `grep -n "GODSEND_LISTEN_PORT\|SetupPaths\|net.Listen\|Serve(\|Server bind" src/server/main.go` -> `28: SetupPaths`,
+  `197: Server bind`, `198: GODSEND_LISTEN_PORT`, `220: server.Serve(listener)`. A ordem é limpeza, depois
+  listener aberto, depois o aviso, depois o Serve.
+- `ls src/electron-app/tests/unit | grep -i "readiness\|backendHttp"` -> `backendHttp.test.cjs`,
+  `backendReadiness.test.cjs`; `test:safety` = `node --test tests/unit/*.test.cjs` (entram os dois).
+- `grep -n "TestCleanupStaleScratch" src/server/app/*_test.go` -> 6 testes, entre eles
+  `scratch_cleanup_log_test.go::TestCleanupStaleScratchLogsStartAndFileCount` e
+  `::TestCleanupStaleScratchSilentWhenOnlyProtectedEntries`.
+- `CHANGELOG.md` linha 34: a entrada em `[Unreleased]` já existe.
+
+### Hipoteses descartadas (e por que)
+
+- **O sinal `GODSEND_LISTEN_PORT` sai antes da porta abrir, e a espera não serve para nada:** não; ele sai depois do
+  `ListenOnAvailablePortAt` (main.go:187→198).
+- **O `close` do backend antigo zera o "iniciando" do novo num restart:** `startGodsend` sai logo se
+  `godsendProcess` ainda existe, e esse campo só vira `null` no `error`/`close`. Então não existe processo novo
+  enquanto o `close` do antigo está pendente.
+- **Outras requisições fora do `backendHttp.ts` reabrem o sintoma do catálogo:** `xbox:get-queue`
+  (`browseHandlers.ts:280`, `http.get` direto, 5 s) devolve `{ok:false}` em silêncio, e quem chama
+  (`App.tsx:153`, `QueuePage.tsx:165`) faz polling. `rxea/*` (`auroraAssetHandlers.ts`) e `content/*`
+  (`contentHandlers.ts`) só disparam por ação do usuário. Nenhuma dessas é o catálogo do relato, e o próprio doc já
+  as registrou em "Não coberto".
+
+**Observação (não aberta como bug, efeito não comprovado na UI):** no `restartGodsendIfRunning` (troca de config),
+entre o `close` do backend antigo e o novo `spawn` (400 ms) não há processo "iniciando", então uma requisição nesse
+intervalo ainda pode receber `ECONNREFUSED`. O usuário está na tela de Configurações nessa hora.
+
+### Tarefas
+
+- [ ] (sem código) T2 abaixo pela UI do app, `## Status` no topo e `git mv` do doc para `docs/bugs/retest/`. Faz:
+  uma sessão de teste ou o dono.
+- [ ] (dono) subir a versão e publicar (`build-and-upload.ps1`); recompilar o backend da árvore principal
+  (`dist/godsend-windows-x64.exe`) para que T2 (o log) entre no runtime do dono.
+
+### Plano de teste
+
+- **Offline (sem slot):** `npm --prefix src/electron-app run test:safety` (inclui `backendReadiness.test.cjs` com o
+  controle sem a espera) e `go test -count=1 ./app/ -run CleanupStaleScratch` em `src/server`: tudo verde. Mutação
+  já registrada em "Testes executados".
+- **T2 reprodução como o usuário (E2E, no slot):** na lane, com o backend da lane buildado (`build` do helper):
+  1. Estado de partida: app fechado; criar `<lane>\Temp\stale-e2e\` com 60.000 arquivos pequenos (script node, fora
+     da UI), sem arquivo de dono de scratch. Em modo dev a raiz de runtime é a própria lane (`getBundledRoot`), e o
+     log de início mostra `Backend Temp: <lane>\Temp`.
+  2. `npm start` na lane (ou Playwright `_electron.launch` sobre o `main.js`). Assim que a janela abrir, clicar em
+     **Catálogo/Browse** (Xbox 360). Isso tem de cair dentro da limpeza, que dura ~17 s com 60 mil arquivos.
+  3. Sinais: o console do backend na Home mostra `Cleaning stale processing data in <lane>\Temp (the server listens
+     after this)...` e, depois, `Removed … (60000 files in …s)` e `Server bind: 127.0.0.1:<porta>`. O catálogo fica
+     no estado "carregando" e então **lista os jogos**, sem a caixa "Falha ao carregar o catálogo … ECONNREFUSED".
+     `%APPDATA%\xbox-360-companion-electron\logs\godsend-server-<data>.log` dessa sessão: nenhuma linha
+     `APP_BROWSE … ECONNREFUSED`. O print do catálogo carregado e o trecho do log vão para a evidência.
+- **Controle positivo:** o mesmo roteiro com o Electron de antes do fix (`7893e75`, pai de `2a9816d`) mostra a caixa
+  `Falha ao carregar o catálogo … ECONNREFUSED` durante a limpeza. Já existe um controle equivalente fora da UI em
+  "Testes executados" (`1.5s APP erro ECONNREFUSED`).
+- **T3 regressão direcionada:** os fluxos que passam pelo `backendHttp.ts` com o backend já de pé: abrir o
+  catálogo uma segunda vez, enfileirar um download para destino local (POST), Biblioteca. Nenhum deles pode atrasar
+  (a espera resolve na hora quando `starting` é false). Também: parar e iniciar o backend pela Home
+  (`godsend:stop`/`godsend:start`) e reabrir o catálogo. Mais `go test -count=1 ./...` e `test:safety` (linha de
+  base do manual).
+
+### Sessoes seguintes
+
+- dev: não há (sem-codigo).
+- teste: effort medium, ultrathink não. O roteiro é mecânico; o único cuidado é abrir o catálogo dentro da janela
+  de limpeza.

@@ -251,3 +251,90 @@ principal.
 3. **GOD para outros jogos com muitos arquivos (opcional, decisao do dono):** pre-requisitos — (a) corrigir o
    achado lateral do leitor XDVDFS; (b) checar o limite de 262.140 bytes por pasta **antes** de converter e
    cair para XEX quando estourar; (c) so entao a prova no console dos riscos 1-3.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** bloqueado — a unica correcao que sobra (gravacao XEX mais barata por arquivo em
+`copyLocalEntry`) so se escolhe e so se prova medindo num pendrive FAT32 real, e nenhum disco real esta
+liberado para o pipeline (manual, secao Teste: decisao do dono de 2026-10-09).
+**Complexidade:** alta — pipeline de gravacao (`src/server/services/pipeline/`), criterio do `docs/bugs/open/README.md`.
+**Severidade:** medio — atinge so um subconjunto (jogo XEX com ~100 mil+ arquivos em pendrive lento); o jogo
+acaba gravado, so que em horas. O doc marca P1 pelo juizo do dono sobre o caso EA FC 26; pela escala do pipeline
+(fluxo principal inutilizavel sem contorno = alto) nao e alto: outros jogos gravam normalmente.
+**Arquivos a alterar (reserva da onda):** nenhum agora (bloqueado). Quando destravar:
+- `src/server/services/pipeline/local_resilient.go` — `copyLocalEntry` (variante escolhida pela medicao).
+- `src/server/services/pipeline/local_resilient_test.go` — testes da variante (retomada, `default.xex` em staging).
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Confirmada na fonte da lane (`d7bd9ad`), sem mudanca desde a analise de 2026-10-09:
+- `local_resilient.go::copyLocalEntry` (408-503) — por arquivo novo: `Remove(dst+".xbox-companion-part")`,
+  `Stat`/`Remove` do staging (`localStagingPath` = `.xbox-downloader/copy-staging/<CRC32>.TMP`), 2x `MkdirAll`,
+  `OpenFile(O_TRUNC)`, copia com buffer `app.CopyBufferSize`, `out.Sync()` (449), `Close`, `Stat` de conferencia,
+  ate 5x `Remove(dst)`+`Rename(staging, dst)`. Em erro: apaga o staging e devolve o erro (nao engole).
+- `local_resilient.go::copyTreeLocal` (551-730) — por arquivo, `localFileMatches(dst)` (so `Stat` quando o destino
+  nao existe; re-hash SHA-256 de origem e destino quando existe com o tamanho certo, i.e. na retomada) e depois
+  `copyLocalEntryFunc`. Erro de pasta FAT cheia -> `rebuildSaturatedFATFolder` uma vez por pasta; dispositivo
+  trocado -> `waitForLocalDevice`; senao 3 retentativas e erro. No fim `helpers.FlushVolumeBuffers` (no-op sem
+  admin) e remove `.xbox-companion-installing`.
+- A ordem de grandeza vem do dispositivo (40-100 IOPS de metadado sincrono num pendrive USB 2.0), nao do codigo:
+  145 mil arquivos x ~16 escritas. Cortar staging/`Sync` reduz escritas por arquivo, mas o ganho real e
+  desconhecido — o fastfat em remocao rapida ja descarrega no `Close` (secao "Passo 1"), entao a variante pode
+  ganhar de ~0% a ~50%; nenhuma corta para minutos.
+
+### Provas (comando literal -> resultado)
+
+- `Get-CimInstance Win32_DiskDrive | Select Model,InterfaceType,MediaType` (2026-10-10 ~22:50) -> unico removivel
+  continua `USB DISK 2.0 USB Device`; `Get-Volume` -> `E:` FAT32 `BADAVATAR`, 3,0 GB livres. E o pendrive do dono,
+  com a copia dele: `E:\Games\EA FC 26 Legacy Edition - 454109F4` existe sem `default.xex` (copia nao terminou;
+  `default.xex` e gravado por ultimo). Nenhum `godsend*` rodando. Nao ha pendrive de teste.
+- `grep -n "Getenv\|func Test" src/server/services/pipeline/local_copy_bench_test.go` -> o instrumento
+  `TestFAT32LocalCopyBench` (commit `f2fdc2f`) le `GODSEND_FAT32_TEST_DIR`, `GODSEND_BENCH_SRC`,
+  `GODSEND_BENCH_MAX_FILES`, `GODSEND_BENCH_VARIANTS`, `GODSEND_BENCH_DRAIN_MAX`, `GODSEND_BENCH_ALLOW_NONFAT`;
+  sem as duas primeiras fica em `SKIP`. A origem da medicao
+  (`Temp\EA FC 26 Legacy Edition_hf_ext\...\data\sceneassets\kit`) ainda existe na arvore principal.
+
+### Hipoteses descartadas (e por que)
+
+- **Corrigir sem medir (gravar direto + tirar `Sync` agora):** descartado. O ganho nao tem prova e o codigo e o
+  de maior risco do app (gravacao no pendrive do cliente: retomada, `default.xex` truncado, fragmentacao FAT que a
+  2.12.110 resolveu). Trocar a garantia por ganho desconhecido e especulativo; a propria analise diz "so a
+  medicao decide".
+- **Provar o fix numa pasta local (NTFS/SSD):** nao serve como prova do sintoma — o custo e de metadado sincrono
+  em FAT32 USB lento; num SSD a copia ja e rapida com ou sem o fix. Os testes de unidade provam so a
+  corretude, nao o ganho.
+- **Usar o `E:` do dono:** proibido (manual: nenhum disco real liberado) e ocupado pela copia parcial dele.
+- **Rota GOD:** descartada na prova de 2026-10-09 (4 pastas estouram 262.140 bytes da tabela XDVDFS).
+
+### Tarefas (para quando destravar)
+
+- [ ] Medicao (dono, com pendrive de teste em `F:`): comando da secao "Instrumento pronto" — escolhe a variante
+  (`atual`, `sem-sync`, `direto`, `direto-sync`) pelo `arquivos/min` com drenagem.
+- [ ] `local_resilient.go::copyLocalEntry` — aplicar a variante vencedora para todo arquivo menos os pontos de
+  entrada (`orderEntryPointsLast`: `default.xex`, cabecalho GOD), que continuam em staging; manter o marcador
+  `.xbox-companion-installing` — teste: `local_resilient_test.go` (retomada com arquivo parcial no nome final e
+  re-hash, `default.xex` nunca aparece truncado) + `TestFAT32LocalCopyBench` linha `atual` de novo no pendrive.
+- [ ] So se a variante vencedora nao mudar a ordem de grandeza: decisao do dono sobre orientar o cliente
+  (pendrive USB 3.0 / HD) — `sem-codigo`.
+
+### Plano de teste
+
+- **Offline (sem slot):** `go test ./services/pipeline/ -run 'Local|FAT' -count=1` (corretude da variante em pasta
+  temporaria); `TestFAT32LocalCopyBench` com `GODSEND_BENCH_ALLOW_NONFAT=1` so prova que o instrumento roda.
+- **T2 reproducao como o usuario (E2E, no slot):** exige pendrive FAT32 real — Home/Catalogo -> baixar um jogo XEX
+  com dezenas de milhares de arquivos (EA FC 26 Legacy Edition) com destino o pendrive; sinal: `Gravando e
+  verificando... N% (i/144851)` na Home e arquivos/min pelo mtime no destino. Sem disco liberado, vai inteiro
+  para "falta para close". Destino local (pasta) nao reproduz o sintoma.
+- **Controle positivo:** o mesmo lote com a linha `atual` do instrumento no codigo de hoje (36-150 arquivos/min
+  medidos em 2026-10-09 neste pendrive).
+- **T3 regressao direcionada:** gravacao local de jogo XEX pequeno e de GOD (retomada apos cancelar no meio,
+  pasta FAT32 grande que antes fragmentava — `local_resilient_fat32_test.go` com `GODSEND_FAT32_TEST_DIR`), e
+  `go test -count=1 ./...` em `src/server`.
+
+### Sessoes seguintes
+
+- dev: effort high, ultrathink sim — garantia de gravacao/retomada no pendrive do cliente com varios caminhos de erro.
+- teste: effort medium, ultrathink nao — a medicao e mecanica; o que pesa e nao tocar disco sem autorizacao.
+
+**O que destrava:** um pendrive FAT32 de teste liberado pelo dono (ou o `E:` depois que a copia dele terminar e
+ele autorizar), e a rodada do instrumento — ~7-28 min por variante com 1.000 arquivos de `kit`.

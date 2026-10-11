@@ -599,3 +599,122 @@ detalhe está em "Teste em VHD". A ferramenta ficou versionada em `src/electron-
 e pode ser rodada de novo em qualquer mudança do formatador. O código de produção não mudou. **Próximo passo:**
 o 2 (hardware, critério de fechamento de T2), depois T4/T3/T5. Novo bug fora do escopo: acentos corrompidos nas
 mensagens do formatador elevado.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** corrigir — falta T3: gravar o layout do disco no recibo `.xbox-downloader/preparo.json`, que já existe e já fica fora da escrita transacional. T1, T2 e T6 (docs do repo) estão em `origin/main`. T4 fica fora deste plano (ver "Hipóteses descartadas"). T5, o teste em hardware e a orientação do suporte dependem do cliente, de disco real ou de outro projeto.
+**Complexidade:** alta — pelo critério de `docs/bugs/open/README.md` (toca `fixedBadAvatarPreparationService.ts`, preparo de disco). Na prática a mudança é aditiva: entra depois da escrita e num `try/catch` que nunca derruba o preparo.
+**Severidade:** alto — P1 no doc: o console não lê o dispositivo, e o cliente fica sem perfil, sem Aurora e sem jogo. Este plano não remove o sintoma do caso 1, cuja causa continua sem prova. Ele faz o próximo caso trazer o layout no próprio pendrive.
+**Arquivos a alterar (reserva da onda):**
+- `src/electron-app/infrastructure/preparationReceipt.ts` — tipo `PreparationDiskLayout`, campo opcional `diskLayout` no recibo e parâmetro opcional em `buildPreparationReceipt`
+- `src/electron-app/services/fixedBadAvatarPreparationService.ts` — `requireXboxReadableLayout` devolve o veredito e a linha de onde leu o layout; `prepareFixedBadAvatarDevice` passa isso ao recibo
+- `src/electron-app/tests/unit/preparationReceipt.test.cjs` — recibo com e sem `diskLayout`
+- `src/electron-app/tests/unit/xboxDiskLayoutPolicy.test.cjs` — o portão devolve `ok` com a linha física e `unknown` com a linha recebida
+- `AGENTS.md` — linha 99 (`preparationReceipt.ts`): campos novos do recibo (doc-sync)
+- `docs/features.md` — linha 142: "mode, date, app version, package release" ganha o layout do disco (doc-sync)
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Continua **não provada** para o caso 1 (seção "Causa raiz — NÃO provada"). O defeito provado no código (o formatador sem garantia de MBR e a falta de portão) foi corrigido em T1 (`a6ac2df`) e T2 (`5c08a61`). `git merge-base --is-ancestor` confirma os dois em `HEAD = origin/main = d7bd9ad`. Este plano cobre o que falta **neste repo** para o próximo caso não depender de pedir PowerShell ao cliente.
+
+Símbolos abertos nesta sessão:
+- `infrastructure/preparationReceipt.ts::buildPreparationReceipt` / `writePreparationReceipt` — monta e grava `.xbox-downloader/preparo.json` com `schemaVersion: 1`, `mode`, `preparedAt`, `appVersion`, `release` e `readyToPlayVersion`. Em erro, `writeFile` lança e o chamador captura. O comentário do arquivo explica por que ele fica **fora** do plano transacional: um byte volátil no plano muda o `planHash`, e a retomada falha em `verifyTransactionJournalAgainstPlan`. Ninguém no app lê o recibo: o `grep` de `preparationReceipt`/`PREPARATION_RECEIPT` acha só o serviço e o teste.
+- `services/fixedBadAvatarPreparationService.ts::prepareFixedBadAvatarDevice` (linhas 485–667):
+  - na linha 537, `await requireXboxReadableLayout(request.driveRoot, device, request.formatDrive)`, que devolve `void`;
+  - na linha 607, `device = await requireSafeWindowsUsbTarget(...)` recebe a linha que vai para a conta de capacidade;
+  - nas linhas 641–652, o recibo é gravado num `try/catch` cujo `catch` só faz `appendAppEvent("BADAVATAR", "falha ao gravar o recibo…")`. O preparo nunca cai por causa do recibo.
+- `services/fixedBadAvatarPreparationService.ts::requireXboxReadableLayout` (linhas 402–455):
+  - calcula `source`, a linha física lida por `readLayout` quando a recebida é `unknown`, e `layout = assessXboxLayout(source)`;
+  - com `unknown`: registra no log e faz `return`;
+  - com `ok`: registra no log e faz `return`;
+  - com `rejected`: lança. Depois de formatar, lança e antes chama `report("badavatar-layout", …)`.
+
+  O layout lido morre aqui: nada o leva ao recibo nem ao chamador.
+- `services/fixedBadAvatarPreparationService.ts::describeDiskLayout` — resumo de uma linha, usado no log e no report. Inclui `friendlyName`; o serial fica de fora (o teste da linha 168 trava isso).
+- `infrastructure/deviceSafetyPolicy.ts::PhysicalUsbDevice` — tem os campos `partitionStyle`, `partitionCount`, `mbrType`, `logicalSectorSize`, `physicalSectorSize`, `fileSystem`, `partitionSizeBytes`, `allocationUnitBytes`, `friendlyName` e `manufacturer`. O `serialNumber` **não** vai para o recibo.
+- `infrastructure/windowsUsbDeviceService.ts::fillAllocationUnits` (linha 441) — preenche `allocationUnitBytes` por `fs.statfs` quando a linha veio com 0 (linha nativa). Por isso a linha da 607 tem a unidade de alocação mesmo num pendrive, e a linha física do portão também a tem (`ENUMERATE_USB_SCRIPT`, linha 301).
+- `infrastructure/telemetry.ts::reportError` — `POST` no `/logErr` (o painel de **erros** do digitalstoregames), deduplicado por `component|message` dentro da sessão, com a cauda do log anexa. Não existe canal para evento de sucesso.
+
+### Provas (comando literal -> resultado)
+
+- `git merge-base --is-ancestor a6ac2df HEAD && echo T1in; git merge-base --is-ancestor 5c08a61 HEAD && echo T2in` → `T1in`, `T2in`.
+- `git log --oneline origin/main -1` → `d7bd9ad`, igual ao `HEAD` da lane.
+- `grep -rn "preparationReceipt\|PREPARATION_RECEIPT" src/electron-app --include=*.ts --include=*.tsx --include=*.cjs` → só `fixedBadAvatarPreparationService.ts:16`/`:639` e `tests/unit/preparationReceipt.test.cjs`. O recibo não tem leitor no app, então o campo novo não quebra nada.
+- `grep -n "preparo.json\|preparationReceipt" AGENTS.md docs/*.md` → `AGENTS.md:99` e `docs/features.md:142` descrevem os campos do recibo e precisam acompanhar.
+- O `grep` de `n[ãa]o formatad` nos `*.md` do `digitalstoregamesproject` não achou nada: a orientação de suporte de T6 ainda não existe lá.
+
+### Hipoteses descartadas (e por que)
+
+| Ideia | Por que caiu |
+|---|---|
+| T3 como arquivo novo **dentro do plano transacional**, via `replaceGeneratedEntry`, como diz a "Correção planejada" | O arquivo traria data e versão do app, que são bytes voláteis no plano. O `planHash` mudaria a cada preparo com o mesmo `transactionId`, e **toda retomada de preparo interrompido falharia** com "O diário transacional não pertence ao plano de escrita informado". O próprio `preparationReceipt.ts` documenta isso e o `preparationReceipt.test.cjs` o trava. A "Correção planejada" é anterior ao recibo, ou não o viu. |
+| T3 como arquivo separado ao lado do recibo | O recibo já é o "como este pendrive foi preparado" para o suporte, no mesmo diretório, escrito no mesmo ponto e sem risco para a transação. Um segundo arquivo duplicaria a escrita e o `try/catch` sem ganho. |
+| Mexer no marcador `ready-to-play-v<N>.marker` | É lido pelo hook do Aurora e pela coleta de crash. Proibido no `AGENTS.md`. |
+| **T4 (telemetria de todo preparo concluído) neste plano** | O único canal é `reportError` → `/logErr`, o painel de **erros** que a `triagem-bugs-prod` tria e fecha. Mandar cada preparo bem-sucedido para lá faria cada um aparecer como erro aberto. É decisão de produto (endpoint novo ou aceitar o ruído), e o dono não está nesta execução. O objetivo declarado de T4 (*"quantos dispositivos saem do app em GPT, com tipo errado ou com setor de 4 KB"*) ficou coberto de outro jeito: depois de T1 nenhum desses sai como "pronto". Reprovado depois de formatar, já reporta `badavatar-layout`. Reprovado sem formatar, só lança, e chega à telemetria pelo bug `electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28` (item 8 desta execução). Fica para o dono decidir se quer o layout dos preparos **bem-sucedidos** na telemetria. |
+| Acrescentar o caminho de formatação usado (`Layout de chegada`, tabela recriada ou não) ao recibo | `fat32Format.ts::formatWindowsFat32` só devolve `partitionBytes` e apaga o log no `finally`. Trazer mais linhas exigiria mexer no formatador (`fat32Format.ts`, que o item 10 desta execução também toca) por um dado que o estado final (MBR, 1 partição, tipo) já resume. Fica `formatted: boolean`. |
+| Subir `schemaVersion` do recibo para 2 | Não há leitor e o campo é aditivo e opcional no tipo. O preparo sempre o grava, com `verdict: "unknown"` quando o layout não pôde ser lido. Subir a versão não protege ninguém. Fica 1. |
+
+### Tarefas
+- [ ] `src/electron-app/infrastructure/preparationReceipt.ts`:
+  - exportar `interface PreparationDiskLayout { verdict: "ok" | "unknown"; formatted: boolean; partitionStyle: string; partitionCount: number; mbrType: number; logicalSectorSize: number; physicalSectorSize: number; fileSystem: string; partitionSizeBytes: number; allocationUnitBytes: number; model: string; manufacturer: string }`;
+  - `PreparationReceipt` ganha `diskLayout?: PreparationDiskLayout`;
+  - `buildPreparationReceipt` aceita `diskLayout?` e só põe a chave quando ela vem, para o recibo de hoje continuar idêntico;
+  - comentário com `[[badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09]]`.
+
+  Teste em `preparationReceipt.test.cjs`: o recibo com `diskLayout` grava os 12 campos no JSON e não tem `serialNumber`. O teste existente (sem `diskLayout`) continua com o `deepEqual` exato, sem chave nova.
+- [ ] `src/electron-app/services/fixedBadAvatarPreparationService.ts::requireXboxReadableLayout`:
+  - passa a devolver `Promise<{ verdict: "ok" | "unknown"; device: PhysicalUsbDevice }>`, em que `device` é o `source` (a linha física quando foi lida; senão, a recebida);
+  - os dois `return` atuais (`unknown` e `ok`) passam a devolver isso, e os `throw` não mudam.
+
+  Teste em `xboxDiskLayoutPolicy.test.cjs`:
+  - no teste da linha 142 (pendrive nativo + leitura física), `(await run.promise)` deve ter `verdict "ok"` e `device.partitionStyle "MBR"`, `device.partitionCount 1` e `device.mbrType 12`, vindos da linha **física**, não da nativa;
+  - no teste da linha 189 (leitura `null`), `verdict "unknown"`;
+  - os testes de rejeição não mudam.
+- [ ] `src/electron-app/services/fixedBadAvatarPreparationService.ts::prepareFixedBadAvatarDevice`:
+  - guardar o retorno da linha 537 (`const layoutCheck = await requireXboxReadableLayout(...)`);
+  - no bloco do recibo (linhas 641–652), passar `diskLayout`:
+    - campos de layout de `layoutCheck.device`;
+    - `formatted: request.formatDrive`;
+    - `model: friendlyName`;
+    - `allocationUnitBytes` de `device.allocationUnitBytes`, a linha reatribuída na 607, que passou por `fillAllocationUnits`; se for 0, usar o da `layoutCheck.device`;
+  - o `appendAppEvent` do recibo acrescenta `, layout <verdict>`;
+  - **tudo dentro do `try` que já existe**: erro no layout não pode derrubar o preparo.
+
+  Prova: `tsc` do helper (`build`) e o teste acima. A linha só roda dentro do Electron, como já registrado em "Ainda não provado".
+- [ ] `AGENTS.md:99` e `docs/features.md:142` — acrescentar ao "modo, data, versão do app e release do pacote" o **layout do disco que o portão conferiu** (estilo, partições, tipo, setor, sistema de arquivos, tamanho, unidade de alocação, modelo; sem serial) e o veredito `ok`/`unknown`. Manter o aviso "fora da transação".
+- [ ] `CHANGELOG.md` `[Unreleased]` → `### Fixed`, com o porquê, `preparationReceipt.ts::buildPreparationReceipt` + `requireXboxReadableLayout` e o link deste doc. Versão não sobe (manual, Dev).
+- [ ] Neste doc: tabela de Tasks, T3 → commit; T4 → "fora do pipeline: decisão do dono (canal de evento de sucesso)".
+
+### Plano de teste
+- **Offline (sem slot):**
+  - `npm --prefix src/electron-app run test:safety` na lane: os testes novos de `preparationReceipt.test.cjs` e `xboxDiskLayoutPolicy.test.cjs` passam, e nenhum `fail` novo em relação à linha de base do manual (258 pass na medição de 2026-10-09; hoje há mais testes, entre eles os 19 de T1/T2). Comparar com a mesma bateria rodada `--at-base`, ou no `HEAD` da base antes do fix;
+  - mutação: com `requireXboxReadableLayout` devolvendo a linha **recebida** em vez da física, o teste do pendrive nativo tem de falhar (`partitionStyle ""`);
+  - com `buildPreparationReceipt` sempre pondo a chave `diskLayout`, o `deepEqual` do teste antigo tem de falhar.
+- **T2 reproducao como o usuario (E2E, no slot):** o caminho do usuário (aba BadAvatar USB → escolher o pendrive → Preparar → abrir `.xbox-downloader/preparo.json` no pendrive) **exige gravar num dispositivo real, e nenhum disco está liberado** (manual, Teste: "nunca escolha um disco na tela BadAvatar USB"). O portão e o recibo só rodam dentro de `prepareFixedBadAvatarDevice`, que exige `requireSafeWindowsUsbTarget` com `BusType USB`, então um destino local não substitui o pendrive.
+
+  No slot, roda só a parte que não grava:
+  1. `npm start` na lane;
+  2. abrir a tela BadAvatar USB **sem selecionar disco**;
+  3. conferir que ela carrega sem erro e que o console do backend na Home mostra o banner `Xbox 360 Companion Backend Server`, com `Get-Process godsend-windows-x64 | Select Id,Path` apontando para a lane.
+
+  Sinal: tela renderizada e nenhum erro novo em `%APPDATA%\xbox-360-companion-electron\logs\`. A prova do recibo com layout num pendrive real vai para **"falta para close"**.
+- **Controle positivo:** os dois testes novos, rodados contra o código da base (`deploy --at-base` não existe neste projeto, saída 2), **falham**:
+  - `preparationReceipt.test.cjs`: não há `diskLayout` no recibo;
+  - `xboxDiskLayoutPolicy.test.cjs`: o portão devolve `undefined`.
+
+  É o sintoma "o layout do disco não sai da máquina do cliente" medido pela unidade. O sintoma do cliente (Xbox mostra "Não Formatado") não tem controle positivo aqui: precisa do console.
+- **T3 regressao direcionada:**
+  - o preparo **sem** formatar e **com** formatar continua passando pelos mesmos `throw` do portão (testes das linhas 149–199 de `xboxDiskLayoutPolicy.test.cjs`, sem mudança);
+  - o teste "data dentro do plano transacional muda o planHash" de `preparationReceipt.test.cjs` continua verde: o recibo não entrou no plano;
+  - `go test -count=1 ./...` em `src/server`: o fix não toca Go, então rc 0 como na linha de base.
+- **Falta para close** (não é reprovação):
+  - prova em pendrive real: recibo com layout, mais o teste GPT → MBR de T2 ("Teste em hardware — passo 2", ainda sem resultado registrado);
+  - T5 no #153 (cliente);
+  - Xbox listando "Dispositivo USB — N GB livres";
+  - decisão do dono sobre T4;
+  - orientação do suporte no `digitalstoregamesproject` (resto de T6);
+  - versão publicada.
+
+### Sessoes seguintes
+- dev: effort high, ultrathink nao — o manual pede `high` para `fixedBadAvatarPreparationService.ts`. A mudança é aditiva e mecânica, mas o recibo precisa continuar fora da transação e incapaz de derrubar o preparo. Não há raciocínio aberto.
+- teste: effort medium, ultrathink nao — bateria de unidade, duas mutações e um E2E que só abre a tela. Não há classificação sutil de falha.
