@@ -342,6 +342,26 @@ e o app não carrega nenhuma regra que precise acompanhar o Companion.
    e 10 não fecham.
 3. v1 em APK avulso (recomendado) ou na Play Store? A loja soma 3 a 5 d e pelo menos 2 semanas.
 
+**Respostas do dono (2026-10-11):** (1) quem escreve o código é um agente; (2) o dono tem celular
+Android, adaptador OTG e pendrive para testes; (3) a v1 sai em APK avulso. A Play Store fica fora,
+e o R5 vira só uma tela de instrução ("instalar apps desconhecidos"), já contada no item 8.
+
+**Prazo refeito com essas respostas.** Os 15 a 22 dias valiam para uma pessoa. Com um agente, a
+parte de código encolhe, e o prazo passa a depender das rodadas de teste do dono no celular:
+- ~6 a 8 sessões de agente: teste rápido do SAF (1), pacote mobile e publicação no R2 (1), download,
+  acesso ao pendrive e gravação com retomada (2 a 3), telas e textos (1), testes unitários e o
+  teste de equivalência no PC (1 a 2);
+- ~3 a 4 rodadas de teste do dono, de 30 a 60 min cada: o teste rápido do SAF, a primeira gravação
+  completa, tirar o pendrive no meio, e um segundo celular, se houver;
+- **calendário: ~1,5 a 2 semanas**, se o dono conseguir fazer uma rodada a cada 2 ou 3 dias. O
+  critério 5 (console real, R1) continua fora desse prazo.
+
+**Como o agente vê o celular com o pendrive plugado:** o celular tem uma porta só, e o OTG a ocupa.
+Para o `adb` funcionar ao mesmo tempo, o caminho é a depuração por Wi-Fi (Android 11+: Opções do
+desenvolvedor → Depuração por Wi-Fi → `adb pair <ip:porta>` e depois `adb connect`) ou um hub USB-C
+que deixe passar dados. Em Android 10 ou anterior: `adb tcpip 5555` com o cabo, depois tirar o cabo
+e plugar o OTG.
+
 **Próximo passo proposto, se o dono aprovar:** antes de fechar a spec, um teste rápido de 0,5 a 1
 dia num celular real: gravar os 617 arquivos por SAF num pendrive, medir o tempo e testar
 `renameDocument` e nomes com maiúsculas diferentes. É o que tira a maior incerteza de
@@ -361,8 +381,9 @@ desenvolvimento (R3). O R1 continua dependendo do console.
 
 **Não fazer nesta etapa:** código, publicação no R2, pergunta ao dono sobre R4.
 
-**Frase de abertura da próxima sessão** (T0 feito; usar depois que o dono responder às três
-perguntas de "T0 — resultado"): *"Leia 'T0 — resultado' e 'Depois do T0' em
+**Frase de abertura da próxima sessão** (T0 feito e respondido pelo dono): *"Leia 'T0 —
+resultado' (inclusive 'Respostas do dono') e 'Depois do T0' em
 `docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md` no repo
-`C:\projects\Downloader-XBOX360-XEX-HDD-Games`. Respostas do dono: <quem desenvolve>, <celular+OTG
-sim/não>, <APK ou Play Store>. Escreva a spec da v1 (base b, pacote mobile gerado no PC)."*
+`C:\projects\Downloader-XBOX360-XEX-HDD-Games` e escreva a spec da v1: base (b), pacote mobile
+gerado no PC, retomada simplificada, sem USB Host, APK avulso. O item 4 da spec (Play Store x APK)
+já está decidido: APK."*
