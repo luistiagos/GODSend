@@ -87,9 +87,11 @@ e um `main.go` que chama `utils.ProbeISODiscInfo(iso)` e `utils.ExtractXEXFolder
 - "Mudar `xdvdfsExtractFile` para arquivo vazio": ja trata 0 byte (aberto acima).
 
 ### Tarefas
-- [ ] `src/server/utils/iso2god.go::parseDirSector` — remover a parada em `size == 0`; parar em `left == 0xFFFF || right == 0xFFFF` ou `nameLen == 0`; atualizar o comentario citando `[[backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20]]` — testes abaixo.
-- [ ] `src/server/utils/xdvdfs_dir_test.go` (novo) — (a) setor sintetico: entrada normal, vazia (`size 0`, setor != 0), duas normais, `0xFFFF` -> 4 entradas; (b) uma entrada seguida de zeros -> 1 entrada; (c) ISO sintetica (helpers ja existentes do pacote: `writeDiscXEX` de `companion_disc_test.go` para o executavel, layout de `buildInstallDiscTestISO`) com vazio ANTES do `default.xex`: `ProbeISODiscInfo` ok e `ExtractXEXFolderFromISO` extrai todos, o vazio com 0 byte; (d) `maxXDVDFSUsedPrefix` enxerga o extent que vem depois do vazio. Cada teste falha sem o fix.
-- [ ] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva, merge=union).
+- [x] `src/server/utils/iso2god.go::parseDirSector` — remover a parada em `size == 0`; parar em `left == 0xFFFF || right == 0xFFFF` ou `nameLen == 0`; atualizar o comentario citando `[[backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20]]` — testes abaixo.
+- [x] `src/server/utils/xdvdfs_dir_test.go` (novo) — (a) setor sintetico: entrada normal, vazia (`size 0`, setor != 0), duas normais, `0xFFFF` -> 4 entradas; (b) uma entrada seguida de zeros -> 1 entrada; (c) ISO sintetica (helpers ja existentes do pacote: `writeDiscXEX` de `companion_disc_test.go` para o executavel, layout de `buildInstallDiscTestISO`) com vazio ANTES do `default.xex`: `ProbeISODiscInfo` ok e `ExtractXEXFolderFromISO` extrai todos, o vazio com 0 byte; (d) `maxXDVDFSUsedPrefix` enxerga o extent que vem depois do vazio. Cada teste falha sem o fix.
+- [x] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva, merge=union).
+
+- **Nota do dev (2026-10-11):** `maxXDVDFSUsedPrefix` tambem passa a ignorar entrada com `size == 0`. Com o leitor corrigido, arquivos vazios entram na varredura; o setor de um extent de 0 byte nao ocupa nada e pode apontar para alem do fim da imagem (o `extract-xiso` grava o "setor atual"; outras ferramentas, lixo), o que acusaria `ISO truncada` em `RunIso2GodNative`. Ainda vale "o fix so pode aumentar o valor" em relacao a base, que nem via essas entradas.
 
 ### Plano de teste
 - **Offline (sem slot):** `go test -count=1 ./utils/` em `src/server` com os testes novos; conferir que (a), (c) e (d) falham com a linha antiga restaurada.
@@ -99,3 +101,20 @@ e um `main.go` que chama `utils.ProbeISODiscInfo(iso)` e `utils.ExtractXEXFolder
 ### Sessoes seguintes
 - dev: effort high, ultrathink nao — mudanca de uma condicao, mas o manual pede high na extracao e os testes exigem montar tabela XDVDFS byte a byte.
 - teste: effort medium, ultrathink nao — receita fechada; o trabalho e montar as ISOs sinteticas e stubar o dialogo.
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+- `src/server/utils/iso2god.go::parseDirSector` — removida a parada em `size == 0`; para em `left/right == 0xFFFF` (como antes) ou em `nameLen == 0` (registro zerado, o caso que a linha antiga queria cobrir). Arquivo vazio passa a ser entrada normal. Comentario da funcao cita `[[backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20]]`.
+- `src/server/utils/iso2god.go::maxXDVDFSUsedPrefix` — `continue` para entrada com `size == 0` (nota do dev no Planejamento): extent de 0 byte nao ocupa nada; sem isso, um vazio com setor alem do EOF faria `RunIso2GodNative` recusar a ISO como truncada. Diretorio de 0 byte ja nao tinha o que percorrer.
+- Sem mudanca em `xdvdfsExtractFile` (ja cria arquivo de 0 byte) nem nos demais consumidores de `readXDVDFSDirTable` (abertos: `hasRegularFile` exige `size > 0`, `ProbeContentPackageTitleID` exige `size >= 0x364`, `findXEXRootDirRecursive` e `xdvdfsExtractRecursive` so ganham entradas).
+- `src/server/utils/xdvdfs_dir_test.go` (novo):
+  - `TestParseDirSectorKeepsEntriesAfterZeroByteFile` — (a) 4 entradas com um vazio (setor != 0) no meio.
+  - `TestParseDirSectorStopsAtZeroFilledEntry` — (b) entrada seguida de zeros -> 1 entrada (guarda a parada antiga; passa com e sem o fix).
+  - `TestProbeISODiscInfoFindsExecutableAfterZeroByteFile` e `TestExtractXEXFolderFromISOExtractsEveryFileAroundZeroByteFiles` — (c) ISO sintetica com `aaa.ini` (0 byte) antes do `default.xex` (gerado por `writeDiscXEX`), `vazio.bin` (0 byte), `z1.txt`, `z2.txt`, `sub/inner.txt`: probe devolve `TitleID 454109F4`; extracao traz os 6 arquivos com os tamanhos certos (vazios com 0 byte).
+  - `TestMaxXDVDFSUsedPrefixSeesExtentAfterZeroByteFile` — (d) vazio com setor `0x7fffffff` antes de `game.bin`: o prefixo e o fim de `game.bin`.
+- Provas offline (em `src/server`):
+  - `go test -count=1 ./utils/` -> `ok`; `go test -count=1 ./...` -> todos os pacotes com teste `ok` (sem `FAIL`).
+  - Controle com `iso2god.go` da base (`git show HEAD:...`): `go test -count=1 -run 'ZeroByte|ZeroFilled' ./utils/` -> FAIL em (a) `got entries [default.xex]`, nos dois de (c) e em (d) `got max prefix 69632, want 132306`.
+  - Controle sem o `continue` de `maxXDVDFSUsedPrefix`: (d) FAIL `got max prefix 4398046509056, want 132306`.
+- `CHANGELOG.md` `[Unreleased]` `### Fixed`. Sem rota/IPC/servico novo: doc-sync nao se aplica. Versao nao sobe (manual, secao Dev).
+- Plano de teste: sem ajuste. O T2 da tela "ISO para XEX" segue a receita do Planejamento; as ISOs sinteticas podem copiar o layout de `buildZeroByteFileTestISO` (setor 0x20 = descritor, raiz em 0x21).

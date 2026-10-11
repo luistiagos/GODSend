@@ -314,8 +314,10 @@ func readXDVDFSDirTable(f *os.File, partOff uint64, sector, size uint32) []xdvdf
 }
 
 // parseDirSector extracts directory entries from a raw 2 048-byte sector buffer.
-// Parsing stops when both subtreeLeft and subtreeRight are 0xFFFF (end-of-data
-// / padding marker in the XDVDFS format).
+// Parsing stops at the 0xFFFF subtree padding marker or at an all-zero entry
+// (nameLen == 0). A zero-byte file is a legitimate entry with size == 0; stopping
+// on it dropped every entry after it in the sector
+// [[backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20]].
 func parseDirSector(data []byte) []xdvdfsDirEntry {
 	var entries []xdvdfsDirEntry
 	pos := 0
@@ -330,11 +332,11 @@ func parseDirSector(data []byte) []xdvdfsDirEntry {
 		}
 		sector := binary.LittleEndian.Uint32(data[pos+4:])
 		size := binary.LittleEndian.Uint32(data[pos+8:])
-		if size == 0 {
-			break
-		}
 		attrs := data[pos+12]
 		nameLen := int(data[pos+13])
+		if nameLen == 0 {
+			break
+		}
 		if pos+14+nameLen > len(data) {
 			break
 		}
@@ -386,6 +388,9 @@ func maxXDVDFSUsedPrefix(f *os.File, partOff uint64, rootSector, rootSize uint32
 			maxUsed = end
 		}
 		for _, entry := range readXDVDFSDirTable(f, partOff, sector, size) {
+			if entry.size == 0 {
+				continue // zero-byte extent occupies nothing; its sector may point anywhere
+			}
 			entryEnd := uint64(entry.sector)*xdvdfsSectorSz + uint64(entry.size)
 			if entryEnd > maxUsed {
 				maxUsed = entryEnd
