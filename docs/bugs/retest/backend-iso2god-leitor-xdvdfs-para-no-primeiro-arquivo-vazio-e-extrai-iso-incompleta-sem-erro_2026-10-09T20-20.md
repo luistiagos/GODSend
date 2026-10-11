@@ -1,5 +1,34 @@
 # Bug: leitor XDVDFS para no primeiro arquivo vazio do setor; ISO vira pasta XEX incompleta sem erro e o probe deixa de achar o default.xex
 
+## Status
+
+- **Corrigido e testado:** 2026-10-11 (pipeline 20261010-2242, teste rodada 1 aprovado).
+- **Commit do fix:** `0230c7d` (rebaseado sobre `origin/main` @ `2e886d2`; o SHA publicado pode mudar no rebase do `publish`).
+- **Onde:** `src/server/utils/iso2god.go::parseDirSector` (para em `0xFFFF` ou `nameLen == 0`, aceita `size == 0`)
+  e `::maxXDVDFSUsedPrefix` (ignora extent de 0 byte); testes em `src/server/utils/xdvdfs_dir_test.go`.
+- **Evidencia:** `C:\projects\.bugfix-xbox360\evidencia\20261011-1340-backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio\`
+  (ISOs sinteticas `isos\A.iso`/`B.iso` de `scripts\make_isos.py`, mesmo layout do teste (c); driver `scripts\t2.js`, Playwright
+  `_electron` sobre a lane, `dialog.showOpenDialog` stubado; `*-result.json` e prints por rodada).
+  - **Offline:** `go test -count=1 ./utils/` ok; com `iso2god.go` da base, (a), os dois de (c) e (d) FALHAM
+    (`got entries [default.xex]`, `got max prefix 69632, want 132306`).
+  - **Controle positivo (base, `dist\godsend-windows-x64.exe` da lane construido com `iso2god.go` de `origin/main`):**
+    "ISO para XEX" com `A.iso` termina em "Saida: ..." verde com SO `default.xex` (faltam `vazio.bin`, `z1.txt`, `z2.txt`,
+    `sub\inner.txt`); `POST /tools/probe-iso` e `/tools/iso2xex` com `B.iso` -> 500 `Probe failed: no game executable
+    (default.xex / default.xbe) found in ISO root` (`base-result.json`, `base-3-result.png`). O erro em vermelho que o plano
+    esperava na UI para `B.iso` NAO aparece: a tela mostra check verde — defeito do IPC, independente deste fix, registrado em
+    [electron-main-ferramentas-iso-mostram-sucesso-quando-o-backend-responde-erro_2026-10-11T13-55](../open/electron-main-ferramentas-iso-mostram-sucesso-quando-o-backend-responde-erro_2026-10-11T13-55.md).
+  - **T2 (fix, mesmo caminho pela UI, backend PID 20300 com Path na lane):** as duas linhas com "Saida: ..."; `A.iso` -> 5 arquivos
+    (`vazio.bin` 0 byte, `z1.txt` 2, `z2.txt` 3, `sub\inner.txt` 4, `default.xex` 64); `B.iso` (`Halo 3 - 4D5307E6`) -> 6 arquivos com
+    `aaa.ini` 0 byte; `probe-iso` de `B.iso` 200 com `titleId 4D5307E6` (`fix-result.json`, `fix-3-result.png`).
+  - **T3:** `go test -count=1 ./...` em `src/server`: todos os pacotes `ok`; `npm --prefix src/electron-app run test:safety`: 307 pass / 0 fail
+    (`t3-test-safety.log`); "ISO para GOD" pela UI com `A.iso` e `B.iso`: as duas concluem, GOD com header + `Data0000` (`god-result.json`).
+  - **T4:** `t4-godsend-server-2026-10-11.log` (janela 13:48-13:53, so os launches deste teste): nenhum erro/panic.
+  - Ambiente: o teste rodou em modo avancado (`simpleMode: false` no `config.json` dev, o modo simples nao tem a barra
+    de Ferramentas sem Xbox na rede ou disco); `config.json` devolvido a copia original no fim.
+- **Falta para `closed/`:** versao publicada (subida de versao + `build-and-upload.ps1`, do dono); ISO retail real com arquivo
+  vazio (EA FC 26 Legacy, `patch.big`/`patch.bh`) instalada como XEX e dando boot no console; frequencia de arquivo vazio no
+  catalogo nao medida (sem ISO de Xbox nesta maquina).
+
 - **Detectado em:** 2026-10-09 ~20:18 (horario local), durante a prova manual do bug
   [pipeline-jogo-xex-com-145-mil-arquivos-...](pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40.md)
 - **Origem:** leitura de `src/server/utils/iso2god.go` e um harness Go **fora do repo** que chama as funcoes

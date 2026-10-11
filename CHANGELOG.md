@@ -20,7 +20,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Causa: o leitor da tabela de diretório XDVDFS parava no primeiro registro com `size == 0`, tomando arquivo vazio legítimo pelo fim do setor; tudo o que vinha depois dele no setor de 2048 bytes sumia.
   - Correção: o leitor para só no marcador `0xFFFF` ou num registro zerado (`nameLen == 0`) e aceita arquivo vazio, que a extração já gravava com 0 byte. `maxXDVDFSUsedPrefix` (corte do GOD) ignora extent de 0 byte, cujo setor pode apontar para qualquer lugar e acusaria "ISO truncada".
   - Testes: `utils/xdvdfs_dir_test.go` (4 casos falham no código anterior; o de setor preenchido com zeros garante a parada antiga).
-  - Relato e análise: [`docs/bugs/open/backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-…`](docs/bugs/open/backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20.md).
+  - Relato e análise: [`docs/bugs/retest/backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-…`](docs/bugs/retest/backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20.md).
 
 ### Changed
 - **Contador da busca do catálogo conta cada versão, não o card agrupado (`src/electron-app/renderer/components/BrowsePage.tsx::totalReleases`)**
