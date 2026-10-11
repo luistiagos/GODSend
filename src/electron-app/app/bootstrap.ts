@@ -144,9 +144,21 @@ function registerIpcHandlers(): void {
 
 
 export function bootstrapApp(): void {
+  // Window/renderer state and GPU crashes go to the log so a blank window can be
+  // diagnosed ([[electron-main-janela-branca-ao-reabrir-com-o-app-ja-aberto-sem-telemetria-do-renderer_2026-10-07T21-48]]).
   app.on("second-instance", () => {
-    appendAppEvent("LIFECYCLE", "second-instance event received; restoring and focusing window");
+    const win = getMainWindow();
+    const state = win && !win.isDestroyed()
+      ? `minimized=${win.isMinimized()} visible=${win.isVisible()} crashed=${win.webContents.isCrashed()} loading=${win.webContents.isLoading()}`
+      : "window=none";
+    appendAppEvent("LIFECYCLE", `second-instance event received; restoring and focusing window ${state}`);
     focusMainWindow();
+  });
+
+  app.on("child-process-gone", (_event, details) => {
+    if (details.type !== "GPU" || details.reason === "clean-exit") return;
+    appendAppEvent("RENDERER", `gpu-process-gone reason=${details.reason} exitCode=${details.exitCode}`);
+    reportError("electron-main", "bootstrap.ts", "child-process-gone", `gpu process gone: reason=${details.reason}`);
   });
 
   app.whenReady().then(() => {

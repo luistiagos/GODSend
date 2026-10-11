@@ -243,3 +243,32 @@ normais — combina com o log). Descartado nesta análise:
   coberto por teste.
 - teste: effort medium, ultrathink nao — receita E2E concreta (injeção por Playwright, segunda instância, servidor
   local de telemetria); exige cuidado com a config do dono, não raciocínio sobre classificação.
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+Implementado conforme o Planejamento, sem desvio.
+
+- `src/electron-app/app/window.ts::watchRendererHealth` (nova, exportada; deps injetaveis `{ log, report, now,
+  isQuitting }`, padrao `appendAppEvent`/`reportError`/`Date.now`/`getIsQuitting`), chamada em
+  `createMainWindow` logo apos o `new BrowserWindow`. Categoria `APP_RENDERER`:
+  - `render-process-gone` -> `render-process-gone reason=<r> exitCode=<n>` sempre; fora de `clean-exit`/Quit
+    reporta `renderer gone: reason=<r> exitCode=<n>` (`electron-main`, `window.ts`); com a janela viva recarrega
+    (`reloading after render-process-gone`), no maximo 1 vez a cada 60 s (`not reloading: crash loop`).
+    `reload()` que lanca e capturado (`reload failed: ...`) para nao virar `uncaughtException`/dialogo.
+  - `unresponsive` -> log + report `renderer unresponsive`; `responsive` -> `responsive after <ms> ms`.
+  - `did-fail-load` so do frame principal e sem `-3` (ERR_ABORTED).
+  - `console-message` so `level === "error"`, linha truncada em 500 caracteres, teto de 50 linhas por janela.
+- `src/electron-app/app/bootstrap.ts::bootstrapApp`: `second-instance` loga `... restoring and focusing window
+  minimized=<b> visible=<b> crashed=<b> loading=<b>` (ou `window=none`); `app.on("child-process-gone")` so `GPU`
+  e fora de `clean-exit` -> `APP_RENDERER gpu-process-gone reason=<r> exitCode=<n>` + report
+  `gpu process gone: reason=<r>` (`bootstrap.ts`, `child-process-gone`).
+- `src/electron-app/tests/unit/rendererHealth.test.cjs` (novo, 8 casos: crash/report/reload, clean-exit e Quit,
+  janela destruida, trava de 60 s, reload que lanca, unresponsive/responsive, did-fail-load, console-message).
+- `CHANGELOG.md` `[Unreleased]` `### Fixed` (sem subir versao).
+
+**Provas offline:** `python pipeline.py build --bug <slug>` -> rc 0 (build:server + tsc + renderer:typecheck);
+`node --test tests/unit/rendererHealth.test.cjs tests/unit/singleInstance.test.cjs` -> 12 pass / 0 fail;
+`node --test tests/unit/*.test.cjs` -> 314 pass / 0 fail.
+
+**Ajustes ao Plano de teste:** nenhum. A linha do `second-instance` agora termina com o estado da janela; o
+sinal esperado no E2E e `second-instance event received; restoring and focusing window minimized=... crashed=...`.

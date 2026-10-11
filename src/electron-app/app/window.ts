@@ -3,6 +3,8 @@ import path from "path";
 
 import { getFirstValidIconPath } from "../infrastructure/fileSystem";
 import { isAllowedApplicationNavigation } from "../infrastructure/navigationPolicy";
+import { appendAppEvent } from "../infrastructure/serverLog";
+import { reportError } from "../infrastructure/telemetry";
 import { setMainWindowRef } from "../services/backendClient";
 
 let mainWindow: BrowserWindow | null = null;
@@ -56,6 +58,81 @@ export function setIsQuitting(value: boolean): void {
   isQuitting = Boolean(value);
 }
 
+export interface RendererHealthDeps {
+  log: (category: string, message: string) => void;
+  report: (component: string, file: string, method: string, message: string) => void;
+  now: () => number;
+  isQuitting: () => boolean;
+}
+
+const RENDERER_RELOAD_COOLDOWN_MS = 60_000;
+const MAX_CONSOLE_ERROR_LINES = 50;
+const MAX_CONSOLE_ERROR_CHARS = 500;
+
+/**
+ * Log renderer crash/hang/load failure/console errors to the app log (and the
+ * crash/hang to telemetry), and reload the page once after a renderer crash so
+ * the window restored from the tray is not left blank. Without this a white
+ * window left no trace at all in the log ([[electron-main-janela-branca-ao-reabrir-com-o-app-ja-aberto-sem-telemetria-do-renderer_2026-10-07T21-48]]).
+ * Reloading does not restart the backend: bootstrap starts it on a `once`.
+ */
+export function watchRendererHealth(win: BrowserWindow, deps: Partial<RendererHealthDeps> = {}): void {
+  const {
+    log = appendAppEvent,
+    report = reportError,
+    now = Date.now,
+    isQuitting: quitting = getIsQuitting,
+  } = deps;
+  const wc = win.webContents;
+  let lastReloadAt = -Infinity;
+  let unresponsiveSince: number | null = null;
+  let consoleErrorLines = 0;
+
+  wc.on("render-process-gone", (_event, details) => {
+    const what = `reason=${details.reason} exitCode=${details.exitCode}`;
+    log("RENDERER", `render-process-gone ${what}`);
+    if (details.reason === "clean-exit" || quitting()) return;
+    report("electron-main", "window.ts", "render-process-gone", `renderer gone: ${what}`);
+    if (win.isDestroyed()) return;
+    const t = now();
+    if (t - lastReloadAt < RENDERER_RELOAD_COOLDOWN_MS) {
+      log("RENDERER", "not reloading: crash loop");
+      return;
+    }
+    lastReloadAt = t;
+    log("RENDERER", "reloading after render-process-gone");
+    try {
+      wc.reload();
+    } catch (err: any) {
+      log("RENDERER", `reload failed: ${err?.message || err}`);
+    }
+  });
+
+  wc.on("unresponsive", () => {
+    unresponsiveSince = now();
+    log("RENDERER", "unresponsive");
+    report("electron-main", "window.ts", "unresponsive", "renderer unresponsive");
+  });
+
+  wc.on("responsive", () => {
+    const since = unresponsiveSince;
+    unresponsiveSince = null;
+    log("RENDERER", since === null ? "responsive" : `responsive after ${now() - since} ms`);
+  });
+
+  wc.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return; // -3 = ERR_ABORTED (navigation replaced)
+    log("RENDERER", `did-fail-load code=${errorCode} desc=${errorDescription} url=${validatedURL}`);
+  });
+
+  wc.on("console-message", (details) => {
+    if (details.level !== "error" || consoleErrorLines >= MAX_CONSOLE_ERROR_LINES) return;
+    consoleErrorLines++;
+    const line = `${details.sourceId}:${details.lineNumber} ${details.message}`;
+    log("RENDERER", `console error ${line.slice(0, MAX_CONSOLE_ERROR_CHARS)}`);
+  });
+}
+
 /**
  * Create the main BrowserWindow and hook up minimize-to-tray / close-to-tray
  * behaviour.
@@ -80,6 +157,7 @@ export function createMainWindow(): void {
       devTools:         process.env.NODE_ENV === "development",
     },
   });
+  watchRendererHealth(mainWindow);
 
   mainWindow.maximize();
   mainWindow.show();
