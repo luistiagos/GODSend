@@ -666,6 +666,16 @@ Critério de saída: jogos locais de teste são convertidos, planejados, gravado
 - build reproduzível e SBOM;
 - processo de resposta a componente revogado/comprometido.
 
+### 8.9 P8 — app Android que só prepara o pendrive BadAvatar (backlog, 2026-10-11)
+
+App Android novo e dedicado, para o cliente com console travado/LT que não tem computador: o
+pendrive é formatado pelo cliente no próprio Xbox 360, e o app grava nele o mesmo conteúdo do
+preparo BadAvatar do Companion (mesmo pacote, mesmos arquivos gerados, mesmas conferências).
+Escopo, riscos abertos (espaço que o "Configurar agora" do console deixa, leitura de layout e
+escrita no Android, distribuição do pacote de 726 MB, Play Store, ausência de Xbox de teste) e
+critérios de aceite em
+[`docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md`](backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md).
+
 ## 9. Ordem recomendada de implementação
 
 ```text
