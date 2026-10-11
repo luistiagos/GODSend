@@ -71,10 +71,16 @@ afirma que o console foi desbloqueado.
 - **R3. Como gravar no pendrive.** As opções são o SAF (`ACTION_OPEN_DOCUMENT_TREE` na raiz do
   pendrive, sem root, o caminho dos gerenciadores de arquivos) ou a escrita FAT32 própria sobre
   USB bruto. Pesam desempenho com cerca de 640 arquivos, retomada e quantos aparelhos funcionam.
-- **R4. Distribuição do pacote (726 MB).** Hoje o pacote só existe embutido no instalador de
-  Windows (`docs/ATUALIZAR-PACOTE-BADAVATAR.md`) e não tem URL pública. O app precisa dele
-  embutido (conferir o limite de tamanho da Play Store e o Play Asset Delivery) ou baixado de um
-  repositório com o catálogo SHA-256. A segunda opção pede publicar a mesma versão do manifesto.
+- **R4. Distribuição do pacote (726 MB) — decidido pelo dono em 2026-10-11: R2, no mesmo
+  lugar dos outros.** Hoje o pacote só existe embutido no instalador de Windows
+  (`docs/ATUALIZAR-PACOTE-BADAVATAR.md`) e não tem URL pública. O "mesmo lugar" é o que o
+  `upload-r2.ps1` usa: bucket `versions` (`r2-config.json`), URL pública
+  `https://versions.digitalstoregames.com`, pasta `XBOX360Companion/`, envio com `rclone`
+  (`--s3-provider=Cloudflare`) e um `.sha256` publicado ao lado do arquivo. O app baixa o pacote
+  dali e confere cada arquivo contra o mesmo `badavatar-package.json` (`bundleSha256`) que o
+  Companion usa. Para a spec decidir: o nome e o caminho do objeto (com a release no nome, para
+  versões conviverem), o formato (`.zip` único ou arquivos soltos) e quem publica a cada troca de
+  pacote (ver se o `docs/ATUALIZAR-PACOTE-BADAVATAR.md` ganha esse passo).
 - **R5. Loja de apps.** A Play Store pode recusar um app ligado a desbloqueio de console. Se for
   APK avulso, instalar fora da loja vira mais um passo para o cliente leigo.
 - **R6. A loja não tem Xbox 360 para testes.** A prova é por equivalência: um pendrive preparado
@@ -101,4 +107,43 @@ afirma que o console foi desbloqueado.
 ## Próximo passo
 
 Spec seguindo o fluxo do projeto: o QUE, os critérios com a prova de cada um, e só então o COMO.
-Antes, responder R1 (sem console isso depende de uma ajuda de campo) e R4.
+R4 está decidido. R1 continua aberto (sem console, depende de ajuda de campo) e entra na spec
+como premissa a provar, sem travar a escrita.
+
+## Passagem de bastão (2026-10-11) — escrever a spec
+
+**Já feito (não refazer):** a pesquisa de mercado e o "por que celular" estão no bug de origem
+(link no topo). O mapa do preparo do Companion, na tabela acima, foi lido em
+`fixedBadAvatarPreparationService.ts` (linhas 485-666), `preparedDeviceState.ts`,
+`preparationReceipt.ts` e `xboxDiskLayoutPolicy.ts`. A decisão de hospedar no R2 está no R4.
+
+**Fatos para a spec, já conferidos no código:**
+- `detectPreparedDeviceState` devolve `preparado-bloqueado-lt` só quando **todos** os arquivos do
+  perfil do exploit existem com o tamanho do pacote (`matchesBundledSize`). Essa é a prova do
+  critério 2.
+- O recibo (`.xbox-downloader/preparo.json`) só é **gravado** pelo Companion; nada no app o lê.
+  Ele serve ao suporte. `PreparationMode` hoje é `"bloqueado-lt" | "rgh"`, e a origem Android
+  pede campo novo ou modo novo: decidir sem quebrar `schemaVersion: 1`.
+- O `transactionId` sai de `bundleSha256 + fingerprint + scope` (`deterministicTransactionId`), e
+  o diário recusa um plano com byte volátil (comentário no topo de `preparationReceipt.ts`). A
+  impressão digital do dispositivo no Android precisa ser estável entre conexões, senão a
+  retomada não acha o diário.
+- Nada no código trata a pasta `Xbox360/` que o console cria ao configurar o pendrive (R1).
+
+**O que a spec precisa entregar:**
+1. O QUE, em critérios EARS, cada um com a prova que roda. Partir dos 5 critérios de aceite
+   acima. O critério 5 é o único que exige console.
+2. R2/R3: o caminho de acesso ao USB no Android (SAF ou USB Host com escrita FAT32 própria),
+   escolhido com os prós e contras escritos.
+3. R4: o nome do objeto no R2, o formato e o passo de publicação.
+4. R5: Play Store ou APK avulso, com o risco de política escrito.
+5. Onde mora o código: um módulo novo neste repo (como o `src/android-app/`) ou um repo próprio;
+   e como reaproveitar `readyToPlayConfiguration.ts` sem copiar à mão (os arquivos gerados têm
+   de sair byte a byte iguais).
+6. Tasks derivadas dos critérios, cada uma com o teste que a prova.
+
+**Não fazer nesta etapa:** código, publicação no R2, pergunta ao dono sobre R4.
+
+**Frase de abertura da próxima sessão:** *"Leia a seção 'Passagem de bastão (2026-10-11)' de
+`docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md` no repo
+`C:\projects\Downloader-XBOX360-XEX-HDD-Games` e escreva a spec do app Android preparador."*
