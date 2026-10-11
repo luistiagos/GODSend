@@ -279,6 +279,12 @@ def dirty_split(path: Path) -> tuple[list[str], list[str]]:
     return real, gen
 
 
+def skill_rel() -> str:
+    """Pasta da skill relativa ao repo (`skills/...` aqui, `.claude/skills/...` nas copias). Fora do repo
+    (os testes trocam o SRC por um repo temporario): o caminho que ela tem na fonte."""
+    return SKILL.relative_to(SRC).as_posix() if SRC in SKILL.parents else f"skills/{SKILL.name}"
+
+
 def discard_generated(path: Path, what: str):
     """Descarta SO os gerados do CMake. Mudanca de verdade nao commitada -> recusa (saida 2):
     `git checkout -- .` aqui ja apagaria edicao de dev retomado."""
@@ -2501,8 +2507,7 @@ def cmd_preflight(a):
         warn.append(f"{len(s['real'])} arquivo(s) real(is) nao commitado(s) ({', '.join(s['real'][:5])}"
                     f"{', ...' if len(s['real']) > 5 else ''}): a finalizacao commita docs e so publica codigo "
                     "se compilar; o resto vira pendencia sua")
-    skill_rel = SKILL.relative_to(SRC).as_posix() if SRC in SKILL.parents else f"skills/{SKILL.name}"
-    if run(["git", "diff", "--quiet", base, "--", skill_rel], cwd=SRC, check=False).returncode:
+    if run(["git", "diff", "--quiet", base, "--", skill_rel()], cwd=SRC, check=False).returncode:
         warn.append(f"a skill que vai RODAR (a desta arvore) difere da de {base}")
     for w in warn:
         print("[AVISO] arvore principal: " + w)
@@ -3184,8 +3189,9 @@ def unpublished(base: str) -> list[str]:
 
 def sync_main(st: dict, fresh_min: float = FRESH_MIN) -> dict:
     """Deixa a arvore principal igual ao origin (decisao do dono, 2026-10-03): commita o trabalho de
-    terceiros (um commit por doc; codigo num commit so, publicado SE compilar), publica os commits
-    locais por uma lane e avanca a arvore com `merge --ff-only`/`reset --keep`. Nunca descarta nem
+    terceiros (um commit por doc; codigo num commit so, publicado SE compilar; o da pasta da propria skill
+    nunca: o build nao o valida), publica os commits locais por uma lane e avanca a arvore com
+    `merge --ff-only`/`reset --keep`. Nunca descarta nem
     reescreve arquivo modificado (unica excecao: gerado de build que o proprio alvo apaga): o que nao da
     para resolver vira item de `pending` (decisao do dono)."""
     base, pend, commits = st["base"], [], []
@@ -3224,7 +3230,16 @@ def sync_main(st: dict, fresh_min: float = FRESH_MIN) -> dict:
     if stray:
         pend.append("arquivo(s) novo(s) fora de docs/, de origem desconhecida, nao commitado(s): "
                     + ", ".join(f"{f} ({stamp(f)})" for f in stray[:10]))
-    todo = [f for f in real if f not in fresh and f not in stray]
+    # [[pipeline-final-sync-main-publica-codigo-da-skill-em-edicao-por-outra-sessao_2026-10-09]] o portao do
+    # commit de codigo e o `build` do projeto, que nao valida o helper: o modo tasks da B2, pela metade e sem
+    # os testes, foi publicado assim (a361a1b). A idade do arquivo nao prova que a edicao terminou; so quem
+    # edita sabe. O arquivo NOVO da skill ja saiu acima, em `stray`.
+    skill = skill_rel() + "/"
+    own = [f for f in real if f not in fresh and f not in stray and f.replace("\\", "/").startswith(skill)]
+    if own:
+        pend.append(f"arquivo(s) da propria skill ({skill}) nao commitado(s): o build do projeto nao os valida e o "
+                    "helper e replicado nas copias; quem edita commita: " + ", ".join(f"{f} ({stamp(f)})" for f in own[:10]))
+    todo = [f for f in real if f not in fresh and f not in stray and f not in own]
     docs, code = [f for f in todo if is_doc(f)], [f for f in todo if not is_doc(f)]
     why = f"trabalho local de outra sessao publicado pela finalizacao do pipeline {st['run_id']}"
     groups = [([f], f"{COMMIT_DOCS if f.replace(chr(92), '/').startswith('docs/bugs/') else COMMIT_DOCS_OUTROS}: "

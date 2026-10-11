@@ -620,6 +620,15 @@ lane, e o roteiro repassava ao dono o que o helper proibia ou nao sabia fazer.
 - **O codigo de terceiro e o ULTIMO commit.** Se nao compila, publica-se o prefixo so-docs
   e ele fica local. Arquivo novo fora de `docs/` e arquivo mexido ha menos de 10 min nao sao
   commitados (origem desconhecida; outra sessao editando agora).
+- **Arquivo modificado na pasta da propria skill tambem nao e commitado** (vira `PENDENCIA DO DONO`;
+  bug `pipeline-final-sync-main-publica-codigo-da-skill-em-edicao-por-outra-sessao_2026-10-09`, 2026-10-10). O portao "publica se
+  compilar" e o build do PROJETO, que nao importa nem testa o helper: para esse codigo ele passa sempre,
+  e o helper e o que a propria execucao roda e o que o `sync_copias.py` replica nas copias. A idade do
+  arquivo nao prova que a edicao terminou (a B2 ficou ~34 min sem commit e saiu pela metade em
+  `a361a1b`); rodar os testes da skill como portao tambem nao (a bateria antiga passaria com a B2 pela
+  metade). Quem sabe que terminou e quem edita: ele commita. A pasta e a de `skill_rel()` (`skills/...`
+  aqui, `.claude/skills/...` nas copias). Commit LOCAL da skill continua publicado (decisao 1): commitar
+  e ato deliberado.
 - **C3 e provado por cadeia, nao por inspecao do binario:** commit de cada `retest` e ancestral do SHA
   deployado; entre esse SHA e o origin so mudou `docs/`; MD5 atual do `dist/` = MD5 gravado logo depois
   do deploy (e conferido contra a saida do build da lane).
@@ -638,7 +647,9 @@ lane, e o roteiro repassava ao dono o que o helper proibia ou nao sabia fazer.
   `cleanup`; o `stop-final` so cobre as da finalizacao. Desde a secao 19 a retomada nao abre mais copia;
   o limite so vale para as abertas por execucao anterior a ela.
 - "Compila" e so `deploy.ps1 -BuildOnly`: nao prova que o codigo de terceiro funciona, e nao valida
-  Python (skill, testes).
+  Python. A pasta da skill saiu do commit automatico (acima); o resto que o build nao toca (`scripts/*.py`,
+  `tests/`) continua publicado so pelo build — generalizar pediria uma lista por projeto no `projeto.json`
+  e reabriria a decisao 2.
 
 ## 19. Retomada: sem flags e com a sessao parada; o ledger segue o id impresso (2026-10-03)
 
@@ -1291,8 +1302,10 @@ commit alcancavel; assunto `TASK-NNNN:`; commit de docs `chore:`.
 (`git_pipeline.py`) e `d788ecc` (`sim_pipeline.py`).
 - **O codigo foi para o origin por outro caminho:** com a edicao ainda sem commit, a finalizacao da execucao
   `20261009-1144` (rodando no retrobatnew) fez `final-sync-main` e publicou o `pipeline.py` como codigo de terceiros
-  (`a361a1b`, `chore(terceiros): ...`, 12:34; o build compilou). E o desenho do `sync_main`, nao um defeito: e a
-  regra "editou: commit na hora" vale tambem contra a propria finalizacao. `git diff a361a1b -- .../pipeline.py` = vazio:
+  (`a361a1b`, `chore(terceiros): ...`, 12:34; o build compilou). Era o desenho do `sync_main` de entao, e a
+  regra "editou: commit na hora" vale tambem contra a propria finalizacao. Tratado como defeito depois: bug
+  `pipeline-final-sync-main-publica-codigo-da-skill-em-edicao-por-outra-sessao_2026-10-09` — desde 2026-10-10 o `sync_main` deixa o
+  arquivo modificado da pasta da skill como pendencia do dono (secao 18, "Como"). `git diff a361a1b -- .../pipeline.py` = vazio:
   o commit contem exatamente a B2. Historia publicada nao foi reescrita.
 - Simbolos novos: `stage_path`, `retest_path`, `task_field`/`set_task_field`/`task_status`, `item_kind`, `task_of`,
   `task_number`/`task_id`/`task_commits`, `task_plan_errors`, `task_numbers`, `cmd_task_reserve` (`task-reserve --bug`),
@@ -1576,3 +1589,147 @@ maior caminho rastreado (`git ls-files | awk '{print length($0)}' | sort -n | ta
 (`<pipe_dir>\lanes\wt-planning\`) e escolher `pipe_dir` curto se passar de 259; e conferir que arquivos de runtime/IDE
 rastreados ficam em `gerados`. Frase de abertura: "Leia `C:\projects\retrobatnew\source\skills\pipeline-correcao-bugs\DESIGN.md`,
 secao 22.11 (e a 22.11.C), e faca a T4 do Lemuroid a partir do passo 1."
+
+#### 22.11.D Sessao D — T4 do Lemuroid (2026-10-09)
+
+Aberta em `C:\projects\retrobatnew` (nao no Lemuroid): tudo por caminho absoluto. Fonte da skill limpa e em
+`origin/versao3` (`0 0`); a B2 ja esta commitada (`20a26f5`), entao a regra de 22.7 nao segura nada aqui.
+
+**Passo 2 — medido as ~16:00, antes de editar:**
+- `git branch -vv`: `version9` @ `9a6461a` `[origin/version9]`, nem a frente nem atras. Remoto unico `origin`
+  (luistiagos/retrosystemlemuroid). Uma worktree so.
+- `git status --short`: 9 `M` de OUTRA sessao em curso (fix da busca presa ao sistema: `MainActivity.kt`, `MainViewModel.kt`,
+  `SearchScreen.kt`, `StreamingRomsManager.kt`, `strings.xml` x2, `catalog_manifest.txt` x2, `prj.md`) e o doc dela movido
+  `open -> done` em `docs/bugs` E em `documentacao/bugs` (sem commit). Nao tocar.
+- `git ls-files .claude`: `settings.json` e **`settings.local.json`** -> `.claude/` versionado. `git check-ignore -v
+  .claude/skills/pipeline-correcao-bugs/projeto.json` -> rc 1 (nao ignorado).
+- `docs/bugs/`: `open/` (8), `retest/` (2), `done/` (85), mais 2 soltos na raiz; **sem README** em nenhuma pasta. O ciclo
+  ja e `open -> retest -> done` (o do motor).
+- **`documentacao/bugs/` e ESPELHO de `docs/bugs/`:** mesmos nomes em `open/`, `retest/` e `done/` (85 = 85, `Get-FileHash`
+  igual em todos os `done/`); o `CLAUDE.md` do repo ainda manda `[BUG]` para `documentacao/bugs`. **Corrigido na operacional:**
+  nao e mantido a mao — na arvore principal `docs` e uma JUNCTION para `documentacao` (`Get-Item docs` -> `LinkType=Junction`,
+  criada 2026-09-17). O git rastreia as duas arvores (`ls-files`: 99 em `docs/bugs`, 96 em `documentacao/bugs`) e todo commit de
+  doc de bug leva os dois caminhos (`9a6461a`, `27320f1`: 2 arquivos cada). Nas lanes nao ha junction (o git checa `docs/` como
+  pasta). Visto ao commitar os README: as copias `?? documentacao/bugs/{open,retest}/README.md` surgiram sozinhas.
+- Assunto de commit de docs no repo: `docs(bug)` (12 nas ultimas 400; `docs(bugs)` 2) -> `commit_docs: "docs(bug)"`.
+- Deploy que publica sozinho: `grep "git (add|commit|push)"` em `*.ps1/*.bat/*.sh/*.py` -> nada. Commit local NAO vai ao ar.
+
+**Passo 4 — build medido na lane real** (`git worktree add --detach C:\projects\lemuroid\.bugfix-pipeline-Lemuroid\lanes\wt-planning
+origin/version9`, PIPE padrao; 19 s, 27.972 arquivos):
+- **Caminho longo nao derruba a lane:** maior rastreado 170 (`lemuroid-cores`: 111) + prefixo 65 = 235. A saida do Gradle tem
+  caminho RELATIVO de 256 (`lemuroid-app/build/intermediates/classes/.../InstalledGamesScreenKt$...$items$default$4.class`; na
+  arvore principal ja ha absolutos de 286): na lane deu 321 e o build passou, porque o Windows tem `LongPathsEnabled=1` e o JDK
+  respeita. `core.longpaths` nao esta ligado em nenhum nivel do git. PIPE curto nao resolveria (256 sozinho ja passa de 259).
+- **Submodulo `lemuroid-cores` vem VAZIO** (`git submodule status` -> `-55d29c2`; pasta existe com 0 entradas). Controle: sem ele,
+  `gradlew :lemuroid-app:assembleFreeBundleDebug` -> rc 1 em 69 s, `Could not resolve project :bundled-cores`.
+  `settings.gradle.kts:22` aponta `:bundled-cores` para `lemuroid-cores/bundled-cores`; `lemuroid-app/build.gradle.kts:482/550` le
+  `lemuroid-cores/<core>/src/main/jniLibs/...` e `lemuroid-cores` inteiro (verificador de cores). Precisa do submodulo todo.
+- `entradas_ignoradas` NAO serve para ele: `provision_wt` so copia se o destino nao existe (a pasta vazia existe) e copiaria o
+  `.git` dele (la e PASTA, submodulo antigo); `lemuroid-cores/bundled-cores` na arvore principal tem 12,7 GB (quase tudo `build/`).
+- **Povoar a partir do clone local, sem rede:** `git -C <lane> -c protocol.file.allow=always -c
+  submodule.lemuroid-cores.url=C:/projects/lemuroid/Lemuroid/lemuroid-cores submodule update --init lemuroid-cores` -> rc 0 em 16 s,
+  `55d29c2` checado, gitdir em `.git/worktrees/wt-planning/modules/lemuroid-cores` (415 MB), `remote.origin` do clone = o caminho
+  local. A url da config COMUM continua `https://github.com/...` (o `-c` so vale no comando). `git status` da lane: vazio.
+- Com o submodulo: `assembleFreeBundleDebug` rc 0 em 257 s (169 tasks, 72 do build cache de `C:\Users\luist\.gradle`);
+  APKs `lemuroid-app/build/outputs/apk/freeBundle/debug/lemuroid-app-free-bundle-{arm64-v8a,armeabi-v7a}-debug.apk`.
+  `git status --untracked-files=all` na lane E no submodulo depois do build: vazio -> nada rastreado e gerado pelo build.
+- Sem `local.properties` (gitignored) o build passa: `ANDROID_HOME`/`JAVA_HOME` estao no ambiente do usuario. `build.properties`
+  so tem segredos de upload (`HF_TOKEN`, `R2_*`, `CF_*`): nunca copiar. `release.jks` so no release. `entradas_ignoradas` = [].
+- `gradlew :lemuroid-app:testFreeBundleDebugUnitTest` na lane: rc 0 em 32 s; XML: 10 suites, 54 testes, 0 falhas, 0 erros,
+  1 pulado (linha de base do T3).
+- `gradlew ktlintCheck` na lane: **rc 1 na base**, ao contrario do `CLAUDE.md` do repo ("passa"): `Color.kt` (src/debug) com
+  linhas em branco no fim (conferido no arquivo da lane, linhas 68-78) e `ktlintKotlinScriptCheck` em `lemuroid-app/build.gradle.kts`
+  (`function-signature`). Os relatorios citam caminho da ARVORE PRINCIPAL: o resultado veio do build cache compartilhado.
+- **Remover a lane:** `git worktree remove --force` -> rc 255 `failed to delete ...: Filename too long` (o git sem `core.longpaths`
+  nao apaga os 321); desregistra a worktree, apaga o `.git` dela e o `.git/worktrees/wt-planning` (com o modulo do submodulo), e
+  deixa 40.747 arquivos. E o ramo do `cmd_cleanup` (3034-3040): `.git` ausente -> sem `die`; sobra -> `shutil.rmtree(...,
+  ignore_errors=True)`. Simulado com o mesmo `rmtree` (Python 3.14, longPathAware): 15 s, pasta apagada, 0 sobras. Sem
+  `--force` o git recusaria (`working trees containing submodules cannot be moved or removed`, provado num repo temporario); o
+  motor ja usa `--force`.
+
+**O app no E2E** (lidos: `build_and_install_connected.ps1`, `lemuroid-app/build.gradle.kts` 73/191-219, `TelemetryReporter.kt`):
+- Debug = `applicationId app.retrogamesystem.debug`, `versionNameSuffix -DEBUG`, assinado com o `debug.keystore` do repo: convive
+  com o app de cliente `app.retrogamesystem` sem conflito de assinatura. O instalado no A12 hoje: `1.17.25-DEBUG`, versionCode 256,
+  `lastUpdateTime 2026-10-09 15:17` (outra sessao instalou hoje) -> o aparelho e disputado por sessoes fora do pipeline.
+- Aparelho `RX8R90G1D6E` (SM-A127M, Android 13, `arm64-v8a,armeabi-v7a,armeabi`), com `sha256sum`/`pidof` no `/system/bin`.
+  `run-as app.retrogamesystem.debug` funciona (lido `shared_prefs/`, sem escrever).
+- **O debug manda telemetria para PRODUCAO** (`TelemetryReporter.DEFAULT_ENDPOINT` = `.../logErr`, projeto `retrogamesystem/...`,
+  com `app=<versao>-DEBUG` e o modelo no contexto). Kill-switch: `shared_prefs/telemetry_prefs.xml`, boolean
+  `telemetry_error_reporting` (ausente = ligado), lido no `init`. O manual manda desligar no slot e devolver no fim (a escrita
+  nao foi medida aqui: e estado do aparelho do dono).
+- Sem `deploy`: o controle positivo e checkout destacado da base na lane -> `build` do helper (compila o checkout atual,
+  `project_cmd`) -> guardar o APK -> voltar ao branch do bug -> `build` de novo.
+
+**Hipoteses descartadas:**
+- `entradas_ignoradas: ["lemuroid-cores"]` ou `[".../bundled-cores"]`: acima (destino existe; 12,7 GB; `.git` pasta).
+- `git submodule update --init` com a url do GitHub: rede e um clone de 415 MB por lane; o clone local e de 16 s e e exatamente o
+  commit do ponteiro. Se um ponteiro novo nao existir no clone local, o build falha com o erro do git (visivel), nao compila errado.
+- Passo de provisionar no motor (22.6 deixou fora): o `build.cmd` ja roda em toda lane antes de qualquer coisa que precise do
+  submodulo, e o `submodule update` e no-op quando ja esta no commit. Sem mudanca no motor nesta T4.
+- Ligar `core.longpaths` no repo para o `worktree remove` passar: config de todos, e o fallback do `cleanup` ja cobre.
+- PIPE curto: nao muda nada (a saida do Gradle sozinha tem 256).
+- `ktlintCheck` no `build`: vermelho na base, travaria todo fix. Vai no T3 como "nenhum apontamento novo nos arquivos do fix".
+- Copiar o espelho `documentacao/bugs` nas etapas: o motor trata so `docs/` como documentacao (secao 14); um `git mv` em
+  `documentacao/` contaria como CODIGO (reserva, `publish_docs_only`, `final-sync-main`).
+- AVD (`lemu_api25_2gb` etc.) como aparelho: exige `-PdevAbi=x86_64` e nao prova bug de ARM/core (pitfalls 6a/6b do `CLAUDE.md`).
+
+**Decisoes do dono (2026-10-09, nesta sessao):**
+1. Aparelho do E2E: **o Galaxy A12 conectado** (`RX8R90G1D6E`). Sem ele no `adb devices` -> `test-done --result ambiente`.
+2. Espelho `documentacao/bugs`: **o pipeline ignora**; o briefing da finalizacao lista os docs que mudaram para o dono replicar.
+   (A pergunta descreveu o espelho como mantido a mao; com a junction a decisao continua valendo e fica mais barata: no
+   disco o arquivo ja esta la, falta so commitar o caminho `documentacao/` que fica sujo na arvore principal.)
+
+**Desenho (config):**
+- `build.cmd`: `submodule update --init` do clone local (acima) + `gradlew :lemuroid-app:assembleFreeBundleDebug
+  :lemuroid-app:testFreeBundleDebugUnitTest` (APK do teste + unidade numa chamada; ~5 min a frio, lock `lemuroid-build`, 31 GB de
+  RAM e `-Xmx5120m` por daemon -> um por vez e o certo).
+- `gerados`: `^lemuroid-cores$` (o ponteiro do submodulo: o pipeline NUNCA o commita, nem o `final-sync-main` como terceiros —
+  e o caso do pitfall 15 do `CLAUDE.md`, ponteiro voltando dois meses num `git add -A`; fix de core e `bloqueado`) e
+  `^\.claude/settings\.local\.json$` (rastreado; permissoes locais de sessao nao vao ao ar como `chore(terceiros)`).
+- `e2e: {}` (aparelho, como o ARMSX2); `preflight`: `JAVA_HOME` com `java.exe`, `adb` no PATH, o A12 no `adb devices`,
+  `lemuroid-cores/bundled-cores` povoado na arvore principal.
+
+**Fazer:** no Lemuroid, `.claude/skills/pipeline-correcao-bugs/{projeto.json,projeto.md}` (as 9 secoes de 22.10) e
+`docs/bugs/{open,retest}/README.md`; na fonte, `DESTINOS` += Lemuroid e commit; `sync_copias.py --check` (falta) e `--commit
+--destino <Lemuroid>`; `preflight --skip-spawn`. Worktree de medida e `C:\projects\lemuroid\.bugfix-pipeline-Lemuroid` ja removidas.
+
+**T4 do Lemuroid FEITA, menos o trust (2026-10-09 ~17:00).** Lemuroid `version9` publicado (`9a6461a..bc0303e`;
+`origin/version9...version9` = `0 0`), so com commits desta sessao (os arquivos sem commit da outra sessao ficaram):
+- `1350581` `projeto.json`, `projeto.md` (as 9 secoes de 22.10), `docs/bugs/{open,retest}/README.md`;
+- `e59bc9c` as mesmas README em `documentacao/bugs/` (a junction as criou no disco; o repo commita os dois caminhos) e o
+  manual explicando a junction;
+- `bc0303e` copia da fonte em `a4db189` (`sync_copias.py --commit --destino <Lemuroid>`, fonte limpa, sem `--fonte`).
+  `--check --destino <Lemuroid>` -> `[OK] ... igual a fonte`, rc 0.
+- Fonte: `10bda8c` (registro antes da edicao) e `a4db189` (`DESTINOS` += Lemuroid; correcao da junction neste registro).
+- **Prova do `build.cmd` exato** (script que repete o `project_cmd`: placeholders trocados, `cwd=ROOT`, lane nova
+  `...\lanes\wt-1` criada como o `ensure_wt`): rc 0 em 59 s com cache quente; `Submodule path 'lemuroid-cores': checked out
+  '55d29c2...'`; 2 APKs; 10 suites de teste; `git status` da lane vazio; url comum intacta; remocao como o `cmd_cleanup`
+  (`worktree remove --force` rc 255 `Filename too long` + `rmtree`) sem sobra.
+- **Controle dos `gerados`** (o `GENERATED` montado pelo `configure` da copia): `lemuroid-cores` e `.claude/settings.local.json`
+  casam; `.claude/settings.json`, `lemuroid-cores-x/a.kt`, um `.kt` do app e um doc de `docs/bugs` nao. A linha de submodulo sujo
+  no `porcelain` e ` M <caminho>` sem barra (provado num repo temporario, com commit novo e com conteudo sujo).
+- `preflight --skip-spawn` rodado da copia, em `C:\projects\lemuroid\Lemuroid`, depois do push: `[OK]` claude.exe, projeto (lanes
+  em `C:\projects\lemuroid\.bugfix-pipeline-Lemuroid\lanes`), manual, "copia da skill igual a fonte", os 4 itens do `projeto.json`
+  (JAVA_HOME, adb, A12 `RX8R90G1D6E`, submodulo), `version9`, `claude agents`, "rodizio de contas desligado"; `[AVISO]` 14 arquivos
+  reais nao commitados (a outra sessao, fix da busca); `[FALHA] trust` -> **acao do dono** (`claude.exe` num terminal no repo,
+  aceitar, sair). Antes do push havia tambem `[AVISO]` 3 commits locais e "a skill difere da de origin/version9"; sumiram.
+- A pasta do pipeline que o preflight cria (so `lanes\` vazia) foi apagada; `git worktree list` so com a principal.
+
+**Pendencias do dono (Lemuroid):** trust; T5 (preflight com spawn). Nao medido aqui: a ESCRITA do kill-switch de telemetria por
+`run-as` (o manual manda; a 1a execucao confirma ou cai no "anote a janela de horario"). Fora de escopo, sem doc:
+1. `gradlew ktlintCheck` vermelho em `origin/version9`, contra o "passa" do `CLAUDE.md` do repo (`Color.kt` de `src/debug`;
+   `function-signature` em `lemuroid-app/build.gradle.kts`).
+2. A tabela de rotas do Passo 4 da `triagem-chamados` (`source/skills/triagem-chamados/SKILL.md`) nao tem o Lemuroid/RetroSystem
+   Android: um chamado desse produto nao tem destino escrito. **Virou bug** (pedido do dono):
+   `source/docs/bugs/open/skill-triagem-chamados-sem-rota-para-lemuroid_2026-10-09.md` (`625b142`, passada 1).
+3. ~~O `CLAUDE.md` do Lemuroid ainda manda `[BUG]` para `documentacao/bugs`~~ **corrigido a pedido do dono** (`35636b8`, publicado):
+   o workflow manda para `docs/bugs` (`open -> retest -> done`, citando os README) e os 17 links "Detalhes em" apontam para
+   `docs/bugs` (todos conferidos com `git ls-files`; o do TV box MXQ estava em `open/` e o doc ja esta em `done/`).
+   **Depois, a pedido do dono, `documentacao/` saiu do repo:** junction removida, `docs/` virou pasta real, `documentacao/`
+   fora do indice e as 84 referencias em 53 arquivos trocadas por `docs/` (Lemuroid
+   `docs/bugs/done/2026-10-09-documentacao-duplicada-junction-docs.md`). O que este registro diz acima sobre a junction e o
+   "commit dos dois caminhos" vale ate 2026-10-09 ~20:40; o manual do pipeline do Lemuroid ja nao tem a secao do espelho.
+   Continua: `.claude/settings.local.json` rastreado.
+
+**Proxima:** T5 com o dono nos projetos com trust aceito (22.5 item 5; nenhuma execucao real sem ele). A T4 dos quatro repos
+esta feita.

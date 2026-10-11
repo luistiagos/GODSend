@@ -450,6 +450,34 @@ rec = P.load()["final"]["sync"]
 check(not rec["blocked"] and len(rec["pending"]) == 2 and "fresco.md" in rec["pending"][0] and "rascunho-humano.txt" in rec["pending"][1],
       f"[finalizacao] as duas sobras viram pendencia do dono, com arquivo e data ({rec['pending']})")
 
+# [[pipeline-final-sync-main-publica-codigo-da-skill-em-edicao-por-outra-sessao_2026-10-09]] o estado da
+# principal as 12:34 de 2026-10-09: o helper da skill (rastreado) com edicao de outra sessao parada ha mais
+# de FRESH_MIN. O build do projeto nao o valida: antes ia no chore(terceiros) e era publicado (a361a1b).
+anda(SKILL_PY, "VALUE = 1  # versao publicada\n", "skill publicada")
+sh("git", "fetch", "-q", "origin", cwd=src); sh("git", "merge", "-q", "--ff-only", "origin/versao3", cwd=src)
+NOVO_PY = "skills/pipeline-correcao-bugs/scripts/novo_helper.py"
+third(SKILL_PY, "edicao da B2 pela metade\n")              # envelhecido: nao e o FRESH_MIN que protege
+third(NOVO_PY, "helper novo de outra sessao\n")
+third("launcher/A.cs", "a fix + edicao de terceiro\n")   # codigo fora da skill: segue publicado se compilar
+n0 = len(olog())
+expect_exit(7, sync, "[finalizacao] skill: final-sync-main com o helper da skill modificado")
+new, rec = olog("%H")[:len(olog()) - n0], P.load()["final"]["sync"]
+files = lambda h: sh("git", "--git-dir", str(origin), "show", "--name-only", "--format=", h).split()
+check(oshow(SKILL_PY) == "VALUE = 1  # versao publicada",
+      "[finalizacao] skill: o helper em edicao de outra sessao NAO foi publicado (o origin tem a versao de antes)")
+check(len(new) == 1 and files(new[0]) == ["launcher/A.cs"] and oshow("launcher/A.cs") == "a fix + edicao de terceiro",
+      f"[finalizacao] skill: o chore(terceiros) leva o codigo fora da skill e so ele ({[files(h) for h in new]})")
+porc = lambda f: sh("git", "status", "--porcelain", "--untracked-files=all", "--", f, cwd=src)   # sh() come o " " de " M"
+check(porc(SKILL_PY) == f"M {SKILL_PY}" and (src / SKILL_PY).read_text() == "edicao da B2 pela metade\n" and porc(NOVO_PY) == f"?? {NOVO_PY}",
+      "[finalizacao] skill: a edicao fica na principal, intacta e nao commitada")
+own = [x for x in rec["pending"] if "propria skill" in x]
+check(not rec["blocked"] and len(rec["pending"]) == 3 and len(own) == 1 and SKILL_PY in own[0] and NOVO_PY not in own[0]
+      and NOVO_PY in rec["pending"][1] and header() == "## versao3...origin/versao3",
+      f"[finalizacao] skill: vira pendencia do dono com caminho e data; o arquivo NOVO sai so como `stray` ({rec['pending']})")
+check(any(SKILL_PY in m for m in falta("C2", "dono")) and not falta("C2"),
+      "[finalizacao] skill: portao C2 lista a edicao da skill como decisao do DONO, nao como falta mecanica")
+sh("git", "checkout", "--", SKILL_PY, cwd=src); (src / NOVO_PY).unlink()   # os casos seguintes partem de antes
+
 P.cmd_final_deploy(None)
 dep = P.load()["final"]["deploy"]
 check(dep["sha"] == head_o() and deploys[-1] == ("wt-planning", "deploy")

@@ -119,7 +119,8 @@ gerenciador (`claude logs`). Pasta de lane presa: a linha de comando de processo
    - atras do origin / skill diferente: **a skill que roda e a da arvore principal**; correcao da
      skill que so esta no origin nao vale nesta execucao;
    - arquivos nao commitados: a finalizacao commita os de `docs/` (um commit por arquivo) e so
-     publica codigo se compilar; o que sobrar fecha a execucao como `concluido-com-pendencias`.
+     publica codigo se compilar (o da pasta da propria skill nunca: o build nao o valida); o que
+     sobrar fecha a execucao como `concluido-com-pendencias`.
    - `[AVISO] contas: ...`: diga o que muda (sem rodizio, a execucao para no limite de uso e espera
      o dono; com rodizio, o aviso fixo da maquina inteira na conta do pipeline). Conta invalida ou
      token vencendo: o dono troca o token **no PowerShell dele** antes de iniciar, se quiser.
@@ -247,7 +248,7 @@ etapa parar de novo depois disso, nao insista: `claude attach`, leia onde travou
   commitado de terceiros. O helper impoe isso em codigo (`guard_wt`, `guard_branch` e
   `refuse_main_tree`, saida 13). **Unica excecao (decisao do dono, 2026-10-03):** o `final-sync-main`
   da finalizacao, que so faz o que nao destroi trabalho — commit por pathspec do que outras sessoes
-  deixaram, `merge --ff-only` e `reset --keep` (aborta inteiro se um arquivo modificado estiver no
+  deixaram (fora a pasta da propria skill, que fica para quem a edita), `merge --ff-only` e `reset --keep` (aborta inteiro se um arquivo modificado estiver no
   caminho). `reset --hard`, `checkout`, `clean`, `stash` e `rebase` continuam saida 13 ate dentro dele. **Saida 13 nunca se contorna**: rodar o comando na mao, mexer no
   helper para passar, ou editar o ledger e proibido; pare e conte ao dono.
 

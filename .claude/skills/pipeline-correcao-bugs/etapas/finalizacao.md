@@ -21,7 +21,8 @@ outra: isso nao muda o seu roteiro.
 **Pendencia do dono e so DECISAO.** Pull, apagar pasta, parar sessao, mover doc, refazer deploy sao
 trabalho seu, e o portao nao deixa fechar com eles em aberto. Decisao do dono e o que o helper marca
 como `PENDENCIA DO DONO` / `[DONO ]`: conflito, codigo de outra sessao que nao compila, arquivo que
-outra sessao esta editando agora, pasta de origem desconhecida.
+outra sessao esta editando agora, arquivo modificado da pasta da propria skill (o build do projeto
+nao o valida; so quem edita sabe quando terminou), pasta de origem desconhecida.
 
 1. **Estado:** `python <helper> status` e `python <helper> reconcile`. Esperado:
    - todo bug em `retest`, `documentado` ou `open-falhou`;
@@ -42,7 +43,9 @@ outra sessao esta editando agora, pasta de origem desconhecida.
 3. **Arvore principal igual ao remoto:** `python <helper> final-sync-main` (em BACKGROUND: pode
    compilar). Ele:
    - commita o trabalho que outras sessoes deixaram sem commit: cada arquivo de `docs/` num commit;
-     o codigo, num commit so, que **so e publicado se o build do projeto sair 0** numa lane;
+     o codigo, num commit so, que **so e publicado se o build do projeto sair 0** numa lane. O que
+     esta na pasta da propria skill **nunca** entra nesse commit: vira `PENDENCIA DO DONO` (o build
+     nao testa o helper, e uma edicao pela metade dele ja foi publicada assim);
    - publica os commits locais (rebase numa lane, nunca na arvore principal) e iguala a arvore ao
      remoto. Os arquivos gerados de build modificados nela ficam como estao.
 
