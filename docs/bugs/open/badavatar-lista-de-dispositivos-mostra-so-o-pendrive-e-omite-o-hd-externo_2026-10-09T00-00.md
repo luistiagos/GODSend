@@ -121,3 +121,99 @@ Commit `0a719db`, conforme o plano, em `infrastructure/windowsUsbDeviceService.t
 - **Pendente: prova ponta a ponta com o HD externo real.** Nesta máquina o Windows não enxerga o HD agora
   (ver Evidência). Também confere a hipótese do UAS: se o `Get-Disk` mostrar o HD com `BusType` diferente de `USB`,
   a física não o acha, e é outra correção.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** bloqueado — a correção de código já está no fluxo principal (`0a719db`, ancestral de `origin/main`);
+o que falta é a prova com um HD externo USB real ao lado do pendrive, e não há HD na máquina de teste (o Windows
+não o enxerga) nem disco liberado para o pipeline.
+**Complexidade:** alta — `windowsUsbDeviceService.ts` está no critério "Alta" do `docs/bugs/open/README.md`
+(preparo de disco); não há trabalho de código pendente.
+**Severidade:** medio — só atinge quem conecta pendrive e HD externo juntos, e há contorno (desconectar o pendrive:
+com o HD sozinho a enumeração física já o listava).
+**Arquivos a alterar (reserva da onda):** nenhum.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa raiz das passadas anteriores continua valendo e já foi corrigida. Conferido no HEAD desta worktree
+(`d7bd9ad`):
+
+- `src/electron-app/infrastructure/windowsUsbDeviceService.ts::ENUMERATE_REMOVABLE_SCRIPT`: para cada unidade
+  `Fixed` pronta que não é o `$env:SystemDrive`, emite `{ RootPath, DriveType='Fixed', FixedDriveMarker=$true }`
+  e segue em frente. Unidades `Removable` viram linha completa. Em erro: `try {} catch {}` por unidade, que pula
+  só a unidade com problema.
+- `...::enumerateSafeWindowsUsbDevices` → `parseNativeOutput` guarda `fixedDriveMounted` e tira os marcadores das
+  linhas. `finishNative` roda `ENUMERATE_USB_SCRIPT` quando há marcador e acrescenta as letras que ainda não estão
+  na lista. **Em erro**, `catch` → log `enumeracao fisica de HD USB falhou; listando so os removiveis` → devolve só
+  os removíveis, sem lançar. `recoverNativeListing` também passa por `finishNative`.
+- `...::ENUMERATE_USB_SCRIPT`: `Get-Disk | Where BusType -eq 'USB'`. **Aqui está o único risco que sobra:** se o
+  HD JMicron em UAS aparecer no `Get-Disk` com `BusType` diferente de `USB`, ele não entra na lista, com ou sem
+  pendrive. Isso só se confere com o HD conectado.
+- `...::revalidateWithScript` filtra `isFixedDriveMarker`, então a revalidação do preparo não trata o marcador
+  como unidade.
+
+### Provas (comando literal -> resultado)
+
+- `git merge-base --is-ancestor 0a719db HEAD && echo ANCESTOR` -> `ANCESTOR`. O fix está no fluxo principal
+  (`git branch --contains 0a719db` -> `main`).
+- `grep -n "FixedDriveMarker\|isFixedDriveMarker\|finishNative" infrastructure/windowsUsbDeviceService.ts` ->
+  linhas 217/232 (script), 426 (`isFixedDriveMarker`), 571-572 (`parseNativeOutput`), 578 (`finishNative`),
+  836 (`revalidateWithScript`).
+- `ls src/electron-app/tests/unit/ | grep -i fixed` -> `usbFixedDriveMerge.test.cjs` presente (5/5 e contraprova
+  4 falhas com o patch revertido, segundo "Testes executados"). Não rodei de novo: o teste importa o `.js` que o
+  `tsc` gera, e o `tsc` fica com o helper.
+- `Get-Disk` (2026-10-10, máquina do pipeline) -> NVMe 1, NVMe 0, `2 USB DISK 2.0 USB MBR 14.5`. **Nenhum HD
+  externo.**
+- `Get-PnpDevice -Class DiskDrive` -> `JMicron Generic SCSI Disk Device  Present=False`
+  (`SCSI\DISK&VEN_JMICRON&PROD_GENERIC\...`). O HD continua ausente do Windows.
+
+### Hipoteses descartadas (e por que)
+
+- **Veredito `corrigir`:** não há código a mudar. O retorno antecipado que escondia o HD já foi removido pelo
+  `0a719db`, e o teste unitário cobre os 5 caminhos (com HD, sem `Fixed`, física falhando, revalidação, só
+  marcadores). Uma onda de dev teria diff vazio.
+- **Mandar para retest pela T2 do pipeline:** a T2 precisa do sinal "o dropdown lista pendrive E HD", e para isso
+  o HD tem que estar conectado e visível ao Windows. Ele não está (`Present=False`), e o manual não libera disco
+  real para o pipeline. Uma T2 só com o pendrive mostraria o caso de controle, não o bug.
+- **UAS (`BusType` ≠ `USB`) como causa já confirmada:** continua sem prova. Não dá para abrir bug lateral sem a
+  leitura do `Get-Disk` com o HD conectado.
+
+### Tarefas
+
+- [ ] (dono, hardware) Conectar o pendrive e o HD externo JMicron na máquina e confirmar que o HD aparece no
+  Gerenciamento de Disco. Rodar `Get-Disk | Select Number,FriendlyName,BusType` e anotar o `BusType` do HD aqui.
+- [ ] (dono) Abrir a tela BadAvatar USB num build que contenha `0a719db` (`npm start` da árvore principal ou a
+  próxima versão publicada). O dropdown deve listar as duas letras. Não preparar nada.
+- [ ] Se o `BusType` do HD não for `USB`, abrir um bug novo: `ENUMERATE_USB_SCRIPT` filtra só `BusType -eq 'USB'`.
+
+### Plano de teste
+
+- **Offline (sem slot):** `node --test tests/unit/usbFixedDriveMerge.test.cjs` depois do build do helper (5/5) e
+  `npm --prefix src/electron-app run test:safety` sem falhas novas. Já feito na passada de correção.
+- **T2 reproducao como o usuario (E2E, no slot):** estado de partida: pendrive FAT32 (`E:\`) e HD externo USB
+  conectados e visíveis no Explorador. App da árvore com `0a719db`, aberto em **BadAvatar USB**. Abrir o dropdown
+  "Dispositivo conectado" (sem escolher disco). Sinal: duas opções, `E:\ — Dispositivo USB removivel` e a letra do
+  HD com o `FriendlyName` dele. No log `%APPDATA%\xbox-360-companion-electron\logs\`, a linha
+  `enumeracao fisica de HD USB encontrou 1 unidade(s): <letra>`. **Bloqueada:** o HD não está disponível.
+- **Controle positivo:** `deploy --at-base` não existe neste projeto. O controle é o mesmo caminho com um build
+  anterior a `0a719db`: só o pendrive aparece, e o log mostra `enumeracao nativa encontrou 1 unidade(s): E:\` sem a
+  linha da física. Os controles "só pendrive -> só pendrive" e "só HD -> só HD" também valem.
+- **T3 regressao direcionada:** revalidação do preparo com o pendrive (`requireSafeWindowsUsbTarget`, que não pode
+  ver o marcador como unidade) e a lista com só o pendrive numa máquina com um segundo disco interno (`D:`). Nesse
+  caso a física roda e não acrescenta nada. Já provado na máquina de desenvolvimento ("Testes executados": real
+  devolve só `E:\`).
+
+### Sessoes seguintes
+
+- dev: nenhuma (bloqueado; sem código pendente).
+- teste: nenhuma no pipeline. Quando o HD voltar, o teste fica com o dono (effort low, sem ultrathink: é
+  observar o dropdown e uma linha de log).
+
+### Evidencia acrescentada (pipeline 20261010-2242, planning de outro bug)
+
+- A tela "Jogos Instalados" (`renderer/components/UsbGamesPage.tsx`) também lista as unidades por
+  `toolsBadAvatarListDrives`, e o botão "Reparar (CHKDSK)" só aparece para a unidade dessa lista
+  (`activeDriveInfo`). Com o HD externo omitido, o cliente com HD não alcança o reparo pelo app —
+  caso do #144 em
+  [[pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28]],
+  cuja mensagem por isso cita também o caminho do Windows (Propriedades > Ferramentas > Verificar).

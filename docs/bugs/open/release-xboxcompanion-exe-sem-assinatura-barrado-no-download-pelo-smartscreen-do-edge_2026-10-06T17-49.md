@@ -89,3 +89,48 @@ funcionaram em campo; a tela real ainda não foi fotografada (tarefa 2).
 
 O que aconteceu **depois** do download (o programa não abre e não diz por quê) é outro bug:
 [[release-portable-extrai-1-35-gb-no-temp-em-silencio-e-nao-abre-sem-avisar-o-motivo_2026-10-06T22-40]].
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** sem-codigo — o binário publicado não tem assinatura Authenticode e o build a desliga de propósito; o remédio é o dono obter um certificado de assinatura de código (decisão de custo, fora do repo) e, só então, ligar a assinatura no build; até lá, a saída é o guia do suporte/agente (já registrado no digitalstoregamesproject).
+**Complexidade:** média — empacotamento (`electron-builder`, `build-and-upload.ps1`), pelo critério do `docs/bugs/open/README.md`; o trabalho de código só existe depois do certificado.
+**Severidade:** medio — falha com contorno (seta ▼ ao lado de "Excluir" → "Manter mesmo assim", provado em campo no #148) e atinge o subconjunto que baixa pelo Edge/Chrome com reputação baixa; recorrente (23 mensagens em 15 dias).
+**Arquivos a alterar (reserva da onda):** nenhum (sem-codigo).
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+- `src/electron-app/package.json::build.win` — `"forceCodeSigning": false` e `"signAndEditExecutable": false`: o electron-builder não assina o `.exe` do app nem o instalador NSIS. Não há erro: sai sem assinatura, em silêncio.
+- `build-and-upload.ps1`, `build-portable-local.ps1`, `upload-r2.ps1`, `src/electron-app/build/portable.nsi` — nenhum passo de `signtool`/Authenticode (grep abaixo). `build-and-upload.ps1:132` só renomeia o portátil para `xboxcompanion.exe`; `upload-r2.ps1` sobe com SHA-256 (integridade, não identidade do fornecedor).
+- O SmartScreen do Edge avalia reputação por arquivo (hash) ou por certificado do assinante. Sem assinatura, cada release (hash novo) recomeça com reputação zero, e a janela mostra "fornecedor desconhecido" — exatamente o texto do #148.
+
+### Provas (comando literal -> resultado)
+
+- `curl -sI https://versions.digitalstoregames.com/xboxcompanion.exe` → `200`, `Content-Type: application/x-msdownload`, `Content-Length: 589027450`, `Last-Modified: Thu, 08 Oct 2026 15:21:20 GMT` (já é outro build que o do #148: o `version.json` diz `2.12.109`, `releaseDate 2026-10-08`).
+- Cabeçalho PE do arquivo publicado, sem baixar os 589 MB: `curl -s -r 0-4095 -o head.bin <url>` + leitura do `IMAGE_DIRECTORY_ENTRY_SECURITY` (índice 4 do data directory; `magic 0x10b`, PE32 = stub NSIS) → **`SECURITY dir offset 0 size 0`**: não há bloco de assinatura Authenticode. Isso equivale a `Get-AuthenticodeSignature` = `NotSigned` e fecha a hipótese 1 (tarefa 1 do doc).
+- `grep -niE "sign|signtool|Authenticode" build-and-upload.ps1 build-portable-local.ps1 upload-r2.ps1 src/electron-app/build/portable.nsi` → nada.
+- `grep -niE "sign|certificate|smartscreen|signtool" src/electron-app/package.json` → só as linhas 143-144 (`forceCodeSigning: false`, `signAndEditExecutable: false`).
+
+### Hipoteses descartadas (e por que)
+
+- **Defeito do link/servidor** (redirecionamento, MIME errado, página HTML no lugar do exe): descartado — `200`/`206` direto com `application/x-msdownload`; o `.html` que o cliente obteve veio de "Salvar link como", não do servidor.
+- **Corrigível só com código neste repo**: descartado — ligar `signtool` no build sem certificado não muda nada; com certificado, a mudança é pequena e mecânica (config do electron-builder ou passo no `build-and-upload.ps1`) e só pode ser testada com o certificado em mãos. Por isso `sem-codigo` (o manual lista "SmartScreen/assinatura do `.exe`" como exemplo).
+- **Hipótese 2 (reputação zera a cada release)**: não é descartada, é consequência da hipótese 1 (sem certificado, a reputação é por hash). A medição da tarefa 3 só serve para priorizar; não muda o veredito.
+
+### Tarefas
+
+- [ ] **Dono:** decidir e contratar assinatura de código (certificado OV/EV de uma CA, ou serviço de assinatura em nuvem como o Azure Trusted Signing — conferir elegibilidade para pessoa/empresa no Brasil antes). Observação para a decisão: desde 2024 a Microsoft diz que EV não dá mais reputação imediata no SmartScreen; o ganho real é a reputação acumular no certificado em vez de zerar a cada build. Não verificado nesta sessão: o tempo até o aviso sumir.
+- [ ] **Depois do certificado (vira bug/task `corrigir` nova):** `src/electron-app/package.json::build.win` (`signtoolOptions`/`azureSignOptions`, tirar `signAndEditExecutable: false`) e/ou passo de assinatura no `build-and-upload.ps1` antes do `upload-r2.ps1` — prova: `Get-AuthenticodeSignature dist\xboxcompanion.exe` → `Valid`, e o mesmo teste de cabeçalho PE acima com `size > 0` no arquivo publicado. Assinar também `godsend-backend.exe`/`godsend-windows-*.exe` (o CHANGELOG cita antivírus barrando o backend não assinado: `spawn UNKNOWN`).
+- [ ] **Suporte/agente (outro projeto, já registrado):** guia com os rótulos que funcionaram em campo (▼ ao lado de "Excluir" → "Manter mesmo assim"), em `C:\projects\digitalstoregamesproject\docs\modules\chatbot-whatsapp\areas\prompt-kb\bugs\2026-10-01-aviso-de-download-do-navegador-confundido-com-bloqueio-do-windows.md`. Nada novo a abrir lá.
+- [ ] Tarefas 2 e 3 do doc (foto da janela em pt-BR; cruzar relatos × datas de release) continuam úteis para o guia e para priorizar, não para o veredito.
+
+### Plano de teste
+
+- **Offline (sem slot):** o teste do cabeçalho PE acima contra o arquivo publicado: hoje `size 0`; depois da assinatura, `size > 0` e `Get-AuthenticodeSignature` `Valid` no arquivo baixado.
+- **T2 reproducao como o usuario (E2E, no slot):** dispensada — o bug é de distribuição (download no navegador, antes de o app existir na máquina); o app da lane não participa. A reprodução é: num Windows com Edge pt-BR, abrir `https://versions.digitalstoregames.com/xboxcompanion.exe`; sinal = aviso "não é baixado normalmente" e, em "Manter", janela do SmartScreen "fornecedor desconhecido". Exige o certificado para haver algo a testar.
+- **Controle positivo:** o próprio arquivo publicado hoje (2.12.109) sem bloco de assinatura (prova acima).
+- **T3 regressao direcionada:** quando a assinatura for ligada: o launcher do portátil (`build/portable.nsi`) ainda extrai e abre; o backend assinado ainda é lançado pelo `services/backendClient.ts`; o auto-update compara `sha256` do `version.json` com o arquivo assinado (o hash muda ao assinar: gerar o SHA-256 DEPOIS de assinar).
+
+### Sessoes seguintes
+
+- dev: não há (sem-codigo).
+- teste: não há (sem-codigo).

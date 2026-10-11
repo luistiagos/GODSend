@@ -57,3 +57,45 @@ e um `main.go` que chama `utils.ProbeISODiscInfo(iso)` e `utils.ExtractXEXFolder
    arquivo vazio extrai todos os arquivos (o vazio inclusive, com 0 byte).
 3. Antes de priorizar: medir quantas ISOs do cache local tem arquivo vazio (varrer as tabelas com o leitor
    corrigido e contar entradas `size == 0`).
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** corrigir — a condicao de parada de `parseDirSector` trata arquivo vazio legitimo como fim do setor; o conserto e local e testavel offline e pela tela "ISO para XEX".
+**Complexidade:** media — logica em Go no backend (`src/server/utils/iso2god.go`), sem rota/IPC/UI nova; a mudanca e de uma condicao, mas alimenta extracao XEX, probe e o corte do GOD.
+**Severidade:** medio — perda silenciosa de arquivos (e falso "nao e jogo"), mas so em ISOs com arquivo de 0 byte; frequencia no catalogo nao medida (nao ha ISO de Xbox nesta maquina para varrer: busca em `C:\projects`, `Downloads` e `D:\` sem resultado).
+**Arquivos a alterar (reserva da onda):**
+- `src/server/utils/iso2god.go` — `parseDirSector`: aceitar `size == 0`; parar em `0xFFFF` ou `nameLen == 0`
+- `src/server/utils/xdvdfs_dir_test.go` — arquivo NOVO com os testes do fix
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+- `utils/iso2god.go::parseDirSector` (319-351) — varre o setor em sequencia; para em `left/right == 0xFFFF`, em `size == 0` (linhas 333-335, o defeito) e quando a entrada nao cabe no buffer. Nao devolve erro: o que vem depois do vazio some.
+- `utils/iso2god.go::readXDVDFSDirTable` (301-314) — concatena `parseDirSector` de cada setor do diretorio; em erro de leitura faz `break` e devolve o que tem (sem erro).
+- `utils/iso2god.go::findInDir` (355) e `extractExecInfo` (422) — sem a entrada, `ErrNoExecutable`. Call-sites: `ProbeISODiscInfo` (1140) <- `handlers_tools.go:62/96/147`, `handlers.go:949`, `pipeline/digital.go:30`, `disc_layout.go:15`, `companion_content.go:158`; `RunIso2GodNative:183`.
+- `utils/iso2god.go::maxXDVDFSUsedPrefix` (369) — maior extent da arvore; chamado por `RunIso2GodNative:214`. Com entradas puladas pode subestimar `usedSize` (nao provado). O fix so pode aumentar o valor.
+- `utils/iso2god.go::ExtractXEXFolderFromISO` (1452) -> `findXEXRootDirRecursive` (1427) -> `xdvdfsExtractRecursive` (1477) -> `xdvdfsExtractFile` (1497). Call-sites: `pipeline/stage_checkpoint.go:342` (`extractXEXResilient`) e `handlers_tools.go:160` (rota `POST /tools/iso2xex`, tela "ISO para XEX").
+- `xdvdfsExtractFile` com `size == 0`: o laco nao roda, `remaining == 0`, cria o arquivo vazio e renomeia — ja suporta arquivo vazio. Diretorio com `size == 0`: `readXDVDFSDirTable` calcula 0 setores e devolve nada — ja suporta.
+- `ProbeISOInstallLayout::hasRegularFile` ja filtra `entry.size > 0`; `ProbeContentPackageTitleID` pula `e.size < 0x364`. Nenhum dos dois quebra com entradas vazias passando a aparecer.
+
+### Provas (comando literal -> resultado)
+- Harness da sessao de 2026-10-09 (tabela da secao Evidencia): raiz real com 2 vazios -> `ExtractXEXFolderFromISO` `err=<nil>`, 41 de 49; controle com 1 byte -> 49 de 49; vazio antes do `default.xex` -> `ErrNoExecutable`.
+- `grep -rn "parseDirSector\|readXDVDFSDirTable" src/server --include=*.go` -> so `utils/iso2god.go` usa o leitor; nenhum outro parser XDVDFS no repo.
+- Fixtures de teste existentes (`utils/god_validate_test.go::writeTestXDVDFSDir`, `pipeline/disc_layout_test.go::writeTestDirEntry`) terminam a tabela com `0xFFFF`; nenhuma depende da parada em `size == 0`.
+
+### Hipoteses descartadas (e por que)
+- "Parar em `size == 0` protege setor preenchido com zeros": uma entrada zerada tambem tem `nameLen == 0`; parar em `nameLen == 0` cobre o mesmo caso sem perder arquivo vazio.
+- "Subir `stageCheckpointVersion` para invalidar extracoes antigas": invalidaria checkpoints de todas as fases (inclusive GOD de horas). Checkpoint XEX incompleto de antes do fix so sobrevive em job interrompido atravessando a atualizacao; fica como limitacao conhecida.
+- "Mudar `xdvdfsExtractFile` para arquivo vazio": ja trata 0 byte (aberto acima).
+
+### Tarefas
+- [ ] `src/server/utils/iso2god.go::parseDirSector` — remover a parada em `size == 0`; parar em `left == 0xFFFF || right == 0xFFFF` ou `nameLen == 0`; atualizar o comentario citando `[[backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20]]` — testes abaixo.
+- [ ] `src/server/utils/xdvdfs_dir_test.go` (novo) — (a) setor sintetico: entrada normal, vazia (`size 0`, setor != 0), duas normais, `0xFFFF` -> 4 entradas; (b) uma entrada seguida de zeros -> 1 entrada; (c) ISO sintetica (helpers ja existentes do pacote: `writeDiscXEX` de `companion_disc_test.go` para o executavel, layout de `buildInstallDiscTestISO`) com vazio ANTES do `default.xex`: `ProbeISODiscInfo` ok e `ExtractXEXFolderFromISO` extrai todos, o vazio com 0 byte; (d) `maxXDVDFSUsedPrefix` enxerga o extent que vem depois do vazio. Cada teste falha sem o fix.
+- [ ] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva, merge=union).
+
+### Plano de teste
+- **Offline (sem slot):** `go test -count=1 ./utils/` em `src/server` com os testes novos; conferir que (a), (c) e (d) falham com a linha antiga restaurada.
+- **T2 reproducao como o usuario (E2E, no slot):** tela "ISO para XEX" (menu Ferramentas). Partida: duas ISOs sinteticas na evidencia, montadas por script descartavel com o mesmo layout do teste (c): `A.iso` = `default.xex`, `vazio.bin` (0 byte), `z1.txt`, `z2.txt`, pasta `sub\inner.txt`; `B.iso` = `aaa.ini` (0 byte) antes do `default.xex`. Acoes: "Adicionar ISOs" (dialogo nativo stubado no Playwright via `electronApp.evaluate` sobre `dialog.showOpenDialog`), "Pasta de saida" (pasta local na evidencia), "Extrair 2 ISOs para XEX". Sinal: a linha de cada ISO mostra "Saida: ..." (verde) e a pasta tem TODOS os arquivos, `vazio.bin`/`aaa.ini` com 0 byte (`Get-ChildItem -Recurse` na evidencia). Complemento: `POST /tools/probe-iso` com `B.iso` responde ok com o TitleID.
+- **Controle positivo:** mesma receita no codigo da base: `A.iso` termina "sucesso" sem `z1.txt`, `z2.txt` e `sub` (so `default.xex` e `vazio.bin`, se este vier antes deles); `B.iso` mostra erro em vermelho `Probe failed: no game executable (default.xex / default.xbe) found in ISO root`.
+- **T3 regressao direcionada:** `go test -count=1 ./...` em `src/server` (linha de base 9 `ok`) — cobre `TestProbeISOInstallLayout*`, `TestExtractXDVDFSContentToDirNilInfoSafe`, `TestMaxXDVDFSUsedPrefix*` e `pipeline/disc_layout_test.go`; `npm --prefix src/electron-app run test:safety` (258/0). Na UI, "ISO para GOD" com `A.iso` conclui sem erro. Falta para close: ISO retail real com arquivo vazio (EA FC 26) instalada como XEX no console.
+### Sessoes seguintes
+- dev: effort high, ultrathink nao — mudanca de uma condicao, mas o manual pede high na extracao e os testes exigem montar tabela XDVDFS byte a byte.
+- teste: effort medium, ultrathink nao — receita fechada; o trabalho e montar as ISOs sinteticas e stubar o dialogo.

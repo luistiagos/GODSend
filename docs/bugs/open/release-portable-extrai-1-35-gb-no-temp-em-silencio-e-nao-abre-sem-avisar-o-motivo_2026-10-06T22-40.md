@@ -416,3 +416,51 @@ Fechar (`git mv` para `docs/bugs/closed/`) só com **uma** destas provas: um cli
 confirma que a 2.12.107 abriu (ou que o aviso o fez liberar espaço e depois abriu), ou o painel
 mostra um evento `xbox-360-companion/portable-launcher` desse cliente seguido de abertura do app.
 Medição local não fecha o bug.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** sem-codigo — a correção já está no `origin/main` desde `86dfac6` e foi publicada na 2.12.107; o que falta é mudar o doc de pasta e conferir o critério de fechamento, e isso é com o dono.
+**Complexidade:** baixa — o que resta é mover o doc e olhar o painel. A correção em si era alta pelo `docs/bugs/open/README.md` (launcher do portátil, `build/portable.nsi`) e já está pronta.
+**Severidade:** alto — o portátil não abria e não dava nenhum sinal para quem tinha pouco espaço no disco do `%TEMP%`, e o cliente não tinha como contornar sozinho. Mantém o P1 do doc. A 2.12.107 já trata o problema.
+**Arquivos a alterar (reserva da onda):** nenhum.
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa já está analisada e corrigida acima (análise de 2026-10-07, correção 2.12.107). Nesta execução conferi que o fix continua no fluxo principal:
+
+- `src/electron-app/build/portable.nsi`: o launcher próprio existe. O último commit que mexe nele é `86dfac6` (`fix(portable): launcher proprio diz por que nao abriu...`), e esse commit está em `origin/main`.
+- `src/electron-app/scripts/build-portable.js`: compila `build/portable.nsi` pelo `portable-launcher-hook.js`, que é o ponto de entrada do CLI do electron-builder (linhas 5–6).
+- `src/electron-app/app/bootstrap.ts::bootstrapApp` (linhas 179–189): chama `reportLauncherFailures()` logo depois de `checkPendingUpdateResult()`, dentro de `try/catch`. Se falhar, grava `LAUNCHER launcher failure report failed: ...` no log de eventos e o boot segue.
+- `src/electron-app/services/portableLauncherReport.ts::reportLauncherFailures` (linha 38): existe e é chamada só por esse call-site.
+- A versão atual é 2.12.110 (`package.json`), então a correção já foi para três versões publicadas.
+
+### Provas (comando literal -> resultado)
+
+- `git log --oneline -3 -- src/electron-app/build/portable.nsi` -> `86dfac6 fix(portable): launcher proprio ...`
+- `git branch -r --contains 86dfac6` -> `origin/main`
+- `grep -n "reportLauncherFailures" -r src/electron-app --include=*.ts` -> import em `bootstrap.ts:89`, chamada em `bootstrap.ts:186`, definição em `portableLauncherReport.ts:38`
+- `grep -n '"version"' package.json` -> `2.12.110`
+- Painel (`/admin/errors`, projeto `xbox-360-companion/portable-launcher`): **não consultado**. Nem `JWT_SECRET_KEY` nem `TRIAGEM_TOKEN` estão no ambiente da sessão, e ler o `.env` do backend sem o dono presente seria explorar credencial (a skill `triagem-bugs-prod` manda parar nesse caso). Esse é exatamente o critério do Passo 5, então fica para o dono.
+
+### Hipóteses descartadas (e por que)
+
+- **`corrigir` de novo:** não sobrou código a mudar. Os itens 1 a 6 de "O que será feito" estão aplicados e medidos no `.exe` público da 2.12.107 (seção "Andamento").
+- **Corrigir o TEMP longo (MAX_PATH no Nsis7z) agora:** a decisão registrada em "Andamento" é só agir se aparecer `extracao-incompleta` no painel com TEMP longo. Não há evidência nova disso. Também não abri bug lateral, porque não houve fato novo.
+- **`bloqueado`:** não há trabalho de código esperando hardware ou ambiente. O que depende do cliente é só o fechamento, e isso cabe ao dono (Passo 5).
+
+### Tarefas
+
+- [ ] **Dono:** `git mv` deste doc para `docs/bugs/retest/` com a `## Status` no topo, como manda o `docs/bugs/retest/README.md`: fix `86dfac6`, publicado na 2.12.107, provas na seção "Correção aplicada", e falta para `closed/` o critério do Passo 5. Pelo ciclo do `docs/bugs/open/README.md` (fix commitado e testado -> `retest/`), este doc está na pasta errada, e é por isso que o pipeline o pegou de novo.
+- [ ] **Dono:** consultar o painel (`triagem-bugs-prod`, `list --project xbox-360-companion/portable-launcher`). Um evento seguido de abertura do app, ou a confirmação de um cliente, permite `git mv` para `docs/bugs/closed/`.
+
+### Plano de teste
+
+- **Offline (sem slot):** nada a rodar, porque não há mudança. As provas da 2.12.107 já estão neste doc (`portableLauncher.test.cjs`, `portableLauncherReport.test.cjs` e a medição do `.exe` público).
+- **T2 reprodução como o usuário (E2E, no slot):** não se aplica. O caminho do cliente (abrir o `xboxcompanion.exe` empacotado) não passa pelo app em modo dev da lane, e o pipeline não gera o portátil. A prova pelo caminho do usuário já foi feita no `.exe` público da 2.12.107 com `measure-portable-launcher.ps1` (seção "Andamento").
+- **Controle positivo:** não há, porque não há fix novo. O controle positivo da correção original é a linha "782 MB livres" da tabela 2.12.106 × 2.12.107.
+- **T3 regressão direcionada:** não se aplica, porque nenhum arquivo muda.
+
+### Sessões seguintes
+
+- dev: não há (sem-codigo).
+- teste: não há (sem-codigo).

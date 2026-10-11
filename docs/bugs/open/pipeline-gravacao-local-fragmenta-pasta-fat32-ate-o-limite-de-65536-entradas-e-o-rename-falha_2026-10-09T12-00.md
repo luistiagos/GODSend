@@ -273,3 +273,86 @@ um pendrive maior. **Controle:** antes de T1, o teste em FAT32 real com o esquem
 **Pendente, fora do código:** procurar na telemetria `The directory or file cannot be created` (e "Não é possível
 criar a pasta ou arquivo") para medir quantos clientes já caíram nisso. EA FC/FIFA com patch de faces é o caso
 típico.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** bloqueado — o codigo ja esta corrigido e testado (T1-T3, 2.12.110); falta so a prova com o jogo
+real num pendrive FAT32, e o pipeline nao pode gravar em disco real (manual, secao Teste: "Disco real: NENHUM esta
+liberado").
+**Complexidade:** alta — pipeline de gravacao local (`src/server/services/pipeline/`), criterio do `docs/bugs/open/README.md`.
+**Severidade:** medio — impede instalar em XEX num pendrive FAT32 so os jogos com pasta de ~13 mil arquivos (EA FC 26
+Legacy Edition e parecidos); com o fix, a verificacao previa ainda troca para ISO/GOD quando a pasta nao cabe.
+**Arquivos a alterar (reserva da onda):** nenhum — o codigo nao muda nesta execucao.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa raiz e a das secoes acima, e a correcao ja esta na arvore (`origin/main` desta execucao, `d7bd9ad`). Lidos
+nesta sessao:
+
+- `src/server/services/pipeline/local_resilient.go::localStagingPath` — o temporario fica em
+  `<root>/.xbox-downloader/copy-staging/%08X.TMP` (CRC32 do caminho relativo, nome 8.3 de 1 entrada), fora da pasta do jogo.
+- `local_resilient.go::copyLocalEntry` — apaga a sobra `<dst>.xbox-companion-part`; promove o staging valido (tamanho
+  + SHA-256) na retomada; grava, faz `Sync`, confere o tamanho e faz `os.Rename(partial, dst)` com 5 tentativas; em
+  qualquer erro apaga o temporario e devolve o erro cru.
+- `local_resilient.go::copyTreeLocal` — em FAT chama `localManifestChildren` + `checkFATDirectoryLimits` antes de gravar
+  qualquer byte (devolve `ErrFAT32DirectoryLimit`); no laco `entryLoop`, um erro com `isFATDirectoryFull` (errno 82, so
+  Windows) chama `rebuildSaturatedFATFolder` uma vez por pasta e recomeca no primeiro arquivo do manifesto daquela
+  pasta; um segundo 82 na mesma pasta devolve `ErrLocalDelivery` com `localWriteErrorText` (texto em portugues).
+- `local_resilient.go::rebuildSaturatedFATFolder` — apaga so os arquivos do manifesto e sobras `.xbox-companion-part`
+  da pasta; se, contando o que fica, a pasta nao cabe, devolve `false` sem apagar nada (vira `ErrFAT32DirectoryLimit`).
+- `src/server/services/pipeline/fat_directory.go` — `fatDirentCount`, `fatFitsShortName`, `isFATDirectoryFull`,
+  `localWriteErrorText`, `checkFATDirectoryLimits`, `localManifestChildren`, `fatFolderEntriesNeeded`: as regras do
+  simulador, sem desvio encontrado na leitura.
+- `fallback.go:20` — `isFAT32LimitError` inclui `ErrFAT32DirectoryLimit` (troca para provedor ISO/GOD).
+
+Nenhum defeito encontrado na leitura do fix. Nada a corrigir nesta execucao.
+
+### Provas (comando literal -> resultado)
+
+- `git log --oneline --all -- src/server/services/pipeline/fat_directory.go` -> `1ce5e27` (T3); `git log --all --grep=fat32-ate`
+  -> `2037158` (T1), `e712105` (T2), `1ce5e27` (T3), `a2d3987` (docs da correcao aplicada). Todos ja no fluxo principal.
+- `grep -n "copy-staging\|ErrFAT32DirectoryLimit\|rebuildSaturatedFATFolder\|legacyLocalPartSuffix" -r src/server` ->
+  presentes em `local_resilient.go` (388, 392, 409, 519, 645, 674, 680, 808), `fat_directory.go:94`, `fallback.go:20` e nos testes.
+- `grep -n 2.12.110 package.json CHANGELOG.md` -> `"version": "2.12.110"` e `## [2.12.110] - 2026-10-09` com a entrada do fix.
+- A prova do fix em FAT32 real ja foi feita na sessao de implementacao (secao "Testes executados": controle antigo
+  falha no #12.569 com o texto do print; `copyTreeLocal` novo grava os 13.146 nomes).
+
+### Hipoteses descartadas (e por que)
+
+- **Veredito `corrigir` para o pipeline levar o doc a `retest/`.** Nao ha arquivo para o dev mudar; uma onda sem
+  codigo so repetiria o `go test` que ja passou. O T2 numa pasta LOCAL (NTFS) nao exercita o FAT e nao prova nada
+  deste bug.
+- **Outras gravacoes com temporario ao lado do destino no pendrive.** `grep` em `src/server` (`.part"`, `.tmp"`,
+  `.partial"`, fora de teste) -> so `app/config.go:415` (probe de escrita, 1 arquivo). No Electron, os escritores com
+  temporario (`secureComponentStaging.ts`, `simulatedTransactionalWriter.ts`...) gravam componentes do BadAvatar,
+  pastas pequenas; nao atingem o teto. Fora do escopo.
+
+### Tarefas
+
+- [x] T1-T3 — ja implementadas e commitadas (`2037158`, `e712105`, `1ce5e27`), testes na secao "Testes executados".
+- [ ] Dono: prova ponta a ponta com o pendrive (abaixo), publicar a versao 2.12.110 (`build-and-upload.ps1`) e mover o
+  doc para `retest/` (com `## Status`) e depois `closed/` com a confirmacao.
+
+### Plano de teste
+
+- **Offline (sem slot):** `go test ./services/pipeline/ -count=1` em `src/server` (ja verde); com um volume FAT32,
+  `GODSEND_FAT32_TEST_DIR='<volume>' go test ./services/pipeline/ -run TestFAT32 -v` (~31 min, ja verde em `E:`).
+- **T2 reproducao como o usuario (precisa do pendrive, so o dono):** app 2.12.110 aberto, Fila com o item "EA FC 26
+  Legacy Edition" em Erro (scratch `Ready/EA FC 26 Legacy Edition/.source_hf.zip` preservado), pendrive `E:` FAT32 com
+  a pasta `faces` saturada da tentativa antiga -> clicar em tentar de novo. SINAL do fix: linha `LOCAL [...]: pasta
+  FAT32 ... esgotou as entradas ... regravando a pasta` no console do backend, o item termina Concluido e
+  `faces` tem 13.147 arquivos; nenhum texto "The directory or file cannot be created". Risco ja anotado: espaco livre
+  do pendrive de 14,44 GB.
+- **Controle positivo:** ja feito em FAT32 real (`TestFAT32LegacyPartSuffixExhaustsDirectory`, falha no #12.569 com o
+  errno 82); no pendrive do dono, o proprio item em Erro e o controle.
+- **T3 regressao direcionada:** gravacao local de outro jogo XEX e de um GOD num destino local (`go test` cobre
+  retomada por hash, staging promovido, limite de 4 GB) e `npm --prefix src/electron-app run test:safety` (o
+  scanner ignora `.xbox-downloader/`).
+
+### Sessoes seguintes
+
+- dev: nenhuma (veredito bloqueado; codigo pronto).
+- teste: nenhuma no pipeline; a prova e do dono com o pendrive real.
+
+**O que destrava:** o dono rodar a T2 acima com o pendrive `E:` (ou outro FAT32 com >= 15 GB livres) e publicar a
+2.12.110; com isso o doc vai para `retest/` e, com a confirmacao do cliente, `closed/`.

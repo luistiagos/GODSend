@@ -260,3 +260,54 @@ Validação de código: `go vet ./...` limpo; `go test ./...` verde (uma falha i
 - [ ] **Boot no console** com o pendrive gravado pela 2.12.105 (o cliente do chamado #85 é o candidato natural).
 - [ ] **Catálogo online:** retirar a linha `GTA 5 7z` (`source_id` 1, `xbox360rgh`) da API de ROMs. A chamada é `POST https://emuladores.pythonanywhere.com/api/rom/delete` com `{"manifest_path":"xbox360rgh/GTA 5 7z","source_id":1}`; ela foi bloqueada pela política de permissões desta sessão e ficou com o dono. Para restaurar: `path` "GTA 5 7z", link `https://huggingface.co/datasets/luistiagos/xbx/resolve/main/GTA%205%20%287.61%29.7z`, tamanho "6758.12MB". O endpoint não exige autenticação.
 - [ ] Conferência por FTP contra console real (inalterada).
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** sem-codigo — a correcao de codigo ja esta no `origin/main` (2.12.102 + 2.12.105, commits `0ec8342` e `4574121`); o que falta e o dono apagar a linha `GTA 5 7z` da API de ROMs remota e a prova de boot no console (cliente do chamado #85).
+**Complexidade:** baixa — catalogo (remoto); nenhuma mudanca de codigo neste repo.
+**Severidade:** alto — o fluxo principal (baixar e jogar GTA 5) ja foi inutilizavel; hoje o app filtra a fonte incompleta, entao o risco residual e so de versao antiga do app ou de cache de terceiros.
+**Arquivos a alterar (reserva da onda):** nenhum.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Ja corrigida no codigo; conferido nesta sessao que as defesas estao no `HEAD` (`d7bd9ad`) da worktree:
+
+- `src/server/services/cache/huggingface.go::isKnownIncompleteHuggingFaceURL` (L143) — casa `gta%205%20%287.61%29.7z` / `gta 5 (7.61).7z`. Chamada no rebuild do catalogo remoto (`Build`, L94: loga `ignoring known incomplete release` e pula o item) e em `sanitizeHuggingFaceCache` (L166). Depois do filtro, `gta 5` e re-apontado para a entrada `grand theft auto 5` (release ZTM completa) se existir.
+- `src/server/services/cache/ia.go` (L66-74, carga do cache salvo/empacotado) — para plataformas `hf_*` roda `sanitizeHuggingFaceCache`; cache com a URL antiga e limpo ao carregar.
+- `cache/hf_xbox360.json` e `cache/hf_.json` — nao contem mais o `GTA 5 (7.61).7z` (o unico "7.61" e `57.61MB` de outro jogo).
+- Pipeline (2.12.102/105): `models/compat.go::mandatoryInstallDiscs` (L443), `helpers/multi_disc.go::InstallPackageProblem` (L187) / `InstallSetProblem` (L222), `helpers/helpers.go::FindXEXFolder` (L247, prefere o disco jogavel), `utils/companion_disc.go::CompanionDiscFolders` (L50). Em erro (conjunto do Disco 1 ausente), o job termina em `release incompleta` em vez de entregar um jogo que nao da boot.
+
+O que resta e externo ao codigo: a API `emuladores.pythonanywhere.com` ainda lista a release incompleta (prova abaixo). Versao do app que ainda nao tenha o filtro (< 2.12.102) continua oferecendo-a.
+
+### Provas (comando literal -> resultado)
+
+- `git merge-base --is-ancestor 4574121 origin/main && echo onmain` -> `onmain` (fix 2.12.105 no fluxo principal; `package.json` hoje em `2.12.110`).
+- `grep -rn "pythonanywhere\|isKnownIncompleteHuggingFaceURL\|sanitizeHuggingFaceCache(" src/server src/electron-app` (sem testes) -> o unico consumidor da API de ROMs e `huggingface.go::Build` (L54), que filtra (L94); a carga do cache passa por `ia.go` L68.
+- `curl -s "https://emuladores.pythonanywhere.com/api/rom/list?system=xbox360rgh&source_id=1"` (2026-10-10 22:46, 1.932 itens) -> a linha ainda existe: `{"link": "https://huggingface.co/datasets/luistiagos/xbx/resolve/main/GTA%205%20%287.61%29.7z", "path": "GTA 5 7z", "size": "6758.12MB"}`; ao lado, `Grand Theft Auto 5.rar` (ZTM, 14.36 GiB) e `GTA 5 PT-BR + DLC + TU + SAVE 100 % .GOD` (21.96 GiB, `luisluis123/xboxrghgames`, conteudo nao conferido).
+- `curl -s https://huggingface.co/api/datasets/luistiagos/xbx/tree/main` -> `GTA 5 (7.61).7z 7086399509` ainda no dataset.
+
+### Hipoteses descartadas (e por que)
+
+- **Falta codigo no app:** descartada — filtro no rebuild e na carga do cache, catalogo empacotado limpo e barreira na pipeline estao no `HEAD`; a validacao E2E de 2026-09-28 (secao acima) entregou jogo + quatro pacotes com a 2.12.105.
+- **Outro consumidor da API que escape do filtro:** descartada — o grep acima mostra so `huggingface.go::Build`; `ia_auth.go` usa outra rota (`/api/credentials`).
+- **`outro-projeto`:** a remocao e uma chamada de API (sem codigo), caso do exemplo "link quebrado no catalogo remoto" do manual -> `sem-codigo`. O bug do agente de atendimento ja existe em `digitalstoregamesproject` (`docs/modules/chatbot-whatsapp/areas/prompt-kb/bugs/2026-09-26-agente-xbox-instrui-apagar-disco1-instalacao-gta5.md`); nao ha doc novo a abrir.
+
+### Tarefas
+
+Sem tarefa de codigo. Acoes (dono):
+- [ ] Apagar a linha da API de ROMs: `POST https://emuladores.pythonanywhere.com/api/rom/delete` com `{"manifest_path":"xbox360rgh/GTA 5 7z","source_id":1}` (restauracao na secao "Pendencias atualizadas"). Prova: o `curl` de listagem acima nao traz mais `GTA%205%20%287.61%29.7z`.
+- [ ] (opcional) Apagar `GTA 5 (7.61).7z` do dataset `luistiagos/xbx`, para versoes antigas do app nao o baixarem por link direto.
+- [ ] Prova de boot no console com o pendrive gravado por versao >= 2.12.105 (cliente do chamado #85) — so o console prova.
+- [ ] Mover o doc para `docs/bugs/retest/` com `## Status` (fix `0ec8342` + `4574121`, falta: boot no console e conferencia FTP real).
+
+### Plano de teste
+
+- **Offline (sem slot):** `go test -count=1 ./services/cache ./services/pipeline ./infrastructure/helpers ./models` em `src/server` (testes `refresh_safety_test.go` cobrem o filtro; `install_content_test.go` a barreira); o `curl` da listagem remota depois da acao do dono.
+- **T2 reproducao como o usuario (E2E, no slot):** dispensavel para fechar este veredito (nada muda no codigo). Se quiser conferir: app da lane, aba Catalogo/Browse, fonte HuggingFace/Xbox 360 RGH, buscar "GTA 5" -> sinal: nenhum item aponta `GTA%205%20%287.61%29.7z` (resposta da rota de busca do backend) e o console do backend na Home mostra `HUGGINGFACE CACHE: ignoring known incomplete release` ao reconstruir o catalogo. Baixar os 14,7 GB e gravar so em destino local; o boot so o console prova.
+- **Controle positivo:** `deploy --at-base` nao se aplica (sem fix nesta execucao); o sintoma original foi medido em 2026-09-27 com a 2.12.103 (secao "Validacao de ponta a ponta").
+- **T3 regressao direcionada:** nenhuma mudanca de codigo; nada a regredir.
+
+### Sessoes seguintes
+
+- dev: effort low, ultrathink nao — nao ha codigo a mudar.
+- teste: effort low, ultrathink nao — so conferencia da listagem remota e do filtro.

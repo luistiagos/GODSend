@@ -305,3 +305,126 @@ Seguiu a correção planejada, com estes detalhes:
   + arquivos medidos) responde as duas quando os primeiros logs da nova versão chegarem.
 - O chamado #133 (o cliente desistiu) e o bug do agente em `digitalstoregamesproject` seguem fora
   deste doc.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** sem-codigo — a correção (T1–T3) já está no fluxo principal e saiu na **2.12.107**; não há código a mudar, falta só o doc sair de `open/` e a prova de campo com HD cheio.
+**Complexidade:** média — critério do `docs/bugs/open/README.md` (lógica em serviço do Electron + `windowsUsbDeviceService.ts`); já entregue.
+**Severidade:** alto — para quem tem HD externo com biblioteca grande o app ficava congelado ~77% do tempo e a gravação em HD não andava, sem contorno (P1 da triagem).
+**Arquivos a alterar (reserva da onda):** nenhum — veredito sem código.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa raiz do doc (varredura `fs.*Sync` no processo principal + timer de `runPowerShell` vencendo com o loop
+bloqueado) continua válida e **já está corrigida** no HEAD `d7bd9ad` (2026-10-10). Conferido no código atual:
+
+- `src/electron-app/infrastructure/windowsUsbDeviceService.ts::setLoopAwareTimeout` (linha ~106) — timer que
+  dispara mais de `LATE_TIMER_GRACE_MS = 1_000` depois do prazo rearma uma folga única; `runPowerShell` (linha ~168)
+  usa ele no lugar do `setTimeout`. Em timeout real, ainda mata o filho e rejeita.
+- `src/electron-app/services/localGameScannerService.ts` — nenhuma chamada `fs.*Sync` (o `grep "Sync("` só acha
+  comentários; o cabeçalho do arquivo proíbe `*Sync` citando este bug). Todas as funções de I/O são `async`
+  (`pathExists`, `readDirEntries`, `installInProgress`, `readGodsendIni`, `hasGodOrContentSubfolder`,
+  `hasDefaultXex`, `parseGameFolder`, `getDirectorySizeBytes`, `findLocalCoverDataUrl`, `probeStfsTitleId`,
+  `scanGamesDirectory`, `scanContentDirectory`, `parseContentTitleFolder`, `scanDriveRoot`,
+  `getWindowsCandidateDriveRoots`). Em erro de I/O cada uma engole e devolve parcial (a varredura nunca rejeita
+  por disco).
+- `localGameScannerService.ts::cachedGameInfo` (linha ~122) — guarda por `GAME_INFO_TTL_MS = 10 min` o resultado
+  por pasta; os três laços (`scanGamesDirectory` l.395, `scanContentDirectory` l.532, `scanDriveRoot` l.702)
+  passam por ele, e o `probeStfsTitleId` caro (l.293/302) só roda dentro de `parseGameFolder`, ou seja, dentro do
+  cache. `gameNameMap` (l.149) guarda `xboxBuildGameNameMap()` pelo mesmo prazo (é o único trecho síncrono que
+  sobra: ~5,5 MB de JSON a cada 10 min, aceito na correção).
+- `localGameScannerService.ts::scanUsbAndLocalGames` (linha 754) — cache de lista `SCAN_CACHE_TTL_MS = 15 s`,
+  `inFlightScanPromise`, e a linha `APP_BROWSE varredura de jogos instalados: ...` quando leva
+  `SLOW_SCAN_LOG_MS = 1 s` ou mais.
+- Commits posteriores que tocaram o scanner (`d27d796` marca de instalação, `37a9385` capa de mod) mantiveram tudo
+  `await` (conferido no diff: `installInProgress`/`readDirEntries`/`pathExists`/`probeStfsTitleId` com `await`).
+- `src/electron-app/renderer/components/HomePage.tsx::checkPreparedDevice` (linhas 110–157) — a chamada de
+  `browseGetInstalledGames()` é `.then` sem `await`: o botão "Verificando pendrive..." (`preparedCheckBusy`) **não**
+  espera a varredura, então a primeira varredura lenta (assíncrona) não prende a Home.
+
+### Provas (comando literal -> resultado)
+
+- `git merge-base --is-ancestor <c> HEAD` para `9258bfe` (T1), `426d4ff` (T2), `91d20dc` (T3) -> os três são
+  ancestrais do HEAD e de `origin/main`.
+- `grep -n "^## \[" CHANGELOG.md` + `grep -n varredura CHANGELOG.md` -> a correção está na seção **`[2.12.107] -
+  2026-10-07`** (linhas 87–89), não em `[Unreleased]`: já foi publicada.
+- `git log --oneline 91d20dc..HEAD -- <scanner, windowsUsbDeviceService, browseHandlers, auroraLibraryService,
+  App.tsx, HomePage.tsx>` -> 5 commits depois do fix (`1ea25b6`, `a6ac2df`, `0a719db`, `d27d796`, `37a9385`),
+  nenhum reintroduz I/O síncrono no scanner nem troca o `setLoopAwareTimeout`.
+- `grep -n "Sync\b\|Sync(" src/electron-app/services/localGameScannerService.ts` -> só as linhas de comentário 9,
+  12 e 70.
+- Os testes da correção (`tests/unit/loopAwareTimeout.test.cjs`, `tests/unit/localGameScannerService.test.cjs` ›
+  "nao bloqueia o loop de eventos" e › "reaproveita a analise") entram no `test:safety`
+  (`node --test tests/unit/*.test.cjs`), cuja linha de base de 2026-10-09 na lane é 258 pass / 0 fail.
+- **Campo, 2.12.107** (lido em outros docs, não reconsultado aqui — a telemetria pede o `JWT_SECRET_KEY`, que o
+  modo automático não lê):
+  - `electron-main-powershell-lento-...` (2026-10-07), report `9530` (2.12.107): "durante os timeouts as linhas
+    `BACKEND_OUT` continuam chegando", sem lacuna; a varredura loga `0 pasta(s) analisada(s)` em 25 931 ms (espera do
+    PowerShell lento, não I/O bloqueante). O `USB_ENUMERATION_TIMEOUT` que sobrou nessa versão é outro bug (prazo
+    fixo da enumeração), corrigido na 2.12.108.
+  - `electron-main-janela-branca-...` (2026-10-07), report `9541`: `APP_BROWSE varredura de jogos instalados` em
+    21:44:48 (1,8 s) com o processo principal respondendo — a instrumentação da T3 chega à telemetria.
+  - Nenhum dos dois é o cenário do cliente (HD mecânico com biblioteca grande): a prova desse cenário continua
+    em aberto.
+
+### Hipoteses descartadas (e por que)
+
+- **`corrigir` (mandar para dev):** não há o que mudar. O `enqueue-test` do helper recusa branch sem commit de
+  código ("nenhum commit de codigo no branch"), e inventar uma mudança só para passar o teste da lane violaria o
+  escopo do bug.
+- **Resíduo: o contador de 7 s / a Home ainda disparam varredura completa** (item 3 das tarefas propostas): com a
+  varredura assíncrona e o cache por jogo de 10 min, o poll custa listagens de diretório e não congela a janela; a
+  Home não espera o resultado (`.then`). Já estava descartado na análise de 2026-10-07; nada no código atual muda
+  isso.
+- **Resíduo: `gameNameMap` síncrono:** um `readFileSync` + `JSON.parse` de ~5,5 MB a cada 10 min — dezenas de ms,
+  muito abaixo dos prazos de 5/7/12 s do PowerShell e coberto pela folga de 1 s do `setLoopAwareTimeout`. Não é
+  sintoma.
+- **`bloqueado`:** o que falta (log de cliente com HD cheio) é prova de campo para fechar, não impedimento de
+  corrigir; a correção já está no ar.
+- **"Xbox Games 360" lido como um jogo só** (O que falta medir): segue não verificada e não tem como ser sem o
+  disco do cliente; com a correção ela custaria uma varredura lenta mas não congelaria a janela, e a linha
+  `APP_BROWSE` (pasta mais lenta + arquivos medidos) a revela quando aparecer.
+
+### Tarefas
+
+- [ ] **Dono (ou a finalização, se o pipeline mover docs `documentado`):** `git mv` deste doc de `open/` para
+  `retest/` com a `## Status` no topo (modelo em `docs/bugs/retest/README.md`):
+  - correção: 2026-10-07, commits `9258bfe` (T1), `426d4ff` (T2), `91d20dc` (T3), publicada na **2.12.107**;
+  - onde: `windowsUsbDeviceService.ts::setLoopAwareTimeout`/`runPowerShell`,
+    `localGameScannerService.ts::scanUsbAndLocalGames`/`cachedGameInfo`/`gameNameMap` (+ todas as funções de I/O
+    do scanner em `fs.promises`);
+  - testes: unitários (`loopAwareTimeout.test.cjs`, `localGameScannerService.test.cjs`, com controle negativo
+    registrado em "Testes executados"); T2 pela UI **não** rodada (receita abaixo);
+  - falta para `closed/`: log de cliente com HD externo cheio na 2.12.107+ trazendo `APP_BROWSE varredura de jogos
+    instalados: ...` sem lacunas de 70–105 s entre as linhas `lista enviada à interface` e sem
+    `USB_ENUMERATION_TIMEOUT` colado no fim de uma varredura.
+- [ ] **Suporte/triagem (opcional, quem roda `triagem-bugs-prod`):** separar, nos reports abertos de
+  "O Windows ainda está reconhecendo..." da 2.12.107+, os que têm lacunas no log (seria reincidência deste bug →
+  doc volta para `open/`) dos de PowerShell lento (bug da 2.12.108).
+
+### Plano de teste
+
+- **Offline (sem slot):** `npm --prefix src/electron-app run test:safety` na lane — os testes
+  `loopAwareTimeout.test.cjs` e `localGameScannerService.test.cjs` passam (já fazem parte da linha de base de
+  258 pass).
+- **T2 reproducao como o usuario (E2E, no slot) — só se o dono quiser a prova pela UI antes do campo:** estado de
+  partida: Configurações com `transferFolder` apontando para uma pasta local com `Games\` contendo uma biblioteca
+  sintética grande (ex.: 30 pastas de jogo, cada uma com `default.xex` e ~1 500 arquivos; o `bench-scan.cjs`
+  de "Testes executados" ficou no scratchpad daquela sessão, não no repo: montar com um script equivalente). Ação: `npm start` na lane, ficar na Home e depois abrir Jogos
+  Instalados (o contador do menu e a Home disparam a varredura sozinhos a cada 5–7 s). Sinal: a janela nunca mostra
+  "(Não está respondendo)", as linhas `lista enviada à interface` do log seguem a cada 5 s durante a primeira
+  varredura, aparece **uma** linha `APP_BROWSE varredura de jogos instalados: 30 jogo(s) em N ms` na primeira
+  varredura e as seguintes (dentro de 10 min) ficam abaixo de 1 s (sem linha nova). Destino local substitui o HD:
+  o bug não depende de FAT32.
+- **Controle positivo:** checkout de `060687e` (scanner síncrono) com a mesma pasta: as linhas
+  `lista enviada à interface` param durante a varredura e a janela fica "(Não está respondendo)" se a varredura
+  passar de ~5 s. Já medido sem UI no `bench-scan.cjs`: maior travada do loop 5 972 ms (síncrono) contra 9 ms.
+- **T3 regressao direcionada:** `go test -count=1 ./...` em `src/server` e `test:safety` — sem `fail` novo; fluxos
+  vizinhos: lista de unidades da BadAvatar USB (usa `runPowerShell`), Jogos Instalados mostrando jogo novo em até
+  15 s e sumindo quando apagado.
+
+### Sessoes seguintes
+
+- dev: nenhuma — veredito sem código.
+- teste: nenhuma pelo pipeline (sem commit de código o `enqueue-test` recusa); a T2 acima fica de receita para o
+  dono, se quiser a prova pela UI antes do log de campo.

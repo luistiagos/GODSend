@@ -125,3 +125,118 @@ Embora `detached: true` defina a flag Win32 `CREATE_NEW_PROCESS_GROUP`, **não d
 - [ ] Teste unitário comprovando a sobrevivência do script de substituição após o encerramento imediato do processo pai
 - [ ] Validação de substituição completa no Windows com o executável portable real
 - [ ] Registro de encerramento no `CHANGELOG.md` e movimentação para `docs/bugs/closed/`
+
+---
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** corrigir — o PowerShell de substituição é criado com `DETACHED_PROCESS` (`spawn(..., { detached: true })`) e, nesta máquina de teste, um PowerShell criado assim **nunca chega a iniciar o engine**: o `spawn` dispara, o app fecha e nada mais acontece. Trocar o disparo por um `cmd.exe` destacado que faz `start` do PowerShell (que então ganha console próprio) com o script em arquivo `-File` resolveu sob Electron real com `app.quit()`. A causa "Job Object" das seções acima **não se sustenta** (ver Hipóteses descartadas).
+**Complexidade:** media — lógica nova num serviço do Electron (`services/autoUpdateService.ts`), sem rota, IPC nem UI nova (critério "Media" do `docs/bugs/open/README.md`).
+**Severidade:** medio — o canal de atualização falha só num subconjunto de máquinas (2 máquinas em 3 reports; o código anterior à 2.12.101, com o mesmo `detached`, rodava o script em outras máquinas) e há contorno: o modal de erro já mostra os passos da atualização manual e o botão **Mostrar arquivo baixado**.
+**Arquivos a alterar (reserva da onda):**
+- `src/electron-app/services/autoUpdateService.ts` — `applyUpdateAndRestart` (disparo via `cmd.exe` + `start` + `-File`), `buildReplaceScript` (carimbo `started` na primeira linha), `consumePendingUpdate` (motivo para `started` e limpeza do `.ps1`), helper exportado novo para montar a linha de comando
+- `src/electron-app/tests/unit/autoUpdate.test.cjs` — testes do disparo com o pai saindo na hora, do carimbo `started` e do motivo novo
+- `docs/ATUALIZACAO-AUTOMATICA.md` — seção 4.3 ("Dispara o PowerShell desanexado") e o desenho do script
+- `docs/features.md` — linha 180 ("hands the swap to a detached PowerShell script")
+- `AGENTS.md` — linha do `autoUpdateService.ts` (linha 81): invariante "nunca criar o PowerShell da troca com `detached: true`"
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+- `src/electron-app/services/autoUpdateService.ts::applyUpdateAndRestart` (l. 600-664) — grava `update-pending.json`, monta o script com `buildReplaceScript` e faz `spawn(powerShellExe(), ["-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript], { detached: true, stdio: "ignore" })`; espera o evento `spawn`, `unref()`, loga `Replace script started` e chama `app.quit()`. Em erro **síncrono ou assíncrono** do `spawn` (EPERM/ENOENT): apaga o marcador e relança → `ipc/updateHandlers.ts` (`update:apply`, l. 73-80) devolve `{ ok:false, error }` e loga `update:apply error: ...`. **O evento `spawn` só prova que o `CreateProcess` deu certo, não que o script rodou**: é exatamente o buraco do campo.
+- `services/autoUpdateService.ts::buildReplaceScript` (l. 512-544) — espera o `waitPid` e todo processo cujo `Path` é o alvo (até 180 s), copia (20 × 500 ms), grava `ok` / `copy-failed: <erro>` em `update-result.txt` e **sempre** faz `Start-Process $target`. Nenhum carimbo antes do laço: se o processo não roda ou morre, nada fica escrito. Em erro do `Set-Content`: engolido (`try {} catch {}`).
+- `services/autoUpdateService.ts::consumePendingUpdate` (l. 550-576) — no boot lê e apaga marcador e resultado; resultado vazio vira o texto `o script de substituição não registrou resultado (não rodou ou foi interrompido)` (a mensagem dos 3 reports). Chamado por `checkPendingUpdateResult` (l. 579), que roda em `app/bootstrap.ts:180`, no `app ready`, antes da janela.
+- `infrastructure/windowsSystemExecutables.ts::powerShellExe` / `system32Exe` — caminho absoluto em `System32` (precedente de `system32Exe("cmd.exe", "cmd.exe")` em `services/driveRepairService.ts:203`).
+- `src/electron-app/build/portable.nsi` (seção `-launch`) — o launcher cria o Electron com `kernel32::CreateProcess(..., i 0 /*flags*/ ...)`, sem Job Object e sem `CREATE_BREAKAWAY_FROM_JOB`; espera o processo e faz `RMDir /r $INSTDIR`. Nada nele mata descendentes.
+- `app/bootstrap.ts` (`before-quit`, l. 224) — só `setIsQuitting(true)` + `stopGodsend()`, que faz `godsendProcess.kill()` (só o backend; `services/backendClient.ts:229-234`). Nenhum `taskkill /T` no repo (grep) que pudesse levar o PowerShell junto.
+
+**Mecanismo:** nesta máquina (Windows 11 build 26200.9550 — a mesma build da máquina do 8839 — com Kaspersky ativo), PowerShell 5.1 criado com `DETACHED_PROCESS` sai com código 0 em ~0,9 s **sem iniciar o engine** (não há evento 400 no log `Windows PowerShell`), qualquer que seja a forma: `-Command`, `-NonInteractive`, `stdio: "pipe"`, `-File` com `-ExecutionPolicy Bypass`. Outros executáveis de console destacados rodam normalmente (`PING.EXE` 2 s, `cmd /c exit /b 5` → 5, `cmd /c copy` copia). Não isolei se a causa é o Windows ou o antivírus (não há outra máquina); o indício do campo (antes da 2.12.101 o script destacado relançava o app ~13-16 s depois em M4/M6, ver o bug fechado) diz que depende da máquina — coerente com só 2 máquinas reportando. O conserto não depende de saber qual: o PowerShell deixa de ser criado com `DETACHED_PROCESS`.
+
+Nos 3 reports o app **não voltou sozinho** (o script relança o alvo sempre, até na falha), e o boot que reportou foi o do usuário reabrindo à mão: 76 s depois (8758) e 6 min depois (8839). 6 min passa do pior caso do script vivo (180 s de espera + 20 × 0,5 s de cópia ≈ 3,2 min, e ele grava resultado antes de relançar): no 8839 o script não estava rodando.
+
+**Achado lateral do mesmo disparo (nesta máquina):** com `-WindowStyle Hidden` **e** o script inline de ~1,5 KB, o `CreateProcess` é negado (`spawn EPERM`, síncrono), com ou sem `detached`; sem `-WindowStyle Hidden`, ou com um comando curto, não. É o modo M2 do bug fechado (`update:apply error: spawn EPERM`). Com o script em arquivo (`-File`) e `-WindowStyle Hidden` o disparo passa. O fix abaixo cobre os dois modos.
+
+### Provas (comando literal -> resultado)
+
+Harness descartável no scratch da sessão (fora do repo): `svc.js` = `psQuote` + `buildReplaceScript` copiados de `autoUpdateService.ts` sem tipos; `run2.js` copia `System32\PING.EXE` para `<dir>\xboxcompanion.exe` (alvo) e `whoami.exe` para `<dir>\xboxcompanion-update.exe` (fonte), faz o `spawn` do modo pedido com `waitPid: process.pid, waitSeconds: 60`, e no evento `spawn` faz `unref()` + `require("electron").app.quit()` — o mesmo ciclo de vida de `applyUpdateAndRestart`. Electron real da lane: `env -u ELECTRON_RUN_AS_NODE src/electron-app/node_modules/electron/dist/electron.exe run2.js <dir> <modo>` (Electron 42.4.1); resultado lido 15-20 s depois.
+
+| modo (sob Electron real, pai sai no `spawn`) | disparo | `update-result.txt` | alvo |
+|---|---|---|---|
+| `detached-nohide`: `spawn(ps, ["-NoProfile","-Command",script], {detached:true, stdio:"ignore"})` | `spawn` ok, child pid 40828 | **ausente** | **não substituído** — a assinatura dos 3 reports |
+| `current` (o código de produção: `+ "-WindowStyle","Hidden"`) | `spawn EPERM` síncrono (o harness não trata → Electron pendura, `timeout` rc 124) | ausente | não substituído — o modo M2 |
+| `attached`: `spawn(ps, ["-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",ps1], {stdio:"ignore", windowsHide:true})` | ok | **ausente** | não substituído — morre com o Electron |
+| `start`: `spawn(cmd, ["/d","/s","/c", '"start "" /min "<ps>" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "<ps1>""'], {detached:true, stdio:"ignore", windowsHide:true, windowsVerbatimArguments:true})` | ok | **`ok`** | **substituído** |
+| `start-b` (a proposta literal do doc: `start "" /b ... -File`) | ok | `ok` | substituído |
+| `start` com `<dir>` = `...\el3-João-nb` (caminho com acento; `.ps1` gravado em UTF-8 **com BOM**) | ok | `ok` | substituído |
+
+Isolando o PowerShell destacado (Node 24.19, `node sp9.js` / `sp4.js` / `sp8.js`; arquivo marcador escrito pelo próprio comando):
+
+```
+det_ignore      exit 0  833ms file false     (detached, -Command "Set-Content ...; exit 3")
+det_pipe        exit 0  827ms file false     (detached, stdio pipe: nada no stderr)
+det_ignore_noni exit 0  950ms file false     (detached, -NonInteractive -NoLogo)
+det_file_bypass exit 0  982ms file false     (detached, -ExecutionPolicy Bypass -File s9.ps1)
+att_hide_ignore exit 3 1154ms file true      (sem detached, windowsHide)
+ping_det        exit 0 2087ms                (PING.EXE -n 3 destacado roda inteiro)
+cmd_exit5_det   exit 5   93ms                (cmd destacado roda)
+copy_det        exit 0   52ms  copied-det.exe existe
+```
+
+```
+Get-WinEvent -LogName 'Windows PowerShell' | ? Id -eq 400   # "Engine state is Available"
+-> um único evento 400 na rodada, o de m9-att_hide_ignore; nenhum dos 4 destacados iniciou o engine
+```
+
+```
+node sp7.js a_hidden_pipe          -> throw EPERM   (-WindowStyle Hidden + script inteiro, sem detached)
+node sp7.js a_pipe / a_ignore      -> exit 1        (script inteiro sem Hidden: roda; 1 = pasta de teste inexistente)
+node sp7.js a_short_hidden_ignore  -> exit 3        (Hidden + "exit 3": roda)
+spawnSync(ps, ["-NoProfile","-NonInteractive","-Command",script])  -> roda (é o que o teste atual usa)
+```
+
+```
+IsProcessInJob(<pwsh da sessão>)                                 -> False
+Get-CimInstance root/SecurityCenter2 AntiVirusProduct           -> Kaspersky (266240), Windows Defender (393472)
+cmd /c ver                                                       -> 10.0.26200.9550
+git show 978e128:src/electron-app/services/autoUpdateService.ts  -> o código anterior à 2.12.101 já usava detached:true + -WindowStyle Hidden
+```
+
+Sem acesso à telemetria nesta sessão (o token exige ler o `.env` do backend, o que não fiz); os logs dos 3 reports são os transcritos acima neste doc.
+
+### Hipoteses descartadas (e por que)
+
+- **Job Object com `KILL_ON_JOB_CLOSE` matando o PowerShell quando o launcher sai** (a "Causa Raiz" original deste doc): o `portable.nsi` cria o Electron com `CreateProcess` sem job; o libuv só põe no job dele (kill-on-close) os filhos **não** destacados — e o teste `attached` confirma que esses morrem, enquanto o destacado nem chega a rodar; o processo da sessão não está em job (`IsProcessInJob` = False). E mesmo que houvesse job, `cmd /c start` não sai dele (sem `CREATE_BREAKAWAY_FROM_JOB` o filho herda o job): a proposta do doc funciona por outro motivo — dá ao PowerShell um console, que o `DETACHED_PROCESS` tira.
+- **Falta de `-ExecutionPolicy Bypass`**: a política não se aplica a `-Command`; e `-File` + `Bypass` destacado também não rodou (`det_file_bypass`). O `Bypass` entra no fix só porque o script passa a ser `-File`.
+- **`spawn` sem `detached`** (deixar o PowerShell com console herdado): morre junto com o Electron (modo `attached`: sem resultado), pelo job do libuv. Por isso o intermediário `cmd.exe` destacado.
+- **O usuário reabriu o app antes de o script terminar** (a espera de até 180 s ainda corria, e o launcher novo, rodando do próprio alvo, segura a cópia): explicaria o 8758 (76 s) **se** o script estivesse vivo, mas não o 8839 (6 min > ~3,2 min de pior caso). Fica como risco residual: o carimbo `started` (Tarefa 2) passa a separar esse caso ("começou e não terminou") de "nem começou".
+- **Reuso do PID do Electron prolongando a espera**: limitado pelos mesmos 180 s; não explica 6 min sem resultado.
+- **`Set-Content` do resultado falhando em silêncio**: com a cópia ok o app voltaria na versão nova; com a cópia falhando o script relançaria o app sozinho — e nos 3 reports o app não voltou sozinho.
+- **Algo no `before-quit` matando a árvore**: só `stopGodsend()` → `godsendProcess.kill()` do backend; nenhum `taskkill /T` no repo.
+
+### Tarefas
+
+- [ ] **T1** `src/electron-app/services/autoUpdateService.ts::applyUpdateAndRestart` (+ helper exportado novo, ex. `buildReplaceLaunch({ cmd, powerShell, scriptFile })` → `{ file, args }`) — gravar o script em `<userData>/update-replace.ps1` em **UTF-8 com BOM** (o PowerShell 5.1 lê `.ps1` sem BOM na página ANSI; o caminho do alvo pode ter acento) e disparar `spawn(system32Exe("cmd.exe", "cmd.exe"), ["/d", "/s", "/c", '"start "" /min "<powerShellExe()>" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "<ps1>""'], { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: true })`. Manter: esperar `spawn`/`error`, `unref()`, apagar o marcador e relançar em erro, `app.quit()` só depois. Comentário no código com `[[electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58]]` dizendo **por que** não `detached` direto no PowerShell. — teste: T4(a) e T4(d).
+- [ ] **T2** `services/autoUpdateService.ts::buildReplaceScript` — primeira instrução grava `started` em `$resultFile` (`try { Set-Content ... 'started' } catch {}`), antes do laço de espera; o desfecho final sobrescreve. — teste: T4(b).
+- [ ] **T3** `services/autoUpdateService.ts::consumePendingUpdate` — resultado `started` vira motivo próprio (ex.: `o script de substituição começou mas não terminou (interrompido, ou o app foi reaberto antes de ele acabar)`); resultado vazio vira `o script de substituição não chegou a rodar`; apagar também `update-replace.ps1`. Os dois testes atuais de `consumePendingUpdate` continuam valendo (o segundo usa `/não registrou resultado/`: ajustar a regex junto se o texto mudar). — teste: T4(c).
+- [ ] **T4** `src/electron-app/tests/unit/autoUpdate.test.cjs` (`skip` fora de win32):
+  (a) **o disparo sobrevive ao pai saindo na hora**: um `node -e` filho faz exatamente o `spawn` de `buildReplaceLaunch` e `process.exit(0)` no evento `spawn`; o teste espera até ~30 s por `update-result.txt` = `ok` e alvo == fonte (PING como alvo parado, whoami como fonte, como no teste do launcher). Conferir vermelho→verde trocando, só localmente, pelo `spawn` antigo (`detached` direto no PowerShell): nesta máquina fica sem resultado;
+  (b) **carimbo**: script com `waitPid` = um processo vivo (ex. `PING -n 6`) e `waitSeconds` curto, disparado por `spawn` assíncrono; ler `update-result.txt` durante a espera → `started`; no fim → `ok`;
+  (c) `consumePendingUpdate` com resultado `started` → o motivo novo; vazio → o outro;
+  (d) `buildReplaceLaunch` monta `-File "<ps1>"`, `-ExecutionPolicy Bypass`, `start "" /min`, e **não** contém `-Command`.
+- [ ] **T5** doc-sync: `docs/ATUALIZACAO-AUTOMATICA.md` (4.3: "Dispara o PowerShell desanexado" → `cmd.exe` destacado + `start` + `-File`, o carimbo `started`), `docs/features.md:180`, `AGENTS.md:81` (invariante: nunca criar o PowerShell da troca com `detached: true` — no campo ele não roda; nem sem `detached` — morre com o Electron). `CHANGELOG.md` `[Unreleased]` / `### Fixed` (não sobe versão).
+
+### Plano de teste
+
+- **Offline (sem slot):** `npm --prefix src/electron-app run test:safety` com os testes novos da T4 (a)-(d) passando; (a) é a prova central: o script disparado pelo caminho novo conclui a troca com o pai já morto. Registrar o vermelho→verde de (a) (spawn antigo vs novo) nesta máquina.
+- **T2 reproducao como o usuario (E2E, no slot):** o caminho do cliente é **Reiniciar e Atualizar** no modal de atualização (`renderer/components/AppUpdateModal.tsx:134` → `window.godsendApi.applyUpdateAndRestart(downloadedFilePath, updateInfo?.latestVersion)` → IPC `update:apply`). No modo dev ele não é alcançável inteiro pela UI: o modal só chega a "downloaded" se o `version.json` público anunciar versão maior que a da lane, e então baixaria e relançaria um portable real (que disputa a porta e o slot). Por isso a ação do botão é disparada pela mesma chamada que ele faz, via Playwright, e o resto é o app real:
+  1. `EV=C:\projects\.bugfix-xbox360\evidencia\<AAAAMMDD-HHMM>-electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58`; criar `EV\fake\` com `xboxcompanion.exe` (cópia de `C:\Windows\System32\PING.EXE`, o "launcher" antigo) e `xboxcompanion-update.exe` (cópia de `whoami.exe`, a "versão nova", que sai sozinha ao ser relançada). Guardar o SHA-256 dos dois.
+  2. Abrir o app da lane com Playwright `_electron.launch` sobre o `main.js` da lane (`src/electron-app/playwright.config.ts`) com `env: { ...process.env, PORTABLE_EXECUTABLE_FILE: "EV\\fake\\xboxcompanion.exe", PORTABLE_EXECUTABLE_DIR: "EV\\fake" }`. Com isso o alvo é o exe falso (`resolveReplaceTarget` usa `portableFile`) e o `userData` vira `EV\fake\godsend-data` (`services/appDataPath.ts::getDefaultAppDataDir`): o `config.json` do dono em `%APPDATA%\xbox-360-companion-electron` não é tocado. Conferir no log `APP_LIFECYCLE app ready userData=...EV\fake\godsend-data`.
+  3. Na Home, com a janela visível, `page.evaluate(() => window.godsendApi.applyUpdateAndRestart("<EV>\\fake\\xboxcompanion-update.exe", "<versão da lane, 2.12.110>"))`. Usar a **versão da própria lane** como destino: se o app for reaberto com esse `userData`, `consumePendingUpdate` não acusa falha e nada vai para a telemetria de produção.
+  4. **Sinal (com o fix):** log `APP_UPDATE Replace script started: ...EV\fake\xboxcompanion.exe -> v2.12.110`; o processo Electron sai; em até 30 s `EV\fake\godsend-data\update-result.txt` = `ok` e o SHA-256 de `EV\fake\xboxcompanion.exe` = o de `xboxcompanion-update.exe`; nenhuma janela de console visível (no máximo um flash minimizado). Copiar `update-result.txt`, os hashes e o log `%...%\EV\fake\godsend-data\logs\` para a evidência. Apagar `EV\fake\godsend-data\update-pending.json` se sobrar.
+- **Controle positivo:** não há `deploy --at-base` neste projeto; rodar a mesma receita numa lane no commit base (sem o fix). **Nesta máquina** o sintoma aparece no modo M2: o `update:apply` devolve `{ ok:false, error:"spawn EPERM" }`, o log tem `APP_UPDATE update:apply error: spawn EPERM`, o app não fecha e o alvo fica igual. A assinatura exata do campo ("Replace script started", app fecha, sem `update-result.txt`, alvo intacto, nada relançado) não sai pelo app nesta máquina por causa do EPERM; ela é reproduzida pelo harness offline (modo `detached-nohide` da tabela de Provas: `spawn(ps, ["-NoProfile","-Command",script], {detached:true, stdio:"ignore"})` + `app.quit()` no `spawn` → sem resultado, alvo intacto). Com o fix, os dois modos somem.
+- **T3 regressao direcionada:** `go test -count=1 ./...` em `src/server` e `npm --prefix src/electron-app run test:safety` (linha de base 258 pass / 0 fail); em especial os testes atuais `script de substituição espera o launcher ...` e `... grava copy-failed ...` (eles rodam o script por `spawnSync -Command` e continuam válidos: o conteúdo do script só ganha o carimbo `started`), `consumePendingUpdate: ...` e `resolveReplaceTarget: ...`. Vizinhos: o ramo não-Windows/dev de `applyUpdateAndRestart` (sem alvo: `spawn(updateFile)`) fica igual; falha de `spawn` do `cmd.exe` continua chegando ao modal como `{ ok:false }` (ler o `catch`); o boot com marcador + `ok` e versão nova continua silencioso.
+- **Falta para close (fora do alcance do slot):** a troca com o `xboxcompanion.exe` portable real (launcher NSIS + `RMDir /r` de 1,3 GB) e numa máquina sem Kaspersky; e a confirmação em produção: depois de publicada a versão com o fix, reports desse tipo devem trazer `começou mas não terminou` ou sumir — a migração da versão antiga para a nova ainda roda o script **antigo** uma última vez (mesmo limite do bug fechado).
+
+### Sessoes seguintes
+
+- dev: effort high, ultrathink sim — disparo de processo no Windows com três armadilhas já medidas (DETACHED_PROCESS, job do libuv, EPERM do `-WindowStyle Hidden` + script inline) e aspas do `cmd /s /c start ""`; o teste (a) precisa reproduzir o pai morrendo na hora.
+- teste: effort medium, ultrathink nao — receita fechada; o cuidado é isolar o `userData` pelas variáveis de ambiente e não deixar marcador que reporte à telemetria.

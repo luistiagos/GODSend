@@ -318,3 +318,88 @@ A ligação foi feita pelo horário: o app sobe às 19:26:56 UTC e o cliente esc
 Para a pendência do "não coberto" acima: o agente orientou **"Formatar antes" marcado**
 ([134254]/[134256]), mas o log não registra se a caixa estava marcada nem se a formatação rodou.
 Não use este caso como prova do caminho `waitForFormattedDevice`.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** sem-codigo — a correção já está no código (`1ea25b6`, 2.12.108) e publicada (x64 e ia32 2.12.109 no `version.json` desde 2026-10-08); falta só mover o doc para `retest/` e a confirmação de campo, que não envolvem código.
+**Complexidade:** alta — `windowsUsbDeviceService.ts`/`fixedBadAvatarPreparationService.ts` (preparo de disco), mas a parte de código já foi feita; não há mudança nova.
+**Severidade:** alto — o preparo, fluxo principal, falhava sem contorno em PC lento (P1 no doc); hoje corrigido e publicado.
+**Arquivos a alterar (reserva da onda):** nenhum.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa raiz e a correção estão nas seções acima e conferem com o código atual (`origin/main` em `d7bd9ad`):
+
+- `infrastructure/windowsUsbDeviceService.ts::enumerateSafeWindowsUsbDevices` — nativa com
+  `enumerationTimeout(REMOVABLE_ENUMERATION_TIMEOUT_MS)`; em timeout, `recoverNativeListing` (sem o
+  antigo `!includeHealth`, linha 614) com `enumerationTimeout(REMOVABLE_RECOVERY_TIMEOUT_MS = 12_000)`;
+  depois a física com `enumerationTimeout(USB_ENUMERATION_TIMEOUT_MS)`; em erro, lança o timeout.
+- `...::requireSafeWindowsUsbTarget` — em erro da enumeração lança `explainSlowEnumeration(error, root)`
+  (linha 773); a revalidação pela outra enumeração (`revalidateWithScript`, linha 829) também usa
+  `enumerationTimeout`.
+- `services/badAvatarUsbService.ts::setUsbPreparationActive` (linha 392) e o curto-circuito na
+  linha 443; ligado/desligado em `ipc/badAvatarHandlers.ts` linhas 100/111.
+- Commits posteriores que tocaram os mesmos arquivos **mantiveram** o prazo adaptativo: `0a719db`
+  (HD externo: `finishNative` roda a física com `enumerationTimeout`, linha 590, e a falha dela só
+  custa o HD) e `a6ac2df` (portão de layout: `readWindowsUsbDiskLayout`, linha 700, com
+  `enumerationTimeout`; layout ilegível devolve `null` e passa). Prazos fixos restantes são os de
+  propósito: probe de integridade (3 s, best-effort) e ejeção (10 s, `learnDuration = false`).
+
+### Provas (comando literal -> resultado)
+
+- `git merge-base --is-ancestor 1ea25b6 HEAD` -> `ancestor` (o fix está no fluxo principal).
+- `git log --oneline 1ea25b6..HEAD -- <os 4 arquivos do fix e o teste>` -> só `0a719db`, `5c08a61`,
+  `a6ac2df`; nenhum tirou `enumerationTimeout` (`grep -n "runPowerShell(\|enumerationTimeout(" infrastructure/windowsUsbDeviceService.ts`).
+- `curl -s https://versions.digitalstoregames.com/XBOX360Companion/version.json` -> `"version": "2.12.109"`,
+  `releaseDate 2026-10-08`, bloco `ia32` também 2.12.109: a correção (2.12.108) está publicada nas
+  duas arquiteturas.
+- `src/electron-app/package.json` `test:safety` = `tsc` + typecheck + `node --test tests/unit/*.test.cjs`,
+  que inclui `powershellSlowMachine.test.cjs` e `usbDriveListCache.test.cjs`; linha de base do manual
+  (2026-10-09, na lane): 258 pass / 0 fail. Não rodado aqui (planning não roda `tsc`).
+
+### Hipoteses descartadas (e por que)
+
+- **Ainda há código a fazer neste bug:** não. T1–T4 aplicadas e provadas (unitário com controle
+  positivo, mutações, pendrive real, preparo ponta a ponta com PowerShell atrasado 6 s). T5 é do bug
+  [`electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28`](electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md).
+- **Mandar para dev/teste (`corrigir`) só para mover o doc:** o dev não teria diff, e a T2 pela UI
+  exige preparar um pendrive (disco real proibido no pipeline); o máximo sem disco já está feito
+  (`powershellSlowMachine.test.cjs`).
+- **Regressão pelos commits seguintes:** descartada acima (prazos conferidos linha a linha).
+- **O "não coberto" (`waitForFormattedDevice`, com "Formatar antes") pede código:** não; ele usa a
+  mesma `enumerateSafeWindowsUsbDevices()` (já com recuperação e prazo adaptativo) e passa o último
+  erro por `explainSlowEnumeration`. O que falta é prova em campo/disco real, não correção.
+
+### Tarefas
+
+Nenhuma tarefa de código. Ações (sem código):
+
+- [ ] **Dono:** `git mv` deste doc para `docs/bugs/retest/` com `## Status` no topo (README de
+  `retest/`): fix `1ea25b6` (2.12.108), símbolos acima, provas da seção "Correção aplicada", publicado
+  na 2.12.109 (x64 + ia32, 2026-10-08). Falta para `closed/`: campo.
+- [ ] **Dono, na próxima triagem de telemetria** (`triagem-bugs-prod`, precisa do `JWT_SECRET_KEY`
+  que esta sessão não tem): reports com versão ≥ 2.12.108 e `reconhecendo seu pendrive` devem ter
+  as linhas `powershell (...) respondeu em N ms` / `excedeu o prazo de N ms`; nenhum preparo
+  falhando com a letra presente fecha o bug. Reincidência devolve o doc a `open/`.
+
+### Plano de teste
+
+- **Offline (sem slot):** `npm --prefix src/electron-app run test:safety` na lane de teste (inclui
+  `powershellSlowMachine.test.cjs`). Já feito na 2.12.108 e coberto pela linha de base do manual.
+- **T2 reproducao como o usuario (E2E, no slot):** não se aplica nesta execução — o caminho do
+  cliente é BadAvatar USB → "Preparar pendrive/HD" num pendrive real em PC lento; disco real está
+  proibido no pipeline. Feito a mão em 2026-10-07 com autorização (seção "Prova ponta a ponta").
+- **Controle positivo:** `powershellSlowMachine.test.cjs` contra a 2.12.107 falha em 17 s com a
+  mensagem da foto (seção "Provas").
+- **T3 regressao direcionada:** sem mudança, sem regressão a testar.
+
+### Sessoes seguintes
+
+- dev: effort low, ultrathink não — não há sessão de dev (sem código).
+- teste: effort low, ultrathink não — não há sessão de teste.
+
+### Achado lateral
+
+- [`electron-main-preparo-em-pc-lento-para-a-copia-a-cada-revalidacao-usb-e-a-fisica-de-hd-entra-em-toda-revalidacao_2026-10-10T23-00`](electron-main-preparo-em-pc-lento-para-a-copia-a-cada-revalidacao-usb-e-a-fisica-de-hd-entra-em-toda-revalidacao_2026-10-10T23-00.md)
+  — a "observação fora do escopo" acima (preparo de 805 s), agravada por `0a719db`: com um D:
+  interno, cada revalidação do preparo roda também a enumeração física. P3, perf.

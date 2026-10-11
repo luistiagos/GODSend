@@ -118,3 +118,114 @@ Como planejado, sem desvio:
   deve terminar com "Nenhum erro encontrado" sem a mensagem de tempo limite, e o log deve trazer
   `finalizado em ...`. O `renderer-dist` não foi rebuildado nesta sessão porque tem mudanças de outra
   sessão sem commit.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** corrigir — o fix de código já está em `origin/main` (b9be24c) e está correto; falta o que ele
+deixou de fora: o teste que pega a volta do prazo de 5 min (hoje nenhum teste falharia) e a entrada no `CHANGELOG.md`.
+**Complexidade:** baixa — só um teste de unidade e uma entrada de changelog; nenhuma lógica de produção muda.
+**Severidade:** medio — o reparo de fato termina, mas o app mostra erro falso aos 5 min, grava no log um
+"código 0" inventado e libera um segundo chkdsk na mesma unidade. Só atinge quem usa o reparo num pendrive grande.
+**Arquivos a alterar (reserva da onda):**
+- `src/electron-app/tests/unit/driveRepairService.test.cjs` — teste novo de `repairDrive` com `spawn` falso e relógio falso
+
+(`CHANGELOG.md` fica fora da reserva, como manda o manual: `merge=union`.)
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa é a da seção `## Causa raiz` acima e o fix já foi aplicado. Conferido no código atual (base `d7bd9ad`):
+- `src/electron-app/services/driveRepairService.ts::repairDrive` — `spawn(cmd.exe, ["/c", "echo Y | chkdsk X: /f /x"])`;
+  não tem mais `setTimeout`; resolve **só** no `close` (via `summarizeChkdskExit`) ou no `error` (`ok:false, exitCode:-1`).
+  Log: `Reparo CHKDSK em X: finalizado em Nm Ss (código <code ?? "nenhum">, reparado: <bool>)`. Antes do spawn, chama
+  `appendAppEvent("usb", "Iniciando ...")` e espera `windowsAnsiCodePage()`.
+- `driveRepairService.ts::summarizeChkdskExit` — `null` → `{ok:false, exitCode:-1, repaired:false, "...interrompido..."}`;
+  0/1 → reparado; >1 sem texto de correção → `ok:false`, "código N". Coberta por 2 testes em `driveRepairService.test.cjs`.
+- `infrastructure/windowsAnsiCodePage.ts::windowsAnsiCodePage` — fora do win32 devolve 1252 sem I/O; no Windows roda
+  `reg.exe query` **uma vez** (promise em cache no módulo) e cai para 1252 em erro. Nunca rejeita.
+- `infrastructure/serverLog.ts::appendAppEvent` → `appendLine` — grava em `<userData|%APPDATA%>\...\logs\` e engole
+  o erro (`console.error`). No `node --test` puro, `app` do electron não existe e o caminho cai para `%APPDATA%`: um
+  teste que chama `repairDrive` de verdade **escreveria no log do dono**. Por isso o teste novo troca o módulo
+  `serverLog.js` em `require.cache` antes de carregar o serviço.
+- `ipc/driveMaintenanceHandlers.ts` (`tools:drive-repair`) — `repairInProgress` só volta a `false` no `finally`
+  depois do `await repairDrive(...)`; com o resolve só no `close`, não sai mais um segundo chkdsk aos 5 min.
+- `renderer/components/UsbGamesPage.tsx:764` abre `DriveRepairModal` para a unidade escolhida na página do pendrive;
+  `DriveRepairModal.tsx` chama `window.godsendApi.toolsDriveRepair(driveRoot)` e escuta `onDriveRepairProgress`.
+- O JS compilado é CommonJS: `repairDrive` lê `child_process_1.spawn` **na hora da chamada**, então trocar
+  `require("child_process").spawn` no teste funciona sem mexer no código de produção.
+
+### Provas (comando literal -> resultado)
+
+- `git log origin/main --oneline -3` → `d7bd9ad`, `b9be24c fix(electron): reparo CHKDSK sem prazo ...`, `9351725`: o fix está na base.
+- `git show --stat b9be24c` → `DriveRepairModal.tsx`, `driveRepairService.ts`, `driveRepairService.test.cjs` e o doc;
+  **sem `CHANGELOG.md`**. `grep -n -i chkdsk CHANGELOG.md` → nenhuma linha em `[Unreleased]` (as citações são de 2.12.x antigas).
+- `grep -rn "setTimeout\|timeout" services/driveRepairService.ts ipc/driveMaintenanceHandlers.ts renderer/components/DriveRepairModal.tsx`
+  (em `src/electron-app`) → nada: não sobrou prazo em nenhuma camada (o `timeout: 10_000` do `reg.exe` é de outro módulo).
+- Cobertura: os testes atuais só chamam `extractDriveLetter` e `summarizeChkdskExit`. Repor o `setTimeout` de 5 min
+  em `repairDrive` não faria nenhum teste falhar (o controle positivo da sessão anterior mudou só o `code === null`).
+- `node --version` → `v24.19.0` (tem `mock.timers` com `setTimeout` e `Date` no `node:test`).
+
+### Hipoteses descartadas (e por que)
+
+- **Bug sem código, só mover para retest** — não: o fix saiu sem a entrada no CHANGELOG que o manual exige, e o
+  sintoma relatado (erro aos 5 min) não tem teste que o pegue se voltar. Além disso, o helper só deixa um
+  `corrigir` andar com commit de código no branch.
+- **Testar o reparo de ponta a ponta numa unidade de verdade** — proibido: nenhum disco liberado (manual, Teste).
+  O chkdsk numa letra que **não existe** (sem disco) é o complemento do Plano de teste.
+- **Matar a árvore do processo (`taskkill /T`) e manter um prazo** — não: interromper um `chkdsk /f` no meio da
+  gravação da FAT é o que pode corromper o volume (já descartado acima); o fix certo é não ter prazo.
+- **O `renderer-dist` versionado ainda tem o texto antigo do modal** — não é deste bug: `grep -l "mais de 15 minutos"
+  src/electron-app/renderer-dist/assets/*.js` → nada, mas o `renderer-dist` só é commitado no release do dono
+  (`d373fff chore(renderer): renderer-dist da build publicada na 2.12.105`), e todo `build:*`/`start` roda
+  `renderer:build` antes. Não entra na reserva.
+
+### Tarefas
+
+- [ ] `src/electron-app/tests/unit/driveRepairService.test.cjs` — teste novo `repairDrive: sem prazo; resolve só
+  no close`. Montagem: (1) `require.cache[require.resolve("../../infrastructure/serverLog.js")] = { exports:
+  { appendAppEvent: (c, m) => events.push(m) } }` **antes** do primeiro `require` do serviço (hoje o arquivo carrega
+  o serviço na linha 4: o stub tem de vir no topo, senão o módulo em cache já tem o `serverLog` real); (2) trocar
+  `require("child_process").spawn` por um fake que devolve um `EventEmitter` com `stdout`/`stderr` (`EventEmitter`)
+  e devolver o original no fim (`t.after`); (3) `Object.defineProperty(process, "platform", { value: "win32" })`
+  só se não for win32 e restaurar; (4) `mock.timers.enable({ apis: ["setTimeout", "Date"] })`. Passos: chamar
+  `repairDrive("E:\\", onProgress)`, esperar o spawn acontecer (o `await windowsAnsiCodePage()` vem antes —
+  aguardar até o fake ter sido chamado), `mock.timers.tick(6 * 60 * 1000)`, drenar microtasks e confirmar que a
+  promise **ainda não resolveu**; emitir um `data` (`Buffer` com "Não há problemas") e conferir o `onProgress`;
+  emitir `close` com `0` → `ok:true`, `exitCode:0`, `summary` "Nenhum erro encontrado...", e a linha do log contém
+  `finalizado em 6m 0s (código 0`. Segundo caso: `close` com `null` → `ok:false`, `exitCode:-1` e `código nenhum`
+  no log. **Prova que pega a regressão:** repor no JS compilado o `setTimeout(() => { child.kill(); resolve({...
+  "excedeu o tempo limite de 5 minutos." }) }, 300000)` → o teste falha; restaurar com `npm run tsc` → passa.
+- [ ] `CHANGELOG.md` `## [Unreleased]` / `### Fixed` — entrada do b9be24c: o porquê (o `kill()` aos 5 min matava
+  só o `cmd.exe`, o chkdsk seguia, o erro aparecia junto do relatório completo e o `code ?? 0` gravava "código 0"),
+  `driveRepairService.ts::repairDrive` / `::summarizeChkdskExit`, o aviso no `DriveRepairModal.tsx` e o link do doc.
+  Sem subir versão (manual, Dev).
+
+### Plano de teste
+
+- **Offline (sem slot):** `npm --prefix src/electron-app run test:safety` → os 3 testes antigos de
+  `driveRepairService.test.cjs` mais o novo passam; nenhum teste escreve em `%APPDATA%\...\logs` (conferir o tamanho
+  do log de hoje antes e depois). Controle positivo da Tarefa 1 (repor o `setTimeout` no `.js` compilado → falha).
+- **T2 reproducao como o usuario (E2E, no slot):** o caminho do dono é Pendrive/USB (`UsbGamesPage`) → escolher a
+  unidade → **Reparar (CHKDSK)** → esperar o fim. Isso exige um pendrive real com o chkdsk rodando mais de 5 min:
+  **não dá no slot** (nenhum disco liberado) → vai para "falta para close" no `## Status` (o dono repete com o
+  pendrive `E:` de 65.912 arquivos: diálogo termina sem "excedeu o tempo limite", com o resultado do chkdsk, e o log
+  traz `finalizado em ~16m (código 0, reparado: true)`). Complemento possível sem disco, no app da lane (`npm start`
+  ou Playwright `_electron.launch`): confirmar com `Get-PSDrive -PSProvider FileSystem` uma letra que **não existe**
+  (ex.: `Q:`), e no renderer `await window.godsendApi.toolsDriveRepair("Q:\\")` (Playwright `page.evaluate`) →
+  resposta com `result.exitCode` igual ao código real do chkdsk (não `-1` nem `0` inventado) e linha
+  `APP_USB Reparo CHKDSK em Q: finalizado em 0m Ns (código N, ...)` em `%APPDATA%\xbox-360-companion-electron\logs\`.
+  O chkdsk numa letra inexistente não toca disco nenhum. Na mesma janela, abrir a página Pendrive/USB e conferir
+  que a lista e o botão aparecem sem erro novo (sem escolher unidade).
+- **Controle positivo:** sem o fix, o sintoma só aparece com chkdsk de mais de 5 min (disco real) → não há no slot.
+  O que existe é a prova do mecanismo da sessão anterior (`killtest.js`: `kill()` aos 1,5 s, filho segue até 7,3 s,
+  `code ?? 0 = 0`) e o controle positivo da Tarefa 1 (o teste novo falha com o `setTimeout` de volta).
+- **T3 regressao direcionada:** `go test -count=1 ./...` em `src/server` e `npm --prefix src/electron-app run
+  test:safety` (linha de base: Go 9 `ok`; `test:safety` 258 pass / 0 fail + os testes novos). Vizinhos: os outros
+  testes de `tests/unit` que carregam `serverLog.js` ou `child_process` no mesmo processo do `node --test` — o
+  stub em `require.cache` e o `spawn` trocado precisam ser restaurados para não vazar (cada arquivo roda em processo
+  próprio no `node --test`, mas conferir que o próprio arquivo não quebra os 3 testes antigos).
+
+### Sessoes seguintes
+
+- dev: effort medium, ultrathink nao — um teste com `spawn` falso e relógio falso mais uma entrada de changelog; o
+  único cuidado é a ordem do stub no `require.cache` e esperar o `await windowsAnsiCodePage()` antes do `tick`.
+- teste: effort medium, ultrathink nao — T3 mecânica e o complemento sem disco; o T2 real vai para "falta para close".

@@ -157,3 +157,84 @@ Decisão do dono: **publicar só o 32 bits**; clientes x64 continuam na 2.12.107
     `e8a7c965…`.
 - **Push do `main`:** não feito por esta sessão (bloqueado pela permissão da ferramenta); fica com o
   dono. O binário publicado é o commit `d4cce82`.
+
+## Planejamento (pipeline 20261010-2242, 2026-10-10)
+
+**Veredito:** sem-codigo — a correção (T1 atualizador, T2 release) está em `origin/main` e publicada
+na 2.12.109 para x64 **e** ia32, e o lado do agente (T4) está no ar; falta só mover o doc para
+`retest/` (pipeline) e a prova de campo de um cliente 32 bits (cliente/dono).
+**Complexidade:** media — empacotamento (`build-and-upload.ps1`) + lógica nova num serviço Electron.
+**Severidade:** medio — atinge só o subconjunto Windows 32 bits, com contorno (outro PC).
+**Arquivos a alterar (reserva da onda):** nenhum.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A da seção "Causa raiz" acima, já corrigida. Conferido no código atual (`d7bd9ad` = `origin/main`):
+- `src/electron-app/services/autoUpdateService.ts::selectManifestBuild` — `arch === "ia32"` devolve
+  só o bloco `ia32` se tiver `version` e `downloadUrl`, senão `null`; demais arquiteturas usam os
+  campos de topo (`downloadUrl || portableUrl`), `null` sem `version`/link.
+- `autoUpdateService.ts::checkForUpdates` (call-site, linha ~226: `selectManifestBuild(manifest, process.arch)`) —
+  com `null` registra `Check result: no <arch> build in the manifest` e devolve `updateAvailable: false`;
+  nunca cai no link x64.
+- `src/electron-app/tests/unit/autoUpdate.test.cjs` — 3 testes de `selectManifestBuild` (ia32 com
+  bloco, ia32 sem bloco/bloco incompleto → `null`, x64 ignora o bloco e manifesto legado).
+
+### Provas (comando literal -> resultado)
+
+- `git branch -r --contains 2743a2b` / `be4dd5c` / `d4cce82` → `origin/main` nos três; `HEAD` da lane = `origin/main` = `d7bd9ad`.
+- `curl -s "https://versions.digitalstoregames.com/XBOX360Companion/version.json?t=..."` → topo
+  `2.12.109` (x64, `xboxcompanion.exe`, sha `233b219d…`), bloco `ia32` `2.12.109`
+  (`xboxcompanion32.exe`, sha `73980933…523d`, 572.043.159 bytes). O x64 também já foi para a 2.12.109
+  (a seção "Publicação" acima, de 02:10 UTC, ainda dizia x64 em 2.12.107).
+- `curl -r 0-0 -w "%{http_code}"` em `xboxcompanion32.exe` e `XBOX360Companion/xboxcompanion32.exe` → `200`;
+  `curl -sI` → `Content-Length: 572043159`, `Last-Modified: Thu, 08 Oct 2026 15:21:56 GMT` (republicado
+  junto com o x64; não é mais o binário de 511 MB/`e8a7c965…` da T3).
+- `curl -s .../xboxcompanion32.exe.sha256` (raiz e `XBOX360Companion/`) → `73980933…523d`, igual ao `version.json`.
+- Lado do agente (`digitalstoregamesproject/.../2026-10-07-agente-xbox-diz-que-companion-nao-roda-em-windows-32-bits-e-existe-versao-32.md`):
+  `status: no-ar`, texto aprovado em `7e2c66e`, eval 12/12 PASS (`017b45ee`), deploy conferido
+  (`00ab6a5a`); verificação em prod pendente por volume (nenhum caso 32 bits desde o deploy).
+
+### Hipoteses descartadas (e por que)
+
+- **"Falta código neste repo":** T1/T2 estão em `origin/main` e a T3 provou no app real
+  (`no ia32 build in the manifest`) que a cópia 32 bits recusa o x64.
+- **"Falta publicar":** `version.json` e os dois `.exe` estão no ar e consistentes (provas acima).
+- **Sondagem de integridade estourando 3 s no ia32 (`windowsUsbDeviceService.ts::annotateRemovableHealth`,
+  `HEALTH_PROBE_TIMEOUT_MS = 3_000`) como bug novo:** o prazo fixo é deliberado (comentário no
+  call-site: dica best-effort, não deve atrasar a lista) e o efeito (sem a dica "precisa de reparo")
+  já está registrado no doc `electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-...`.
+  Não abri doc novo.
+
+### Tarefas
+
+- [ ] (pipeline/teste) mover para `retest/` com `## Status`: commits `2743a2b`, `be4dd5c`, `d4cce82`;
+  publicado 2.12.109 x64+ia32 em 2026-10-08.
+- [ ] (cliente/dono) prova de campo: um cliente Windows 32 bits baixa `xboxcompanion32.exe` e abre.
+
+### Plano de teste
+
+- **Offline (sem slot):** `node --test src/electron-app/tests/unit/autoUpdate.test.cjs` (após o `tsc`
+  do helper) — os 3 testes de `selectManifestBuild` passam; e o `curl` do `version.json` acima
+  (bloco `ia32` presente, topo x64).
+- **T2 reproducao como o usuario (E2E, no slot):** dispensada — o caminho do cliente é baixar e abrir
+  o portátil num Windows 32 bits nativo; não há máquina/VM 32 bits (manual: `bloqueado` para
+  Windows 32 bits). A abertura em WOW64 e a recusa do x64 pelo atualizador já foram provadas na
+  T3 (seção "Execução da T3"). Opcional, se o slot sobrar: o app x64 da lane em Configurações →
+  verificar atualização mostra `latest=2.12.109` lido dos campos de topo (prova que o bloco `ia32`
+  não afeta o x64).
+- **Controle positivo:** antes do fix, `checkForUpdates` devolvia `manifest.downloadUrl || manifest.portableUrl`
+  para qualquer arquitetura; o teste "cópia 32 bits sem bloco ia32 não atualiza" falharia nessa versão.
+  Não há como reproduzir o "requer Windows 64 bits" sem Windows 32 bits.
+- **T3 regressao direcionada:** `npm --prefix src/electron-app run test:safety` (contém `autoUpdate.test.cjs`)
+  sem `fail` novo.
+- **Falta para close:** prova de um cliente 32 bits real (e a verificação em prod do agente, no outro projeto).
+
+### Sessoes seguintes
+
+- dev: nenhuma (sem código).
+- teste: effort low, ultrathink nao — só conferir provas já existentes e mover para `retest/`.
+
+### Achado lateral registrado
+
+- [build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30.md](build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30.md)
+  (o "Achado fora do escopo" da T3, agora com causa no `scripts/build-server.js`).
