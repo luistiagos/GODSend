@@ -354,8 +354,8 @@ T0 — `MANAGE_EXTERNAL_STORAGE` e binário de 15 MB — só pesava na Play Stor
   meio da gravação (a retomada do item C já cobre); (b) HD formatado no console é grande, então o
   R1 (espaço reservado pelo "Configurar agora") tende a pesar menos que no pendrive. Sem HD do dono
   para testar, a prova com HD fica para o primeiro cliente ou para uma rodada com hub alimentado.
-- **Nome e id.** Rótulo do app: "xboxcompanion" (exibido no ícone; confirmar se o texto na tela
-  é "Xbox Companion", como o Windows usa "Xbox 360 Companion"). O `applicationId` precisa de
+- **Nome e id.** Rótulo do app: **"Xbox Companion"** (confirmado pelo dono; o Windows usa
+  "Xbox 360 Companion"). O `applicationId` precisa de
   formato de pacote; **proposta: `com.digitalstoregames.xboxcompanion`** (o domínio da loja, o mesmo
   do R2). O Windows usa `com.abbu.godsend` (herdado do upstream, em `src/electron-app/package.json`),
   que não serve. **Esse id é definitivo** — depois do primeiro APK num cliente não muda mais, então
