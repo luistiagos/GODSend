@@ -1,7 +1,7 @@
 # Backlog: quanto falta para terminar o Xbox Companion mobile (Android)
 
 - **Estado:** partes 1 a 5 respondidas (2026-10-11); dono decidiu v1 = só preparo, nome xboxcompanion;
-  falta confirmar o applicationId. Próximo: spec da v1.
+  applicationId mantido em com.godsend.app (padrão do esboço). Próximo: spec da v1.
 - **Aberto em:** 2026-10-11, a pedido do dono
 - **Doc irmão:** [`app-android-preparador-pendrive-badavatar_2026-10-11.md`](app-android-preparador-pendrive-badavatar_2026-10-11.md),
   com a medição do **preparo do pendrive** no Android (seção "T0 — resultado"). Aquele doc
@@ -361,6 +361,18 @@ T0 — `MANAGE_EXTERNAL_STORAGE` e binário de 15 MB — só pesava na Play Stor
   que não serve. **Esse id é definitivo** — depois do primeiro APK num cliente não muda mais, então
   o dono confirma antes do primeiro build de release.
 
+**Decisão do dono sobre o id (2026-10-11): continuar o padrão do esboço.** O `applicationId` fica
+**`com.godsend.app`**, como já está em `src/android-app/app/build.gradle.kts` (`namespace` e
+`applicationId`). Conferido: o esboço foi criado neste repo (`978e128`, 2026-08-18) e o
+`upstream/main` não tem `src/android-app`, então não há APK de terceiros com esse id para colidir;
+e nenhum APK foi entregue a cliente (só há chave de debug), então nada precisa migrar. O id não
+aparece para o cliente. Muda só o que ele vê: `app_name` em `res/values/strings.xml` e
+`android:label` no `AndroidManifest.xml` passam de "GODsend-360" para o nome do Companion
+(`rootProject.name` em `settings.gradle.kts` é interno, opcional). A proposta
+`com.digitalstoregames.xboxcompanion` acima fica descartada. Continua obrigatório: criar a chave de
+release na v1 e guardá-la fora do repo com cópia de segurança — perder a chave impede atualizar o app
+por cima, igual a trocar o id.
+
 ## Frase de abertura da próxima sessão
 
 *"Leia 'Resultado (2026-10-11)' e 'Respostas do dono' em
@@ -368,6 +380,6 @@ T0 — `MANAGE_EXTERNAL_STORAGE` e binário de 15 MB — só pesava na Play Stor
 `docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md`, no repo
 `C:\projects\Downloader-XBOX360-XEX-HDD-Games`, e escreva a spec da v1 do xboxcompanion Android:
 só preparar pendrive ou HD já formatado no Xbox 360, dentro de `src/android-app/`, sem iniciar o
-backend Go, com SAF, pacote mobile gerado no PC e publicado no R2, gravação com retomada,
-atualização do APK pelo R2 e APK avulso. Confirmar o `applicationId` com o dono antes de qualquer
-build de release."*
+backend Go, mantendo o `applicationId` `com.godsend.app` e trocando só o nome visível, com SAF,
+pacote mobile gerado no PC e publicado no R2, gravação com retomada, atualização do APK pelo R2 e
+APK avulso."*
