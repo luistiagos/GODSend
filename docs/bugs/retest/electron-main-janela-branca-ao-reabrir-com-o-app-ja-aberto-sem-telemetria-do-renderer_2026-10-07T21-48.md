@@ -1,5 +1,53 @@
 # Bug: "o Xbox Companion não quer abrir, a tela fica branca" com o app já aberto e baixando, e o log não tem nada do renderer para diagnosticar
 
+## Status
+
+- **Correção:** 2026-10-10/11 (pipeline 20261010-2242). Testada em 2026-10-12 01:06–01:12 UTC (rodada 1, aprovada).
+- **Commits:** `5b1816f` fix(electron) e `a3de5ea` docs. Base: `origin/main` @ `7bce045`.
+- **Onde:** `src/electron-app/app/window.ts::watchRendererHealth` (chamada em `createMainWindow`) e
+  `src/electron-app/app/bootstrap.ts::bootstrapApp` (`second-instance` com o estado da janela;
+  `app.on("child-process-gone")` para a GPU). Teste novo: `tests/unit/rendererHealth.test.cjs`.
+- **Evidência:** `C:\projects\.bugfix-xbox360\evidencia\20261011-1403-electron-main-janela-branca-ao-reabrir-com-o-app-ja-aberto-sem-telemetria-do-renderer_2026-10-07T21-48\`
+  (`LEIAME.md` explica cada pasta; a rodada válida é `r1-tentativa3/`).
+  - **Offline:** build do helper rc 0; `node --test rendererHealth + singleInstance`: 12 pass / 0 fail.
+  - **T2 (caminho do cliente, app da lane, backend `godsend-windows-x64` com Path na `wt-4`):** Home aberta,
+    minimizar (vai para a bandeja: `visible=false`), `forcefullyCrashRenderer()`, depois "clicar de novo no exe"
+    (`electron .` na lane: a segunda instância sai em ~200 ms). Log: `APP_RENDERER render-process-gone
+    reason=crashed exitCode=2`, `APP_RENDERER reloading after render-process-gone` e `APP_LIFECYCLE second-instance
+    ... minimized=true visible=false crashed=false loading=false`. A janela volta visível com o renderer vivo
+    (`isCrashed()=false`, `#root` com texto, `window.godsendApi` presente), Home renderizada (`02-...png`). O stub
+    local recebeu 1 POST `renderer gone: reason=crashed exitCode=2` (`xbox-360-companion/electron-main`,
+    `window.ts`). O backend continua no mesmo PID (54716): não reiniciou.
+  - **Trava contra laço:** segundo crash 12 s depois: `not reloading: crash loop`; a segunda instância seguinte
+    loga `crashed=true`. Crash 71 s depois da 1a recarga: recarrega de novo.
+  - **Complementos:** `console.error` gera `APP_RENDERER console error :1 teste-pipeline-renderer`. GPU morta gera
+    `APP_RENDERER gpu-process-gone reason=killed exitCode=1` e 1 POST `gpu process gone: reason=killed`. **Com a
+    GPU morta, a janela ficou BRANCA por alguns segundos (`05-apos-gpu.png`)**, o que reforça a hipótese 3; agora
+    esse caso deixa rastro.
+  - **Controle positivo:** o projeto não tem `deploy --at-base`. Fiz o controle alternativo do plano, em duas partes.
+    (1) No crash dentro da trava (comportamento igual ao da base: sem recarga), a janela reaberta fica com o
+    renderer MORTO (`crashed=true`, nenhum JS executa). Ressalva: o PrintWindow mostra o último quadro e não
+    branco (`03-...png` é igual ao `02`), então o sinal objetivo é `isCrashed()` e não o screenshot.
+    (2) Grep dos eventos em `git show origin/main:` de `window.ts` e `bootstrap.ts`: nada (a base não registra
+    nenhum deles).
+  - **T3:** `go test -count=1 ./...` rc 0 (9 pacotes `ok`); `test:safety` 319 pass / 0 fail. Minimizar esconde;
+    fechar no X esconde (não sai); Quit loga `before-quit` sem `render-process-gone` e sem POST.
+  - **T4:** nenhum erro novo do processo principal nos logs da janela de teste. Linhas `APP_RENDERER console error`
+    que agora aparecem, preexistentes e só antes invisíveis (não são regressão): (a) a CSP bloqueia o Google
+    Fonts em toda abertura; (b) logo após cada recarga pós-crash (inclusive uma recarga manual, sem o handler),
+    `sandboxed_renderer.bundle.js script failed to run ... preloadScripts ... null` vindo do Electron. A UI
+    recarregada funciona: `godsendApi` está presente e a verificação do pendrive concluiu (`06-...png`).
+- **Não provado no E2E:** `unresponsive`/`responsive`. Um laço de 40 s e outro de 70 s, com `sendInputEvent`,
+  não dispararam o hang monitor do Chromium nesta máquina; o handler é coberto só pelo teste de unidade.
+  Também ficaram de fora a navegação Catálogo/Fila/Configurações (o app de teste abre no onboarding "Modo de
+  Instalação", e escolher um modo mudaria o estado do dono; o fix não toca o renderer) e o `Open`/duplo
+  clique da bandeja (Playwright não alcança o tray; código não alterado).
+- **Falta para `closed/`:** a versão publicada (subida de versão + `build-and-upload.ps1`, feitos pelo dono); a
+  causa real da tela branca, que só vem do próximo caso de cliente com esta versão (T3 do doc); consultar no
+  painel o report `electron-renderer` do host `DESKTOP-1HAMO38` em 2026-10-07 21:30–22:01 UTC. Ignorar na
+  triagem o report de teste `renderer gone: reason=crashed exitCode=2` do host `DESKTOP-ALLJ8C3` (~2026-10-11
+  17:06Z), que o arnês mandou à produção por engano.
+
 - **Detectado em:** 2026-10-07 21:48 (chamado #157 do painel, sessão `255490944716923@lid`, telefone `5511964233557`; telemetria `9541`, host `DESKTOP-1HAMO38`)
 - **Origem:** conversa de suporte + log anexo do report `9541` + leitura de `src/electron-app/app/bootstrap.ts::bootstrapApp` (handler `second-instance`) e `infrastructure/electronTray.ts::createTray`
 - **Classe:** diagnóstico (falta de telemetria) + falha funcional não reproduzida
