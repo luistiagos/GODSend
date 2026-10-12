@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import {
   getConfiguredAutoCheckUpdates,
   getLastUpdateCheck,
@@ -15,7 +15,7 @@ import {
 } from "./settingsService";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { reportError } from "../infrastructure/telemetry";
-import { powerShellExe } from "../infrastructure/windowsSystemExecutables";
+import { powerShellExe, system32Exe } from "../infrastructure/windowsSystemExecutables";
 
 export interface VersionManifest {
   version: string;
@@ -449,6 +449,7 @@ export function cancelUpdateDownload(): void {
 
 const PENDING_UPDATE_FILE = "update-pending.json";
 const UPDATE_RESULT_FILE = "update-result.txt";
+const REPLACE_SCRIPT_FILE = "update-replace.ps1";
 
 export interface PendingUpdate {
   fromVersion: string;
@@ -508,6 +509,9 @@ const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
  * finishes. A fixed ~11 s budget lost that race on every machine in the
  * field. `target` is relaunched even when the copy fails — it is the old
  * version then, and it reads `resultFile` at boot to tell the user.
+ *
+ * `started` goes to `resultFile` before the wait, so the boot check can tell
+ * "never ran" from "ran and was cut short" ([[electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58]]).
  */
 export function buildReplaceScript(opts: {
   target: string;
@@ -520,6 +524,7 @@ export function buildReplaceScript(opts: {
       $target = ${psQuote(opts.target)}
       $source = ${psQuote(opts.source)}
       $resultFile = ${psQuote(opts.resultFile)}
+      try { Set-Content -LiteralPath $resultFile -Value 'started' -Encoding UTF8 } catch {}
       $deadline = (Get-Date).AddSeconds(${opts.waitSeconds ?? 180})
       while ((Get-Date) -lt $deadline) {
         $busy = @(Get-Process -Id ${opts.waitPid} -ErrorAction SilentlyContinue) + @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $target })
@@ -544,6 +549,56 @@ export function buildReplaceScript(opts: {
 }
 
 /**
+ * How the replace script is started: a detached `cmd.exe` that `start`s
+ * PowerShell on `scriptFile` ([[electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58]]).
+ *
+ * Never spawn PowerShell itself with `detached: true`: that is
+ * DETACHED_PROCESS, and on some machines such a PowerShell exits 0 without
+ * ever running the script — the app closed, nothing was swapped and nothing
+ * was written. Without `detached` it lands in libuv's kill-on-close job and
+ * dies with Electron. A detached `cmd.exe` does run, and `start` gives
+ * PowerShell a console of its own, outside that job. The script goes in a
+ * file because `-WindowStyle Hidden` with the inline `-Command` was refused
+ * (`spawn EPERM`). `cwd` keeps both off the portable's extracted folder, which
+ * the launcher deletes while the script waits.
+ */
+export function buildReplaceLaunch(scriptFile: string): { file: string; args: string[]; options: SpawnOptions } {
+  const command =
+    `start "" /min "${powerShellExe()}" -NoProfile -NonInteractive -ExecutionPolicy Bypass ` +
+    `-WindowStyle Hidden -File "${scriptFile}"`;
+  return {
+    file: system32Exe("cmd.exe", "cmd.exe"),
+    // `/s /c "..."`: cmd drops only the outer quotes and keeps the inner ones.
+    args: ["/d", "/s", "/c", `"${command}"`],
+    options: {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      windowsVerbatimArguments: true,
+      cwd: path.dirname(scriptFile),
+    },
+  };
+}
+
+/**
+ * Writes `script` to `scriptFile` and starts it (buildReplaceLaunch). Resolves
+ * once `cmd.exe` is running; only the `started` line in the result file proves
+ * the script itself ran.
+ */
+export async function startReplaceScript(scriptFile: string, script: string): Promise<void> {
+  // BOM: Windows PowerShell 5.1 reads a .ps1 without one in the ANSI code page,
+  // and the target path may carry accents.
+  fs.writeFileSync(scriptFile, "\uFEFF" + script, "utf8");
+  const { file, args, options } = buildReplaceLaunch(scriptFile);
+  const child = spawn(file, args, options);
+  await new Promise<void>((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
+  });
+  child.unref();
+}
+
+/**
  * Reads and deletes the marker left by applyUpdateAndRestart(). Returns the
  * failure when the app came back on a version older than the one applied.
  */
@@ -560,18 +615,24 @@ export function consumePendingUpdate(dir: string, currentVersion: string): Updat
   try {
     outcome = fs.readFileSync(resultFile, "utf8").replace(/^﻿/, "").trim();
   } catch {}
-  for (const f of [markerFile, resultFile]) {
+  for (const f of [markerFile, resultFile, path.join(dir, REPLACE_SCRIPT_FILE)]) {
     try {
       fs.unlinkSync(f);
     } catch {}
   }
 
   if (!marker?.targetVersion || !isNewerVersion(marker.targetVersion, currentVersion)) return null;
+  let reason = outcome;
+  if (outcome === "started") {
+    reason = "o script de substituição começou mas não terminou (interrompido, ou o app foi reaberto antes de ele acabar)";
+  } else if (!outcome) {
+    reason = "o script de substituição não chegou a rodar";
+  }
   return {
     fromVersion: marker.fromVersion,
     targetVersion: marker.targetVersion,
     currentVersion,
-    reason: outcome || "o script de substituição não registrou resultado (não rodou ou foi interrompido)",
+    reason,
   };
 }
 
@@ -630,17 +691,9 @@ export async function applyUpdateAndRestart(downloadedFilePath?: string, targetV
 
     const psScript = buildReplaceScript({ target: targetExecutable, source: updateFile, resultFile, waitPid: process.pid });
     try {
-      const child = spawn(powerShellExe(), ["-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript], {
-        detached: true,
-        stdio: "ignore",
-      });
-      // Quit only once the script is really running; a blocked PowerShell
-      // (spawn EPERM) must surface as an error, not as a dead app.
-      await new Promise<void>((resolve, reject) => {
-        child.once("spawn", resolve);
-        child.once("error", reject);
-      });
-      child.unref();
+      // Quit only once the launch went through; a blocked spawn (EPERM) must
+      // surface as an error, not as a dead app.
+      await startReplaceScript(path.join(dir, REPLACE_SCRIPT_FILE), psScript);
     } catch (err) {
       try {
         fs.unlinkSync(markerFile);

@@ -236,7 +236,44 @@ Sem acesso à telemetria nesta sessão (o token exige ler o `.env` do backend, o
 - **T3 regressao direcionada:** `go test -count=1 ./...` em `src/server` e `npm --prefix src/electron-app run test:safety` (linha de base 258 pass / 0 fail); em especial os testes atuais `script de substituição espera o launcher ...` e `... grava copy-failed ...` (eles rodam o script por `spawnSync -Command` e continuam válidos: o conteúdo do script só ganha o carimbo `started`), `consumePendingUpdate: ...` e `resolveReplaceTarget: ...`. Vizinhos: o ramo não-Windows/dev de `applyUpdateAndRestart` (sem alvo: `spawn(updateFile)`) fica igual; falha de `spawn` do `cmd.exe` continua chegando ao modal como `{ ok:false }` (ler o `catch`); o boot com marcador + `ok` e versão nova continua silencioso.
 - **Falta para close (fora do alcance do slot):** a troca com o `xboxcompanion.exe` portable real (launcher NSIS + `RMDir /r` de 1,3 GB) e numa máquina sem Kaspersky; e a confirmação em produção: depois de publicada a versão com o fix, reports desse tipo devem trazer `começou mas não terminou` ou sumir — a migração da versão antiga para a nova ainda roda o script **antigo** uma última vez (mesmo limite do bug fechado).
 
+### Nota do dev (2026-10-11, antes da primeira edição)
+
+- **`cwd` do disparo = `userData`**, não o herdado. `build/portable.nsi` faz `SetOutPath $INSTDIR` (l. 109) e cria o Electron com `CreateProcess(..., lpCurrentDirectory = 0)` (l. 144): o cwd do Electron é a pasta extraída, que o launcher apaga com `RMDir /r $INSTDIR` (l. 185) depois do Electron sair. O `cmd.exe`/PowerShell herdariam esse cwd e, vivos durante a espera do script, impediriam a remoção da própria pasta (o mesmo cuidado do comentário da l. 217, "nothing may hold the temp folder"). Antes o PowerShell nem rodava nas máquinas afetadas; com o fix ele roda justo nessa janela.
+- **Forma do helper:** `buildReplaceLaunch(scriptFile)` → `{ file, args, options }` (puro, teste (d)) e `startReplaceScript(scriptFile, script)` (grava o `.ps1` com BOM, faz o `spawn`, espera `spawn`/`error`, `unref`). `applyUpdateAndRestart` chama o segundo; o filho do teste (a) chama o MESMO `startReplaceScript` e sai no `spawn`, então o teste cobre a gravação e o disparo reais, não uma cópia.
+
 ### Sessoes seguintes
 
 - dev: effort high, ultrathink sim — disparo de processo no Windows com três armadilhas já medidas (DETACHED_PROCESS, job do libuv, EPERM do `-WindowStyle Hidden` + script inline) e aspas do `cmd /s /c start ""`; o teste (a) precisa reproduzir o pai morrendo na hora.
 - teste: effort medium, ultrathink nao — receita fechada; o cuidado é isolar o `userData` pelas variáveis de ambiente e não deixar marcador que reporte à telemetria.
+
+---
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+**O que mudou (`arquivo::simbolo`):**
+- `src/electron-app/services/autoUpdateService.ts::buildReplaceLaunch` (novo, exportado) — `{ file: system32Exe("cmd.exe"), args: ["/d","/s","/c",'"start "" /min "<powerShellExe()>" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "<ps1>""'], options: { detached, stdio:"ignore", windowsHide, windowsVerbatimArguments, cwd: dirname(ps1) } }`. Comentário com `[[slug]]` explica por que nunca `detached` direto no PowerShell (DETACHED_PROCESS não roda o script; sem `detached` morre no job do libuv; `-Command` inline + Hidden = EPERM).
+- `::startReplaceScript` (novo, exportado) — grava o script em `<userData>/update-replace.ps1` com BOM (`"﻿"`), faz o `spawn` de `buildReplaceLaunch`, espera `spawn`/`error`, `unref()`.
+- `::applyUpdateAndRestart` — o bloco `spawn(powerShellExe(), [... "-Command", psScript], { detached:true })` virou `await startReplaceScript(path.join(dir, REPLACE_SCRIPT_FILE), psScript)`. O resto igual: erro (síncrono ou assíncrono, inclusive falha ao gravar o `.ps1`) apaga o marcador e relança → `{ ok:false }`; `app.quit()` só depois. Ramo não-Windows/dev intocado.
+- `::buildReplaceScript` — primeira instrução: `try { Set-Content $resultFile 'started' } catch {}`, antes do laço de espera; o desfecho (`ok`/`copy-failed`) sobrescreve.
+- `::consumePendingUpdate` — `started` → `o script de substituição começou mas não terminou (interrompido, ou o app foi reaberto antes de ele acabar)`; vazio → `o script de substituição não chegou a rodar`; apaga também `update-replace.ps1`.
+- `tests/unit/autoUpdate.test.cjs` — regex do teste antigo (`/não registrou resultado/` → `/não chegou a rodar/`) e 4 testes novos: `buildReplaceLaunch: ...` (d), `consumePendingUpdate: 'started' ...` (c), `script de substituição grava 'started' antes de esperar o processo` (b), `disparo da troca sobrevive ao processo que o lançou saindo na hora` (a). O fixture de (a)/(b) usa `...\Downloads João\xboxcompanion (2).exe` (acento, espaço, parênteses, como no 8839).
+- doc-sync: `AGENTS.md` (linha do `autoUpdateService.ts`: invariante do disparo + carimbo), `docs/features.md` ("When an update does not take"), `docs/ATUALIZACAO-AUTOMATICA.md` (4.3 árvore + parágrafo "Por que `cmd.exe` + `start`", 4.4 motivos, linha do teste na tabela).
+
+**Desvios do plano:** `cwd` = `userData` e a divisão `buildReplaceLaunch` + `startReplaceScript` (nota do dev acima).
+
+**Provas offline (nesta máquina, Windows 11 26200):**
+- `python pipeline.py build --bug <slug>` → rc 0 (build-server + `tsc` + `renderer:typecheck`).
+- `node --test tests/unit/autoUpdate.test.cjs` (em `src/electron-app`, sobre o `.js` do build do helper) → 15 pass / 0 fail; (a) 2,0 s, (b) 6-7 s.
+- `node --test tests/unit/*.test.cjs` (a parte `node --test` do `test:safety`; o `tsc` dele já rodou no build do helper) → 323 pass / 0 fail.
+- **Vermelho→verde de (a):** trocando, só no `.js` compilado (gerado, gitignored), a linha do `spawn` de `startReplaceScript` pelo disparo antigo (`spawn(powerShellExe(), ["-NoProfile","-Command",script], { detached:true, stdio:"ignore" })`): `✖ disparo da troca sobrevive ... AssertionError: resultado: ""` após 30 s — nem `started`, a assinatura dos 3 reports. Restaurado o `.js`: `✔ ... (1958ms)`.
+
+**CHANGELOG pendente:** `CHANGELOG.md` está reservado por `pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28` (`claim` saiu 8); o `enqueue-test` recusa branch com arquivo não reservado (saída 9). Código e docs commitados; `park` nesse bug. Na retomada: `sync`, `claim --file CHANGELOG.md`, acrescentar em `## [Unreleased]` / `### Fixed`:
+
+> - **Atualização in-app fechava o app e não trocava nada, sem resultado gravado (`src/electron-app/services/autoUpdateService.ts::applyUpdateAndRestart`, `::buildReplaceLaunch`, `::startReplaceScript`)**
+>   - Caso: reports 8758, 8759, 8839 (2 máquinas, 2.12.101/2.12.103): "Replace script started", o app fecha, não volta sozinho, e no boot seguinte `o script de substituição não registrou resultado`.
+>   - Causa: o PowerShell da troca era criado com `detached: true` (`DETACHED_PROCESS`); em algumas máquinas (medido no Windows 11 26200 com Kaspersky) esse PowerShell sai com código 0 sem iniciar o engine. A hipótese de Job Object do launcher foi descartada (o `portable.nsi` não usa job).
+>   - Correção: o script vai para `<userData>/update-replace.ps1` (UTF-8 com BOM) e é disparado por um `cmd.exe` destacado que faz `start "" /min` do PowerShell com `-ExecutionPolicy Bypass -WindowStyle Hidden -File`, com `cwd` fora da pasta extraída do portable. O script grava `started` antes de esperar, e o boot passa a dizer "não chegou a rodar" ou "começou mas não terminou". Cobre também o `spawn EPERM` de `-WindowStyle Hidden` com o script inline.
+>   - Testes: `tests/unit/autoUpdate.test.cjs` (o disparo conclui a troca com o processo que o lançou já encerrado; falha no disparo antigo).
+>   - Bug: [docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md](docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md)
+
+**Ajustes ao Plano de teste:** a receita não muda. Na T2, conferir também que `EV\fake\godsend-data\update-replace.ps1` existe depois do clique. O efeito do `cwd` (não prender a pasta extraída do portable) só aparece com o launcher NSIS real: vai para "falta para close" junto com a troca do portable real.

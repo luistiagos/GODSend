@@ -136,7 +136,7 @@ test("consumePendingUpdate: versão não mudou → falha com o motivo gravado pe
 test("consumePendingUpdate: sem resultado do script ainda é falha; versão nova é sucesso", () => {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, "update-pending.json"), JSON.stringify({ fromVersion: "2.12.97", targetVersion: "2.12.99" }));
-  assert.match(consumePendingUpdate(dir, "2.12.97").reason, /não registrou resultado/);
+  assert.match(consumePendingUpdate(dir, "2.12.97").reason, /não chegou a rodar/);
   fs.writeFileSync(path.join(dir, "update-pending.json"), JSON.stringify({ fromVersion: "2.12.97", targetVersion: "2.12.99" }));
   assert.equal(consumePendingUpdate(dir, "2.12.99"), null);
 });
@@ -180,4 +180,105 @@ test("script de substituição grava copy-failed quando não consegue copiar", {
   const target = path.join(dir, "nao-existe", "xboxcompanion.exe");
   runScript({ target, source, resultFile, waitPid: 0x7ffffff0, waitSeconds: 5 }); // o relançamento falha: o alvo não existe
   assert.match(readResult(resultFile), /^copy-failed: /);
+});
+
+// ── Disparo da troca (bug: script de substituição não registrava resultado) ──
+const { buildReplaceLaunch } = require("../../services/autoUpdateService.js");
+const SVC = path.join(__dirname, "..", "..", "services", "autoUpdateService.js");
+const tryResult = (f) => {
+  try {
+    return readResult(f);
+  } catch {
+    return "";
+  }
+};
+async function waitFor(fn, ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const v = fn();
+    if (v) return v;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return fn();
+}
+function fakeUpdate() {
+  // Acento, espaço e parênteses como no campo (report 8839: "Downloads\xboxcompanion (2).exe").
+  const dir = path.join(tmp(), "Downloads João");
+  fs.mkdirSync(dir);
+  const sys = path.join(process.env.SystemRoot || String.raw`C:\Windows`, "System32");
+  const target = path.join(dir, "xboxcompanion (2).exe");
+  const source = path.join(dir, "xboxcompanion-update.exe");
+  fs.copyFileSync(path.join(sys, "PING.EXE"), target);
+  fs.copyFileSync(path.join(sys, "whoami.exe"), source);
+  return { dir, sys, target, source, resultFile: path.join(dir, "update-result.txt") };
+}
+
+test("buildReplaceLaunch: cmd destacado faz start do PowerShell com -File; nunca -Command", () => {
+  const ps1 = String.raw`C:\Users\João\godsend-data\update-replace.ps1`;
+  const { file, args, options } = buildReplaceLaunch(ps1);
+  assert.match(path.win32.basename(file), /^cmd\.exe$/i);
+  assert.deepEqual(args.slice(0, 3), ["/d", "/s", "/c"]);
+  assert.equal(args.length, 4);
+  const line = args[3];
+  assert.ok(line.startsWith('"start "" /min "'), line);
+  assert.ok(line.endsWith(`-File "${ps1}""`), line);
+  assert.match(line, /powershell\.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File /i);
+  assert.doesNotMatch(line, /-Command/);
+  assert.equal(options.detached, true);
+  assert.equal(options.stdio, "ignore");
+  assert.equal(options.windowsVerbatimArguments, true);
+  assert.equal(options.cwd, path.dirname(ps1), "fora da pasta extraída que o launcher apaga");
+});
+
+test("consumePendingUpdate: 'started' sem desfecho = script interrompido; o .ps1 da troca é apagado", () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, "update-pending.json"), JSON.stringify({ fromVersion: "2.12.103", targetVersion: "2.12.104" }));
+  fs.writeFileSync(path.join(dir, "update-result.txt"), "\uFEFFstarted\r\n");
+  fs.writeFileSync(path.join(dir, "update-replace.ps1"), "x");
+  assert.match(consumePendingUpdate(dir, "2.12.103").reason, /começou mas não terminou/);
+  assert.equal(fs.existsSync(path.join(dir, "update-replace.ps1")), false);
+});
+
+test("script de substituição grava 'started' antes de esperar o processo", { skip: process.platform !== "win32" }, async () => {
+  const { sys, target, source, resultFile } = fakeUpdate();
+  const holder = spawn(path.join(sys, "PING.EXE"), ["-n", "6", "127.0.0.1"], { stdio: "ignore" }); // ~5 s
+  let holderAlive = true;
+  holder.once("exit", () => (holderAlive = false));
+  const script = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", buildReplaceScript({ target, source, resultFile, waitPid: holder.pid, waitSeconds: 30 })], { stdio: "ignore" });
+  const scriptExit = new Promise((r) => script.once("exit", r));
+
+  const first = await waitFor(() => tryResult(resultFile), 15000);
+  assert.equal(first, "started");
+  assert.equal(holderAlive, true, "o carimbo tem de existir durante a espera");
+  assert.equal(await scriptExit, 0);
+  assert.equal(readResult(resultFile), "ok");
+});
+
+test("disparo da troca sobrevive ao processo que o lançou saindo na hora", { skip: process.platform !== "win32" }, async () => {
+  const { dir, target, source, resultFile } = fakeUpdate();
+  // O filho faz o que applyUpdateAndRestart faz: startReplaceScript e sai no "spawn" (app.quit()).
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      `const svc = require(process.env.SVC);
+       const o = JSON.parse(process.env.REPLACE_OPTS);
+       svc.startReplaceScript(o.scriptFile, svc.buildReplaceScript({ ...o, waitPid: process.pid }))
+         .then(() => process.exit(0), (e) => { console.error(e && e.stack || e); process.exit(1); });`,
+    ],
+    {
+      env: {
+        ...process.env,
+        SVC,
+        REPLACE_OPTS: JSON.stringify({ target, source, resultFile, waitSeconds: 60, scriptFile: path.join(dir, "update-replace.ps1") }),
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
+  let stderr = "";
+  child.stderr.on("data", (d) => (stderr += d));
+  assert.equal(await new Promise((r) => child.once("exit", r)), 0, stderr);
+
+  assert.equal(await waitFor(() => tryResult(resultFile) === "ok", 30000), true, `resultado: "${tryResult(resultFile)}"`);
+  assert.deepEqual(fs.readFileSync(target), fs.readFileSync(source));
 });

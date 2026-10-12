@@ -58,7 +58,7 @@ A arquitetura foi desenhada com base no padrão estabelecido no projeto de refer
 | `src/electron-app/renderer/components/SettingsPage.tsx` | Seção nas Configurações com exibição da versão instalada, status e checagem manual. |
 | `src/electron-app/renderer/App.tsx` | Gatilho automático de inicialização e montagem global do modal de atualização. |
 | `src/electron-app/services/settingsService.ts` | Persistência de preferências (`autoCheckUpdates`, `lastUpdateCheck`, `skippedUpdateVersion`). |
-| `src/electron-app/tests/unit/autoUpdate.test.cjs` | Testes de semver, hash e throttle; escolha do alvo; marcador de atualização pendente; e o script de troca rodando de verdade no PowerShell (espera o processo que roda do alvo; grava `copy-failed`). |
+| `src/electron-app/tests/unit/autoUpdate.test.cjs` | Testes de semver, hash e throttle; escolha do alvo; marcador de atualização pendente; e o script de troca rodando de verdade no PowerShell (espera o processo que roda do alvo; grava `copy-failed`; grava `started` antes de esperar); o disparo por `cmd.exe` + `start` concluindo a troca com o processo que o lançou já encerrado. |
 | `build-and-upload.ps1` | Pipeline automatizado de compilação, geração do `version.json`, publicação no R2 e purga de cache. |
 | `upload-r2.ps1` | Script utilitário para envio direto de versões com manifesto e sidecars. |
 
@@ -127,14 +127,29 @@ Configurações → "Verificar atualizações"
         ├─ Alvo: PORTABLE_EXECUTABLE_FILE (o launcher portable) ou execPath
         │     └── execPath dentro de %TEMP% (cópia extraída) → recusa e mostra o caminho manual
         ├─ Grava <userData>/update-pending.json (versão de origem e de destino)
-        ├─ Dispara o PowerShell desanexado; só chama app.quit() depois do evento "spawn"
+        ├─ Grava o script em <userData>/update-replace.ps1 (UTF-8 com BOM)
+        ├─ Dispara cmd.exe destacado → start "" /min powershell -ExecutionPolicy Bypass
+        │  -WindowStyle Hidden -File update-replace.ps1 (cwd = <userData>);
+        │  só chama app.quit() depois do evento "spawn"
         │     └── spawn falhou (ex.: EPERM) → { ok: false } → modal em "error", sem fechar o app
         └─ O script:
+              ├─ grava "started" em <userData>/update-result.txt
               ├─ espera o pid do Electron E todo processo cujo Path é o alvo (até 180 s)
               ├─ copia o novo .exe (20 tentativas × 500 ms)
-              ├─ grava <userData>/update-result.txt: "ok" ou "copy-failed: <erro>"
+              ├─ sobrescreve update-result.txt: "ok" ou "copy-failed: <erro>"
               └─ reabre o alvo (a versão nova, ou a antiga que então avisa)
 ```
+
+**Por que `cmd.exe` + `start`, e não o PowerShell destacado direto.** Até a 2.12.110 o PowerShell
+era criado com `spawn(..., { detached: true })` (`DETACHED_PROCESS`). Em algumas máquinas (medido
+no Windows 11 26200 com Kaspersky) esse PowerShell sai com código 0 sem iniciar o engine: o app
+fechava, nada era trocado e `update-result.txt` nunca existia (reports 8758, 8759, 8839). Sem
+`detached` ele cai no job kill-on-close do libuv e morre junto com o Electron. O `cmd.exe`
+destacado roda, e o `start` dá ao PowerShell um console próprio, fora desse job. O script vai em
+arquivo porque `-WindowStyle Hidden` com o script inline em `-Command` era negado (`spawn EPERM`).
+O `cwd` em `<userData>` mantém os dois fora da pasta extraída do portable, que o launcher apaga
+enquanto o script espera
+(`docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md`).
 
 **Por que esperar processos, e não um tempo fixo.** No build portable o arquivo que o usuário
 abre é o launcher NSIS (`src/electron-app/build/portable.nsi`, desde a 2.12.107; antes, o template
@@ -148,9 +163,11 @@ copiado — em 11 de 11 aplicações observadas na telemetria o app voltou na ve
 ```
 bootstrap (app ready) → checkPendingUpdateResult()
   ├─ Sem update-pending.json → nada
-  ├─ Lê e apaga update-pending.json e update-result.txt
+  ├─ Lê e apaga update-pending.json, update-result.txt e update-replace.ps1
   ├─ app.getVersion() >= versão de destino → sucesso (nada a fazer)
   └─ Versão não mudou →
+        ├─ Motivo: o resultado gravado; "started" → "começou mas não terminou";
+        │  sem arquivo → "não chegou a rodar"
         ├─ Log APP_UPDATE + reportError("update aplicado mas a versão não mudou …")
         └─ App.tsx (update:take-apply-failure) abre o modal em "error" com o motivo,
            o botão "Mostrar arquivo baixado" e os passos da atualização manual
