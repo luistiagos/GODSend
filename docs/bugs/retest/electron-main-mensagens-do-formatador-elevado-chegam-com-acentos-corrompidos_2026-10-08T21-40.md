@@ -1,3 +1,19 @@
+## Status
+
+- **Corrigido:** 2026-10-10, commit `8668b6f` (pipeline 20261010-2242); testado em 2026-10-11 (rodada de teste 1, aprovado).
+- **Onde:** `src/electron-app/infrastructure/fat32Format.ts::writePowerShellScript` (grava o `.ps1` com BOM UTF-8) usado por
+  `::formatWindowsFat32`; harness `scripts/vhd-format-test/run-elevated.ps1` grava a cópia com BOM.
+- **Evidência:** `C:/projects/.bugfix-xbox360/evidencia/20261011-2220-electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40`
+  - T2 (equivalente executável, UI dispensada pelo motivo do Planejamento: disco real proibido e UAC sem dono): teste (b)
+    `PowerShell 5.1 com -File le acento do texto e do caminho...` — com o fix 20 pass / 0 fail (`T2-fix.txt`).
+    Controle positivo (o `.js` da lane sem o BOM, restaurado em seguida): 18 pass / 2 fail, o (b) com
+    `Out-File : Nao foi possível localizar uma parte do caminho '...fat32-A?rea...'` (`T2-base-sem-bom.txt`).
+  - T3: `go test -count=1 ./...` rc 0, 9 pacotes ok (`T3-go.txt`); `test:safety` 321 pass / 0 fail (`T3-safety.txt`).
+  - T4: não aplicável — o app não foi aberto (o caminho do fix só roda formatando disco real).
+- **Falta para `closed/`:** versão publicada; formatação real (pendrive ≤ 32 GB e HD > 32 GB) com mensagem de falha legível;
+  cliente com perfil do Windows com acento formatando HD > 32 GB pelo portátil; complemento do harness VHD elevado (não rodado:
+  sessão sem elevação).
+
 # Bug: as mensagens do formatador elevado (Windows) chegam ao usuário com acentos corrompidos
 
 - **Detectado em:** 2026-10-08 21:40, no teste em VHD do bug
