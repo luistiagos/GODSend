@@ -1,5 +1,18 @@
 # Bug: Executável do Xbox 360 Companion falha silenciosamente e não abre no Windows 7 / 8 / 8.1 (incompatibilidade Electron 42 e Go 1.24)
 
+## Status
+
+- **Corrigido em:** 2026-10-12 01:35 (pipeline 20261010-2242, teste rodada 1 aprovado em 2026-10-12 ~01:45).
+- **Commits:** `5d3825c` fix(portable) (launcher recusa Windows anterior ao 10), `353d545` docs (prova de mutação).
+- **Onde:** `src/electron-app/build/portable.nsi::checkWindowsVersion` (nova; build < 10240, ou < `XBOX360COMPANION_LAUNCHER_MIN_WINDOWS_BUILD` se maior, -> `launcherFailed` com motivo `windows-antigo`), chamada em `portable.nsi::.onInit` logo após `check64BitAndSetRegView`, antes de escolher o pacote e de `checkFreeSpace`. Teste em `tests/unit/portableLauncher.test.cjs`; comentário em `services/portableLauncherReport.ts::launcherFailureReason`; doc-sync em `AGENTS.md` e `docs/features.md`.
+- **Evidência:** `C:\projects\.bugfix-xbox360\evidencia\20261012-0137-electron-app-incompativel-windows-7-executavel-nao-abre_2026-09-23T02-45\` (`result.txt` e `window*.png` por cenário).
+  - **Offline:** `node --test tests/unit/portableLauncher.test.cjs tests/unit/portableLauncherReport.test.cjs` -> 8 pass / 0 fail; `pipeline.py build` rc 0.
+  - **Controle positivo (base `origin/main` @ `bc1a9cd`, `controle-base-min99999/`):** launcher compilado do `portable.nsi` da base, modo janela (sem `/S`), `XBOX360COMPANION_LAUNCHER_MIN_WINDOWS_BUILD=99999`: só a janela "Abrindo o Xbox 360 Companion: 82%", extraiu e iniciou o app de mentira (exit 7), nenhum aviso, nenhum `launcher-failures.log` — o "nem abre" mudo do cliente (a base não tem como recusar).
+  - **T2 (fix, `t2-fix-min99999/`):** mesmo passo com o launcher do fix: primeira e única janela é a caixa "O Xbox 360 Companion precisa do Windows 10 ou do Windows 11 ... (versão 10.0, build 26200) ..." (`window1.png`, PrintWindow do hwnd), sem "Abrindo...", exit 2, log `windows-antigo versao=10.0 build=26200 minimo=99999`, `%TEMP%` vazio. Sem a variável (`t2-fix-sem-variavel/`): "Abrindo...", app iniciado, exit 7 repassado, sem caixa e sem log — o Windows 11 desta máquina passa pelo mínimo real (prova de que Windows 10/11 não é bloqueado). T2 sem UI do app: o fix é no launcher, que roda antes do Electron existir (Plano de teste).
+  - **T3:** `go test -count=1 ./...` em `src/server` rc 0 (9 pacotes `ok`, `t3-go-test.txt`); `npm --prefix src/electron-app run test:safety` 327 pass / 0 fail (`t3-test-safety.txt`; base do manual 258/0, a suíte cresceu, sem `fail`).
+  - **T4:** o teste não abre o Electron nem o backend; `%APPDATA%\xbox-360-companion-electron\logs\` sem escrita na janela do teste (última 01:30, teste a partir de 01:38). Única saída do launcher: as linhas esperadas no `launcher-failures.log` de cada pasta de cenário.
+- **Falta para `closed/`:** subir a versão e publicar (`build-and-upload.ps1`, do dono) — o `xboxcompanion.exe` e o `xboxcompanion32.exe`; abrir o publicado num Windows 7 ou 8.1 real e ver a caixa com "versão 6.1/6.3" (não há máquina com Windows antigo aqui; `GetVersionEx` num Windows real antigo não foi exercitado); confirmação do cliente/suporte. Lado do agente de suporte: doc cruzado em `digitalstoregamesproject` (seção "Achado cruzado").
+
 - **Detectado em:** 2026-09-23 02:45 (chamado #27 do painel, sessão `55049166278770@lid`)
 - **Origem:** conversa de suporte de cliente + inspeção de `src/electron-app/package.json` (`electron@42.4.1`), `src/server/go.mod` (`go 1.24.0`), `src/electron-app/scripts/build-portable.js` e `src/electron-app/build/installer.nsh`
 - **Classe:** falha funcional / compatibilidade de SO / inicialização
