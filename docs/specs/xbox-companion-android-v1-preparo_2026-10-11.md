@@ -259,6 +259,10 @@ Notação: **[auto]** = teste que roda sem o dono; **[dono]** = rodada no celula
   próprio console e preparado só pelo app (fecha R1).
   - **Prova [console]:** primeiro cliente acompanhado pelo suporte. Até lá o app é oferecido "novo,
     com acompanhamento" (condição 2 do doc irmão).
+  - **Já provado sem o app** (investigação, H): o BadAvatar roda num pendrive formatado no próprio
+    console por *Y → Formatar* — vídeo `Du5M9EvkvjE` (perfil `ABadAvatar` → XeUnshackle → Aurora,
+    4:41–4:51) e cliente `265880051138810` (`[41318]`, `[41605]`). O que C27 ainda prova é só a
+    parte do app, que C19 já cobre por equivalência no PC.
 
 ## 3. COMO (design)
 

@@ -74,8 +74,9 @@ afirma que o console foi desbloqueado.
     ensina o *Formatar*, não avisa pela falta de `Xbox360/` e nunca apaga a pasta. **Respondido:**
     espaço, "a `Xbox360/` aparece?", o app apagar a pasta (não precisa). **Ainda depende de
     console:** a tabela de partição que o *Formatar* deixa (MBR ou sem tabela; `assessXboxLayout`
-    fica informativo até medir) e o BadAvatar rodando num pendrive formatado no console e
-    preparado pelo app (C27). **Risco novo:** console sem Disco Rígido e sem Unidade de Memória
+    fica informativo até medir) e o BadAvatar rodando num pendrive preparado pelo app (C27).
+    O BadAvatar num pendrive formatado no console **já está provado**: vídeo `Du5M9EvkvjE`
+    (4:41–4:51) e o cliente `265880051138810` (`[41605]`, *"abriu o aurora"*). **Risco novo:** console sem Disco Rígido e sem Unidade de Memória
     só lê perfis da unidade do sistema (ConsoleMods), então o preparo sozinho não basta nele.
 - **R2. Ler o layout do disco no Android.** Pelo Storage Access Framework só se veem arquivos,
   sem MBR, tipo de partição nem tamanho de setor. Ler o layout exige acesso USB bruto (API USB

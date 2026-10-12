@@ -310,20 +310,49 @@ Formatado" (BadBuilder issue #1, *"the Xbox 360 will pick up on the GPT drive as
 **[fórum]**, o que já está em `assessXboxLayout`. Se o console grava FAT32 **sem** tabela MBR, o
 item (6) de C19 reprovaria um pendrive bom — ver a spec.
 
-**H. Campo (consultas abaixo).**
+**H. Campo e vídeo: o BadAvatar roda num pendrive formatado no console (consultas abaixo).**
+
+O produto é o **BadAvatar** (pacote `ABadAvatar 1.1 + AutoStart + Aurora + Freestyle + DashLaunch +
+XeXMenu`, o mesmo do Companion), não o **Xploid** (pacote manual antigo, pelo Rock Band Blitz:
+*"meu xploid não funciona mais, qdo ligo o Xbox não aparece o rock Band para executar"*, `[23217]`).
+As provas abaixo separam os dois.
+
+- **Prova em vídeo, BadAvatar [vídeo]:** `Du5M9EvkvjE`, do começo ao fim no mesmo console (Disco
+  Rígido 179 GB + Unidade de Memória 638 MB, 1:05). O pendrive "Não Formatado" passa por **Y →
+  Formatar** (1:08–1:14). O celular grava a pasta **"Via Avatar"** (3:44); a raiz fica `Aurora`,
+  `BadUpdatePayload`, `Content`, `Simple 360 NAND Flasher`, `launch.ini`, `name.txt` (4:31). O
+  console liga e mostra, na tela de perfis, o perfil **`ABadAvatar`** com a notificação
+  *"ABadAvatar is FREE software! If you paid for it, demand a refund!"* (4:41–4:45), depois
+  **XeUnshackle v1.03**, *"Todos os patches foram aplicados!"* (4:48), e **Aurora** (4:51). (Depois o
+  vídeo mostra também o caminho do Rock Band Blitz, 4:53–5:05.) Limite: o vídeo é editado, e a
+  continuidade do mesmo pendrive entre 1:14 e 4:31 é inferida pela narração.
+- **Prova de campo, BadAvatar [campo]:** `265880051138810` (Douglas, 2026-06-24/25), console LT
+  com Disco Rígido (`[41560]`). Deixou no pendrive a pasta *"AbadAvatar 1.1 + AutoStart + Aurora +
+  F..."* (`[41290]`, `[41291]`). O notebook não oferecia FAT32 para o "pendrive de 2 tera"
+  (`[41309]`), o operador mandou formatar no console (`[41312]`), *"Tive q formatar mesmo"*
+  (`[41318]`), recopiou pelo PC (`[41321]`) e depois: *"Ele reconheceu no vídeo game"* (`[41601]`),
+  *"Já fiz todo o processo e abriu o aurora"* (`[41605]`). Num LT, a Aurora só sobe pelo exploit. Não
+  se sabe que opção do console ele usou (Formatar ou Configurar). Os erros `0x80070570` na cópia de
+  jogos (`[41592]`) apontam para pendrive de capacidade falsa, não para a formatação.
+- **Xploid num pendrive formatado no console [campo]:** `254691661344792`, pendrive de 64 GB,
+  *"Vou tentar formatar o pendrive direto no xbox"* (`[31760]`), *"Consegui passar, mas o Xbox não
+  abre"* (`[31885]`), *"Eu formatei novamente e estou extraindo"* (`[31895]`), *"Deu certo, agora
+  tentar baixar os jogos"* (`[31957]`). Prova o pendrive, não o BadAvatar.
+- **Inconclusivos:** `42146732204280` (HD de 128 GB formatado no console, `[47919]`; funcionou depois
+  com outro dispositivo sem dizer como formatado, `[56554]`); `115358576943149` (HD de 976 GB
+  *"formatado no Xbox"*, `[94745]`: o Windows o montou como `E:` (`[94743]`), mas o cliente
+  reformatou no PC antes de preparar, `[94766]`); `142764763263025` (`[12256]`, sem desfecho);
+  `275204458713286` (formatou no console, `[54477]`, e desistiu antes de extrair o `.rar`,
+  `[54687]`).
 - Os clientes de `[11254]`/`[11256]` (`53803088920826`) e `[24560]`–`[24596]` (`211278048026821`)
   **não seguiram** o caminho: o primeiro não respondeu; o segundo pediu estorno (*"meu celular é
-  pebinha"*, `[24599]`). Nenhum resultado.
-- Operadores (`role='user'`) mandam formatar no console desde março: `[3047]` *"formata o pendrive
+  pebinha"*, `[24599]`).
+- Operadores (`role='user'`), quase todos na época do Xploid, mandam formatar no console desde
+  março: `[3047]` *"formata o pendrive
   pelo próprio Xbox 360"*, `[7169]`, `[40590]` *"Pode formatar direto no Xbox / E depois usar ele no
   Pc"*, `[41312]`, `[54272]`–`[54273]` *"formata o pendrive/hd direto pelo console / Ele vai formatar
   no formato correto: Fat32"*, `[51767]` *"pode formatar este formato tanto pelo console quanto pelo
   pc"*. Nenhum operador fala em Configurar/Personalizar.
-- `142764763263025` (`[12256]` *"Formatei no xbox"*, `[12259]` *"Formatei fat32"*, `[12260]` *"Copiei
-  os arquivos e não le"*): fim de conversa sem resultado; console de status incerto (`[12302]`).
-- `42146732204280` (`[47917]` HD de 128 GB, `[47919]` *"Formatei no xbox 360"*): copiou pelo PC,
-  não rodou com nenhum pacote, depois trocou de HD e funcionou (`[56554]` *"Acredito que era o hd
-  mesmo o problema"*). Não separa console de mídia.
 - Ninguém relatou "pendrive cheio" ou "sem espaço" depois de formatar no console. A mensagem de
   espaço que aparece (`[114741]`, 190 MB para atualização) é do console sem armazenamento.
 
@@ -338,6 +367,7 @@ Todas via `chamado.py sql` copiado para o scratchpad da sessão.
 | `... WHERE role IN ('customer','user') AND (message LIKE '%Dispositivo USB%' OR '%Configurar Dispositivo%' OR '%Unidade de Mem%' OR '%Dispositivos de Armazenamento%' OR '%Memory Unit%' OR '%Não Formatado%' OR '%Unformatted%')` | 133 |
 | `... WHERE role='user' AND message LIKE '%format%' AND (message LIKE '%xbox%' OR '%console%' OR '%videogame%' OR '%video game%')` | 31 |
 | `WHERE id IN (11254,11256,24560,24593,24594,24595,24596)` + conversa de cada `main_phone` depois | 7; 2 e 51 |
+| `... WHERE role='customer' AND message NOT LIKE '[IMAGEM]%' AND message LIKE '%format%' AND (message LIKE '%xbox%' OR '%console%' OR '%video game%' OR '%videogame%')` + conversa de cada candidato (`265880051138810`, `254691661344792`, `115358576943149`, `66842643148824`, `149482142482522`, `275204458713286`, `42146732204280`) | 69 |
 | `... WHERE role='customer' AND (message LIKE '%pendrive%' OR '%pen drive%' OR '%pendraive%') AND (message LIKE '%cheio%' OR '%sem espaço%' OR '%espaço insuficiente%' OR '%não tem espaço%' OR '%nao tem espaco%' OR '%lotado%')` | 4, nenhuma ligada a formatar no console (`[61753]`, `[93466]`, `[96061]`, `[102070]`: todas sobre baixar jogos) |
 
 Vídeos: `yt-dlp 2026.08.19` (binário oficial; o `2026.07.04` do sistema leva 403), `-f 135`,
@@ -354,13 +384,20 @@ das cópias `id_` da Wayback e extração do texto. Velocity: `curl raw.githubus
   (prints `[128403]`, `[128416]`, `[128650]`).
 - **Os 3 tutoriais usam "Configurar agora".** Nenhum usa: um usa *Formatar*, um formata no celular,
   um não mostra.
+- **"Nenhum cliente rodou o exploit num pendrive formatado no console"** (afirmado na primeira
+  passada desta sessão, a partir só dos dois clientes que receberam o vídeo). Errado: o próprio
+  `Du5M9EvkvjE` mostra o BadAvatar rodando, e o cliente `265880051138810` abriu a Aurora pelo
+  BadAvatar num pendrive formatado no console (H). A primeira busca também misturava conversas do
+  Xploid com as do BadAvatar.
 
 ### O que continua sem prova
 
 1. Tabela de partição e cluster que o *Formatar* do console deixa (afeta C19 item 6).
 2. Se o exploit roda num pendrive com `Xbox360/` presente (só importa se o cliente usar Configurar).
 3. O que o *Formatar*/*Remover armazenamento* faz num pendrive já configurado.
-4. O BadAvatar num pendrive formatado no console e preparado só pelo app (C27, como já previsto).
+4. O BadAvatar num pendrive formatado no console **e preparado só pelo app** (C27). O BadAvatar
+   num pendrive formatado no console já está provado (H: vídeo `Du5M9EvkvjE` e cliente
+   `265880051138810`); falta só a parte do app, que é a equivalência de C19.
 
 ### Teste mínimo de campo (para um cliente acompanhado; o dono decide se pede)
 
