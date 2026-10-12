@@ -1,5 +1,14 @@
 # Bug: a varredura de jogos instalados roda síncrona no processo principal e congela a janela ("Não está respondendo") a cada ~15 s com um HD externo cheio — e o congelamento produz o falso "O Windows ainda está reconhecendo seu pendrive ou HD"
 
+## Status
+
+- Movido de `open/` para `retest/` em 2026-10-12 a pedido do dono, depois da execucao 20261010-2242 do pipeline (planning: correcao ja em `origin/main`, sem codigo a mudar).
+- **Corrigido em:** 2026-10-07; saiu na 2.12.107 e esta na **publicada** 2.12.109.
+- **Commits:** `9258bfe` [T1] runPowerShell sem falso timeout com loop bloqueado, `426d4ff` [T2] varredura com `fs.promises`, `91d20dc` [T3] cache de 10 min da analise de cada jogo.
+- **Onde:** `src/electron-app/infrastructure/windowsUsbDeviceService.ts::setLoopAwareTimeout`/`runPowerShell`; `src/electron-app/services/localGameScannerService.ts` (varredura assincrona, `parseContentTitleFolder`, cache, `invalidateInstalledGamesCache`).
+- **Evidencia:** secoes "Correcao aplicada" e "Testes executados" abaixo — `loopAwareTimeout.test.cjs` e `localGameScannerService.test.cjs` com controle negativo (scanner sincrono `060687e` falha com `ticks=0`); unitarios 252/252; bench: maior travada do loop 5 972 ms -> 9 ms.
+- **Falta para `closed/`:** prova de campo com HD externo de biblioteca grande — log de cliente com `APP_BROWSE varredura de jogos instalados: ...` sem as lacunas de 70–105 s e sem `USB_ENUMERATION_TIMEOUT` no fim de uma varredura.
+
 - **Detectado em:** 2026-10-05 17:25 (chamado #133 do painel, sessão `272077621866729@lid`, telefone `556496012345`)
 - **Origem:** conversa de suporte + reports de telemetria `9324` e `9325` (`xbox-360-companion/electron-main`, `tools:badavatar-list-drives`) + leitura de `src/electron-app/services/localGameScannerService.ts` (`scanUsbAndLocalGames`, `scanDriveRoot`, `parseGameFolder`, `getDirectorySizeBytes`), `src/electron-app/ipc/browseHandlers.ts` (handler `browse:get-installed-games`), `src/electron-app/renderer/App.tsx` (`refreshUsbGamesCount`), `src/electron-app/renderer/components/HomePage.tsx` (`checkPreparedDevice`) e `src/electron-app/infrastructure/windowsUsbDeviceService.ts` (`runPowerShell`)
 - **Classe:** falha funcional (a janela para de responder; o fluxo de gravação em HD não anda)
