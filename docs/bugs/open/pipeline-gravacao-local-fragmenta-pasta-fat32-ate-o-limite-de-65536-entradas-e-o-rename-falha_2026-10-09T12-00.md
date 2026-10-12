@@ -356,3 +356,18 @@ Nenhum defeito encontrado na leitura do fix. Nada a corrigir nesta execucao.
 
 **O que destrava:** o dono rodar a T2 acima com o pendrive `E:` (ou outro FAT32 com >= 15 GB livres) e publicar a
 2.12.110; com isso o doc vai para `retest/` e, com a confirmacao do cliente, `closed/`.
+
+## Desbloqueio (2026-10-12)
+
+O motivo do veredito `bloqueado` acima ("nenhum disco real liberado") **caiu**: o dono liberou o pendrive de
+teste `USB DISK 2.0`, serial `247700023090` (14,5 GB, MBR, hoje FAT32 com rotulo `PS2`), com conteudo
+descartavel — pode formatar e gravar. Regra, identificacao pelo serial e lock entre projetos: manual do pipeline
+(`.claude/skills/pipeline-correcao-bugs/projeto.md`, secao Teste). A proxima execucao do pipeline deve replanejar
+este bug, nao exclui-lo pelo veredito antigo.
+
+- **O estado de partida da T2 nao existe mais:** o pendrive foi usado pelo PS2Companion depois (10,8 GB de outro
+  conteudo em 2026-10-12); a pasta `faces` saturada da tentativa antiga sumiu. O teste precisa recriar o estado
+  (formatar FAT32 e gravar com o codigo anterior a `2037158` ate o errno 82 — o controle positivo) antes de provar
+  a correcao.
+- **Espaco continua sendo o risco:** jogo de 13,15 GB + folga de cluster (~0,6 GB) num volume de ~14,4 GB vazio;
+  se `ensureFreeSpace` recusar, e ambiente (pendrive maior), nao reprovacao.
