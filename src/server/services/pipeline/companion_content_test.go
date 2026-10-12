@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"godsend/infrastructure/helpers"
 )
 
 // writeXexRipFolder creates a folder shaped like an extracted disc of a XEX rip: a synthetic
@@ -61,5 +63,63 @@ func TestXexDestinationNameKeepsARipFolderThatNamesTheGame(t *testing.T) {
 
 	if got != "Gears.of.War.1.USA.X360-ZTM - 4D5307D5" {
 		t.Errorf("nome do rip deve ser preservado, obtido %q", got)
+	}
+}
+
+// writeRootXexArchive extracts a rip that ships default.xex at the root of the archive into
+// the provider's scratch dir, the way the HF homebrew bundles (RetroArch emulators) do.
+func writeRootXexArchive(t *testing.T, extDir string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(extDir, "roms"), 0o755); err != nil {
+		t.Fatalf("criar %s: %v", extDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(extDir, "default.xex"), []byte("XEX2"), 0o644); err != nil {
+		t.Fatalf("gravar default.xex: %v", err)
+	}
+	return extDir
+}
+
+func TestXexDestinationNameNamesARootRipAfterTheReleaseNotTheScratchDir(t *testing.T) {
+	// [[pipeline-xex-com-default-xex-na-raiz-do-arquivo-grava-pasta-com-sufixo-hf-ext_2026-10-12T14-56]]
+	const game = "EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360 RGH )"
+	extDir := writeRootXexArchive(t, filepath.Join(t.TempDir(), game+"_hf_ext"))
+	xexFolder := helpers.FindXEXFolder(extDir)
+
+	got := xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), game)
+
+	if got != game {
+		t.Errorf("esperado %q, obtido %q", game, got)
+	}
+}
+
+func TestXexDestinationNameAddsTheTitleIDToARootRip(t *testing.T) {
+	extDir := writeXexRipFolder(t, writeRootXexArchive(t, filepath.Join(t.TempDir(), "Halo 3_ext")), "4D5307E6")
+	xexFolder := helpers.FindXEXFolder(extDir)
+
+	got := xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), "Halo 3")
+
+	if got != "Halo 3 - 4D5307E6" {
+		t.Errorf("esperado %q, obtido %q", "Halo 3 - 4D5307E6", got)
+	}
+}
+
+func TestXexDestinationNameDropsTheDiscTagFromARootRip(t *testing.T) {
+	extDir := writeRootXexArchive(t, filepath.Join(t.TempDir(), "Grand Theft Auto V (USA) (Disc 2)_mgext"))
+	xexFolder := helpers.FindXEXFolder(extDir)
+
+	got := xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), "Grand Theft Auto V (USA) (Disc 2)")
+
+	if got != "Grand Theft Auto V (USA)" {
+		t.Errorf("esperado %q, obtido %q", "Grand Theft Auto V (USA)", got)
+	}
+}
+
+func TestRipFolderNameKeepsTheRipsOwnFolder(t *testing.T) {
+	extDir := filepath.Join(t.TempDir(), "Gears of War_hf_ext")
+	writeRootXexArchive(t, filepath.Join(extDir, "Gears.of.War.1.USA.X360-ZTM"))
+	xexFolder := helpers.FindXEXFolder(extDir)
+
+	if got := ripFolderName(xexFolder, extDir); got != "Gears.of.War.1.USA.X360-ZTM" {
+		t.Errorf("esperado o nome da pasta do rip, obtido %q", got)
 	}
 }

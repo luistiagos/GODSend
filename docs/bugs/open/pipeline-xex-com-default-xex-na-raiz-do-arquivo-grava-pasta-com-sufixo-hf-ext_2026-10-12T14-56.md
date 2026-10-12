@@ -144,22 +144,22 @@ Instalados") fica com o sufixo de scratch. A falta de TitleID e correta para est
 
 ### Tarefas
 
-- [ ] `src/server/services/pipeline/companion_content.go` — helper novo (ex.: `ripFolderName(xexFolder, extDir string) string`)
+- [x] `src/server/services/pipeline/companion_content.go` — helper novo (ex.: `ripFolderName(xexFolder, extDir string) string`)
   que devolve `""` quando `samePath(xexFolder, extDir)` (o rip nao tem pasta propria) e `filepath.Base(xexFolder)` no
   resto; e `xexDestinationName` passa a tratar `archiveFolder == ""` como o marcador generico (titulo da release; se ele
   vier vazio, `helpers.SanitizeFilename(gameName)`), para nunca chamar `XEXFolderName` com nome vazio. Comentario cita
   `[[pipeline-xex-com-default-xex-na-raiz-do-arquivo-grava-pasta-com-sufixo-hf-ext_2026-10-12T14-56]]`.
   Teste: ver a tarefa de testes.
-- [ ] `huggingface.go:71`, `minerva.go:221` — `xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), gameName)`.
-- [ ] `digital.go:206`, `minerva.go:76`, `pipeline.go:226` — `folderName = ripFolderName(xexFolder, extDir)` (o
+- [x] `huggingface.go:71`, `minerva.go:221` — `xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), gameName)`.
+- [x] `digital.go:206`, `minerva.go:76`, `pipeline.go:226` — `folderName = ripFolderName(xexFolder, extDir)` (o
   `xexDestinationName` logo abaixo ja existe). Os ramos ISO (`folderName = safeName`) nao mudam.
-- [ ] `src/server/services/pipeline/companion_content_test.go` — (a) pasta `t.TempDir()/X_hf_ext` com `default.xex`
+- [x] `src/server/services/pipeline/companion_content_test.go` — (a) pasta `t.TempDir()/X_hf_ext` com `default.xex`
   falso na raiz e SEM TitleID: `xexDestinationName(dir, ripFolderName(helpers.FindXEXFolder(dir), dir), "EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360 RGH )")`
   == `"EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360 RGH )"` (sem `_hf_ext`); (b) idem com TitleID (`writeXexRipFolder`) e
   nome curto -> `"<titulo> - <TitleID>"`; (c) `ripFolderName` de subpasta devolve o nome da subpasta (os 3 testes
   existentes continuam verdes); (d) gameName com "(Disc 2)" e raiz -> titulo sem a tag. Mutacao: voltar o call-site/helper
   para `filepath.Base` faz (a) falhar.
-- [ ] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva, `merge=union`), citando os 5 pontos e o doc.
+- [x] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva, `merge=union`), citando os 5 pontos e o doc.
 
 ### Plano de teste
 
@@ -196,3 +196,28 @@ Instalados") fica com o sufixo de scratch. A falta de TitleID e correta para est
 **Bug lateral aberto:** [`pipeline-nome-de-pasta-xex-sem-titleid-com-mais-de-42-caracteres-nao-e-cortado-para-o-hd-fatx_2026-10-12T19-15.md`](pipeline-nome-de-pasta-xex-sem-titleid-com-mais-de-42-caracteres-nao-e-cortado-para-o-hd-fatx_2026-10-12T19-15.md)
 — `XEXFolderName` so corta em 42 quando ha TitleID; este homebrew (51 caracteres, sem TitleID) iria cru ao HD FATX por FTP.
 Nao faz parte deste fix (o nome atual `..._hf_ext` ja e mais longo; o fix nao piora).
+
+## Correcao (pipeline 20261012-1854, rodada 1)
+
+O plano foi seguido sem desvio.
+
+- `services/pipeline/companion_content.go::ripFolderName(xexFolder, extDir)` (novo) — `""` quando
+  `samePath(xexFolder, extDir)` (o `default.xex` esta na raiz do arquivo, a pasta e o scratch), senao
+  `filepath.Base(xexFolder)`.
+- `companion_content.go::xexDestinationName` — `archiveFolder == ""` e tratado como o marcador generico de disco: nome =
+  `SanitizeFilename(ExtractReleaseTitle(gameName))`; se vier vazio, `SanitizeFilename(gameName)`. Nunca chama
+  `XEXFolderName` com nome vazio. TitleID continua vindo de `XEXFolderName`.
+- Call-sites: `huggingface.go::ProcessHuggingFaceGameWithErr` e `minerva.go::ProcessMinervaGenericGameWithErr` passam
+  `ripFolderName(xexFolder, extDir)` a `xexDestinationName`; `minerva.go::ProcessMinervaGameWithErr`,
+  `digital.go::ProcessGenericGameWithErr` e `pipeline.go::ProcessGameWithErr` atribuem `folderName = ripFolderName(...)`
+  (o `xexDestinationName` seguinte ja existia). Ramos ISO (`folderName = safeName`) intocados.
+- Testes novos em `companion_content_test.go`: `TestXexDestinationNameNamesARootRipAfterTheReleaseNotTheScratchDir` (o caso
+  do achado, sem TitleID), `TestXexDestinationNameAddsTheTitleIDToARootRip` (`Halo 3 - 4D5307E6`),
+  `TestXexDestinationNameDropsTheDiscTagFromARootRip` (`(Disc 2)` + raiz -> `Grand Theft Auto V (USA)`),
+  `TestRipFolderNameKeepsTheRipsOwnFolder`.
+- Provas offline: `go vet ./services/pipeline/` limpo; `go test -count=1 ./services/pipeline/ -run 'XexDestination|RipFolder' -v`
+  -> 7 PASS (3 antigos + 4 novos). Mutacao (`if false && samePath(...)` em `ripFolderName`) -> 3 dos novos FALHAM
+  (`obtido "..._hf_ext"`, `"Halo 3_ext - 4D5307E6"`, `"..._mgext"`); arquivo restaurado.
+- Compile-check: `pipeline.py build` rc=0 (build-server x64/ia32 + `tsc` + `renderer:typecheck`).
+- `CHANGELOG.md` `[Unreleased]` `### Fixed`: entrada nova.
+- Plano de teste: sem ajuste.

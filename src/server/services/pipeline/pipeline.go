@@ -223,7 +223,7 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		xexFolder := helpers.FindXEXFolder(extDir)
 		folderName := ""
 		if xexFolder != "" {
-			folderName = filepath.Base(xexFolder)
+			folderName = ripFolderName(xexFolder, extDir)
 		} else if isoInArchive := helpers.FindFileByExt(extDir, ".iso"); isoInArchive != "" {
 			isoXexDir := filepath.Join(s.outputRoot(gameName), safeName+"_xex")
 			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")

@@ -68,7 +68,7 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	xexFolder := helpers.FindXEXFolder(extDir)
 	folderName := ""
 	if xexFolder != "" {
-		folderName = xexDestinationName(xexFolder, filepath.Base(xexFolder), gameName)
+		folderName = xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), gameName)
 		s.App.LogStatus(gameName, "Processing", fmt.Sprintf("XEX folder: %s", folderName))
 		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
 			return err

@@ -73,7 +73,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 		xexFolder := helpers.FindXEXFolder(extDir)
 		folderName := ""
 		if xexFolder != "" {
-			folderName = filepath.Base(xexFolder)
+			folderName = ripFolderName(xexFolder, extDir)
 		} else if isoInArchive := helpers.FindFileByExt(extDir, ".iso"); isoInArchive != "" {
 			isoXexDir := filepath.Join(s.outputRoot(gameName), safeName+"_mxex")
 			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")
@@ -218,7 +218,7 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 	if xexFolder == "" {
 		return fmt.Errorf("No ISO or XEX found in Minerva archive")
 	}
-	folderName := xexDestinationName(xexFolder, filepath.Base(xexFolder), gameName)
+	folderName := xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), gameName)
 	if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
 		return err
 	}

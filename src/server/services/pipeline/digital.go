@@ -203,7 +203,7 @@ func (s *Service) ProcessGenericGameWithErr(gameName string) error {
 	if installType == "xex" {
 		folderName := ""
 		if xexFolder != "" {
-			folderName = filepath.Base(xexFolder)
+			folderName = ripFolderName(xexFolder, extDir)
 		} else if isoPath != "" {
 			isoXexDir := filepath.Join(s.outputRoot(gameName), safeName+"_xex")
 			s.App.LogStatus(gameName, "Processing", "Extracting XEX layout from ISO...")

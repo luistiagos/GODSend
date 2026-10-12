@@ -23,14 +23,30 @@ import (
 // top-level folder normally names the game, but a multi-disc rip names it after the disc, so
 // Grand Theft Auto V arrived on the console as a game called "Disc2". The release title
 // replaces such a placeholder; every other rip keeps the name it shipped with.
+//
+// An empty archiveFolder means the rip has no folder of its own (default.xex sits at the root
+// of the archive, see ripFolderName) and is named after the release the same way.
 func xexDestinationName(xexFolder, archiveFolder, gameName string) string {
 	name := archiveFolder
-	if helpers.IsGenericDiscFolderName(name) {
+	if name == "" || helpers.IsGenericDiscFolderName(name) {
 		if release := helpers.SanitizeFilename(models.ExtractReleaseTitle(gameName)); release != "" {
 			name = release
+		} else if name == "" {
+			name = helpers.SanitizeFilename(gameName)
 		}
 	}
 	return helpers.XEXFolderName(xexFolder, name)
+}
+
+// ripFolderName is the archive's own name for the folder holding default.xex, or "" when
+// default.xex sits at the root of the archive: the folder is then the extraction scratch dir,
+// and its name ("<game>_hf_ext") went to the device as the game's folder.
+// [[pipeline-xex-com-default-xex-na-raiz-do-arquivo-grava-pasta-com-sufixo-hf-ext_2026-10-12T14-56]]
+func ripFolderName(xexFolder, extDir string) string {
+	if samePath(xexFolder, extDir) {
+		return ""
+	}
+	return filepath.Base(xexFolder)
 }
 
 // installCompanionDiscContent writes the install-disc payloads that shipped in the same
