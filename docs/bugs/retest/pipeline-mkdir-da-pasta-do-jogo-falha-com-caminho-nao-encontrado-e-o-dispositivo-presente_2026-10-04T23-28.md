@@ -1,5 +1,45 @@
 # Bug: gravar no HD falha em `mkdir D:\Games\<jogo>` com "O sistema não pode encontrar o caminho especificado", com o dispositivo presente, e a mensagem manda o cliente (e o agente) procurar um pendrive desconectado
 
+## Status
+
+- **Corrigido:** 2026-10-11 (pipeline 20261010-2242, onda 2). Testado na rodada 1, aprovado.
+- **Commits do fix:** `9ce1d70` fix(pipeline) + `e3e1b0e` docs; os hashes podem mudar no rebase do `publish`
+  (procure pelo slug no `git log`).
+- **Onde:** `src/server/services/pipeline/fat_directory.go::localWriteErrorText` traduz o erro 3
+  (ERROR_PATH_NOT_FOUND) só no Windows: caminho, "dispositivo conectado", estado da pasta-pai, sistema de
+  arquivos e a ação (Verificar / Reparar (CHKDSK)). `local_resilient.go::copyTreeLocal`: a falha ao criar a
+  pasta do jogo (marcador) confere o dispositivo. Se ele está presente, a falha é final com
+  `"criar a pasta do jogo em ...: <texto>"`. Se não está, vai para `waitForLocalDevice` e tenta de novo.
+  Costura `writeInstallInProgressMarkerFunc`.
+- **Evidência:** `C:\projects\.bugfix-xbox360\evidencia\20261011-2230-pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28\`
+  (`LEIAME.md` explica cada arquivo).
+  - **T2** (app da lane pela UI, Playwright; só a lista de unidades é stub e aponta para uma pasta local, porque
+    disco real está proibido):
+    1. Farming Simulator 15 vai para o destino, `Games\Farming Simulator 15 - 464507E1\` gravado, Pronto, sem
+       `.xbox-companion-installing`.
+    2. Um ARQUIVO `Games` no destino, depois Digimon All Star Rumble (XEX, HuggingFace real). Resultado: Erro na
+       Fila com `criar a pasta do jogo em ...\Games\Digimon All Star Rumble (0.421) - 4E4D0869: o Windows
+       respondeu "caminho não encontrado" (erro 3) em mkdir ...\Games com o dispositivo conectado (pasta-pai
+       ...: existe; sistema de arquivos: NTFS). ... verifique o disco ...` (`fix-2-c-fila-erro.png`). Sem status
+       de desconexão. A cadeia de provedores parou: 3 "Trying provider" na janela, todos huggingface, nenhum
+       IA/Minerva. Nenhuma pasta do jogo foi criada.
+    3. O arquivo foi apagado e "Tentar novamente" foi clicado na Fila. Resultado: Pronto, com `default.xex` e
+       `AvatarAssetPack` em `Games\Digimon...` e sem marcador.
+  - **Controle positivo:** o passo 2 com o binário da base (os dois .go de `origin/main`, build pelo helper)
+    mostra o texto antigo `marcar instalacao em andamento em ...: mkdir ...\Games: The system cannot find the
+    path specified.` (`base-result.json`). Nos testes de unidade, os 3 testes novos falham na base e passam com
+    o fix.
+  - **T3:** `go test -count=1 ./...` rc 0, 9 pacotes `ok` (`t3-go-test.txt`). `test:safety` 321 pass / 0 fail
+    (`t3-test-safety.log`).
+  - **T4:** logs da janela (`fix-log-janela.txt`, `base-log-janela.txt`): nenhum erro atribuível ao fix. Só o
+    aviso de CSP da fonte do Google, que já existia.
+- **Falta para `closed/`:**
+  - Versão publicada (subida de versão + `build-and-upload.ps1`, a cargo do dono).
+  - O erro 3 com a pasta-pai presente num volume FAT32 danificado de verdade, que depende de disco real. A
+    próxima ocorrência na telemetria, com o texto novo (código, pasta-pai, sistema de arquivos), e o CHKDSK na
+    mídia afetada separam as hipóteses 1 e 2.
+  - Prova do cliente: o #144 grava de novo depois de verificar o disco.
+
 - **Detectado em:** 2026-10-04 23:28 (chamado #144 do painel, sessão `165291833184337@lid`, telefone `553196998502`)
 - **Origem:** conversa de suporte + telemetria `xbox-360-companion/pipeline` (`fallback.go::ProcessGameWithFallback`) + leitura de `src/server/services/pipeline/local_resilient.go` (`Service.copyTreeLocal` / `Service.copyFileLocal`, `copyLocalEntry`, `localDeviceMatches`)
 - **Errors (serviço):** 6938, 7026, 7031, 7162, 7166, 7169, 7202, 8560, 8565 (9 reports, 2026-09-16 12:28 → 2026-09-25 13:49 UTC, todos com `status = close` na telemetria e **nenhum** citado em doc: grep pelos ids em `docs/` = 0)
@@ -329,3 +369,13 @@ respondeu "caminho não encontrado" (erro 3) em mkdir <destino>\Games com o disp
 (pasta-pai <destino>: existe; sistema de arquivos: NTFS). A estrutura de pastas da unidade pode estar
 danificada: verifique o disco (...) e tente de novo`, precedido do prefixo "Falha no dispositivo
 local. O download concluido foi preservado..." de `fallback.go`.
+
+### Teste rodada 1 — aprovado (2026-10-11)
+
+- Fase offline: o diff toca só arquivos reservados (+ CHANGELOG reivindicado). `go test ./services/pipeline/ -run ...`
+  deu 5 PASS. Na base, com o fix revertido na lane e restaurado depois, os 3 testes novos FALHAM: texto sem
+  `erro 3`, `marcar instalacao em andamento` e `<nil>` no teste da costura.
+- Ajuste ao Plano de teste: os jogos pequenos do catálogo HF (Cyberball, Gyruss) são pacotes XBLA.
+  `InstallContentFileLocal` usa `copyFileLocal`, não `copyTreeLocal`, então não passam pelo ramo do fix. A T2 usou
+  jogos de disco: Farming Simulator 15 (GOD, 309 MB) e Digimon All Star Rumble (XEX, 336 MB).
+- Resultado de T2/T3/T4 e o controle positivo: seção `## Status` no topo.
