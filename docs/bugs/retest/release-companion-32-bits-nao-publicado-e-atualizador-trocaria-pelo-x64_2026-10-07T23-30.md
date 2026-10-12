@@ -1,5 +1,14 @@
 # Bug: não existe Companion 32 bits publicado, e uma cópia 32 bits se atualizaria para o x64
 
+## Status
+
+- Movido de `open/` para `retest/` em 2026-10-12 a pedido do dono, depois da execucao 20261010-2242 do pipeline (planning: correcao ja em `origin/main`, sem codigo a mudar).
+- **Corrigido em:** 2026-10-07; **publicado** em 2026-10-08 (~02:10 UTC): `xboxcompanion32.exe` 2.12.109 ia32 no R2/HF e bloco `ia32` no `version.json`.
+- **Commits:** `2743a2b` [T1] fix(update) (copia 32 bits so atualiza pelo bloco ia32), `d4cce82` chore(release) 2.12.109 (build-and-upload publica o 32 bits).
+- **Onde:** `src/electron-app/services/autoUpdateService.ts::selectManifestBuild`; `build-and-upload.ps1` (`-Arch ia32`).
+- **Evidencia:** secoes "Execucao da T3" e "Publicacao" abaixo — PE `0x14c` em todos os binarios; app ia32 real em WOW64 recusou o x64 (`no ia32 build in the manifest`); sha256 do publicado igual ao build.
+- **Falta para `closed/`:** prova num Windows 32 bits nativo (nao ha maquina aqui) e confirmacao de um cliente 32 bits (ex.: chamado #157). Achado lateral: sondagem de integridade estoura o prazo fixo de 3 s no PowerShell 32 bits (secao "Execucao da T3").
+
 - **Detectado em:** 2026-10-07 (chamado #157 do painel, sessão `255490944716923@lid`)
 - **Origem:** conversa de suporte. Doc do lado do agente de WhatsApp:
   `digitalstoregamesproject/docs/modules/chatbot-whatsapp/areas/prompt-kb/bugs/2026-10-07-agente-xbox-diz-que-companion-nao-roda-em-windows-32-bits-e-existe-versao-32.md`
