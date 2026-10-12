@@ -338,3 +338,14 @@ Confirmada na fonte da lane (`d7bd9ad`), sem mudanca desde a analise de 2026-10-
 
 **O que destrava:** um pendrive FAT32 de teste liberado pelo dono (ou o `E:` depois que a copia dele terminar e
 ele autorizar), e a rodada do instrumento — ~7-28 min por variante com 1.000 arquivos de `kit`.
+
+## Desbloqueio (2026-10-12)
+
+O motivo do veredito `bloqueado` acima ("nenhum disco real liberado") **caiu**: o dono liberou o pendrive de
+teste `USB DISK 2.0`, serial `247700023090` (14,5 GB, MBR, hoje FAT32 com rotulo `PS2`), com conteudo
+descartavel — pode formatar e gravar. Regra, identificacao pelo serial e lock entre projetos: manual do pipeline
+(`.claude/skills/pipeline-correcao-bugs/projeto.md`, secao Teste). A proxima execucao do pipeline deve replanejar
+este bug, nao exclui-lo pelo veredito antigo.
+
+- A medicao das variantes de `copyLocalEntry` (~7-28 min por variante com 1.000 arquivos de `kit`) pode rodar
+  agora nesse pendrive; a escolha da correcao continua dependendo dela.
