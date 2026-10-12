@@ -33,8 +33,8 @@ vem do processo externo e não do texto do script.
   acento chegam assim ao usuário e ao report. Exemplos: `O destino não é um disco USB externo seguro`, `A unidade
   X: mudou antes da formatação`, `Para unidades maiores que 32 GB é necessário o utilitário fat32format.exe`.
 
-Correção provável: gravar o `.ps1` com BOM (`"﻿" + innerScript`). Antes de mudar, conferir se algum
-teste ou leitor depende do arquivo sem BOM. `readFormattedPartitionBytes` já tolera `﻿`.
+Correção provável: gravar o `.ps1` com BOM (`"\uFEFF" + innerScript`). Antes de mudar, conferir se algum
+teste ou leitor depende do arquivo sem BOM. `readFormattedPartitionBytes` já tolera `\uFEFF`.
 
 ## Como reproduzir
 
@@ -144,3 +144,26 @@ com BOM -> log criado; "exe existe: True"
 
 - dev: effort medium, ultrathink nao — troca mecânica e localizada (um helper de gravação + testes); não mexe na lógica do script de formatação.
 - teste: effort low, ultrathink nao — T2 é o teste automatizado com PowerShell real; o sinal é binário (`Ã` presente ou não).
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+- `src/electron-app/infrastructure/fat32Format.ts::writePowerShellScript` (novo, exportado) — grava o `.ps1` com BOM UTF-8
+  (`"\uFEFF" + script`). `::formatWindowsFat32` passa a gravar o script elevado por ele, no lugar do
+  `fs.writeFileSync(ps1Path, innerScript, "utf8")`. Comentario no codigo cita o slug. Nada mais mudou no script de formatacao.
+- `src/electron-app/tests/unit/fat32FormatGuard.test.cjs` — dois testes novos: (a) `o script elevado e gravado com BOM UTF-8`
+  (bytes `EF BB BF` + o texto intacto); (b) `PowerShell 5.1 com -File le acento do texto e do caminho do script gravado pelo app`
+  (so win32): pasta temporaria `fat32-Área ç-*`, script gravado pelo helper com `$log` embutido e `throw "O destino não é..."` em
+  `try/catch` + `Out-File -Encoding utf8`, rodado no `powershell.exe` do System32 com `-File`; confere exit 1, log existente, texto
+  legivel e sem `Ã`.
+- `src/electron-app/scripts/vhd-format-test/run-elevated.ps1` — novo `$utf8Bom`; a copia `<id>.run.ps1` e gravada com ele (antes
+  `$utf8NoBom`), para o harness do VHD ler o script como o app.
+- `CHANGELOG.md` `[Unreleased]` / `### Fixed` — entrada nova.
+
+**Provas (dev, nesta lane, apos `build` do helper rc 0):**
+- `node --test tests/unit/fat32FormatGuard.test.cjs` -> 20 pass / 0 fail (inclui `o tamanho final da particao chega ao app pela linha do log`).
+- Controle: no `.js` compilado, `"\uFEFF" + script` trocado por `script` (sem BOM) -> 18 pass / 2 fail, os dois novos; o (b) falha com
+  `Out-File : Nao foi possível localizar uma parte do caminho '...\fat32-A?rea ...'` (o log nem e criado). `.js` restaurado em seguida.
+- `node --test tests/unit/*.test.cjs` -> 321 pass / 0 fail.
+
+**Ajustes ao Plano de teste:** nenhum. O T2 segue sendo o teste (b) (dispensa de UI pelo motivo do Planejamento); o complemento do
+harness VHD so se a sessao de teste estiver elevada.

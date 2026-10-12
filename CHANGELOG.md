@@ -10,6 +10,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Mensagens do formatador FAT32 elevado chegavam com acentos corrompidos ("FormataÃ§Ã£o"), e com perfil do Windows acentuado o log nem era gravado (`src/electron-app/infrastructure/fat32Format.ts::writePowerShellScript`, `::formatWindowsFat32`)**
+  - Causa: o `.ps1` elevado era gravado em UTF-8 sem BOM; o Windows PowerShell 5.1 lê `-File` sem BOM na página ANSI, então cada letra acentuada do script virava duas — nas mensagens de `throw` que vão ao usuário e nos caminhos embutidos (`$log`, `$exePath` sob `%TEMP%`), que deixavam de existir para o PowerShell (HD > 32 GB não achava o `fat32format.exe` do portátil).
+  - Correção: o script passa a ser gravado com BOM (`writePowerShellScript`); o harness `scripts/vhd-format-test/run-elevated.ps1` grava a cópia de teste com BOM também. Teste roda o PowerShell 5.1 real numa pasta com acento.
+  - Bug: [docs/bugs/retest/electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40.md](docs/bugs/retest/electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40.md)
 - **Reparo CHKDSK acusava "excedeu o tempo limite de 5 minutos" com o chkdsk ainda rodando até o fim (`src/electron-app/services/driveRepairService.ts::repairDrive`, `::summarizeChkdskExit`)**
   - Caso: pendrive FAT32 com 65.912 arquivos; o `chkdsk /f /x` levou 16 min. O diálogo mostrava o relatório completo ("Nenhuma ação necessária") e, embaixo, o erro de tempo limite.
   - Causa: o `setTimeout` de 5 min chamava `child.kill()`, que no Windows mata só o `cmd.exe` de `cmd /c "echo Y | chkdsk ..."`; o chkdsk seguia escrevendo no pipe, o `close` chegava com `code null` e o `code ?? 0` gravava no log um "código 0, reparado: true" inventado. O handler `tools:drive-repair` também liberava um segundo reparo na mesma unidade aos 5 min.

@@ -11,6 +11,7 @@ const {
   buildGuardedWindowsFat32Script,
   readFormattedPartitionBytes,
   validateWindowsFormatGuard,
+  writePowerShellScript,
 } = require("../../infrastructure/fat32Format.js");
 
 const validGuard = {
@@ -432,6 +433,54 @@ test("o tamanho final da particao chega ao app pela linha do log", (t) => {
     ].join("\n"));
     assert.equal(written.status, 0, written.stderr || written.stdout);
     assert.equal(readFormattedPartitionBytes(fs.readFileSync(logPath, "utf8")), 15_524_167_680);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("o script elevado e gravado com BOM UTF-8", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fat32-bom-"));
+  try {
+    const ps1 = path.join(dir, "s.ps1");
+    writePowerShellScript(ps1, "'Formatação' | Out-Null");
+    const bytes = fs.readFileSync(ps1);
+    assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+    assert.equal(bytes.subarray(3).toString("utf8"), "'Formatação' | Out-Null");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("PowerShell 5.1 com -File le acento do texto e do caminho do script gravado pelo app", (t) => {
+  if (process.platform !== "win32") {
+    t.skip("PowerShell 5.1 disponivel somente no Windows");
+    return;
+  }
+  // Pasta com acento como um perfil C:\Users\João: sem BOM o 5.1 nem acha o caminho do log.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fat32-Área ç-"));
+  const ps1 = path.join(dir, "fmt.ps1");
+  const logPath = `${ps1}.log`;
+  try {
+    writePowerShellScript(ps1, [
+      `$log = '${logPath.replace(/'/g, "''")}'`,
+      "try {",
+      '  "Formatação FAT32 concluída com sucesso." | Out-File -FilePath $log -Encoding utf8',
+      '  throw "O destino não é um disco USB externo seguro (disco=1)."',
+      "} catch {",
+      "  ($_ | Out-String) | Out-File -FilePath $log -Append -Encoding utf8",
+      "  exit 1",
+      "}",
+    ].join("\r\n"));
+    const psExe = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const ran = spawnSync(psExe, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1], {
+      encoding: "utf8", timeout: 20_000,
+    });
+    assert.equal(ran.status, 1, ran.stderr || ran.stdout);
+    assert.ok(fs.existsSync(logPath), `log nao criado: ${ran.stderr || ran.stdout}`);
+    const log = fs.readFileSync(logPath, "utf8");
+    assert.match(log, /Formatação FAT32 concluída com sucesso\./);
+    assert.match(log, /O destino não é um disco USB externo seguro/);
+    assert.ok(!log.includes("Ã"), log);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

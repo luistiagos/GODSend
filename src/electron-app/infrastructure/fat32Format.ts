@@ -547,6 +547,17 @@ function runCommand(
   });
 }
 
+/**
+ * Writes a .ps1 with a UTF-8 BOM. Windows PowerShell 5.1 reads a `-File` script
+ * without BOM in the ANSI code page, so every accented character of the script
+ * text (messages, and paths like `C:\Users\João` embedded in it) turns into
+ * two and a path with an accent no longer resolves.
+ * [[electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40]]
+ */
+export function writePowerShellScript(filePath: string, script: string): void {
+  fs.writeFileSync(filePath, "\uFEFF" + script, "utf8");
+}
+
 function readLogTail(logPath: string, limit = 1500): string {
   try {
     const data = fs.readFileSync(logPath, "utf8").trim();
@@ -651,7 +662,7 @@ async function formatWindowsFat32(
       },
       label,
     );
-    fs.writeFileSync(ps1Path, innerScript, "utf8");
+    writePowerShellScript(ps1Path, innerScript);
 
     const { code, cancelled } = await runPs1Elevated(ps1Path);
     const detail = readLogTail(logPath);

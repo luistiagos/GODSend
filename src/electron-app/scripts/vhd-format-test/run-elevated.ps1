@@ -9,6 +9,8 @@ $ErrorActionPreference = 'Stop'
 $WorkDir = (Resolve-Path $WorkDir).Path
 Start-Transcript -Path (Join-Path $WorkDir 'harness.transcript.txt') -Force | Out-Null
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+# Com BOM, como o app grava o .ps1: o PowerShell 5.1 le -File sem BOM na pagina ANSI.
+$utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $manifest = Get-Content (Join-Path $WorkDir 'scenarios.json') -Raw | ConvertFrom-Json
 $preDisks = @(Get-Disk | ForEach-Object { [int]$_.Number })
@@ -80,7 +82,7 @@ foreach ($s in $manifest.scenarios) {
       if ($patch) { $txt = Replace-Once $txt $patch.old $patch.new }
     }
     $ps1 = Join-Path $WorkDir "$($s.id).run.ps1"
-    [System.IO.File]::WriteAllText($ps1, $txt, $utf8NoBom)
+    [System.IO.File]::WriteAllText($ps1, $txt, $utf8Bom)
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     & $psExe -NoProfile -ExecutionPolicy Bypass -File $ps1 | Out-Null
