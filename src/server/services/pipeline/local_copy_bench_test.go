@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +23,8 @@ import (
 // quanto custa por arquivo gravar num pendrive FAT32 com o copyLocalEntry real
 // e com as alternativas (sem Sync por arquivo, direto no nome final). Desligado
 // sem GODSEND_FAT32_TEST_DIR e GODSEND_BENCH_SRC; leva de minutos a horas.
+// As variantes rodam intercaladas em 4 blocos (ou de GODSEND_BENCH_BLOCK arquivos)
+// e o destino precisa de espaco para todas ao mesmo tempo.
 
 type benchCopyFunc func(entry *localCopyEntry, root, dst string) error
 
@@ -196,35 +199,102 @@ func TestFAT32LocalCopyBench(t *testing.T) {
 	})
 	t.Logf("origem %s: %d arquivos, %.1f MB; destino %s", src, len(entries), float64(totalSize)/1e6, root)
 
+	// The variants run interleaved, block by block, in ABBA order (odd blocks
+	// reversed), each into its own folder. Run one after another, a pendrive
+	// that slows down with use penalized whichever variant ran later: in round 1
+	// of the test staging fell from 405 to 280 files/min in three passes, and
+	// atual always ran right after staging. The two halves of the blocks are
+	// reported as two rounds. Four blocks by default, so each round is exactly
+	// AB+BA; the drain after a block adds 1-2 s of trailing writes, which more
+	// and smaller blocks would add again and again to every variant alike,
+	// pulling the ratios towards 1.
+	// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
+	blockSize := (len(entries) + 3) / 4
+	if v := os.Getenv("GODSEND_BENCH_BLOCK"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			t.Fatalf("GODSEND_BENCH_BLOCK=%q invalido", v)
+		}
+		blockSize = n
+	}
+	type benchTotals struct {
+		files             int
+		bytes, diskBytes  int64
+		writes            int64
+		elapsed, loopTime time.Duration
+	}
+	totals := make(map[string]*[2]benchTotals, len(order))
 	for _, name := range order {
-		copyFunc, ok := benchVariants[name]
-		if !ok {
+		if _, ok := benchVariants[name]; !ok {
 			t.Fatalf("variante %q desconhecida", name)
 		}
-		dstDir := filepath.Join(root, name)
-		_, startWrites, startBytes := benchDrain(t, volume)
-		start := time.Now()
-		for i := range entries {
-			entry := entries[i]
-			entry.sha256 = ""
-			if err := copyFunc(&entry, root, filepath.Join(dstDir, entry.relativePath)); err != nil {
-				t.Fatalf("%s: arquivo %d/%d %s: %v", name, i+1, len(entries), entry.relativePath, err)
+		if totals[name] != nil {
+			t.Fatalf("variante %q repetida: as variantes ja rodam intercaladas", name)
+		}
+		totals[name] = &[2]benchTotals{}
+	}
+	blocks := (len(entries) + blockSize - 1) / blockSize
+	t.Logf("%d blocos de ate %d arquivos, variantes intercaladas (ABBA): %v", blocks, blockSize, order)
+
+	_, prevWrites, prevBytes := benchDrain(t, volume)
+	for block := 0; block < blocks; block++ {
+		first, last := block*blockSize, min((block+1)*blockSize, len(entries))
+		half := 0
+		if block >= (blocks+1)/2 {
+			half = 1
+		}
+		names := append([]string(nil), order...)
+		if block%2 == 1 {
+			slices.Reverse(names)
+		}
+		for _, name := range names {
+			dstDir := filepath.Join(root, name)
+			var blockBytes int64
+			start := time.Now()
+			for i := first; i < last; i++ {
+				entry := entries[i]
+				entry.sha256 = ""
+				blockBytes += entry.size
+				if err := benchVariants[name](&entry, root, filepath.Join(dstDir, entry.relativePath)); err != nil {
+					t.Fatalf("%s: arquivo %d/%d %s: %v", name, i+1, len(entries), entry.relativePath, err)
+				}
 			}
-		}
-		loopEnd := time.Now()
-		lastWrite, endWrites, endBytes := benchDrain(t, volume)
-		end := loopEnd
-		if lastWrite.After(end) {
-			end = lastWrite
-		}
-		elapsed := end.Sub(start)
-		writes := endWrites - startWrites
-		t.Logf("%-12s %8.1fs (laco %6.1fs)  %7.1f arq/min  %5.2f MB/s  %7d escritas  %5.1f escr/arq  %7.1f MB no disco",
-			name, elapsed.Seconds(), loopEnd.Sub(start).Seconds(),
-			float64(len(entries))/elapsed.Minutes(), float64(totalSize)/1e6/elapsed.Seconds(),
-			writes, float64(writes)/float64(len(entries)), float64(endBytes-startBytes)/1e6)
-		if err := os.RemoveAll(dstDir); err != nil {
-			t.Fatal(err)
+			loopEnd := time.Now()
+			lastWrite, writes, bytes := benchDrain(t, volume)
+			end := loopEnd
+			if lastWrite.After(end) {
+				end = lastWrite
+			}
+			tot := &totals[name][half]
+			tot.files += last - first
+			tot.bytes += blockBytes
+			tot.writes += writes - prevWrites
+			tot.diskBytes += bytes - prevBytes
+			tot.elapsed += end.Sub(start)
+			tot.loopTime += loopEnd.Sub(start)
+			prevWrites, prevBytes = writes, bytes
 		}
 	}
+
+	report := func(label string, get func(name string) benchTotals) {
+		base := get(order[0])
+		if base.files == 0 {
+			return
+		}
+		baseRate := float64(base.files) / base.elapsed.Minutes()
+		for _, name := range order {
+			tot := get(name)
+			rate := float64(tot.files) / tot.elapsed.Minutes()
+			t.Logf("%-8s %-12s %8.1fs (laco %6.1fs)  %7.1f arq/min  %5.3fx %-8s  %5.2f MB/s  %7d escritas  %5.1f escr/arq  %7.1f MB no disco",
+				label, name, tot.elapsed.Seconds(), tot.loopTime.Seconds(), rate, rate/baseRate, order[0],
+				float64(tot.bytes)/1e6/tot.elapsed.Seconds(), tot.writes, float64(tot.writes)/float64(tot.files),
+				float64(tot.diskBytes)/1e6)
+		}
+	}
+	report("total", func(name string) benchTotals {
+		a, b := totals[name][0], totals[name][1]
+		return benchTotals{a.files + b.files, a.bytes + b.bytes, a.diskBytes + b.diskBytes, a.writes + b.writes, a.elapsed + b.elapsed, a.loopTime + b.loopTime}
+	})
+	report("rodada 1", func(name string) benchTotals { return totals[name][0] })
+	report("rodada 2", func(name string) benchTotals { return totals[name][1] })
 }

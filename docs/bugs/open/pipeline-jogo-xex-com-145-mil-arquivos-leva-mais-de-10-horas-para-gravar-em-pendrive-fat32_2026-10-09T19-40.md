@@ -702,3 +702,33 @@ cada variante na sua pasta. Uma desaceleracao monotona do aparelho cai igual em 
 as duas metades dos blocos como "rodada 1" e "rodada 2", com a razao de cada variante contra a primeira da lista — o
 criterio do plano (`atual` >= 1,25x `staging` nas duas rodadas) se le direto dessas linhas. Variante repetida na
 lista vira erro (com intercalacao a repeticao nao tem sentido). O criterio **nao muda**.
+
+**Correcao aplicada (rodada 2 do dev):** so `src/server/services/pipeline/local_copy_bench_test.go::TestFAT32LocalCopyBench`
+mudou; `local_resilient.go` e os testes de corretude estao iguais aos de `b35a4e5` (o que a T2/T3/T4 aprovou).
+- Variantes intercaladas por bloco, ordem ABBA (bloco impar invertido), cada uma na sua pasta (`<raiz>\<variante>`);
+  as pastas coexistem ate o fim (o destino precisa de espaco para todas) e saem no `t.Cleanup`.
+- **4 blocos por padrao** (`GODSEND_BENCH_BLOCK` muda o tamanho): cada metade e exatamente AB+BA, entao a deriva
+  linear se cancela dentro de cada "rodada". Por que nao blocos pequenos: o dreno depois de cada bloco soma a cauda de
+  escritas (1-2,5 s por passada na medicao da rodada 1, inclusive nas variantes com `Sync`) e, com 10 blocos, essa
+  cauda entraria 10 vezes em cada variante, puxando as razoes para 1 — vies contra o fix de novo.
+- Saida: linhas `total`, `rodada 1` e `rodada 2` por variante, com `arq/min`, a razao contra a primeira variante da
+  lista (`N.NNNx staging`), MB/s, escritas e `escr/arq`. Variante repetida em `GODSEND_BENCH_VARIANTS` -> `FAIL`
+  imediato ("as variantes ja rodam intercaladas").
+
+Provas offline (2026-10-12): `go vet ./services/pipeline/` limpo; `gofmt -d` vazio; `go test ./services/pipeline/
+-count=1` -> `ok 5.100s`; compile-check do helper (`pipeline.py build`) -> rc 0; bench a seco em `%TEMP%` (`GODSEND_BENCH_ALLOW_NONFAT=1`, `GODSEND_BENCH_DRAIN_MAX=4s`):
+60 arquivos/3 variantes/blocos de 20 e 80 arquivos/`staging,atual`/4 blocos -> `PASS`, pasta de teste apagada;
+`staging,atual,staging` -> `FAIL` com "variante \"staging\" repetida". Numeros do SSD nao valem: o disco do sistema
+nunca fica parado e o tempo de cada bloco vira o teto do dreno.
+
+**Medicao para a sessao de teste (substitui o comando do Plano de teste; criterio inalterado):** pendrive confirmado
+pelo serial com `Trim()`, lock, nenhum `godsend*` gravando, **>= 600 MB livres**. Em `src/server` da lane:
+`$env:GODSEND_FAT32_TEST_DIR='<letra>:\'`;
+`$env:GODSEND_BENCH_SRC='C:\projects\Downloader-XBOX360-XEX-HDD-Games\Temp\EA FC 26 Legacy Edition_hf_ext\EA FC 26 Legacy Edition\data\sceneassets\kit'`;
+`$env:GODSEND_BENCH_MAX_FILES='2000'`; `$env:GODSEND_BENCH_VARIANTS='staging,atual'` (sem `GODSEND_BENCH_BLOCK`:
+4 blocos de 500); `go test ./services/pipeline/ -run TestFAT32LocalCopyBench -count=1 -v -timeout 6h` em BACKGROUND
+(~15-25 min pelas taxas da rodada 1). 2.000 arquivos em vez de 1.000 para a cauda do dreno pesar ~2% por bloco.
+**Criterio (o mesmo):** linhas `rodada 1 atual` e `rodada 2 atual` com razao >= 1,250x `staging` e `escr/arq` menor.
+Entre 1,0x e 1,25x com a medicao intercalada: o ganho real e esse, e a decisao (aceitar ou `sem-codigo`) e do dono —
+nao ha alavanca de codigo medida que falte (ver hipoteses acima). T2/T3/T4 da rodada 1 continuam valendo: o codigo
+gravado no pendrive nao mudou.
