@@ -1,5 +1,52 @@
 # Bug: jogo XEX com 145 mil arquivos (EA FC 26 Legacy Edition) leva mais de 10 horas para gravar num pendrive FAT32; proposta: converter para GOD no PC antes de gravar
 
+## Status
+
+- **Corrigido e testado:** 2026-10-12 (pipeline 20261012-0329), teste rodada 2 aprovado. A rodada 1 reprovou so pela
+  Medicao (bench sequencial com vies de ordem contra o fix: secao "Teste rodada 1" e a analise do dev abaixo); o codigo
+  do fix nao mudou entre as rodadas, o bench passou a intercalar as variantes (ABBA).
+- **Commits:** fix `b35a4e5` (gravacao direta), bench intercalado `a637332`, docs `d511562`, `cea4d06`, `4266c76` e este
+  (rebaseados sobre `origin/main` @ `50dcfe9`; o SHA publicado pode mudar no rebase do `publish`).
+- **Onde:** `src/server/services/pipeline/local_resilient.go::orderEntryPointsLast` (marca `direct` em todo arquivo
+  atras de `default.xex` na raiz ou dentro de `<cabecalho>.data/` com o cabecalho no manifesto),
+  `::copyLocalEntry` (com `direct`: grava no nome final, sem staging nem rename; `Sync`, conferencia de tamanho; em erro
+  mantem o destino para a retomada reescrever), `::localCopyEntry.direct`; o ponto de entrada, pacote de conteudo solto
+  e `copyFileLocal` seguem pela staging. Bench: `local_copy_bench_test.go::TestFAT32LocalCopyBench`.
+- **Evidencia:** `C:\projects\.bugfix-xbox360\evidencia\20261012-teste-r2-pipeline-jogo-xex-145-mil\` (`LEIAME.md`;
+  rodada 1 em `...\20261012-teste-r1-pipeline-jogo-xex-145-mil\`). Pendrive de teste serial `247700023090` (`E:`, FAT32,
+  confirmado com `Trim()`), lock entre projetos criado e removido.
+  - **Offline:** `go vet ./services/pipeline/` limpo; bench a seco (80 arquivos, `%TEMP%`) PASS com as linhas
+    `total`/`rodada 1`/`rodada 2`; `staging,atual,staging` -> FAIL "variante repetida", como projetado.
+  - **Medicao (prova central, criterio do plano):** 2.000 arquivos de `kit` (268 MB), `staging,atual`, 4 blocos de 500
+    intercalados ABBA, PASS em 833 s (`medicao-bench-pendrive.txt`): **rodada 1 `atual` 498,7 arq/min = 1,354x
+    `staging` (368,4); rodada 2 466,7 = 1,375x (339,5); total 1,365x**; `escr/arq` 15,1 -> 12,1 / 12,0. Criterio
+    (>= 1,25x nas duas rodadas, `escr/arq` menor) atingido.
+  - **T2 (UI, app da lane, controle positivo na base):** Baixar Jogos -> "EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360
+    RGH )" (XEX, 2.216 arquivos, `default.xex` na raiz) -> XEX -> pendrive `E:\` (unico stub: a lista de unidades so
+    devolve `E:\`; `config.json` do dev com `simpleMode:false` durante o teste, original devolvido). Base (`50dcfe9`,
+    build do helper com a lane destacada): staging com arquivo em **50 de 68** amostras durante a gravacao (sinal do
+    sintoma: todo arquivo pela staging), 381,2 arq/min. Fix (`a637332`): staging com arquivo em **1 de 58** — a ultima
+    amostra, a do `default.xex`, o unico arquivo desta arvore que vai pela staging —, 445,4 arq/min (comparacao
+    sequencial, base antes, mesmo vies da medicao da rodada 1; na rodada 1 deu 1,30x). Nos dois: Ready "Gravado no
+    dispositivo!", 2.216 arquivos, `default.xex`, sem `.xbox-companion-installing`, staging vazia no fim. Fix: os 2.216
+    arquivos conferem CRC32 e tamanho com o `.zip` de origem (`t2-fix-crc32.txt`). Backend PID 60320 com Path
+    `lanes\wt-1\dist\godsend-windows-x64.exe`, banner na Home.
+  - **T3:** `go test -count=1 ./...` rc 0; `test:safety` 327 pass / 0 fail. Pendrive:
+    `TestFAT32CopyTreeLocalRecoversFragmentedDirectory` PASS (1427 s): fase 2.12.109 falha no #12569 (controle); fase
+    nova: 1 `ERROR_CANNOT_MAKE` vindo do `open` do nome final (caminho direto), pasta regravada uma vez, 13.146
+    arquivos em 8m59s (rodada 1: PASS, 9m19s).
+  - **T4:** logs do app dev e console do backend nas janelas de base e fix: so o erro de CSP das fontes do Google
+    (pre-existente); nenhum erro do backend.
+  - **Nao testado:** retomada pela UI (cancelar na Fila no meio e reenfileirar) — coberta pelo teste de unidade
+    `TestCopyTreeLocalResumesDirectFileCutShortByRemovedDevice`; jogo GOD pequeno no pendrive (nenhum cabia nos 3,2 GB
+    livres); `TestFAT32CopyTreeLocalFitsLargeDirectory` (a mesma pasta grande pelo caminho direto e gravada no
+    Recovers).
+- **Bug lateral (nao pertinente, igual na base):**
+  `docs/bugs/open/pipeline-xex-com-default-xex-na-raiz-do-arquivo-grava-pasta-com-sufixo-hf-ext_2026-10-12T14-56.md`.
+- **Falta para `closed/`:** versao publicada (subida de versao + `build-and-upload.ps1`, do dono); o EA FC 26 inteiro
+  (144.851 arquivos) num pendrive do cliente — o ganho medido e ~1,35x, entao continua levando horas num pendrive USB
+  2.0; decisao do dono sobre orientar pendrive USB 3.0/HD para jogos com 100 mil+ arquivos; a prova do cliente.
+
 - **Detectado em:** 2026-10-09 ~19:20 (horario local), em teste do dono na maquina de desenvolvimento
 - **Origem:** log `%APPDATA%\xbox-360-companion-electron\logs\godsend-server-2026-10-09.log`, contadores de disco do Windows durante a copia, mtime dos arquivos ja gravados no pendrive, leitura de `src/server/services/pipeline/local_resilient.go` e `src/server/utils/iso2god.go`
 - **Classe:** desempenho / gravacao local
@@ -732,3 +779,7 @@ pelo serial com `Trim()`, lock, nenhum `godsend*` gravando, **>= 600 MB livres**
 Entre 1,0x e 1,25x com a medicao intercalada: o ganho real e esse, e a decisao (aceitar ou `sem-codigo`) e do dono —
 nao ha alavanca de codigo medida que falte (ver hipoteses acima). T2/T3/T4 da rodada 1 continuam valendo: o codigo
 gravado no pendrive nao mudou.
+
+### Teste rodada 2 — aprovado (2026-10-12, 15:30-16:35)
+
+Resultados e evidencia na secao `## Status` no topo.
