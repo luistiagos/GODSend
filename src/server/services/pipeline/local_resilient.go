@@ -56,6 +56,10 @@ type localCopyEntry struct {
 	relativePath string
 	size         int64
 	sha256       string
+	// direct writes the file at its final name, without the staging round trip.
+	// Only orderEntryPointsLast sets it, for files the console cannot reach
+	// before their entry point; the zero value keeps the staging path.
+	direct bool
 }
 
 func newLocalDeviceID() (string, error) {
@@ -405,16 +409,32 @@ func localStagingPath(root, dst string) string {
 
 // copyLocalEntry commits only a fully written and verified file. A valid
 // staged file left between copy and rename can be committed on resume.
+//
+// A direct entry is written at its final name instead. Per file, the staging
+// costs an entry created in another folder, the destination removed and a
+// rename across folders: metadata writes that a cheap USB 2.0 pendrive serves
+// at 40-100 per second, hours for a game with 145 thousand files. A direct file
+// sits behind an entry point that is still staged and written last, so the
+// console never reaches it half written; copyTreeLocal reuses a file only when
+// size and SHA-256 match, so a file cut short is rewritten in place on resume.
+// On error it is kept: deleting it only opens a hole in the FAT folder.
+// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
 func copyLocalEntry(entry *localCopyEntry, root, dst string, onProgress func(bytesCopied int64)) error {
 	_ = os.Remove(dst + legacyLocalPartSuffix)
 	partial := localStagingPath(root, dst)
-	if st, err := os.Stat(partial); err == nil && st.Mode().IsRegular() && st.Size() == entry.size {
-		if matches, matchErr := localFileMatches(partial, entry); matchErr == nil && matches {
-			_ = os.Remove(dst)
-			return os.Rename(partial, dst)
+	if !entry.direct {
+		if st, err := os.Stat(partial); err == nil && st.Mode().IsRegular() && st.Size() == entry.size {
+			if matches, matchErr := localFileMatches(partial, entry); matchErr == nil && matches {
+				_ = os.Remove(dst)
+				return os.Rename(partial, dst)
+			}
 		}
 	}
 	_ = os.Remove(partial)
+	target, discard := partial, func() { _ = os.Remove(partial) }
+	if entry.direct {
+		target, discard = dst, func() {}
+	}
 	if entry.size >= 4294967295 && helpers.IsFATVolume(dst) {
 		return fmt.Errorf("%w: o arquivo '%s' possui %.2f GB e excede o limite maximo de 4 GB do sistema FAT32 (jogos com arquivos grandes devem ser instalados no formato GOD)",
 			ErrFAT32FileSizeLimit, filepath.Base(dst), float64(entry.size)/(1024*1024*1024))
@@ -422,8 +442,10 @@ func copyLocalEntry(entry *localCopyEntry, root, dst string, onProgress func(byt
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(partial), 0755); err != nil {
-		return err
+	if !entry.direct {
+		if err := os.MkdirAll(filepath.Dir(partial), 0755); err != nil {
+			return err
+		}
 	}
 	in, err := os.Open(entry.sourcePath)
 	if err != nil {
@@ -431,7 +453,13 @@ func copyLocalEntry(entry *localCopyEntry, root, dst string, onProgress func(byt
 	}
 	defer in.Close()
 
-	out, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil && entry.direct {
+		// A read-only destination (left by another tool) refuses OpenFile;
+		// os.Remove clears the attribute, as the remove before the rename did.
+		_ = os.Remove(dst)
+		out, err = os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	}
 	if err != nil {
 		return err
 	}
@@ -450,43 +478,46 @@ func copyLocalEntry(entry *localCopyEntry, root, dst string, onProgress func(byt
 	closeOutErr := out.Close()
 
 	if copyErr != nil {
-		_ = os.Remove(partial)
+		discard()
 		return copyErr
 	}
 	if syncErr != nil {
-		_ = os.Remove(partial)
+		discard()
 		return syncErr
 	}
 	if closeOutErr != nil {
-		_ = os.Remove(partial)
+		discard()
 		return closeOutErr
 	}
 	if copied != entry.size {
-		_ = os.Remove(partial)
+		discard()
 		return fmt.Errorf("tamanho gravado divergente para %s: esperado %d, gravado %d bytes", filepath.Base(dst), entry.size, copied)
 	}
 
 	entry.sha256 = hex.EncodeToString(hasher.Sum(nil))
 
 	if os.Getenv("GODSEND_FULL_VERIFY") == "1" || os.Getenv("GODSEND_FULL_VERIFY") == "true" {
-		partHash, hashErr := hashLocalFile(partial)
+		partHash, hashErr := hashLocalFile(target)
 		if hashErr != nil || partHash != entry.sha256 {
-			_ = os.Remove(partial)
+			discard()
 			if hashErr != nil {
 				return hashErr
 			}
 			return fmt.Errorf("verificacao SHA-256 falhou para %s", filepath.Base(dst))
 		}
 	} else {
-		partStat, statErr := os.Stat(partial)
+		partStat, statErr := os.Stat(target)
 		if statErr != nil {
-			_ = os.Remove(partial)
+			discard()
 			return statErr
 		}
 		if partStat.Size() != entry.size {
-			_ = os.Remove(partial)
+			discard()
 			return fmt.Errorf("tamanho do arquivo no disco divergente para %s: esperado %d, encontrado %d", filepath.Base(dst), entry.size, partStat.Size())
 		}
+	}
+	if entry.direct {
+		return nil
 	}
 
 	var renameErr error
@@ -768,6 +799,12 @@ func writeInstallInProgressMarker(dstDir, gameName string) error {
 // file next to its "<header>.data" folder. Lexical order wrote them early
 // (data/ < default.xex, header < header.data), so a copy that stopped midway
 // left the console a game it lists and cannot start.
+//
+// It also marks as direct the files behind an entry point: everything but
+// default.xex when it is at the top, and the files of a "<header>.data" folder
+// whose header is in the manifest. A loose content package (DLC, title update)
+// has no entry point, the console sees it by its own name, so it stays staged.
+// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
 func orderEntryPointsLast(entries []localCopyEntry) {
 	dataOwners := make(map[string]bool)
 	for _, entry := range entries {
@@ -777,14 +814,23 @@ func orderEntryPointsLast(entries []localCopyEntry) {
 		}
 	}
 	entryPoint := make(map[string]bool, 2)
+	headers := make(map[string]bool)
+	xexAtTop := false
 	for _, entry := range entries {
 		rel := strings.ToLower(entry.relativePath)
 		if rel == "default.xex" || dataOwners[rel] {
 			entryPoint[entry.relativePath] = true
+			headers[rel] = true
+			xexAtTop = xexAtTop || rel == "default.xex"
 		}
 	}
 	if len(entryPoint) == 0 {
 		return
+	}
+	for i := range entries {
+		dir := strings.ToLower(filepath.Dir(entries[i].relativePath))
+		behindHeader := strings.HasSuffix(dir, ".data") && headers[strings.TrimSuffix(dir, ".data")]
+		entries[i].direct = !entryPoint[entries[i].relativePath] && (xexAtTop || behindHeader)
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		return !entryPoint[entries[i].relativePath] && entryPoint[entries[j].relativePath]

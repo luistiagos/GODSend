@@ -87,17 +87,22 @@ func TestFAT32LegacyPartSuffixExhaustsDirectory(t *testing.T) {
 	t.Fatalf("premissa mudou: o esquema antigo gravou os %d nomes sem estourar a pasta", len(names))
 }
 
-// A correcao: copyTreeLocal grava o temporario na staging do dispositivo e a
-// pasta do jogo recebe so nomes finais, que cabem.
+// A correcao: a pasta do jogo recebe so nomes finais, que cabem. Os arquivos
+// atras do default.xex vao direto para o nome final; o default.xex passa pela
+// staging do dispositivo.
+// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
 func TestFAT32CopyTreeLocalFitsLargeDirectory(t *testing.T) {
 	root := fat32TestRoot(t)
-	source := filepath.Join(t.TempDir(), "faces")
-	if err := os.MkdirAll(source, 0755); err != nil {
+	source := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(source, "faces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "default.xex"), []byte("xex"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	names := fat32FacesNames()
 	for _, name := range names {
-		if err := os.WriteFile(filepath.Join(source, name), nil, 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(source, "faces", name), nil, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -108,14 +113,17 @@ func TestFAT32CopyTreeLocalFitsLargeDirectory(t *testing.T) {
 	a := app.NewApp()
 	a.XboxConnections.Store("FAT32", models.XboxConnection{Mode: "local", LocalRoot: root, LocalDeviceID: deviceID})
 	service := &Service{App: a}
-	destination := filepath.Join(root, "Games", "EA FC 26", "faces")
+	destination := filepath.Join(root, "Games", "EA FC 26")
 	start := time.Now()
 	if err := service.copyTreeLocal(source, destination, root, "FAT32", "XEX"); err != nil {
 		t.Fatalf("copyTreeLocal falhou: %v", err)
 	}
 	t.Logf("%d arquivos gravados em %s", len(names), time.Since(start).Round(time.Second))
 
-	written, err := os.ReadDir(destination)
+	if got, err := os.ReadFile(filepath.Join(destination, "default.xex")); err != nil || string(got) != "xex" {
+		t.Fatalf("default.xex incorreto: %q, err=%v", got, err)
+	}
+	written, err := os.ReadDir(filepath.Join(destination, "faces"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,10 +146,16 @@ func TestFAT32CopyTreeLocalFitsLargeDirectory(t *testing.T) {
 // A pasta fica numa subpasta do jogo, como data/sceneassets/faces, e o marcador
 // de instalacao fica na pasta do jogo, nao na saturada.
 // [[pipeline-gravacao-local-fragmenta-pasta-fat32-ate-o-limite-de-65536-entradas-e-o-rename-falha_2026-10-09T12-00]]
+// Com o default.xex na raiz, os arquivos de faces vao direto para o nome final:
+// o ERROR_CANNOT_MAKE vem do OpenFile, nao do rename, e tem de ser reconhecido.
+// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
 func TestFAT32CopyTreeLocalRecoversFragmentedDirectory(t *testing.T) {
 	root := fat32TestRoot(t)
 	source := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(source, "faces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "default.xex"), []byte("xex"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	names := fat32FacesNames()
@@ -189,6 +203,9 @@ func TestFAT32CopyTreeLocalRecoversFragmentedDirectory(t *testing.T) {
 	previousCopy := copyLocalEntryFunc
 	t.Cleanup(func() { copyLocalEntryFunc = previousCopy })
 	copyLocalEntryFunc = func(entry *localCopyEntry, root, dst string, onProgress func(int64)) error {
+		if wantDirect := entry.relativePath != "default.xex"; entry.direct != wantDirect {
+			t.Errorf("%s: direct=%v, esperado %v", entry.relativePath, entry.direct, wantDirect)
+		}
 		err := previousCopy(entry, root, dst, onProgress)
 		if isFATDirectoryFull(err) {
 			cannotMake++

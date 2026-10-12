@@ -542,3 +542,60 @@ Detalhe de biblioteca conferido (Go 1.26.6, `syscall/syscall_windows.go:429-480`
 Um destino somente leitura (copiado de ISO montada por outra ferramenta) faz o `OpenFile` falhar com acesso negado;
 o caminho antigo o substituia porque `os.Remove` limpa o atributo (`os/file_windows.go:222-257`). O caminho direto
 tenta `os.Remove(dst)` e abre de novo uma vez, para nao perder esse caso.
+
+## Correcao (pipeline 20261012-0329, rodada 1)
+
+Variante do plano: `direto-sync` (nome final, `Sync` mantido), so para arquivo atras de ponto de entrada (nota do
+dev acima). O que mudou:
+
+- `src/server/services/pipeline/local_resilient.go::localCopyEntry` — campo `direct bool`; valor zero = staging, entao
+  `copyFileLocal` (entrada literal) e qualquer chamador que nao saiba dele seguem no caminho antigo.
+- `local_resilient.go::orderEntryPointsLast` — depois de achar os pontos de entrada, marca `direct` em todo arquivo
+  que nao e ponto de entrada e esta atras de um: `default.xex` na raiz cobre a arvore inteira; `<cabecalho>.data/`
+  com o `<cabecalho>` no manifesto cobre os blocos. Sem ponto de entrada (pacote STFS solto de Content) retorna antes
+  e nada vai direto.
+- `local_resilient.go::copyLocalEntry` — com `direct`: nao promove sobra da staging (apaga), nao cria a pasta da
+  staging, abre o **destino** com `O_CREATE|O_WRONLY|O_TRUNC` (Go 1.26: `OPEN_ALWAYS` + `Ftruncate`, mesma entrada
+  de diretorio), se o `OpenFile` falhar tenta `os.Remove(dst)` e abre de novo uma vez (destino somente leitura),
+  copia com SHA-256, `Sync`, `Close`, confere tamanho (ou hash com `GODSEND_FULL_VERIFY`) e retorna sem rename. Em
+  erro devolve o erro **sem apagar** o destino (`discard` vazio): a retomada o reescreve no lugar. Sem `direct`: os
+  mesmos passos de antes (as remocoes viraram `discard()`, que apaga a staging como antes; `partial` virou `target`).
+  Comentarios citam `[[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]`.
+- Testes: `local_resilient_test.go::TestCopyLocalEntryDirectWritesFinalNameWithoutStaging` (a: durante a gravacao a
+  staging nao existe e a pasta so tem o nome final; sobra integra da staging e apagada, nao promovida; destino
+  existente reescrito), `::TestCopyTreeLocalRewritesWrongDirectFileInPlace` (b), `::TestCopyTreeLocalResumesDirectFileCutShortByRemovedDevice`
+  (c: o `copyLocalEntry` real grava metade no nome final e o pendrive "sai"; a metade fica, `default.xex` ausente, marca
+  presente; com o mesmo pendrive de volta a retomada reescreve e conclui); `local_install_marker_test.go` — quem vai
+  direto no teste da marca (2 `false`, 4 `true`) e `::TestOrderEntryPointsLastWritesDirectOnlyBehindAnEntryPoint`
+  (Content solto, GOD, `.data` orfao ao lado de GOD, XEX). Os testes antigos de staging (d) passam sem mudanca.
+- `local_resilient_fat32_test.go` — `TestFAT32CopyTreeLocalFitsLargeDirectory` e
+  `TestFAT32CopyTreeLocalRecoversFragmentedDirectory` ganharam `default.xex` na raiz da origem (a pasta grande e
+  `faces/`), para gravar os 13.146 nomes **pelo caminho direto** em FAT32 real; o segundo confere `direct` por arquivo
+  e que o `ERROR_CANNOT_MAKE` do `OpenFile` (nao mais do rename) dispara a reorganizacao uma vez. A staging continua
+  existindo (o `default.xex` passa por ela) e tem de terminar vazia — por isso a tarefa "aceitar staging inexistente"
+  do plano nao foi necessaria.
+- `local_copy_bench_test.go::benchVariants` — `staging` (`direct=false`, o caminho da base) e `atual` (`direct=true`);
+  ordem padrao `staging,atual,sem-sync,direto,direto-sync`.
+- `AGENTS.md` (reservado com `claim`) — invariante: so vai direto o que esta atras de ponto de entrada.
+- `CHANGELOG.md` `[Unreleased]` `### Fixed`.
+
+Provas offline (2026-10-12, na lane):
+- `go vet ./services/pipeline/` limpo; `gofmt -d` vazio nos 5 arquivos (normalizados para LF).
+- `go test ./services/pipeline/ -count=1` -> `ok godsend/services/pipeline 5.077s`.
+- Compile-check do helper (`pipeline.py build`) -> rc 0: `dist/godsend*.exe` (x64, ia32), `tsc` e `renderer:typecheck`.
+- Mutacao: `orderEntryPointsLast` sem marcar `direct` -> falham `TestCopyTreeLocalMarksFolderUntilLastFileAndWritesEntryPointsLast`,
+  `TestOrderEntryPointsLastWritesDirectOnlyBehindAnEntryPoint`, `TestCopyTreeLocalResumesDirectFileCutShortByRemovedDevice`;
+  `discard` do caminho direto apagando o destino -> falha `TestCopyTreeLocalResumesDirectFileCutShortByRemovedDevice`.
+  Codigo restaurado depois.
+- Bench a seco (`GODSEND_BENCH_ALLOW_NONFAT=1`, `%TEMP%` no SSD, 50 arquivos de `kit`, `GODSEND_BENCH_DRAIN_MAX=4s`):
+  as 5 variantes completam, `PASS` em 59,7 s. Numeros **nao valem** (disco do sistema); so por curiosidade, as
+  escritas por arquivo sairam staging 10,6 / atual 9,2 / direto-sync 8,1 / direto 6,4 / sem-sync 5,5.
+
+Ajustes ao Plano de teste (para a sessao de teste):
+- Medicao: o comando do plano vale como esta (`GODSEND_BENCH_VARIANTS='staging,atual,direto,staging,atual'`).
+- T3 com o pendrive: `TestFAT32CopyTreeLocalFitsLargeDirectory` e `TestFAT32CopyTreeLocalRecoversFragmentedDirectory`
+  agora exercitam o caminho direto; o segundo **tem de** ver exatamente 1 `ERROR_CANNOT_MAKE`. Se o `OpenFile` numa
+  pasta FAT32 cheia devolver outro erro que nao o 82, e reprovacao (a reorganizacao nao dispararia).
+- T2: a pasta `<letra>:\.xbox-downloader\copy-staging` existe ao fim (o `default.xex` passa por ela) e tem de estar
+  vazia.
+- Um jogo/DLC instalado como Content (pacote solto) continua pela staging: nao e regressao se a taxa dele nao mudar.

@@ -55,7 +55,16 @@ func benchCopyFile(entry *localCopyEntry, path string, syncFile bool) error {
 }
 
 var benchVariants = map[string]benchCopyFunc{
+	// staging: the path before the fix, still used by entry points and loose
+	// content packages. atual: what copyTreeLocal does with a file behind an
+	// entry point. Same binary, so both run on the same volume at the same hour.
+	// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
+	"staging": func(entry *localCopyEntry, root, dst string) error {
+		entry.direct = false
+		return copyLocalEntry(entry, root, dst, nil)
+	},
 	"atual": func(entry *localCopyEntry, root, dst string) error {
+		entry.direct = true
 		return copyLocalEntry(entry, root, dst, nil)
 	},
 	"sem-sync": func(entry *localCopyEntry, root, dst string) error {
@@ -160,7 +169,7 @@ func TestFAT32LocalCopyBench(t *testing.T) {
 		}
 		maxFiles = n
 	}
-	order := []string{"atual", "sem-sync", "direto", "direto-sync"}
+	order := []string{"staging", "atual", "sem-sync", "direto", "direto-sync"}
 	if v := os.Getenv("GODSEND_BENCH_VARIANTS"); v != "" {
 		order = strings.Split(v, ",")
 	}

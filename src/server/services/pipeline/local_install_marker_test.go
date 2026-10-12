@@ -51,6 +51,7 @@ func TestCopyTreeLocalMarksFolderUntilLastFileAndWritesEntryPointsLast(t *testin
 	})
 	marker := filepath.Join(destination, installInProgressMarker)
 	var order []string
+	direct := make(map[string]bool)
 	original := copyLocalEntryFunc
 	defer func() { copyLocalEntryFunc = original }()
 	copyLocalEntryFunc = func(entry *localCopyEntry, root, dst string, onProgress func(int64)) error {
@@ -58,6 +59,7 @@ func TestCopyTreeLocalMarksFolderUntilLastFileAndWritesEntryPointsLast(t *testin
 			t.Errorf("gravando %s sem a marca de instalacao em andamento: %v", entry.relativePath, err)
 		}
 		order = append(order, filepath.ToSlash(entry.relativePath))
+		direct[filepath.ToSlash(entry.relativePath)] = entry.direct
 		return original(entry, root, dst, onProgress)
 	}
 
@@ -73,6 +75,47 @@ func TestCopyTreeLocalMarksFolderUntilLastFileAndWritesEntryPointsLast(t *testin
 	last := map[string]bool{order[4]: true, order[5]: true}
 	if !last["default.xex"] || !last["00007000/ABCDEF"] {
 		t.Fatalf("default.xex e o cabecalho GOD tem de ser os ultimos; ordem=%v", order)
+	}
+	// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
+	for rel, got := range direct {
+		want := rel != "default.xex" && rel != "00007000/ABCDEF"
+		if got != want {
+			t.Errorf("%s: direct=%v, esperado %v (ponto de entrada passa pela staging, o resto vai direto)", rel, got, want)
+		}
+	}
+}
+
+// So vai direto o que o console alcanca por um ponto de entrada gravado por
+// ultimo. Pacote de conteudo solto e visto pelo proprio nome: fica na staging.
+// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
+func TestOrderEntryPointsLastWritesDirectOnlyBehindAnEntryPoint(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files []string
+		want  map[string]bool
+	}{
+		{"pacotes de conteudo soltos", []string{"00000002/ABCDEF0123", "000B0000/TU_1234"},
+			map[string]bool{"00000002/ABCDEF0123": false, "000B0000/TU_1234": false}},
+		{"GOD", []string{"00007000/ABCDEF.data/Data0000", "00007000/ABCDEF.data/Data0001", "00007000/ABCDEF"},
+			map[string]bool{"00007000/ABCDEF.data/Data0000": true, "00007000/ABCDEF.data/Data0001": true, "00007000/ABCDEF": false}},
+		{".data sem cabecalho no manifesto, ao lado de outro GOD", []string{"00007000/ORFAO.data/Data0000", "00007000/ABCDEF.data/Data0000", "00007000/ABCDEF"},
+			map[string]bool{"00007000/ORFAO.data/Data0000": false, "00007000/ABCDEF.data/Data0000": true, "00007000/ABCDEF": false}},
+		{"XEX", []string{"data/faces/face_1.rx3", "default.xex", "media/intro.wmv"},
+			map[string]bool{"data/faces/face_1.rx3": true, "default.xex": false, "media/intro.wmv": true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entries := make([]localCopyEntry, 0, len(tc.files))
+			for _, rel := range tc.files {
+				entries = append(entries, localCopyEntry{relativePath: filepath.FromSlash(rel)})
+			}
+			orderEntryPointsLast(entries)
+			for _, entry := range entries {
+				rel := filepath.ToSlash(entry.relativePath)
+				if entry.direct != tc.want[rel] {
+					t.Errorf("%s: direct=%v, esperado %v", rel, entry.direct, tc.want[rel])
+				}
+			}
+		})
 	}
 }
 

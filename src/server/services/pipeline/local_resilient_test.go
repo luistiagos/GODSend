@@ -211,6 +211,175 @@ func TestCopyLocalEntryPromotesValidStagedFileOnResume(t *testing.T) {
 	}
 }
 
+// Arquivo atras de um ponto de entrada vai direto para o nome final: sem
+// entrada criada e apagada na staging, sem rename entre pastas.
+// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
+func TestCopyLocalEntryDirectWritesFinalNameWithoutStaging(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "face_40110_0_0_0_0_0_0_0_0_textures.rx3")
+	payload := []byte("textura-com-conteudo")
+	if err := os.WriteFile(source, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(root, "Games", "EA FC 26", "data", "sceneassets", "faces")
+	dst := filepath.Join(folder, filepath.Base(source))
+	partial := localStagingPath(root, dst)
+	stagingDir := filepath.Join(root, filepath.FromSlash(localStagingDir))
+
+	copyDirect := func() (wrote bool, problems []string) {
+		entry := localCopyEntry{sourcePath: source, relativePath: filepath.Base(source), size: int64(len(payload)), direct: true}
+		err := copyLocalEntry(&entry, root, dst, func(int64) {
+			wrote = true
+			if _, statErr := os.Stat(partial); statErr == nil {
+				problems = append(problems, "temporario na staging durante a gravacao")
+			}
+			names, readErr := os.ReadDir(folder)
+			if readErr != nil || len(names) != 1 || names[0].Name() != filepath.Base(dst) {
+				problems = append(problems, fmt.Sprintf("pasta do destino durante a gravacao: %v (err=%v)", names, readErr))
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.sha256 == "" {
+			problems = append(problems, "SHA-256 da origem nao registrado para a retomada")
+		}
+		if got, readErr := os.ReadFile(dst); readErr != nil || string(got) != string(payload) {
+			problems = append(problems, fmt.Sprintf("destino gravado incorretamente: %q, err=%v", got, readErr))
+		}
+		return wrote, problems
+	}
+
+	if _, problems := copyDirect(); len(problems) != 0 {
+		t.Fatalf("primeira gravacao: %v", problems)
+	}
+	if _, err := os.Stat(stagingDir); !os.IsNotExist(err) {
+		t.Fatalf("gravacao direta nao deveria criar a staging; err=%v", err)
+	}
+
+	// Sobra integra de versao anterior na staging: e apagada, nunca promovida
+	// (o arquivo vai ser escrito no lugar), e o destino existente e reescrito.
+	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(partial, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+	wrote, problems := copyDirect()
+	if len(problems) != 0 {
+		t.Fatalf("segunda gravacao: %v", problems)
+	}
+	if !wrote {
+		t.Fatal("gravacao direta deveria copiar a origem, nao promover a sobra da staging")
+	}
+	if _, err := os.Stat(partial); !os.IsNotExist(err) {
+		t.Fatalf("sobra da staging deveria ter sido apagada; err=%v", err)
+	}
+}
+
+// Destino com o tamanho certo e conteudo errado: o hash da retomada o recusa e o
+// caminho direto o reescreve no lugar.
+// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
+func TestCopyTreeLocalRewritesWrongDirectFileInPlace(t *testing.T) {
+	service, source, root, destination := newMarkerTestCopy(t, map[string]string{
+		"data/a.bin":  "certo-1234",
+		"default.xex": "xex",
+	})
+	dst := filepath.Join(destination, "data", "a.bin")
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("errad-1234"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.copyTreeLocal(source, destination, root, "Jogo", "XEX"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != "certo-1234" {
+		t.Fatalf("destino errado do mesmo tamanho nao foi reescrito: %q, err=%v", got, err)
+	}
+	staged, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(localStagingDir)))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if len(staged) != 0 {
+		t.Fatalf("staging deveria terminar vazia, tem %v", staged)
+	}
+}
+
+// O pendrive sai no meio de um arquivo gravado direto: a metade fica no nome
+// final, o default.xex nao foi gravado e a marca continua. Com o mesmo pendrive
+// de volta, a nova tentativa reescreve o arquivo no lugar e conclui.
+// [[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]
+func TestCopyTreeLocalResumesDirectFileCutShortByRemovedDevice(t *testing.T) {
+	payload := strings.Repeat("textura-", 64)
+	service, source, root, destination := newMarkerTestCopy(t, map[string]string{
+		"data/faces/face_1.rx3": payload,
+		"default.xex":           "xex",
+	})
+	half := filepath.Join(t.TempDir(), "metade")
+	if err := os.WriteFile(half, []byte(payload[:len(payload)/2]), 0644); err != nil {
+		t.Fatal(err)
+	}
+	idFile := filepath.Join(root, filepath.FromSlash(localDeviceIdentityFile))
+	id, err := os.ReadFile(idFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousInterval, previousTimeout, original := localDevicePollInterval, localDeviceWaitTimeout, copyLocalEntryFunc
+	defer func() {
+		localDevicePollInterval, localDeviceWaitTimeout, copyLocalEntryFunc = previousInterval, previousTimeout, original
+	}()
+	localDevicePollInterval = 5 * time.Millisecond
+	localDeviceWaitTimeout = 30 * time.Millisecond
+	copyLocalEntryFunc = func(entry *localCopyEntry, root, dst string, onProgress func(int64)) error {
+		if filepath.Base(entry.relativePath) != "face_1.rx3" {
+			return original(entry, root, dst, onProgress)
+		}
+		if !entry.direct {
+			t.Errorf("%s deveria ir direto", entry.relativePath)
+		}
+		cut := *entry
+		cut.sourcePath = half
+		err := original(&cut, root, dst, onProgress)
+		if rmErr := os.Remove(idFile); rmErr != nil {
+			t.Fatal(rmErr)
+		}
+		return err
+	}
+
+	if err := service.copyTreeLocal(source, destination, root, "Jogo", "XEX"); !errors.Is(err, ErrLocalDelivery) {
+		t.Fatalf("esperava ErrLocalDelivery com o pendrive fora, veio %v", err)
+	}
+	dst := filepath.Join(destination, "data", "faces", "face_1.rx3")
+	if got, err := os.ReadFile(dst); err != nil || string(got) != payload[:len(payload)/2] {
+		t.Fatalf("a metade gravada deveria ficar no nome final (apagar so abre buraco na pasta): %d bytes, err=%v", len(got), err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "default.xex")); !os.IsNotExist(err) {
+		t.Fatalf("default.xex nao pode existir com o jogo incompleto; err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, installInProgressMarker)); err != nil {
+		t.Fatalf("copia interrompida tem de manter a marca: %v", err)
+	}
+
+	if err := os.WriteFile(idFile, id, 0644); err != nil {
+		t.Fatal(err)
+	}
+	copyLocalEntryFunc = original
+	if err := service.copyTreeLocal(source, destination, root, "Jogo", "XEX"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != payload {
+		t.Fatalf("arquivo cortado nao foi reescrito na retomada: %d bytes, err=%v", len(got), err)
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, "default.xex")); err != nil || string(got) != "xex" {
+		t.Fatalf("default.xex incorreto: %q, err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, installInProgressMarker)); !os.IsNotExist(err) {
+		t.Fatalf("marca deveria sumir quando a retomada conclui; err=%v", err)
+	}
+}
+
 func TestLocalDeviceIdentityRejectsReplacementAtSamePath(t *testing.T) {
 	root := t.TempDir()
 	id, err := PrepareLocalDevice(root)
