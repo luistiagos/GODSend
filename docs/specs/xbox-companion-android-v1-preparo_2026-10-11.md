@@ -1,9 +1,10 @@
 # Spec: Xbox Companion Android v1 — preparar pendrive ou HD já formatado no Xbox 360
 
-- **Estado:** spec escrita (2026-10-11). As 2 perguntas do fim ("Perguntas ao dono") foram
-  passadas a uma investigação sem console (o dono não tem console):
-  [`docs/backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](../backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md).
-  Ela trava só C12, C13 e os textos da T9; T1 a T6 e T8 andam em paralelo. Nada implementado.
+- **Estado:** spec escrita (2026-10-11). As 2 perguntas do fim foram respondidas por uma
+  investigação sem console (o dono não tem console):
+  [`docs/backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](../backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md),
+  seção "Resultado". C12, C13, C19(6), C26, a decisão 5 e a T9 já refletem a resposta. Nada
+  implementado.
 - **Origem:** [`docs/backlog/xbox-companion-mobile-quanto-falta_2026-10-11.md`](../backlog/xbox-companion-mobile-quanto-falta_2026-10-11.md)
   (seções "Resultado" e "Respostas do dono") e
   [`docs/backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md`](../backlog/app-android-preparador-pendrive-badavatar_2026-10-11.md)
@@ -51,7 +52,12 @@ console.
    ~730 MB). Download e gravação são fases separadas: o pendrive fica plugado só os 2 a 5 minutos
    da gravação, o que importa para HD sem fonte e para o cliente que baixa no Wi-Fi de casa.
 5. **O app nunca apaga nada no pendrive fora dos caminhos que ele mesmo grava** (inclusive a pasta
-   `Xbox360/` do console). Sem espaço, o app para e explica. Ver pergunta 1 ao dono.
+   `Xbox360/` do console). Sem espaço, o app para e explica. Motivo (investigação, "Resultado"): o
+   jeito certo de formatar no console (**Y → Formatar**) não cria `Xbox360/` nem reserva espaço; a
+   pasta só existe se o cliente escolheu "Configurar Agora"/"Personalizar", e então guarda dados
+   do console (perfis, saves) que o app não pode apagar às cegas. Apagá-la não tem documentação
+   nem prova; refazer o *Formatar* no console resolve o mesmo caso sem o app tocar em dado do
+   console.
 6. **Interface nativa com Views + Material** (dependências que o `app/build.gradle.kts` já tem:
    `appcompat`, `material`, `constraintlayout`, `viewBinding = true`). Sem Compose, sem trocar a
    versão do AGP (8.2.2) nem do Kotlin (1.9.22). O `gradle/libs.versions.toml` (AGP 9, Compose)
@@ -132,17 +138,25 @@ Notação: **[auto]** = teste que roda sem o dono; **[dono]** = rodada no celula
   "sistema de arquivos não conferido".
   - **Prova [auto]:** unitário do parser de `/proc/self/mounts` com linhas reais de `vfat`,
     `exfat`, `sdfat`, `fuse` e `ntfs3` (coletar as linhas reais na rodada R1 do dono).
-- **C12.** SE a raiz não tiver a pasta `Xbox360/` (sinal de que o console não formatou), ENTÃO o
-  app DEVE avisar "este pendrive não parece ter sido formatado no Xbox 360" e só continuar com
-  confirmação explícita. Ver pergunta 2 ao dono.
-  - **Prova [auto]:** unitário; **[dono]** pendrive formatado no PC → aviso.
+- **C12.** A presença ou a falta da pasta `Xbox360/` na raiz NÃO DEVE gerar aviso nem bloqueio.
+  O app só registra no log e em "Copiar detalhes" `xbox360Folder: presente|ausente`, e usa o dado
+  no texto de C13. Motivo (investigação, C e P2): o *Formatar* do console, que é o caminho
+  ensinado, deixa um FAT32 **sem** `Xbox360/`; o Companion de Windows e o Android também. A pasta
+  só aparece quando o cliente usou "Configurar Agora"/"Personalizar"; ela não prova nem desmente
+  quem formatou.
+  - **Prova [auto]:** unitário de `DrivePicker` sobre `FakeDriveAccess`: raiz sem `Xbox360/` e raiz
+    com `Xbox360/` (e com `XBOX360/`) → nenhum estado de aviso, campo do registro correto.
 - **C13.** SE o espaço livre do volume (`DocumentsContract.Root.COLUMN_AVAILABLE_BYTES`) for menor
   que o necessário — soma de cada arquivo ainda não gravado arredondada para o pior cluster FAT32
-  (32 KiB), mais 16 MiB de folga para diretórios —, ENTÃO o app DEVE parar, dizer quanto falta, e,
-  se existir `Xbox360/`, explicar que o console reservou o espaço e como reformatar escolhendo
-  "Personalizar" para deixar pelo menos 1 GB livre.
-  - **Prova [auto]:** unitário da regra. **[console]** o número real de espaço após "Configurar
-    agora" (R1).
+  (32 KiB), mais 16 MiB de folga para diretórios —, ENTÃO o app DEVE parar e dizer quanto falta.
+  SE existir `Xbox360/` (sem diferenciar maiúsculas), o texto DEVE dizer que o console reservou o
+  espaço ("Configurar Agora" ou "Personalizar") e mandar refazer no console pelo caminho de C26:
+  **Y → Formatar** (avisando que isso apaga o que o console guardou no pendrive). SEM `Xbox360/`, o
+  texto diz que o pendrive é pequeno ou está cheio e pede um de pelo menos 2 GB. O app nunca
+  apaga a `Xbox360/` (decisão 5).
+  - **Prova [auto]:** unitário da regra e da escolha do texto (com e sem `Xbox360/`). Não depende
+    mais de console: pelo oficial, "Configurar Agora" toma até 32 GB e o *Formatar* não reserva
+    nada (investigação, A e C).
 
 ### Gravação com retomada
 
@@ -171,9 +185,13 @@ Notação: **[auto]** = teste que roda sem o dono; **[dono]** = rodada no celula
   arquivo do `mobile-manifest.json` com tamanho e SHA-256 corretos; (2) ter os três gerados iguais
   à saída das funções TS na versão atual; (3) não ter nenhum arquivo do estado alheio; (4) dar
   `detectPreparedDeviceState(...) === "preparado-bloqueado-lt"`; (5) ter o recibo com
-  `origin: "android"`; (6) passar em `assessXboxLayout` (o console formatou; isto confirma).
+  `origin: "android"`; (6) imprimir o layout (`assessXboxLayout`), **só informativo** até o
+  primeiro pendrive formatado no console ser medido: nenhuma fonte diz se o *Formatar* do console
+  grava tabela MBR ou FAT32 sem tabela ("superfloppy"), e no segundo caso a regra reprovaria um
+  pendrive que o console lê (investigação, G). Quando medido, registrar aqui e decidir se (6) vira
+  obrigatório.
   - **Prova [dono + auto]:** `node src/electron-app/scripts/verify-mobile-prepared-drive.js E:`
-    depois de uma gravação real; sai com código 0 e imprime os 6 itens.
+    depois de uma gravação real; sai com código 0 se (1)–(5) passam e imprime os 6 itens.
 - **C20.** O Companion de Windows, ao preparar de novo um pendrive gravado pelo app, DEVE
   reaproveitar os arquivos (sem conflito de diário).
   - **Prova [dono]:** preparar no Windows um pendrive feito pelo celular, sem "Formatar antes" →
@@ -215,9 +233,22 @@ Notação: **[auto]** = teste que roda sem o dono; **[dono]** = rodada no celula
 ### Textos para leigo
 
 - **C26.** Cada passo DEVE ter um texto curto com o que fazer: instalar (apps desconhecidos),
-  baixar, formatar no console (Configurações > Sistema > Armazenamento, com fotos), plugar, gravando
-  ("não tire o pendrive"), pronto (o que fazer no console). HD externo: aviso de que o OTG
-  costuma não alimentar HD de 2,5" sem fonte ou hub com energia.
+  baixar, formatar no console, plugar, gravando ("não tire o pendrive"), pronto (o que fazer no
+  console). HD externo: aviso de que o OTG costuma não alimentar HD de 2,5" sem fonte ou hub com
+  energia. O passo **formatar no console** DEVE dizer, com os nomes exatos da dashboard 17559 em
+  pt-BR (quadros de `Du5M9EvkvjE` 1:02–1:14, investigação C):
+  1. *Configurações → Sistema → Armazenamento*;
+  2. destacar o pendrive (aparece como **"Não Formatado"** ou **"Dispositivo USB"**) e apertar
+     **Y** (*Opções do Dispositivo*);
+  3. **Formatar → Sim** (*"Isso removerá todo o conteúdo deste dispositivo"*) e esperar
+     *"Formatação em andamento"* terminar;
+  4. **não** escolher *Configurar Agora*, *Personalizar* nem *Criar Unidade do Sistema* — elas
+     reservam o pendrive para o console (até 32 GB) e o app fica sem espaço.
+
+  E DEVE avisar: se em *Armazenamento* não aparecem **Disco Rígido** nem **Unidade de Memória**
+  (o console não tem armazenamento interno), falar com o suporte antes — nesse console o painel
+  só lê perfis da unidade do sistema, não da raiz FAT32 (ConsoleMods, investigação E), e o preparo
+  sozinho não basta.
   Cada erro diz o que fazer e mostra um código curto (`XC-<área>-<n>`).
   - **Prova [dono]:** o dono lê todas as telas numa rodada e aprova. **[auto]** teste que todo
     código de erro do enum tem texto em `strings.xml`.
@@ -363,7 +394,7 @@ Ordem pensada para que o dono teste o mais cedo possível o que só o celular pr
 | **T6** | download: `PackRepository` + `PrepService` | `prep/PackRepository.kt`, `prep/PrepService.kt` | C5, C6, C7 (instrumentados/unitários); C8 | R2 (junto da T7) |
 | **T7** | pendrive e gravação: `DrivePicker`, `SafDriveAccess`, `PackWriter`, `ReceiptWriter`; tipo `origin?` no TS | `prep/*.kt`, `src/electron-app/infrastructure/preparationReceipt.ts::PreparationReceipt` | C9–C18, C21 sobre `FakeDriveAccess`; C19 com T4 no pendrive real; C20 no Windows | R2: gravação completa + C19; R3: tirar no meio + C16 + C20 |
 | **T8** | atualização do APK: `UpdateChecker`, `FileProvider`, `REQUEST_INSTALL_PACKAGES` | `prep/UpdateChecker.kt`, `res/xml/file_paths.xml` | C23, C24 unitários; 1.0.0 → 1.0.1 de teste no celular | R4 |
-| **T9** | telas e textos para leigo, códigos de erro, fotos do "formatar no console" | `res/layout/*`, `res/values/strings.xml`, `prep/ErrorCode.kt` | C17 (busca "desbloquead"), C26 (todo `ErrorCode` com texto) | R4 (o dono lê) |
+| **T9** | telas e textos para leigo, códigos de erro, fotos do "formatar no console" (os 4 passos de C26: Y → **Formatar**, nunca Configurar Agora; aviso de console sem Disco Rígido/Unidade de Memória; texto de C13 com e sem `Xbox360/`) | `res/layout/*`, `res/values/strings.xml`, `prep/ErrorCode.kt` | C17 (busca "desbloquead"), C26 (todo `ErrorCode` com texto; busca em `strings.xml` por "Formatar" no passo do console e por "Configurar Agora" só na frase de "não escolha") | R4 (o dono lê) |
 | **T10** | primeira release: `assembleRelease`, `upload-r2-android.ps1 -Apk`, link para o suporte; atualizar `src/android-app/README.md` (v1 = preparo; Go fora do APK) | — | C22, C25 no APK publicado | — |
 | **T11** | fora do repo, **depois** de C27 com o primeiro cliente: guia do agente (`digitalstoregamesproject`, `fragments/instrucoes/xbox360.md`) oferece o app de forma ampla; manual | outro repo | registro no bug de origem | — |
 
@@ -439,34 +470,34 @@ Estimativa (do backlog, não refeita): ~7 a 9 sessões de agente e 3 a 4 rodadas
 - **Copiar a regra de `loadManifest` para o script do pacote:** duas cópias da validação divergem;
   extrair a função pura.
 
-**Riscos que continuam** (detalhes nos docs de origem): R1 (espaço depois do "Configurar agora",
-só console prova — C13 e C27); compatibilidade do SAF/OTG por fabricante (T1 mede); celular sem
-~0,8 GB livre (C7); HD sem energia pelo OTG (texto + retomada).
+**Riscos que continuam** (detalhes nos docs de origem): R1 reduzido — o espaço deixou de ser
+risco (o texto manda *Formatar*, que não reserva nada); o que só o console prova é a tabela de
+partição que o *Formatar* deixa (C19 item 6, informativo) e o exploit rodando (C27);
+console sem armazenamento interno não é atendido pela v1 (texto de C26); compatibilidade do
+SAF/OTG por fabricante (T1 mede); celular sem ~0,8 GB livre (C7); HD sem energia pelo OTG (texto +
+retomada).
 
 ## Perguntas ao dono
 
-**Em investigação (2026-10-11):** o dono não tem console e pediu que se investigue como o console
-trata o pendrive. A investigação está em
-[`docs/backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](../backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md)
-e, ao terminar, troca as duas perguntas abaixo pela resposta e ajusta C12, C13, a decisão 5 e a
-T9. Até lá, o texto abaixo é o comportamento provisório.
+**Nenhuma pendente.** As duas perguntas de antes foram respondidas pela investigação sem console
+([`docs/backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](../backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md),
+"Resultado"), e a resposta tirou a decisão do caminho:
 
-1. **Pendrive sem espaço porque o console reservou tudo ("Configurar agora").** A spec manda o
-   cliente reformatar no console escolhendo "Personalizar" e deixar ≥ 1 GB livre, e o app **nunca
-   apaga** a `Xbox360/`. A alternativa é o app oferecer apagar a `Xbox360/` com confirmação (+0,5
-   sessão), mas ninguém provou que o console e o BadAvatar aceitam isso. Fica como está até o
-   primeiro console?
-2. **Pendrive sem a pasta `Xbox360/`** (por exemplo, formatado no PC ou preparado antes pelo
-   Companion de Windows). A spec avisa e deixa continuar com confirmação. Prefere bloquear?
+1. **Pendrive sem espaço porque o console reservou tudo.** Só acontece se o cliente escolher
+   "Configurar Agora" ou "Personalizar". O console tem outra opção, **Y → Formatar**, que apaga e
+   deixa um FAT32 comum, sem `Xbox360/` e sem reserva (quadros de `Du5M9EvkvjE`, o tutorial que o
+   dono já manda). O texto agora ensina essa (C26), e C13 manda refazer o *Formatar* se achar
+   `Xbox360/` sem espaço. **O app continua sem apagar a `Xbox360/`** (decisão 5): não há fonte que
+   documente apagar a pasta nem o que o console faz depois, e ela guarda dados do console. Por
+   isso não há pergunta de sim ou não: a opção "apagar com confirmação" não tem prova e não é
+   necessária.
+2. **Pendrive sem `Xbox360/`.** É o estado **normal** do caminho ensinado (*Formatar*), do Companion
+   de Windows e do Android; avisar ou bloquear pegaria o cliente que fez tudo certo. C12 passou a
+   só registrar a presença da pasta, sem aviso.
 
 ## Frase de abertura da próxima sessão
 
-São duas frentes independentes; podem ir para duas sessões.
-
-**Investigação (perguntas 1 e 2):** a frase de abertura está no fim de
-[`docs/backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](../backlog/xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md).
-
-**Implementação:** *"Leia a spec `docs/specs/xbox-companion-android-v1-preparo_2026-10-11.md` no repo
+A investigação das perguntas 1 e 2 terminou (2026-10-11). Falta só a implementação: *"Leia a spec `docs/specs/xbox-companion-android-v1-preparo_2026-10-11.md` no repo
 `C:\projects\Downloader-XBOX360-XEX-HDD-Games` (seções 3, 5 e 6) e execute a T2 (pacote mobile) e a
 T4 (verificador de equivalência), que não dependem do celular. Em paralelo, prepare a T1 (teste
 rápido do SAF) para a rodada R1 do dono."*
