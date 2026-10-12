@@ -593,6 +593,8 @@ func (a *App) SetupPaths() error {
 	if v := strings.TrimSpace(os.Getenv("GODSEND_ERROR_REPORTING")); v != "" {
 		a.TelemetryEnabled = v == "1" || strings.ToLower(v) == "true" || strings.ToLower(v) == "yes"
 	}
+	// The Electron app sends this when config.json has errorReportingEndpoint; it was never read.
+	a.TelemetryEndpoint = strings.TrimSpace(os.Getenv("GODSEND_ERROR_REPORTING_ENDPOINT"))
 	a.MinDownloadSpeedThreshold = MinDownloadSpeedThresholdDefault
 	if v := strings.TrimSpace(os.Getenv("GODSEND_MIN_DOWNLOAD_SPEED")); v != "" {
 		if parsed, err := ParseSpeedBytes(v); err == nil {

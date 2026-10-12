@@ -19,7 +19,7 @@ When any agent modifies, adds, or removes documentation, it MUST consult this sk
 1. Update version in **all four places**:
    - `package.json` (root)
    - `src/electron-app/package.json`
-   - `src/server/main.go` (banner line)
+   - `src/server/main.go` (`appVersion` constant)
    - `aurora-scripts/main.lua` (`scriptVersion`)
 2. Update `CHANGELOG.md`: move `[Unreleased]` to new version heading
 3. Update `README.md`: replace all inline version references + GoFile links

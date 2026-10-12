@@ -14,6 +14,7 @@ import (
 var (
 	enabled   = true
 	endpoint  = "https://digitalstoregames.pythonanywhere.com/logErr"
+	version   string
 	seenCache sync.Map
 	initOnce  sync.Once
 )
@@ -30,10 +31,12 @@ type ErrorReport struct {
 	Logs      []string `json:"logs"`
 }
 
-// Initialize sets the telemetry enabled flag and optional custom endpoint.
-func Initialize(telemetryEnabled bool, telemetryEndpoint string) {
+// Initialize sets the telemetry enabled flag, optional custom endpoint and the
+// app version carried in every report's user_agent ([[pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30]]).
+func Initialize(telemetryEnabled bool, telemetryEndpoint, appVersion string) {
 	initOnce.Do(func() {
 		enabled = telemetryEnabled
+		version = appVersion
 		if telemetryEndpoint != "" {
 			endpoint = telemetryEndpoint
 		}
@@ -55,6 +58,19 @@ func Report(component, file, method, message, pageURL string, logs []string, ter
 		return
 	}
 
+	report := buildReport(component, file, method, message, pageURL, logs)
+
+	if terminal {
+		send(report)
+	} else {
+		go send(report)
+	}
+}
+
+// buildReport assembles the report sent to /logErr. The server only keeps the
+// known columns, so the version travels in user_agent ("<component> v<version>",
+// the same shape as the Electron side's "ElectronApp v<version>").
+func buildReport(component, file, method, message, pageURL string, logs []string) ErrorReport {
 	// Cap message length to 4000 characters
 	if len(message) > 4000 {
 		message = message[:4000]
@@ -69,22 +85,21 @@ func Report(component, file, method, message, pageURL string, logs []string, ter
 		cappedLogs = append(cappedLogs, capLog(log))
 	}
 
-	report := ErrorReport{
+	userAgent := component
+	if version != "" {
+		userAgent = component + " v" + version
+	}
+
+	return ErrorReport{
 		Project:   "xbox-360-companion/" + component,
 		File:      file,
 		Method:    method,
 		Message:   message,
-		UserAgent: component,
+		UserAgent: userAgent,
 		Platform:  fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		Screen:    "",
 		PageURL:   pageURL,
 		Logs:      cappedLogs,
-	}
-
-	if terminal {
-		send(report)
-	} else {
-		go send(report)
 	}
 }
 

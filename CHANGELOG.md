@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Report de telemetria do backend Go não dizia a versão do app, e o backend ignorava o endpoint de telemetria configurado (`src/server/infrastructure/telemetry/telemetry.go::buildReport`, `::Initialize`, `src/server/main.go::appVersion`, `src/server/app/config.go::SetupPaths`)**
+  - Caso: na triagem do bug do `mkdir` da pasta do jogo não deu para saber se os reports de 2026-09-25 eram de antes ou depois da 2.12.95; os reports do backend chegavam com `user_agent = '<componente>'` e nada mais.
+  - Causa: o `ErrorReport` não tinha origem de versão; a versão só existia como literal nos dois banners de `main.go`, já divergentes (`v2.12.110` e `v2.12.109`). E `SetupPaths` nunca lia `GODSEND_ERROR_REPORTING_ENDPOINT`, que o Electron manda quando o `config.json` tem `errorReportingEndpoint`.
+  - Correção: constante única `appVersion` em `main.go` alimenta os dois banners e o `telemetry.Initialize`; o report leva `user_agent = "<componente> v<versão>"` (mesmo formato do `ElectronApp v<versão>`; o `/logErr` descarta campo novo, por isso vai no `user_agent`). O backend passa a respeitar o endpoint configurado. Subir a versão agora é trocar `appVersion` (AGENTS.md, CONTRIBUTING.md e docs-source-of-truth atualizados).
+  - Testes: `infrastructure/telemetry/telemetry_test.go` (versão no `user_agent`, sem versão fica só o componente, cortes de mensagem/logs, POST recebido por `httptest`) e `main_test.go` (`appVersion` igual ao `package.json`).
+  - Bug: [docs/bugs/open/pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30.md](docs/bugs/open/pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30.md)
 - **Jogo XEX com dezenas de milhares de arquivos levava mais de 10 horas para gravar num pendrive FAT32 (`src/server/services/pipeline/local_resilient.go::copyLocalEntry`, `::orderEntryPointsLast`)**
   - Caso: EA FC 26 Legacy Edition, 144.851 arquivos / 12,25 GB, num pendrive USB 2.0: 34% em quase 2 h, projeção de 10 a 16 h. O gargalo é o pendrive (40-100 escritas de metadado por segundo), não o programa.
   - Causa: desde a 2.12.110 todo arquivo era gravado na staging `.xbox-downloader/copy-staging` e depois renomeado para a pasta do jogo: por arquivo, uma entrada criada e apagada em outra pasta, o destino apagado e um rename entre pastas, além da gravação em si.

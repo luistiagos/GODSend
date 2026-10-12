@@ -71,7 +71,7 @@ Versions follow [Semantic Versioning](https://semver.org/). When your changes ar
 |---|---|
 | `package.json` | `"version"` |
 | `src/electron-app/package.json` | `"version"` |
-| `src/server/main.go` | version string in the startup banner (`fmt.Println`) |
+| `src/server/main.go` | `appVersion` constant (feeds the startup banners and the backend telemetry `user_agent`; `main_test.go` checks it against `package.json`) |
 | `aurora-scripts/main.lua` | `scriptVersion` and the `Menu.SetTitle(...)` string |
 
 Rules:

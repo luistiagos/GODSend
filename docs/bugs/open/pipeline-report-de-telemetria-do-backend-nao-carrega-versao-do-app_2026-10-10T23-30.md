@@ -110,3 +110,15 @@ e incluída na subida de versão; ou o Electron passar a versão ao backend por 
 ### Achado lateral
 
 - [`testes-smoke-wine-e-specs-playwright-esperam-banner-godsend-backend-server-que-nao-existe-mais_2026-10-12T18-57.md`](testes-smoke-wine-e-specs-playwright-esperam-banner-godsend-backend-server-que-nao-existe-mais_2026-10-12T18-57.md) — fora da reserva deste fix.
+
+## Correcao (pipeline 20261012-1854, rodada 1)
+
+Plano seguido sem desvio.
+
+- `src/server/infrastructure/telemetry/telemetry.go::Initialize` — 3o parametro `appVersion`, guardado em `version` (variavel do pacote) dentro do `initOnce`.
+- `telemetry.go::buildReport` — nova funcao pura, extraida de `Report` com os cortes (mensagem 4000, 20 logs, 256 KB por log); `UserAgent = component + " v" + version`, ou so `component` com versao vazia. `Report` mantem `recover`, `enabled` e o dedup, e chama `buildReport`.
+- `src/server/main.go::appVersion` — `const appVersion = "2.12.110"`; banner `[INFO] Xbox 360 Companion Backend Server v%s` e o quadro (`Printf` com `%-12s`, mesma largura do quadro) usam a constante; as duas chamadas de `telemetry.Initialize` passam `appVersion`.
+- `src/server/app/config.go::SetupPaths` — `a.TelemetryEndpoint = strings.TrimSpace(os.Getenv("GODSEND_ERROR_REPORTING_ENDPOINT"))`; vazio mantem o endpoint padrao (o `Initialize` so troca se nao vazio).
+- doc-sync: `AGENTS.md` (tabela dos 4 locais), `CONTRIBUTING.md` (tabela de versao), `docs/agents/skills/docs-source-of-truth.md` (Version Bump Workflow) passam a citar a constante `appVersion`. `CHANGELOG.md` `[Unreleased]` `### Fixed`, sem subir versao.
+- Testes novos: `telemetry_test.go` (`TestBuildReportCarriesVersionInUserAgent`, `TestBuildReportWithoutVersionKeepsComponent`, `TestBuildReportCapsMessageAndLogs`, `TestReportPostsVersionedUserAgent` com `httptest`) e `main_test.go` (`TestAppVersionMatchesPackageJSON`). `go test -count=1 ./infrastructure/telemetry/ .` em `src/server` -> `ok` nos dois pacotes.
+- Ajuste ao Plano de teste: nenhum. Na T2, o quadro do banner mostra `Xbox 360 Companion Server v2.12.110` seguido de espacos ate a borda (formato `%-12s`).

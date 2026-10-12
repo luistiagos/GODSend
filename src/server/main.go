@@ -21,19 +21,24 @@ import (
 	"godsend/services/pipeline"
 )
 
+// appVersion is the single source of the backend version: both banners and the
+// telemetry user_agent use it ([[pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30]]).
+// main_test.go keeps it equal to package.json.
+const appVersion = "2.12.110"
+
 func main() {
-	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v2.12.110\n")
+	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v%s\n", appVersion)
 	a := app.NewApp()
 	defer a.ReleaseHomeLock()
 	if err := a.SetupPaths(); err != nil {
 		fmt.Printf("[FATAL] Setup failed: %v\n", err)
 		// We fallback to standard endpoint since paths are not set up yet
-		telemetry.Initialize(true, "")
+		telemetry.Initialize(true, "", appVersion)
 		telemetry.Report("backend", "main.go", "main", fmt.Sprintf("SetupPaths failed: %v", err), "", nil, true)
 		os.Exit(1)
 	}
 
-	telemetry.Initialize(a.TelemetryEnabled, a.TelemetryEndpoint)
+	telemetry.Initialize(a.TelemetryEnabled, a.TelemetryEndpoint, appVersion)
 
 	a.CopyBuffer = make([]byte, app.CopyBufferSize)
 	a.LoadIAAuthFromEnv()
@@ -75,7 +80,7 @@ func main() {
 
 	// ── Banner ──────────────────────────────────────────────────────
 	fmt.Println("╔══════════════════════════════════════════╗")
-	fmt.Println("║   Xbox 360 Companion Server v2.12.109    ║")
+	fmt.Printf("║   Xbox 360 Companion Server v%-12s║\n", appVersion)
 	fmt.Println("╚══════════════════════════════════════════╝")
 	fmt.Printf("[INFO] Copy Buffer: %d MB | Serve Buffer: %d KB | FTP Buffer: %d MB\n",
 		app.CopyBufferSize/1024/1024, app.ServeBufferSize/1024, app.FTPBufferSize/1024/1024)

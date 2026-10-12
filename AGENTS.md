@@ -207,7 +207,7 @@ Para automação de compilação e publicação dos binários compilados:
 |---|---|
 | `package.json` | `"version": "X.Y.Z"` |
 | `src/electron-app/package.json` | `"version": "X.Y.Z"` |
-| `src/server/main.go` | Linha de banner: `Xbox 360 Companion Backend Server vX.Y.Z` |
+| `src/server/main.go` | Constante `appVersion = "X.Y.Z"` (alimenta os banners e o `user_agent` da telemetria do backend; `main_test.go` exige igual ao `package.json`) |
 | `aurora-scripts/main.lua` | `scriptVersion = "X.Y.Z"` (linha 3) |
 
 ### 2. Atualizar o `CHANGELOG.md`
