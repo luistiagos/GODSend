@@ -1,5 +1,45 @@
 # Bug: gravação no pendrive FAT32 esgota as 65.536 entradas da pasta `faces` e o rename do `.xbox-companion-part` falha
 
+## Status
+
+- **Corrigido e testado:** fix de producao na 2.12.110 (2026-10-09, ja no fluxo principal antes desta execucao);
+  teste em FAT32 real do caminho de recuperacao e prova pela UI no pendrive de teste em 2026-10-12 (pipeline
+  20261012-0329, teste rodada 1 aprovado).
+- **Commits:** fix `2037158`, `e712105`, `1ce5e27` (2.12.110); teste novo `f6efd7f` (rebaseado sobre `origin/main` @
+  `2f4716e`; o SHA publicado pode mudar no rebase do `publish`).
+- **Onde:** `src/server/services/pipeline/local_resilient.go::copyLocalEntry` (temporario na staging do dispositivo,
+  `localStagingPath`), `::copyTreeLocal` + `::rebuildSaturatedFATFolder` (regrava uma vez a pasta saturada),
+  `fat_directory.go::checkFATDirectoryLimits`/`isFATDirectoryFull`; teste novo
+  `src/server/services/pipeline/local_resilient_fat32_test.go::TestFAT32CopyTreeLocalRecoversFragmentedDirectory`.
+- **Evidencia:** `C:\projects\.bugfix-xbox360\evidencia\20261012-0341-pipeline-gravacao-local-fragmenta-pasta-fat32-ate-o-limite-de-65536-entradas-e-o-rename-falha_2026-10-09T12-00\`
+  (`LEIAME.md`). Pendrive de teste serial `247700023090` (`E:`, FAT32), com lock entre projetos.
+  - **Offline:** `go vet ./services/pipeline/` limpo; sem `GODSEND_FAT32_TEST_DIR` os 4 `TestFAT32*` dao SKIP;
+    `go test ./services/pipeline/ -count=1` ok.
+  - **Controle positivo:** `TestFAT32LegacyPartSuffixExhaustsDirectory` PASS — o esquema antigo falha no #12.569 com
+    `rename ...xbox-companion-part ...: The directory or file cannot be created.` (o texto do print do cliente); a fase
+    "2.12.109" do teste novo reproduz o mesmo estado (#12.569) antes da recuperacao (`t2a-go-test.log`,
+    `t2a-r1b-recovers.log`).
+  - **T2-a (FAT32 real):** `TestFAT32CopyTreeLocalFitsLargeDirectory` PASS (934 s);
+    `TestFAT32CopyTreeLocalRecoversFragmentedDirectory` PASS (1542 s): 1 `ERROR_CANNOT_MAKE` em `face_16661` visto pelo
+    seam, log `pasta FAT32 ... esgotou as entradas com espacos fragmentados; regravando a pasta a partir do arquivo
+    1/13146`, 13.146 arquivos gravados, marcador removido, staging vazia. A 1a tentativa foi morta pelo Claude Code por
+    memoria do sistema (ambiente); a retomada rodou so o teste novo, com o mesmo branch e base.
+  - **T2-b (UI, app da lane):** Catalogo -> Digimon All Star Rumble (XEX, 89 arquivos, 0,41 GB) -> pendrive `E:\` ->
+    Fila `Gravado no dispositivo!`; 118 amostras durante `Gravando e verificando`: nenhum `*.xbox-companion-part` na
+    pasta do jogo e `E:\.xbox-downloader\copy-staging` presente, vazia no fim; sem `.xbox-companion-installing`. Backend
+    com Path na lane (`wt-1\dist\godsend-windows-x64.exe`) e banner na Home. Jogos Instalados lista o jogo (com o app
+    reaberto; logo apos o fim o cache de 15 s do scanner ainda mostrava 0).
+  - **T3:** `go test -count=1 ./...` em `src/server`: 9 pacotes `ok`, rc 0; `test:safety`: 327 pass / 0 fail.
+  - **T4:** `t2b-log-janela.txt`: banner v2.12.110, `LOCAL XEX: 89 arquivos (0.41 GB) -> E:\Games\...`, nenhum erro do
+    backend; so o console error de CSP das fontes do Google, pre-existente.
+  - Ambiente: `simpleMode=false`/`errorReporting=false` no `config.json` dev durante o teste, original devolvido; os 2
+    jobs antigos de `pending_queue/` da lane (destino `E:\`) ficaram fora e foram devolvidos. Sobra no pendrive
+    `E:\godsend-fat32-test-1791788917662313200` (da tentativa morta; remocao bloqueada pela protecao do ambiente; so
+    arquivos vazios, descartavel).
+- **Falta para `closed/`:** versao publicada com o fix (subida de versao + `build-and-upload.ps1`, do dono); instalar o
+  EA FC 26 Legacy Edition inteiro num pendrive FAT32 pela UI ate concluir (10-16 h; depende do bug irmao
+  `pipeline-jogo-xex-com-145-mil-arquivos-...`) e o jogo abrir no console; confirmacao do cliente.
+
 - **Detectado em:** 2026-10-09, relato do dono com print (fila "EA FC 26 Legacy Edition", estado Erro)
 - **Origem:** gravação local em modo pendrive — `src/server/services/pipeline/local_resilient.go::copyLocalEntry`
 - **Estado:** passada 3 — T1–T3 implementadas e testadas (2.12.110, não publicada). Falta a prova ponta a ponta
