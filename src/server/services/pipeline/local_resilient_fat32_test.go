@@ -130,3 +130,112 @@ func TestFAT32CopyTreeLocalFitsLargeDirectory(t *testing.T) {
 		t.Fatalf("staging deveria terminar vazia, tem %d arquivos", len(staged))
 	}
 }
+
+// O pendrive de quem pegou o erro com a 2.12.109 e clica em "Tentar novamente"
+// com a correcao: a pasta ja esta no teto, com buracos pequenos demais. Os
+// arquivos gravados antes sao reaproveitados por hash, o proximo commit falha
+// com ERROR_CANNOT_MAKE, e copyTreeLocal regrava a pasta uma vez e conclui.
+// A pasta fica numa subpasta do jogo, como data/sceneassets/faces, e o marcador
+// de instalacao fica na pasta do jogo, nao na saturada.
+// [[pipeline-gravacao-local-fragmenta-pasta-fat32-ate-o-limite-de-65536-entradas-e-o-rename-falha_2026-10-09T12-00]]
+func TestFAT32CopyTreeLocalRecoversFragmentedDirectory(t *testing.T) {
+	root := fat32TestRoot(t)
+	source := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(source, "faces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	names := fat32FacesNames()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(source, "faces", name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(root, "Games", "EA FC 26")
+	folder := filepath.Join(destination, "faces")
+	if err := os.MkdirAll(folder, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fase "2.12.109": temporario ao lado do destino ate o rename falhar; o
+	// temporario que falhou e apagado, como a versao antiga fazia.
+	start := time.Now()
+	failedAt := -1
+	for i, name := range names {
+		dst := filepath.Join(folder, name)
+		partial := dst + legacyLocalPartSuffix
+		err := os.WriteFile(partial, nil, 0644)
+		if err == nil {
+			err = os.Rename(partial, dst)
+		}
+		if err != nil {
+			if !errors.Is(err, fatErrorCannotMake) {
+				t.Fatalf("arquivo #%d %s: esperava ERROR_CANNOT_MAKE, veio %v", i+1, name, err)
+			}
+			if i < 12000 {
+				t.Fatalf("falhou cedo demais (#%d); o volume ja estava sujo? %v", i+1, err)
+			}
+			_ = os.Remove(partial)
+			failedAt = i
+			break
+		}
+	}
+	if failedAt < 0 {
+		t.Fatalf("premissa mudou: o esquema antigo gravou os %d nomes sem estourar a pasta", len(names))
+	}
+	t.Logf("fase 2.12.109: esquema antigo falhou no arquivo #%d (%d gravados) em %s", failedAt+1, failedAt, time.Since(start).Round(time.Second))
+
+	// Fase "2.12.110": nova tentativa sobre a pasta fragmentada.
+	var cannotMake int
+	previousCopy := copyLocalEntryFunc
+	t.Cleanup(func() { copyLocalEntryFunc = previousCopy })
+	copyLocalEntryFunc = func(entry *localCopyEntry, root, dst string, onProgress func(int64)) error {
+		err := previousCopy(entry, root, dst, onProgress)
+		if isFATDirectoryFull(err) {
+			cannotMake++
+			t.Logf("ERROR_CANNOT_MAKE em %s: %v", entry.relativePath, err)
+		}
+		return err
+	}
+	deviceID, err := PrepareLocalDevice(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := app.NewApp()
+	a.XboxConnections.Store("FAT32", models.XboxConnection{Mode: "local", LocalRoot: root, LocalDeviceID: deviceID})
+	service := &Service{App: a}
+	start = time.Now()
+	if err := service.copyTreeLocal(source, destination, root, "FAT32", "XEX"); err != nil {
+		t.Fatalf("copyTreeLocal nao recuperou a pasta fragmentada: %v", err)
+	}
+	t.Logf("fase 2.12.110: %d arquivos gravados em %s", len(names), time.Since(start).Round(time.Second))
+
+	if cannotMake != 1 {
+		t.Fatalf("esperava exatamente 1 ERROR_CANNOT_MAKE (a pasta saturada, recuperada uma vez), viu %d", cannotMake)
+	}
+	expected := make(map[string]bool, len(names))
+	for _, name := range names {
+		expected[name] = true
+	}
+	written, err := os.ReadDir(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range written {
+		if !expected[item.Name()] {
+			t.Errorf("entrada fora do manifesto na pasta: %s", item.Name())
+		}
+	}
+	if len(written) != len(names) {
+		t.Fatalf("esperava %d arquivos na pasta, encontrou %d", len(names), len(written))
+	}
+	if _, err := os.Stat(filepath.Join(destination, installInProgressMarker)); !os.IsNotExist(err) {
+		t.Fatalf("marcador %s deveria ter sido removido (stat: %v)", installInProgressMarker, err)
+	}
+	staged, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(localStagingDir)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(staged) != 0 {
+		t.Fatalf("staging deveria terminar vazia, tem %d arquivos", len(staged))
+	}
+}

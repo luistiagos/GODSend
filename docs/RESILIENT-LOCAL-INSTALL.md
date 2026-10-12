@@ -75,7 +75,7 @@ Os testes de backend validam o comportamento no sistema de arquivos:
 - durante a gravação a pasta do destino só contém nomes definitivos, e um temporário íntegro na staging do dispositivo é promovido na retomada sem regravar;
 - `ERROR_CANNOT_MAKE` injetado numa pasta FAT faz a pasta ser regravada uma vez, sem regravar arquivos de outras pastas nem apagar arquivo alheio; um segundo erro na mesma pasta encerra a gravação;
 - pasta que não cabe no FAT32 nem como nomes finais é recusada antes de criar qualquer coisa no destino, e o erro troca de provedor em vez de interromper a cadeia;
-- com `GODSEND_FAT32_TEST_DIR` apontando para um volume FAT32 (`local_resilient_fat32_test.go`), 13.146 nomes no formato da pasta `faces` do EA FC 26 cabem com a staging, e o esquema antigo falha com `ERROR_CANNOT_MAKE` perto do arquivo nº 12.569;
+- com `GODSEND_FAT32_TEST_DIR` apontando para um volume FAT32 (`local_resilient_fat32_test.go`), 13.146 nomes no formato da pasta `faces` do EA FC 26 cabem com a staging, e o esquema antigo falha com `ERROR_CANNOT_MAKE` perto do arquivo nº 12.569; e uma pasta já fragmentada pelo esquema antigo até o `ERROR_CANNOT_MAKE` é recuperada por `copyTreeLocal`, que a regrava uma vez e grava os 13.146 nomes;
 - troca de dispositivo sob a mesma letra/caminho é rejeitada;
 - espera termina somente quando o marcador do dispositivo original reaparece;
 - download concluído e íntegro não gera nova requisição HTTP;

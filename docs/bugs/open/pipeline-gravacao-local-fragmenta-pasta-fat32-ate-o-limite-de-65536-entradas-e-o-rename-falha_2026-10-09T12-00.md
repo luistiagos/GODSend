@@ -527,3 +527,45 @@ A causa raiz e a das secoes "Causa raiz" e "Correcao aplicada" acima; reconferid
   `copyLocalEntryFunc`; nao roda no pendrive, entao tem de acertar pela leitura.
 - teste: effort medium, ultrathink nao — execucao mecanica (lock e serial do pendrive, `go test` longo em
   background, um jogo pequeno pela UI); o julgamento sutil e so o do controle positivo, ja descrito acima.
+
+## Correcao (pipeline 20261012-0329, rodada 1)
+
+So teste e doc; nenhum codigo de producao mudou (o fix T1-T3 da 2.12.110 ja esta no fluxo principal).
+
+- `src/server/services/pipeline/local_resilient_fat32_test.go::TestFAT32CopyTreeLocalRecoversFragmentedDirectory`
+  (novo, build tag `windows`, atras de `GODSEND_FAT32_TEST_DIR` como os vizinhos):
+  1. origem `t.TempDir()/faces` com os 13.146 `fat32FacesNames()` vazios;
+  2. fase "2.12.109": em `root/Games/EA FC 26/faces`, `WriteFile(<nome>.xbox-companion-part)` + `Rename` ate o
+     primeiro erro; exige `ERROR_CANNOT_MAKE` depois do #12.000 (senao `Fatalf`, como o controle existente), apaga
+     o temporario que falhou (o `os.Remove(partial)` da versao antiga); gravou tudo -> `Fatalf("premissa mudou")`;
+  3. fase "2.12.110": `copyLocalEntryFunc` embrulhado (restaurado no `Cleanup`) conta os erros com
+     `isFATDirectoryFull`; `copyTreeLocal(source, root/Games/EA FC 26, root, ...)` tem que devolver `nil`;
+  4. assercoes: exatamente **1** errno 82 visto pelo seam (a recuperacao rodou; nao "coube por acaso"); `faces` com
+     13.146 nomes, todos do manifesto (logo nenhum `.xbox-companion-part`); `.xbox-companion-installing` removido;
+     staging `localStagingDir` vazia; `t.Logf` com o indice da falha e o tempo de cada fase.
+- **Desvio do plano (layout):** o plano pedia `destination = root/Games/EA FC 26/faces` (como `...FitsLargeDirectory`).
+  Usei `dstDir = root/Games/EA FC 26` com `faces` como subpasta da origem e do destino. Motivo, lido em
+  `copyTreeLocal`: `writeInstallInProgressMarkerFunc(dstDir, ...)` cria o marcador `.xbox-companion-installing`
+  (3 entradas) em `dstDir` ANTES do laco; com `dstDir` = a pasta saturada, ele so caberia por sorte no buraco de 6
+  que o temporario apagado deixou, e consumiria esse buraco. No caso real o marcador fica na pasta do jogo e `faces`
+  e `data/sceneassets/faces` — o layout novo e o do cliente.
+- **Sequencia esperada no FAT32 real** (leitura do `copyTreeLocal`, nao executada aqui): os ~12.568 arquivos ja
+  gravados sao reaproveitados por hash (`localFileMatches`, vazios = origem vazia); o arquivo que falhou na fase 1
+  entra no buraco de 6 (rename da staging pede 4-5); o seguinte falha com 82 -> `rebuildSaturatedFATFolder` apaga os
+  arquivos do manifesto em `faces`, log `LOCAL [FAT32]: pasta FAT32 ... esgotou as entradas ...; regravando a pasta a
+  partir do arquivo 1/13146` e regrava tudo compactado (58.494 de 65.536).
+- `docs/RESILIENT-LOCAL-INSTALL.md` (lista dos testes em FAT32 real) cita o teste novo.
+- Sem entrada nova no `CHANGELOG.md` (planejamento: so teste, nada muda para o usuario).
+
+**Build (helper):** `pipeline.py build` -> rc 0 (server + tsc + renderer:typecheck).
+
+**Provas offline (dev):** `cd src/server; go vet ./services/pipeline/` -> sem saida;
+`go test ./services/pipeline/ -run TestFAT32 -count=1 -v` sem a variavel -> `SKIP` em
+`TestFAT32LocalCopyBench`, `...LegacyPartSuffixExhaustsDirectory`, `...FitsLargeDirectory`,
+`...RecoversFragmentedDirectory`, `PASS`; `go test ./services/pipeline/ -count=1` -> `ok 7.094s`. O dev nao rodou no
+pendrive (ambiente do slot de teste).
+
+**Ajuste ao Plano de teste (T2-a):** o filtro `-run 'TestFAT32(LegacyPartSuffix|CopyTreeLocal)'` ja pega o teste novo.
+Esperado no log dele: `fase 2.12.109: esquema antigo falhou no arquivo #~12.5xx`, uma linha `ERROR_CANNOT_MAKE em
+faces\face_...` e `fase 2.12.110: 13146 arquivos gravados em ...`. Tempo estimado: fase 1 ~13 min + fase 2 ~13 min de
+gravacao + o hash dos ~12.5 mil reaproveitados — `-timeout 3h` cobre os tres testes.
