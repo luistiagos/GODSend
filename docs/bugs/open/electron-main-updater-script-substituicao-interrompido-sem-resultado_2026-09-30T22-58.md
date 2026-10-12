@@ -276,4 +276,6 @@ Sem acesso à telemetria nesta sessão (o token exige ler o `.env` do backend, o
 >   - Testes: `tests/unit/autoUpdate.test.cjs` (o disparo conclui a troca com o processo que o lançou já encerrado; falha no disparo antigo).
 >   - Bug: [docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md](docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md)
 
+**Retomada 2 (2026-10-12) — CHANGELOG resolvido:** `sync` ok (branch sobre `origin/main` @ `8e5f3af`), `claim --file CHANGELOG.md` ok, entrada acima aplicada em `## [Unreleased]` / `### Fixed`. Depois do rebase: `pipeline.py build` → rc 0; `node --test tests/unit/*.test.cjs` → 325 pass / 0 fail (os 4 testes novos incluídos).
+
 **Ajustes ao Plano de teste:** a receita não muda. Na T2, conferir também que `EV\fake\godsend-data\update-replace.ps1` existe depois do clique. O efeito do `cwd` (não prender a pasta extraída do portable) só aparece com o launcher NSIS real: vai para "falta para close" junto com a troca do portable real.

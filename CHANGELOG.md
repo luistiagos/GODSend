@@ -47,6 +47,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Correção: novo `watchRendererHealth` loga em `APP_RENDERER` a queda do renderer (motivo e exitCode), travamento e volta (com a duração), falha de carga do frame principal e até 50 erros de console por sessão; queda e travamento vão à telemetria (`electron-main`). Na queda (fora de `clean-exit`/Quit) a página é recarregada, no máximo uma vez a cada 60 s; recarregar não reinicia o backend. `bootstrapApp` registra queda do processo GPU e o `second-instance` passa a logar `minimized/visible/crashed/loading` da janela.
   - Testes: `tests/unit/rendererHealth.test.cjs`.
   - Relato e análise: [`docs/bugs/open/electron-main-janela-branca-ao-reabrir-…`](docs/bugs/open/electron-main-janela-branca-ao-reabrir-com-o-app-ja-aberto-sem-telemetria-do-renderer_2026-10-07T21-48.md).
+- **Atualização in-app fechava o app e não trocava nada, sem resultado gravado (`src/electron-app/services/autoUpdateService.ts::applyUpdateAndRestart`, `::buildReplaceLaunch`, `::startReplaceScript`)**
+  - Caso: reports 8758, 8759 e 8839 (2 máquinas, 2.12.101/2.12.103): o log mostra "Replace script started", o app fecha e não volta sozinho, e no boot seguinte vem `o script de substituição não registrou resultado`.
+  - Causa: o PowerShell da troca era criado com `detached: true` (`DETACHED_PROCESS`). Em algumas máquinas (medido no Windows 11 26200 com Kaspersky) esse PowerShell sai com código 0 sem iniciar o engine. A hipótese de Job Object do launcher foi descartada: o `portable.nsi` não usa job.
+  - Correção: o script vai para `<userData>/update-replace.ps1` (UTF-8 com BOM) e um `cmd.exe` destacado faz `start "" /min` do PowerShell com `-ExecutionPolicy Bypass -WindowStyle Hidden -File`, com `cwd` fora da pasta extraída do portable. O script grava `started` antes de esperar, e o boot passa a dizer "não chegou a rodar" ou "começou mas não terminou". Também cobre o `spawn EPERM` de `-WindowStyle Hidden` com o script inline.
+  - Testes: `tests/unit/autoUpdate.test.cjs` (o disparo conclui a troca com o processo que o lançou já encerrado; com o disparo antigo, falha sem resultado).
+  - Bug: [docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md](docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md)
 
 ### Changed
 - **Contador da busca do catálogo conta cada versão, não o card agrupado (`src/electron-app/renderer/components/BrowsePage.tsx::totalReleases`)**
