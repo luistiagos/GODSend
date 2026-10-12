@@ -371,3 +371,159 @@ este bug, nao exclui-lo pelo veredito antigo.
   a correcao.
 - **Espaco continua sendo o risco:** jogo de 13,15 GB + folga de cluster (~0,6 GB) num volume de ~14,4 GB vazio;
   se `ensureFreeSpace` recusar, e ambiente (pendrive maior), nao reprovacao.
+
+## Planejamento (pipeline 20261012-0329, 2026-10-12)
+
+**Veredito:** corrigir — o fix de producao (T1-T3, 2.12.110) ja esta no fluxo principal; falta o teste repetivel em
+FAT32 real do caminho que destrava o pendrive ja fragmentado (T2, `rebuildSaturatedFATFolder`), hoje provado so com
+errno 82 injetado e por uma linha no log do dono, e a prova no pendrive de teste liberado em 2026-10-12.
+**Complexidade:** alta — pacote `src/server/services/pipeline/` (criterio do `docs/bugs/open/README.md`); a mudanca
+desta execucao e so de teste, sem codigo de producao.
+**Severidade:** medio — atinge so o subconjunto de jogos XEX com uma pasta de ~13 mil arquivos (EA FC 26 Legacy
+Edition) em pendrive FAT32; com o fix publicado a gravacao passa da pasta, e a verificacao previa troca para ISO/GOD
+quando a pasta nao cabe.
+**Arquivos a alterar (reserva da onda):**
+- `src/server/services/pipeline/local_resilient_fat32_test.go` — teste novo em FAT32 real: pasta fragmentada pelo
+  esquema antigo ate o errno 82 e, na mesma pasta, `copyTreeLocal` recupera e grava os 13.146 nomes.
+- `docs/RESILIENT-LOCAL-INSTALL.md` — linha 78 (lista dos testes em FAT32 real) cita o teste novo (doc-sync).
+
+Sem `CHANGELOG.md` novo: a entrada da 2.12.110 (linhas 85-90) ja descreve o fix; teste nao muda nada para o usuario.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+A causa raiz e a das secoes "Causa raiz" e "Correcao aplicada" acima; reconferida na fonte da lane (`c4874fa`):
+
+- `src/server/services/pipeline/local_resilient.go::copyLocalEntry` (408) — apaga `<dst>.xbox-companion-part`; promove
+  o temporario da staging se tamanho e SHA-256 conferem; senao grava em `localStagingPath(root, dst)` =
+  `<root>/.xbox-downloader/copy-staging/%08X.TMP` (`localStagingDir`, linha 388) e faz `Rename` para `dst`. Em erro
+  apaga o temporario e devolve o erro cru.
+- `local_resilient.go::copyTreeLocal` (554-748) — em FAT: `localManifestChildren` + `checkFATDirectoryLimits` antes de
+  gravar (devolve `ErrFAT32DirectoryLimit`); `ensureFreeSpace` so do que falta; marcador `.xbox-companion-installing`;
+  laco `entryLoop`: arquivo existente com tamanho certo e reconferido por hash (`localFileMatches`) e pulado; senao
+  `copyLocalEntryFunc` (seam, linha 509). Erro com `isFAT && isFATDirectoryFull(copyErr)` (682): na 1a vez por pasta
+  (`rebuiltFolders`) chama `rebuildSaturatedFATFolder`, loga `LOCAL [<jogo>]: pasta FAT32 <pasta> esgotou as entradas
+  com espacos fragmentados; regravando a pasta a partir do arquivo N/M` (710) e recomeca no primeiro arquivo do
+  manifesto naquela pasta; na 2a devolve `ErrLocalDelivery` com `localWriteErrorText`. No fim remove o marcador.
+- `local_resilient.go::rebuildSaturatedFATFolder` (522) — apaga os arquivos regulares do manifesto e sobras
+  `.xbox-companion-part` da pasta; se o que sobra + nomes finais passa de `fatMaxDirectoryEntries` (65.536) devolve
+  `false` sem apagar nada; erro de `Remove` devolve `(true, err)`.
+- `fat_directory.go` — `fatErrorCannotMake = syscall.Errno(82)` (25), `isFATDirectoryFull` (68, so Windows).
+- `local_resilient_fat32_test.go` (build tag `windows`) — `fat32FacesNames` (13.146 nomes, 58.494 entradas),
+  `fat32TestRoot` (pula sem `GODSEND_FAT32_TEST_DIR`, falha se o volume nao e FAT, cria e apaga
+  `godsend-fat32-test-<n>`), `TestFAT32LegacyPartSuffixExhaustsDirectory` (controle: o esquema antigo falha com
+  `ERROR_CANNOT_MAKE` depois do #12.000) e `TestFAT32CopyTreeLocalFitsLargeDirectory` (pasta nova: grava tudo,
+  staging vazia). **Nao ha teste em FAT32 real que parta da pasta ja fragmentada** — o caso de quem pegou o erro
+  com a 2.12.109 e clica em "Tentar novamente" com a 2.12.110.
+- Chamada no caminho do usuario: `interfaces/http/handlers.go::handleQueueRetry` (1137) -> `queue_resume.go::relaunchGame`
+  (36; sem ISO local, `ProcessGameWithFallback` com `huggingface, ia, minerva`) -> `fallback.go` (124-138:
+  `FindHuggingFaceEntry` no catalogo) -> `huggingface.go::ProcessHuggingFaceGameWithErr` (28; modo local:
+  `InstallXEXLocal`, linha 163) -> `copyTreeLocal`.
+
+### Provas (comando literal -> resultado)
+
+- **O caminho de recuperacao ja rodou no app do dono, com o pendrive real fragmentado.**
+  `grep -h "EA FC 26" "$APPDATA/xbox-360-companion-electron/logs/godsend-server-2026-10-09.log" | grep -i "LOCAL\|esgotou"`:
+  - `14:21:41Z pid=56588` e `18:31:54Z` (backend 2.12.109): `erro transitorio ao gravar face_40110_... (tentativa
+    1/3..3/3): rename ...xbox-companion-part ...: The directory or file cannot be created.` — o sintoma do print;
+  - `pid=62020` com banner `[INFO] Xbox 360 Companion Backend Server v2.12.110` (19:56:23Z), `20:40:31Z LOCAL XEX:
+    144851 arquivos` e `21:01:44Z ... pasta FAT32 E:\Games\EA FC 26 Legacy Edition - 454109F4\data\sceneassets\faces
+    esgotou as entradas com espacos fragmentados; regravando a pasta a partir do arquivo 7841/144851`;
+  - depois disso **nenhum** `cannot be created`/`esgotou` em `godsend-server-2026-10-09..12.log`, e o doc irmao conta
+    38.009 arquivos no destino as 21:09 (horario local) — alem do ultimo de `faces` (~#20.988 na ordem do Walk).
+  A copia nunca concluiu (nenhum `LogLocalComplete`; reinicios do app e o bug irmao de 10+ h), entao "pasta passou"
+  e prova parcial, nao "jogo instalado".
+- `git log -1 --format='%h %ci' 2037158 e712105 1ce5e27` -> 2026-10-09 13:25/13:31/13:37 -0300, antes do `pid=62020`.
+- `grep -n "^func " src/server/services/pipeline/local_resilient_fat32_test.go` -> so `fat32FacesNames`,
+  `fat32TestRoot`, `TestFAT32LegacyPartSuffixExhaustsDirectory`, `TestFAT32CopyTreeLocalFitsLargeDirectory`.
+- `Get-Disk` (2026-10-12 ~03:40) -> disco 2 `USB DISK 2.0`, serial `247700023090`, 15.525.216.256 bytes, MBR;
+  `Get-Volume` -> `E:` rotulo `PS2`, FAT32, Removable, 3,82 GB livres de 15,5 GB. Os testes FAT32 gravam so
+  arquivos vazios (entradas de diretorio), cabem sem formatar.
+
+### Hipoteses descartadas (e por que)
+
+- **`bloqueado` de novo / `sem-codigo`.** O motivo do bloqueio (sem disco) caiu, e o pipeline so leva um bug ao teste
+  com commit de codigo (`enqueue-test`: "nenhum commit de codigo no branch"). O que falta no codigo e real: o caminho
+  T2 (pendrive ja fragmentado) nunca foi exercitado num FAT32 de verdade de forma repetivel.
+- **T2 pela UI com o EA FC 26 inteiro no pendrive de teste.** Gravar 144.851 arquivos nesse pendrive leva 10-16 h
+  (bug irmao `pipeline-jogo-xex-com-145-mil-arquivos-...`, medido 36-150 arquivos/min); o controle (2.12.109) so
+  falha no ~#20.400 (2-9 h); 13,15 GB + folga num volume de 14,4 GB; e o slot E2E ficaria preso o dia todo. A parte
+  da UI vira um jogo XEX pequeno (T2-b abaixo) e o jogo real vai para "falta para close".
+- **Jogo sintetico pela UI** (pasta de 13 mil arquivos servida como se fosse do catalogo). A UI so instala o que o
+  catalogo HF/IA/Minerva resolve (`FindHuggingFaceEntry` casa por pontuacao de titulo: um nome inventado cai num
+  jogo real) ou uma ISO em `Transfer/`; XDVDFS nao representa pasta com mais de 262.140 bytes de tabela (doc irmao),
+  entao uma ISO nao carrega `faces`. Montar catalogo falso seria testar outra coisa.
+- **Controle positivo com build anterior a `2037158`.** O projeto nao tem `deploy --at-base`, a base ja tem o fix, e
+  a sessao nao builda fora do helper. O teste novo recria o esquema antigo dentro dele (como o controle existente) —
+  e o controle fica no mesmo volume e na mesma execucao.
+- **Dependencia do bug irmao** (gravacao lenta; pode mudar `copyLocalEntry`). Nao ha arquivo em comum (o irmao
+  reserva `local_resilient.go`/`local_resilient_test.go`); o teste novo exercita `copyTreeLocal` como estiver, entao
+  rodar depois do irmao so o torna regressao dele. Sem `depende_de`.
+- **Banner `Server v2.12.109` em `main.go:78` divergente do `v2.12.110` da linha 25** (visto no log): ja registrado em
+  `pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30.md` e
+  `release-backend-go-sem-identidade-...`. Nao e bug novo.
+
+### Tarefas
+
+- [ ] `src/server/services/pipeline/local_resilient_fat32_test.go::TestFAT32CopyTreeLocalRecoversFragmentedDirectory`
+  (novo, mesma build tag e helpers):
+  1. `root := fat32TestRoot(t)`; origem em `t.TempDir()/faces` com os `fat32FacesNames()` vazios; destino
+     `root/Games/EA FC 26/faces` (mesmo layout do `...FitsLargeDirectory`).
+  2. Fase "2.12.109": no destino, para cada nome em ordem, `os.WriteFile(dst+legacyLocalPartSuffix, nil)` + `os.Rename`;
+     no primeiro erro, exigir `errors.Is(err, fatErrorCannotMake)` e indice >= 12.000 (senao `Fatalf`, como o controle
+     existente), apagar o `.xbox-companion-part` como a 2.12.109 fazia e parar. Gravou tudo -> `Fatalf("premissa
+     mudou")`. `t.Logf` com o indice.
+  3. Fase "2.12.110": `PrepareLocalDevice(root)`, `app.NewApp()` com a conexao local (como `...FitsLargeDirectory`);
+     envolver `copyLocalEntryFunc` (restaurar no `t.Cleanup`) contando os erros com `isFATDirectoryFull`; chamar
+     `service.copyTreeLocal(source, destination, root, "FAT32", "XEX")` -> tem que devolver `nil`.
+  4. Assercoes: exatamente 1 erro 82 visto pelo seam (prova que a recuperacao rodou, e nao que a pasta "coube por
+     acaso"); `os.ReadDir(destination)` = 13.146 nomes, todos do manifesto, nenhum `.xbox-companion-part` e nenhum
+     `.xbox-companion-installing`; staging `localStagingDir` vazia; `t.Logf` com o tempo de cada fase.
+  Prova offline (dev): `go vet ./services/pipeline/` e `go test ./services/pipeline/ -run TestFAT32 -count=1 -v` sem a
+  variavel -> os tres `SKIP` (compila); `go test ./services/pipeline/ -count=1` verde. **O dev nao roda no pendrive**
+  (ambiente do slot); quem roda e o teste.
+- [ ] `docs/RESILIENT-LOCAL-INSTALL.md:78` — acrescentar: "e uma pasta ja fragmentada pelo esquema antigo ate o
+  `ERROR_CANNOT_MAKE` e recuperada por `copyTreeLocal`, que a regrava uma vez e grava os 13.146 nomes".
+- Commit: `fix(pipeline): teste em FAT32 real da recuperacao de pasta ja fragmentada (bug: <slug>)`.
+
+### Plano de teste
+
+- **Offline (sem slot):** `cd src/server; go vet ./services/pipeline/; go test ./services/pipeline/ -count=1` verde;
+  `go test ./services/pipeline/ -run TestFAT32 -v` sem `GODSEND_FAT32_TEST_DIR` -> 3 testes `SKIP` (+ o bench do irmao).
+  Conferir na diff que so mudou o `_test.go` e o doc.
+- **Pendrive (vale para T2-a e T2-b):** lock `C:\projects\.pendrive-teste-247700023090.lock` (manual; outro com < 3 h
+  = ambiente); `Get-Disk | Where-Object SerialNumber -eq '247700023090'` -> numero do disco ->
+  `Get-Partition -DiskNumber <n> | Get-Volume` -> letra `<L>` e `FileSystem` = FAT32. Nunca outra letra. Nao precisa
+  formatar (3,82 GB livres hoje); se o volume nao for FAT32, formatar FAT32 so esse disco, pelo serial.
+- **T2-a reproducao do estado do cliente em FAT32 real (o nucleo do bug; ~55 min, em BACKGROUND):**
+  `cd src/server; $env:GODSEND_FAT32_TEST_DIR='<L>:\'; go test ./services/pipeline/ -run 'TestFAT32(LegacyPartSuffix|CopyTreeLocal)' -count=1 -v -timeout 3h`
+  (a saida vai para a evidencia). Esperado: `TestFAT32LegacyPartSuffixExhaustsDirectory` PASS com o log `esquema
+  antigo falhou no arquivo #~12.5xx ... The directory or file cannot be created.` (o texto do print);
+  `TestFAT32CopyTreeLocalFitsLargeDirectory` PASS; `TestFAT32CopyTreeLocalRecoversFragmentedDirectory` PASS com 1
+  erro 82 recuperado e 13.146 arquivos. No fim, `ls <L>:\ | findstr godsend-fat32-test` vazio.
+  Por que nao pela UI: o caminho do cliente com o jogo real leva 10-16 h e nao cabe com folga (Hipoteses
+  descartadas); a UI desse caminho ja foi exercitada no app do dono (Provas, `pid=62020`), mas sem concluir.
+- **T2-b o mesmo fluxo de gravacao pela UI, num jogo pequeno (app da lane, `npm start`, no slot):** estado de
+  partida: config copiada para a evidencia; destino local = o pendrive de teste `<L>:\`. Acao: Catalogo -> um jogo
+  XEX do HuggingFace com menos de ~2 GB -> instalar no pendrive -> acompanhar na Fila/Home. SINAL: durante o
+  `Gravando e verificando... N% (i/M)`, `Get-ChildItem -Recurse -Force '<L>:\Games\<jogo> - <TitleID>' -Filter
+  *.xbox-companion-part` vazio e `<L>:\.xbox-downloader\copy-staging` existe; no fim o item termina concluido, a
+  staging esta vazia, nao ha `.xbox-companion-installing` na pasta do jogo, e o console do backend tem `LOCAL XEX: M
+  arquivos (...) -> <L>:\Games\...` sem `cannot be created`. Isso prova que o binario da lane grava pelo esquema
+  novo no caminho do usuario; o teto de 65.536 e provado pela T2-a.
+- **Controle positivo:** o proprio `TestFAT32LegacyPartSuffixExhaustsDirectory` e a fase "2.12.109" do teste novo
+  reproduzem o esquema antigo no mesmo pendrive e TEM que falhar com `ERROR_CANNOT_MAKE` depois do #12.000; se
+  gravarem tudo, o teste nao detecta o bug (reprovar com "controle nao reproduz"). Historico do sintoma pela UI: log
+  do dono 2026-10-09 `14:21:41Z`/`18:31:54Z` (2.12.109). Sem build anterior ao fix (Hipoteses descartadas).
+- **T3 regressao direcionada:** `go test -count=1 ./...` em `src/server` e `npm --prefix src/electron-app run
+  test:safety` (linha de base no manual; a falha de limpeza `TempDir RemoveAll cleanup` e conhecida, nao conta).
+  Na T2-b, a Biblioteca/scan do pendrive lista o jogo pequeno como instalado (o scanner ignora `.xbox-downloader/`).
+- **Falta para close (vai no `## Status`):** publicar a versao com o fix (`build-and-upload.ps1`, dono); instalar o
+  EA FC 26 Legacy Edition inteiro num pendrive FAT32 pela UI ate concluir (10-16 h; depende do bug irmao) e o jogo
+  abrir no console; confirmacao do cliente.
+
+### Sessoes seguintes
+
+- dev: effort medium, ultrathink nao — um teste novo copiando o padrao de dois testes vizinhos e do seam
+  `copyLocalEntryFunc`; nao roda no pendrive, entao tem de acertar pela leitura.
+- teste: effort medium, ultrathink nao — execucao mecanica (lock e serial do pendrive, `go test` longo em
+  background, um jogo pequeno pela UI); o julgamento sutil e so o do controle positivo, ja descrito acima.

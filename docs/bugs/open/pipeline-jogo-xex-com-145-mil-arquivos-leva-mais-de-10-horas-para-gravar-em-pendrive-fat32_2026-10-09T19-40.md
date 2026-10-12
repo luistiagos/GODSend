@@ -349,3 +349,164 @@ este bug, nao exclui-lo pelo veredito antigo.
 
 - A medicao das variantes de `copyLocalEntry` (~7-28 min por variante com 1.000 arquivos de `kit`) pode rodar
   agora nesse pendrive; a escolha da correcao continua dependendo dela.
+
+## Planejamento (pipeline 20261012-0329, 2026-10-12)
+
+**Veredito:** corrigir — gravar direto no nome final todo arquivo que nao e ponto de entrada (sem staging nem
+rename), mantendo `Sync` por arquivo; a medicao que antes bloqueava passa a ser o criterio de aprovacao da sessao
+de teste, que tem o slot e o pendrive de teste.
+**Complexidade:** alta — pipeline de gravacao (`src/server/services/pipeline/`), criterio do `docs/bugs/open/README.md`.
+**Severidade:** medio — so um subconjunto (jogo com dezenas de milhares de arquivos em pendrive lento); o jogo
+acaba gravado, em horas. Mesmo juizo do planejamento de 2026-10-10.
+**Arquivos a alterar (reserva da onda):**
+- `src/server/services/pipeline/local_resilient.go` — `localCopyEntry` (campo novo), `copyLocalEntry` (caminho
+  direto), `orderEntryPointsLast`/`copyTreeLocal` (marcam quem vai direto).
+- `src/server/services/pipeline/local_resilient_test.go` — testes do caminho direto (retomada, erro no meio).
+- `src/server/services/pipeline/local_install_marker_test.go` — ponto de entrada continua em staging, o resto direto.
+- `src/server/services/pipeline/local_resilient_fat32_test.go` — `TestFAT32CopyTreeLocalFitsLargeDirectory` le a
+  pasta de staging, que deixa de existir quando nenhum arquivo passa por ela.
+- `src/server/services/pipeline/local_copy_bench_test.go` — variante `staging` (caminho antigo) ao lado de `atual`.
+
+### Por que corrigir agora, sem a medicao previa
+
+O planejamento de 2026-10-10 descartou "corrigir sem medir" porque trocaria garantia por ganho desconhecido. Este
+plano nao troca garantia: escolhe `direto-sync` (mantem `out.Sync()`, `Close`, conferencia de tamanho e o SHA-256
+na retomada) e so tira a ida e volta pela staging — criar a entrada em `.xbox-downloader/copy-staging`, apagar o
+destino e renomear entre pastas. Os pontos de entrada (`default.xex`, cabecalho GOD) e `copyFileLocal` continuam
+no caminho antigo, entao o console nunca ve `default.xex` truncado. A medicao continua decidindo, mas como prova:
+o planner nao pode usar o pendrive (ele e do slot de teste) e o dev tambem nao; quem mede e a sessao de teste, com
+o caminho antigo e o novo no mesmo binario (variante `staging` x `atual` do bench, mesmo volume, mesma hora). Se o
+ganho nao vier, a reprovacao traz os numeros das variantes, que e o que o bloqueio esperava.
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Reconferido na lane em `c4874fa` (linhas atuais):
+- `local_resilient.go::localCopyEntry` (54-59) — `sourcePath`, `relativePath`, `size`, `sha256`; nada diz se o
+  arquivo e ponto de entrada.
+- `local_resilient.go::copyLocalEntry` (408-503) — sempre: `Remove(dst+legacy)`, `Stat` da staging (promove se
+  integra), `Remove(staging)`, limite 4 GB, 2x `MkdirAll`, `OpenFile(staging, O_TRUNC)`, copia + SHA-256, `Sync`,
+  `Close`, `Stat` (tamanho), ate 5x `Remove(dst)`+`Rename(staging, dst)`. Em erro: apaga a staging e devolve o
+  erro (o chamador classifica). A pasta do jogo recebe a mesma entrada final de qualquer jeito; o extra por arquivo
+  e a entrada criada e apagada na staging, o `Remove(dst)` e o rename entre pastas (FAT e duas pastas tocadas).
+- `local_resilient.go::copyTreeLocal` (554-747) — chama `copyLocalEntryFunc` por arquivo depois de
+  `localFileMatches(dst)` (re-hash de origem e destino quando o destino tem o tamanho certo); erro de pasta FAT
+  cheia -> `rebuildSaturatedFATFolder` (apaga so nomes do manifesto); dispositivo trocado -> `waitForLocalDevice`;
+  senao 3 retentativas. Marca `.xbox-companion-installing` antes do primeiro arquivo e apaga depois do ultimo.
+  Chamado por `local_install.go::InstallGameLocal` (GOD), `InstallContentLocal` e `InstallXEXLocal`.
+- `local_resilient.go::orderEntryPointsLast` (771-792) — monta o mapa `entryPoint` (`default.xex` na raiz e cada
+  cabecalho GOD dono de uma pasta `<cabecalho>.data`) e os poe no fim; e o lugar natural para marcar quem NAO e
+  ponto de entrada (ou `copyTreeLocal` logo depois dele).
+- `local_resilient.go::copyFileLocal` (794-847) — copia avulsa (arquivo unico), monta `localCopyEntry` literal e
+  chama `copyLocalEntry` direto (nao o `Func`): com campo de valor zero = staging, nao muda.
+- `local_copy_bench_test.go::benchVariants` (57-90) — `atual` chama `copyLocalEntry(entry, root, dst, nil)` com a
+  entrada crua; `direto`/`direto-sync`/`sem-sync` sao copias independentes do codigo do app.
+- Por que nao ha conserto de ordem de grandeza: 145 mil arquivos x escritas de metadado sincronas num pendrive USB
+  2.0 de 40-100 IOPS (secao "Evidencia"). O fix reduz escritas por arquivo; orientar o cliente (USB 3.0/HD) segue
+  como decisao do dono, `sem-codigo`, em "falta para close".
+
+### Provas (comando literal -> resultado)
+
+- `git log --oneline -1` na lane -> `c4874fa`; `grep -n "^func \|out.Sync\|localStagingPath\|orderEntryPoints"
+  local_resilient.go` -> `copyLocalEntry` 408, `out.Sync()` 449, `copyTreeLocal` 554, `orderEntryPointsLast` 771,
+  `copyFileLocal` 794.
+- `grep -rn "copyTreeLocal(" src/server --include=*.go | grep -v _test` -> 3 chamadores, todos em
+  `local_install.go` (GOD 114, Content 126, XEX 139): o fix vale para GOD e Content tambem.
+- `Test-Path '...\Temp\EA FC 26 Legacy Edition_hf_ext\...\data\sceneassets\kit'` -> `True`, 7.074 arquivos,
+  959 MB: a origem do bench existe na arvore principal (so leitura).
+- `Get-Disk | Select Number,FriendlyName,SerialNumber,BusType,Size` -> disco 2 ` USB DISK 2.0`, serial
+  `247700023090`, USB, 15,5 GB; `Get-Partition -DiskNumber 2` -> `E:` FAT32; `Get-Volume` -> rotulo `PS2`,
+  3,82 GB livres. **Atencao, sessao de teste:** `Get-Disk | Where-Object SerialNumber -eq '247700023090'` (a forma
+  do manual) voltou VAZIO nesta maquina; `Get-Disk | Where-Object { $_.SerialNumber.Trim() -eq '247700023090' }`
+  achou o disco 2. Use a forma com `Trim()`.
+- Lock `C:\projects\.pendrive-teste-247700023090.lock` -> nao existia em 2026-10-12 (esta sessao).
+
+### Hipoteses descartadas (e por que)
+
+- **Tirar o `Sync` ja no primeiro round (`direto`):** a fastfat em remocao rapida ja descarrega no `Close`
+  (secao "Passo 1"), entao o ganho esperado e pequeno, e em "melhor desempenho" o `Sync` seria a unica garantia por
+  arquivo (o `FlushVolumeBuffers` do fim e no-op sem admin). Fica como rodada 2 condicionada a medicao.
+- **Gravar direto tambem o `default.xex`/cabecalho GOD:** quebraria a invariante do `AGENTS.md` (console listar
+  jogo que nao inicia, se a copia parar no ultimo arquivo).
+- **Direto no nome final volta a fragmentar a pasta FAT32 (2.12.110):** nao — o problema era o nome temporario ao
+  lado do destino, com numero de entradas diferente do final. Gravando direto, a pasta so recebe nomes finais.
+- **Arquivo parcial no nome final enganar a retomada:** nao — `copyTreeLocal` so pula arquivo cujo tamanho bate
+  E cujo SHA-256 bate com a origem (`localFileMatches`); a pasta continua marcada ate o fim.
+- **Provar em pasta NTFS local:** prova so a corretude; o custo medido e de metadado em FAT32 USB.
+- **Rota GOD para este jogo:** descartada em 2026-10-09 (limite de 262.140 bytes por tabela XDVDFS).
+
+### Tarefas
+
+- [ ] `local_resilient.go::localCopyEntry` — campo `direct bool` (valor zero = staging, o caminho seguro: quem
+  monta a entrada sem saber, como `copyFileLocal`, nao muda).
+- [ ] `local_resilient.go::orderEntryPointsLast` (ou `copyTreeLocal` logo depois dele) — `direct = true` em toda
+  entrada que nao e ponto de entrada — teste: estender
+  `local_install_marker_test.go::TestCopyTreeLocalMarksFolderUntilLastFileAndWritesEntryPointsLast` para conferir no
+  `copyLocalEntryFunc` falso que `default.xex` e `00007000/ABCDEF` chegam com `direct == false` e os outros 4 com
+  `true`.
+- [ ] `local_resilient.go::copyLocalEntry` — com `entry.direct`: `Remove(dst+legacy)`; staging de `dst` existente
+  = sobra de versao anterior, apagar (nao promover: o arquivo vai ser escrito no lugar); limite 4 GB;
+  `MkdirAll(dir(dst))`; `OpenFile(dst, O_CREATE|O_WRONLY|O_TRUNC)` (reescreve no lugar, sem apagar a entrada);
+  copia + SHA-256; `Sync`; `Close`; conferencia de tamanho (ou hash com `GODSEND_FULL_VERIFY`). Em erro: devolver o
+  erro sem apagar `dst` (a retomada o reescreve no lugar; apagar so abre buraco na pasta). Sem `direct`: codigo
+  atual intacto. Comentario cita
+  `[[pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40]]`
+  — testes em `local_resilient_test.go`: (a) direto grava o conteudo certo, nada aparece na staging durante a
+  gravacao e a pasta so tem o nome final; (b) destino pre-existente com conteudo errado do mesmo tamanho e
+  reescrito por `copyTreeLocal`; (c) erro no meio: um `copyLocalEntryFunc` que grava metade do conteudo no `dst`
+  e devolve erro (o estado de um pendrive arrancado) e depois a chamada seguinte de `copyTreeLocal` com o original
+  termina com o conteudo certo e sem a marca; (d) `TestCopyLocalEntryKeepsTemporaryOutOfDestinationFolder` e
+  `TestCopyLocalEntryPromotesValidStagedFileOnResume` passam sem mudanca (caminho staging).
+- [ ] `local_resilient_fat32_test.go::TestFAT32CopyTreeLocalFitsLargeDirectory` — aceitar a staging inexistente
+  (`os.IsNotExist`) alem de vazia.
+- [ ] `local_copy_bench_test.go::benchVariants` — `staging` = `copyLocalEntry` com `direct=false` (o caminho de
+  hoje, o mesmo codigo da base) e `atual` = `copyLocalEntry` com `direct=true` (o que `copyTreeLocal` faz com
+  arquivo que nao e ponto de entrada); ordem padrao `staging,atual,sem-sync,direto,direto-sync`.
+- [ ] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva: `merge=union`); o teste acrescenta os numeros.
+- [ ] **Rodada 2, so se o teste pedir:** se o bench mostrar `direto` >= 1,25x `atual` em arq/min, tirar o `Sync`
+  do caminho direto (nao do staging) e registrar no doc que a garantia por arquivo passa a ser o `Close` em
+  remocao rapida.
+
+### Plano de teste
+
+- **Offline (sem slot):** em `src/server`: `go test ./services/pipeline/ -count=1` (testes novos e os de staging
+  antigos) e `go vet ./services/pipeline/`; `TestFAT32LocalCopyBench` com `GODSEND_BENCH_ALLOW_NONFAT=1`, destino
+  `%TEMP%`, 50 arquivos, `GODSEND_BENCH_DRAIN_MAX=4s` so prova que as variantes rodam (numeros nao valem).
+- **Medicao (no slot, pendrive de teste; prova central do fix):** confirmar o disco pelo serial (forma com
+  `Trim()`, ver Provas), criar o lock `C:\projects\.pendrive-teste-247700023090.lock`, conferir > 500 MB livres e
+  nenhum `godsend*` gravando nele. Em `src/server` da lane:
+  `$env:GODSEND_FAT32_TEST_DIR='<letra>:\'`;
+  `$env:GODSEND_BENCH_SRC='C:\projects\Downloader-XBOX360-XEX-HDD-Games\Temp\EA FC 26 Legacy Edition_hf_ext\EA FC 26 Legacy Edition\data\sceneassets\kit'`;
+  `$env:GODSEND_BENCH_MAX_FILES='1000'`; `$env:GODSEND_BENCH_VARIANTS='staging,atual,direto,staging,atual'`;
+  `go test ./services/pipeline/ -run TestFAT32LocalCopyBench -v -timeout 6h` (em BACKGROUND; ~35-140 min). A
+  repeticao `staging,atual` no fim mede o ruido. Saida na evidencia; apagar o lock no fim, inclusive em erro.
+  **Criterio:** `atual` >= 1,25x `staging` em arq/min nas duas rodadas, com `escr/arq` menor. Entre 1,0x e 1,25x:
+  reprovar com "ganho insuficiente" e os numeros (se `direto` >= 1,25x `atual`, pedir a rodada 2 das Tarefas).
+  `atual` <= `staging`: reprovar com os numeros.
+- **T2 reproducao como o usuario (E2E, no slot):** o caminho do cliente com o EA FC 26 (12,25 GB, 10+ h na base)
+  nao cabe numa janela de teste; o equivalente proporcional: app da lane (`npm start`), destino local = o pendrive
+  de teste (letra confirmada pelo serial); Catalogo/Browse -> um jogo **XEX** com pelo menos ~2.000 arquivos que
+  caiba no espaco livre -> baixar e gravar no pendrive. Sinal: contador `Gravando e verificando... N% (i/total)` na
+  Home/Fila amostrado a cada minuto (ou arquivos por mtime em `<letra>:\Games\<jogo>`) -> arq/min; no fim, a pasta
+  do jogo sem `.xbox-companion-installing`, com `default.xex`, o mesmo numero de arquivos da origem e
+  `<letra>:\.xbox-downloader\copy-staging` vazia ou inexistente. Comparar arq/min com o controle positivo (mesmo
+  jogo, mesmo pendrive, pasta apagada antes). Se nenhum XEX assim couber na janela, registrar: a prova de taxa fica
+  com a Medicao e a T2 vira a instalacao completa e correta de um XEX qualquer pelo app.
+- **Controle positivo:** (a) a linha `staging` do bench e o caminho da base sem mudanca (o ramo sem `direct` de
+  `copyLocalEntry` fica intacto), medida no mesmo volume e na mesma hora; (b) para a T2, a base pelo caminho que o
+  manual da para projeto sem `deploy`.
+- **T3 regressao direcionada:** retomada — gravar o mesmo XEX, cancelar na Fila no meio, reenfileirar: termina,
+  arquivos integros, sem `.xbox-companion-installing`; um jogo **GOD** pequeno no pendrive (blocos `Data` pelo
+  caminho direto, cabecalho por ultimo via staging) aparece em "Jogos Instalados"; com o pendrive,
+  `GODSEND_FAT32_TEST_DIR=<letra>:\` e `go test ./services/pipeline/ -run 'FAT32CopyTree|FAT32Legacy' -count=1 -v`
+  (`TestFAT32CopyTreeLocalFitsLargeDirectory`: a pasta de 13 mil nomes ainda cabe gravando direto;
+  `TestFAT32LegacyPartSuffixExhaustsDirectory` segue como controle). Mais `go test -count=1 ./...` em `src/server`
+  e `npm --prefix src/electron-app run test:safety` (linha de base do manual).
+- **Falta para close (fora do pipeline):** o EA FC 26 inteiro no pendrive do cliente (horas mesmo com o fix);
+  decisao do dono sobre orientar pendrive USB 3.0/HD para jogos com 100 mil+ arquivos.
+
+### Sessoes seguintes
+
+- dev: effort high, ultrathink sim — gravacao no pendrive do cliente: retomada, erro no meio, pontos de entrada, e
+  os testes antigos de staging tem de continuar valendo.
+- teste: effort high, ultrathink nao — a medicao e mecanica, mas toca disco real (serial, lock, espaco) e o
+  veredito depende de ler os numeros com o ruido.
