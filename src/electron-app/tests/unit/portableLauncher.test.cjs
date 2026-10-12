@@ -84,6 +84,18 @@ test("launcher: sem espaço no disco do %TEMP%, recusa antes de extrair e regist
   assert.deepEqual(r.leftInTemp, []);
 });
 
+test("launcher: Windows anterior ao 10 recusa antes de extrair e registra a versão", windowsOnly, () => {
+  // Eleva o mínimo acima do build desta máquina: é como um Windows 7/8.1 se vê.
+  const r = runLauncher(workingLauncher(), ["/c", "exit", "7"], { XBOX360COMPANION_LAUNCHER_MIN_WINDOWS_BUILD: "99999" });
+  assert.equal(r.status, 2, "o app não pode ter sido iniciado");
+  const m = /\twindows-antigo versao=(\d+)\.(\d+) build=(\d+) minimo=99999\r\n$/.exec(r.failures);
+  assert.ok(m, `registro inesperado: ${JSON.stringify(r.failures)}`);
+  // A versão lida é a real (o manifesto declara o Windows 10): sem a variável,
+  // esta máquina passaria pelo mínimo de verdade.
+  assert.ok(Number(m[1]) >= 10 && Number(m[3]) >= 10240, `versão lida: ${m[0]}`);
+  assert.deepEqual(r.leftInTemp, []);
+});
+
 test("launcher: pacote danificado não vira um app pela metade em execução", windowsOnly, () => {
   const damaged = path.join(root, "damaged.exe");
   const bytes = fs.readFileSync(workingLauncher());

@@ -29,7 +29,7 @@ export function consumeLauncherFailures(dir: string): string[] {
   return raw.split(/\r?\n/).filter((line) => line.trim());
 }
 
-/** The reason code of a line: `sem-espaco`, `extracao-incompleta`, `nao-iniciou`, `pacote-nao-gravado`. */
+/** The reason code of a line: `windows-antigo`, `sem-espaco`, `extracao-incompleta`, `nao-iniciou`, `pacote-nao-gravado`. */
 export function launcherFailureReason(line: string): string {
   return (line.split("\t")[2] || "").trim().split(" ")[0] || "desconhecido";
 }

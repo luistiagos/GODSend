@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **No Windows 7/8/8.1 o `xboxcompanion.exe` "nem abria": extraía 1,3 GB, iniciava um app que morre no carregamento e não mostrava nem registrava nada (`src/electron-app/build/portable.nsi::checkWindowsVersion`, chamada no `.onInit`)**
+  - Caso: chamado #27, cliente com notebook Windows 7.
+  - Causa: o app (Electron 42, backend Go 1.24) exige Windows 10, mas o `check64BitAndSetRegView` do template do electron-builder só recusa até o Vista. No Windows 7 o `CreateProcess` do `Xbox360Companion.exe` retorna sucesso e o processo morre no loader, então nenhum caminho de falha do launcher disparava.
+  - Correção: antes de gravar qualquer coisa, o launcher confere o build do Windows (mínimo 10240) e, abaixo dele, mostra "O Xbox 360 Companion precisa do Windows 10 ou do Windows 11" com a versão encontrada e grava `windows-antigo versao=... build=... minimo=...` no `launcher-failures.log` (lido pelo suporte na pasta `godsend-data`; o app nunca sobe nesse Windows para reportar). `XBOX360COMPANION_LAUNCHER_MIN_WINDOWS_BUILD` eleva o mínimo, para ver o aviso num Windows 10/11.
+  - Testes: `tests/unit/portableLauncher.test.cjs` ("Windows anterior ao 10 recusa antes de extrair", que também confere que esta máquina lê build ≥ 10240).
+  - Bug: [docs/bugs/open/electron-app-incompativel-windows-7-executavel-nao-abre_2026-09-23T02-45.md](docs/bugs/open/electron-app-incompativel-windows-7-executavel-nao-abre_2026-09-23T02-45.md)
 - **Pendrive que o Xbox 360 mostra como "Não Formatado" depois de um preparo concluído não deixava nenhum dado do layout do disco para o suporte (`src/electron-app/infrastructure/preparationReceipt.ts::buildPreparationReceipt`, `src/electron-app/services/fixedBadAvatarPreparationService.ts::requireXboxReadableLayout`)**
   - Caso: chamado #153 e um segundo caso com o mesmo print; a causa do primeiro segue sem prova, e o único jeito de saber o layout era pedir PowerShell ao cliente.
   - Causa: o portão `requireXboxReadableLayout` lia o layout (estilo, partições, tipo, setor) e o descartava; o recibo `.xbox-downloader/preparo.json` só guardava modo, data, versão e release.

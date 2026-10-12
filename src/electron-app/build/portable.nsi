@@ -14,7 +14,8 @@
 ;  * Nsis7z reports nothing when extraction fails, and the template starts
 ;    whatever was left behind.
 ;
-; Here the free space is checked before anything is written, the app is
+; Here the Windows version and the free space are checked before anything is
+; written, the app is
 ; unpacked once and straight into place, the result is verified, and every
 ; failure tells the customer why and leaves a line the app reports at its next
 ; start (services/portableLauncherReport.ts).
@@ -44,6 +45,8 @@ Caption "${PRODUCT_NAME}"
 SubCaption 3 " "
 SubCaption 4 " "
 
+; Electron 23+ and Go 1.21+ need Windows 10 (build 10240 is its first).
+!define LAUNCHER_MIN_WINDOWS_BUILD 10240
 ; Room left on the disk once the app is unpacked.
 !define LAUNCHER_HEADROOM_MB 100
 ; Top-level windows of an Electron (Chromium) app. If this ever changes, the
@@ -219,6 +222,32 @@ Function launcherFailed
   Quit
 FunctionEnd
 
+; The template's check64BitAndSetRegView turns away only Vista and older, so
+; Windows 7/8/8.1 unpacked 1.3 GB and started an app that died in the loader:
+; CreateProcess succeeds there, and nothing was shown or logged.
+; [[electron-app-incompativel-windows-7-executavel-nao-abre_2026-09-23T02-45]]
+; The build number orders them all (7601 is 7 SP1, 9600 is 8.1), and
+; GetVersionEx does not cap it at 8.1 because the launcher's manifest declares
+; Windows 10.
+Function checkWindowsVersion
+  StrCpy $1 ${LAUNCHER_MIN_WINDOWS_BUILD}
+  ; Lets a test (or support) see the warning on a Windows that is new enough.
+  ReadEnvStr $0 "XBOX360COMPANION_LAUNCHER_MIN_WINDOWS_BUILD"
+  ${if} $0 > $1
+    StrCpy $1 $0
+  ${endIf}
+  ${WinVerGetBuild} $2
+  ${if} $2 >= $1
+    Return
+  ${endIf}
+
+  ${WinVerGetMajor} $3
+  ${WinVerGetMinor} $4
+  StrCpy $R1 "windows-antigo versao=$3.$4 build=$2 minimo=$1"
+  StrCpy $R2 "O ${PRODUCT_NAME} precisa do Windows 10 ou do Windows 11.$\r$\n$\r$\nEste computador está com uma versão mais antiga do Windows (versão $3.$4, build $2), na qual o programa não funciona.$\r$\n$\r$\nUse um computador com Windows 10 ou 11."
+  Call launcherFailed
+FunctionEnd
+
 Function checkFreeSpace
   IntOp $requiredMb $packageKb + $unpackedKb
   IntOp $requiredMb $requiredMb / 1024
@@ -265,6 +294,7 @@ FunctionEnd
 
 Function .onInit
   !insertmacro check64BitAndSetRegView
+  Call checkWindowsVersion
 
   ; Which package suits this Windows: same rule as the template's identify_package.
   !ifdef APP_32

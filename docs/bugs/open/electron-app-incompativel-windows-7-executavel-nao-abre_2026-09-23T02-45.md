@@ -136,3 +136,17 @@ A causa raiz foi provada por inspeção direta das dependências de runtime e do
 ### Achado cruzado (outro projeto)
 
 - Agente de suporte: `C:\projects\digitalstoregamesproject\docs\modules\chatbot-whatsapp\areas\prompt-kb\bugs\2026-10-10-agente-xbox-manda-cliente-com-windows-7-tentar-o-companion-que-so-roda-no-windows-10.md` (o agente disse "dá pra tentar" no Windows 7; a KB hoje diz "Windows 10/11" mas não diz o que fazer com Windows 7/8). Cada lado sobrevive sozinho.
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+- `src/electron-app/build/portable.nsi::checkWindowsVersion` (nova) — `${WinVerGetBuild}` contra `!define LAUNCHER_MIN_WINDOWS_BUILD 10240`; `ReadEnvStr XBOX360COMPANION_LAUNCHER_MIN_WINDOWS_BUILD` so ELEVA o minimo (`${if} $0 > $1`, isto e, valor menor que 10240, vazio ou nao numerico e ignorado). Abaixo do minimo: `$R1 = "windows-antigo versao=<maj>.<min> build=<bld> minimo=<min>"`, `$R2` = caixa pt-BR ("O Xbox 360 Companion precisa do Windows 10 ou do Windows 11 ... (versao 6.1, build 7601) ...") e `Call launcherFailed` (log + `MessageBox /SD IDOK` + exit 2 + `Quit`). Comentario cita `[[electron-app-incompativel-windows-7-executavel-nao-abre_2026-09-23T02-45]]`.
+- `src/electron-app/build/portable.nsi::.onInit` — `Call checkWindowsVersion` logo depois de `check64BitAndSetRegView`, antes de escolher o pacote e de `checkFreeSpace` (nada gravado antes). Comentario do topo do arquivo atualizado ("the Windows version and the free space are checked before anything is written").
+- Desvio do plano: a checagem virou funcao propria (`checkWindowsVersion`, no molde de `checkFreeSpace`) em vez de codigo inline no `.onInit`; mesmo comportamento. Registradores usados `$0-$4` (o `launcherFailed` sobrescreve `$0-$6` com o `GetTime`, mas so depois de `$R1` montado). `__WinVer_InitVars` salva/restaura `$0-$3`/`$R0`, entao os `${WinVerGet*}` nao pisam nos valores lidos antes.
+- `src/electron-app/tests/unit/portableLauncher.test.cjs` — teste "launcher: Windows anterior ao 10 recusa antes de extrair e registra a versão" (`XBOX360COMPANION_LAUNCHER_MIN_WINDOWS_BUILD=99999`): exit 2, linha `windows-antigo versao=X.Y build=N minimo=99999`, `major >= 10` e `build >= 10240` (a versao lida e a real nesta maquina, Windows 11), `%TEMP%` vazio.
+- `src/electron-app/services/portableLauncherReport.ts::launcherFailureReason` — so o comentario (motivo `windows-antigo`).
+- Doc-sync: `AGENTS.md` (paragrafo `build/portable.nsi`: ponto **(0)** novo; paragrafo `portableLauncherReport.ts`: lista de motivos), `docs/features.md` ("Portable launcher (Windows)": a checagem e a variavel). `CHANGELOG.md` `[Unreleased]` `### Fixed`; versao nao sobe (manual).
+
+### Provas desta rodada
+
+- `python pipeline.py build --bug <slug>` -> rc 0 (build:server + tsc + renderer:typecheck).
+- `node --test tests/unit/portableLauncher.test.cjs tests/unit/portableLauncherReport.test.cjs` (em `src/electron-app`) -> `tests 8, pass 8, fail 0` (os 4 do launcher que ja existiam + o novo + os 3 do report).
