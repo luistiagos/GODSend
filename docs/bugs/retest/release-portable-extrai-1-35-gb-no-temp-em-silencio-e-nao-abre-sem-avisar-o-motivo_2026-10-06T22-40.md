@@ -1,5 +1,14 @@
 # Bug: o `xboxcompanion.exe` (portátil) não abre e não diz por quê: descompacta 1,35 GB no `%TEMP%` em modo silencioso, e qualquer falha nessa etapa termina sem janela, sem mensagem e sem telemetria
 
+## Status
+
+- Movido de `open/` para `retest/` em 2026-10-12 a pedido do dono, depois da execucao 20261010-2242 do pipeline (planning: correcao ja em `origin/main`, sem codigo a mudar).
+- **Corrigido em:** 2026-10-07 (2.12.107); esta na **publicada** 2.12.109.
+- **Commits:** `86dfac6` fix(portable) (launcher proprio diz por que nao abriu, mostra progresso e usa 1,3 GB a menos do `%TEMP%`).
+- **Onde:** `src/electron-app/build/portable.nsi` (checagem de espaco, conferencia da extracao, `CreateProcess`, janela de progresso); `services/portableLauncherReport.ts` (relata na abertura seguinte a falha do launcher).
+- **Evidencia:** secao "Correcao aplicada (2.12.107)" abaixo — `test:safety` 247 verdes com `portableLauncher*.test.cjs` e controle negativo; ponta a ponta no `.exe` gerado com `%TEMP%` em disco virtual de 2 GB (782 MB livres: 2.12.106 sai muda; 2.12.107 avisa antes de gravar).
+- **Falta para `closed/`:** criterio do dono (Passo 5 abaixo) — cliente real confirma que a versao nova abriu (ou que o aviso o fez liberar espaco), ou evento `xbox-360-companion/portable-launcher` no painel seguido de abertura do app. Medicao local nao fecha.
+
 - **Detectado em:** 2026-10-06 22:40 (chamado #148 do painel, sessão `12210927591471@lid`, telefone `554196336064`)
 - **Origem:** conversa de suporte + leitura de `src/electron-app/package.json` (`build.portable`), `src/electron-app/scripts/build-portable.js` e do stub `node_modules/app-builder-lib/templates/nsis/portable.nsi` (+ `include/extractAppPackage.nsh`, app-builder-lib 26.8.1) + consulta à telemetria (`/admin/errors`)
 - **Classe:** falha funcional / inicialização / diagnóstico
