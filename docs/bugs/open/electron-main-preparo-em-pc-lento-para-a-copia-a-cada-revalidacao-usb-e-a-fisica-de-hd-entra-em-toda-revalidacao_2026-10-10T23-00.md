@@ -7,7 +7,7 @@
 - **Severidade:** P3 — Baixo: o preparo termina (não falha), só fica muito mais lento em PC lento
 - **Versões:** código de `origin/main` em `d7bd9ad` (2.12.110)
 - **Reincidência:** primeira vez; registrado como "observação fora do escopo" no doc
-  [`electron-main-powershell-lento-…_2026-10-07T20-40`](electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40.md),
+  [`electron-main-powershell-lento-…_2026-10-07T20-40`](../retest/electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40.md),
   seção "Prova ponta a ponta"
 
 ## Sintoma

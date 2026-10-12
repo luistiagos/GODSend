@@ -13,7 +13,7 @@
 Numa árvore limpa (sem `dist/godsend.exe`), `npm run build:server:win:ia32` compila
 `dist/godsend-windows-ia32.exe` e depois falha no `verify` cobrando o `godsend.exe` x64
 (registrado em "Execução da T3" do doc
-[release-companion-32-bits...](release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md)).
+[release-companion-32-bits...](../retest/release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md)).
 Quem chama: `build:win:ia32` (`package.json`) e `build-portable-local.ps1 -Arch ia32`
 (`Invoke-Step ... "build:server:win:ia32"`).
 

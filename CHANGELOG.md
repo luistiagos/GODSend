@@ -93,7 +93,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Correção: novo `infrastructure/backendReadiness.ts`. Enquanto o backend que o app iniciou não imprime `GODSEND_LISTEN_PORT=`, `backendGetWithStatus`/`backendPost` esperam (até 120 s) e só então leem a porta. Processo encerrado ou prazo vencido liberam a requisição, que mostra o erro real.
   - O backend passa a avisar no log quando começa a limpeza, e o total diz quantos arquivos e quanto tempo levou (`src/server/app/config.go::cleanupStaleScratchDir`).
   - Testes: `tests/unit/backendReadiness.test.cjs` (com controle sem a espera) e prova com o backend real limpando 60 mil arquivos: sem a correção `ECONNREFUSED` em 1,5 s; com ela, HTTP 200 aos 18,5 s.
-  - Relato e análise: [`docs/bugs/open/electron-main-catalogo-falha-com-econnrefused-…`](docs/bugs/open/electron-main-catalogo-falha-com-econnrefused-enquanto-o-backend-ainda-limpa-o-temp-antes-de-abrir-a-porta_2026-10-09T18-46.md).
+  - Relato e análise: [`docs/bugs/open/electron-main-catalogo-falha-com-econnrefused-…`](docs/bugs/retest/electron-main-catalogo-falha-com-econnrefused-enquanto-o-backend-ainda-limpa-o-temp-antes-de-abrir-a-porta_2026-10-09T18-46.md).
 
 ## [2.12.109] - 2026-10-07
 
@@ -104,7 +104,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - **Cópia 32 bits se atualizaria para o x64** (`services/autoUpdateService.ts::selectManifestBuild`): o atualizador usava o link único do `version.json`, que é o x64. Agora a cópia `ia32` só atualiza pelo bloco `ia32`; sem ele, não atualiza. O x64 continua lendo os campos de topo, sem mudança para quem já está instalado.
-  - Relato e análise: [`docs/bugs/open/release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md`](docs/bugs/open/release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md)
+  - Relato e análise: [`docs/bugs/open/release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md`](docs/bugs/retest/release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md)
 
 ## [2.12.108] - 2026-10-07
 
@@ -118,7 +118,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Mensagem honesta:** no preparo, prazo estourado com a letra da unidade respondendo diz que o pendrive está conectado e o computador está demorando, sem mandar trocar de porta.
   - **Log:** PowerShell que leva 2 s ou mais grava `powershell (<script>) respondeu em N ms`, e prazo estourado grava `excedeu o prazo de N ms` — o próximo report diz quanto cada máquina leva.
   - **Testes:** `tests/unit/powershellSlowMachine.test.cjs` troca o `powershell.exe` por um processo que responde em 6 s: na 2.12.107 o teste falha em 17 s com a mensagem da foto do cliente; com a correção o preparo encontra o pendrive, e depois de um sucesso lento a revalidação passa numa tentativa só. `usbDriveListCache.test.cjs` prova que a lista não abre PowerShell durante o preparo. Cada correção revertida isoladamente derruba o seu teste.
-  - Relato e análise: [`docs/bugs/open/electron-main-powershell-lento-…`](docs/bugs/open/electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40.md).
+  - Relato e análise: [`docs/bugs/open/electron-main-powershell-lento-…`](docs/bugs/retest/electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40.md).
 
 ## [2.12.107] - 2026-10-07
 
@@ -131,7 +131,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Registro no painel:** cada falha grava uma linha em `<pasta do .exe>\godsend-data\launcher-failures.log`; na abertura seguinte, `portableLauncherReport.ts` envia à telemetria (`xbox-360-companion/portable-launcher`) e apaga o arquivo.
   - **Build:** o electron-builder não tem opção para trocar o script do portátil. `scripts/build-portable.js` roda `portable-launcher-hook.js` no lugar do CLI dele; o gancho entrega o nosso script e recusa o build se o template do electron-builder mudar.
   - **Testes:** `tests/unit/portableLauncher.test.cjs` compila o launcher sobre um app de mentira e prova abrir o app repassando o código de saída, a recusa por falta de espaço, o pacote danificado e o app que o Windows não inicia; com as checagens removidas, os três últimos falham. `tests/unit/portableLauncherReport.test.cjs` cobre a leitura do registro.
-  - Relato e validação: [chamado #148](docs/bugs/open/release-portable-extrai-1-35-gb-no-temp-em-silencio-e-nao-abre-sem-avisar-o-motivo_2026-10-06T22-40.md).
+  - Relato e validação: [chamado #148](docs/bugs/retest/release-portable-extrai-1-35-gb-no-temp-em-silencio-e-nao-abre-sem-avisar-o-motivo_2026-10-06T22-40.md).
 
 ### Added
 - **Adicionado EA FC 26 Legacy Edition ao catálogo do Xbox 360 Companion com capa dedicada (`cache/hf_xbox360.json`, `cache/hf_.json`, `cache/covers/ea_fc_26_legacy_edition.jpg`, `src/electron-app/services/coverArtService.ts`, `src/electron-app/ipc/browseHandlers.ts`)**:
@@ -143,7 +143,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Trata o chamado #133 (reports `9324`/`9325`, v2.12.106): com um HD de biblioteca grande conectado, o processo principal ficava mudo 70–105 s em ciclos, 77% da sessão.
   - **Causa:** a varredura de jogos instalados (`browse:get-installed-games`, consultada a cada 5–7 s pela Home e pelo contador do menu) era toda `fs.*Sync` no processo principal, medindo cada arquivo de cada jogo, e o resultado valia só 15 s. Com o loop de eventos bloqueado, o timer da enumeração de USB vencia antes de o Node entregar a saída do PowerShell que já tinha terminado — reproduzido: filho que termina em 0,4 s, loop bloqueado 6 s, timeout em 2 de 2.
   - **Correção:** a varredura passa a usar `fs.promises` (numa biblioteca sintética de 30 jogos × 1500 arquivos, a maior travada do loop caiu de 5,9 s para 9 ms); a análise de cada jogo e o mapa de nomes são reaproveitados por 10 min (a segunda varredura caiu de 5,5 s para 1 ms), mas a listagem é refeita a cada consulta, então jogo copiado ou apagado aparece em até 15 s como antes; `runPowerShell` dá 1 s de folga a um timer que disparou atrasado antes de declarar timeout. Varredura que levar 1 s ou mais grava `APP_BROWSE` com duração, contagens e a pasta mais lenta.
-  - **Não use `fs.*Sync` em `localGameScannerService.ts`.** Relato e análise: [`docs/bugs/open/electron-main-varredura-sincrona-…`](docs/bugs/open/electron-main-varredura-sincrona-de-jogos-instalados-congela-a-janela-e-gera-falso-timeout-de-usb_2026-10-05T17-25.md).
+  - **Não use `fs.*Sync` em `localGameScannerService.ts`.** Relato e análise: [`docs/bugs/open/electron-main-varredura-sincrona-…`](docs/bugs/retest/electron-main-varredura-sincrona-de-jogos-instalados-congela-a-janela-e-gera-falso-timeout-de-usb_2026-10-05T17-25.md).
 
 ## [2.12.106] - 2026-09-30
 
