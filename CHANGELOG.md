@@ -52,7 +52,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Causa: o PowerShell da troca era criado com `detached: true` (`DETACHED_PROCESS`). Em algumas máquinas (medido no Windows 11 26200 com Kaspersky) esse PowerShell sai com código 0 sem iniciar o engine. A hipótese de Job Object do launcher foi descartada: o `portable.nsi` não usa job.
   - Correção: o script vai para `<userData>/update-replace.ps1` (UTF-8 com BOM) e um `cmd.exe` destacado faz `start "" /min` do PowerShell com `-ExecutionPolicy Bypass -WindowStyle Hidden -File`, com `cwd` fora da pasta extraída do portable. O script grava `started` antes de esperar, e o boot passa a dizer "não chegou a rodar" ou "começou mas não terminou". Também cobre o `spawn EPERM` de `-WindowStyle Hidden` com o script inline.
   - Testes: `tests/unit/autoUpdate.test.cjs` (o disparo conclui a troca com o processo que o lançou já encerrado; com o disparo antigo, falha sem resultado).
-  - Bug: [docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md](docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md)
+  - Bug: [docs/bugs/retest/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md](docs/bugs/retest/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md)
 
 ### Changed
 - **Contador da busca do catálogo conta cada versão, não o card agrupado (`src/electron-app/renderer/components/BrowsePage.tsx::totalReleases`)**
