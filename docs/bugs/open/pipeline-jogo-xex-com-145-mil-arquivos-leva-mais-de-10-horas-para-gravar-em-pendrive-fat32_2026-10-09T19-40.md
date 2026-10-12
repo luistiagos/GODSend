@@ -599,3 +599,69 @@ Ajustes ao Plano de teste (para a sessao de teste):
 - T2: a pasta `<letra>:\.xbox-downloader\copy-staging` existe ao fim (o `default.xex` passa por ela) e tem de estar
   vazia.
 - Um jogo/DLC instalado como Content (pacote solto) continua pela staging: nao e regressao se a taxa dele nao mudar.
+
+### Teste rodada 1 — reprovado (2026-10-12, 14:20-15:30, sessao de teste)
+
+**Motivo: ganho insuficiente pelo criterio do Plano de teste.** A Medicao (prova central) pede `atual` >= 1,25x
+`staging` em arq/min **nas duas rodadas**; deu 1,185x e 1,245x. Corretude: tudo aprovado (T2, T3, T4). Evidencia em
+`C:\projects\.bugfix-xbox360\evidencia\20261012-teste-r1-pipeline-jogo-xex-145-mil\` (`LEIAME` = este texto).
+
+**Medicao (bench, pendrive de teste `E:`, serial `247700023090` confirmado com `Trim()`, lock criado e removido):**
+`GODSEND_FAT32_TEST_DIR=E:\`, `GODSEND_BENCH_SRC=...\data\sceneassets\kit`, 1.000 arquivos (135,6 MB),
+`GODSEND_BENCH_VARIANTS=staging,atual,direto,staging,atual` -> `PASS` em 1067 s (`medicao-bench-pendrive.txt`):
+
+| variante | arq/min | escr/arq | razao |
+|---|---|---|---|
+| staging (base) | 405,6 | 15,1 | |
+| atual (fix) | 480,6 | 12,1 | **1,185x** staging |
+| direto (sem Sync) | 424,2 | 9,0 | 0,88x atual |
+| staging (base) | 280,6 | 15,1 | |
+| atual (fix) | 349,5 | 12,1 | **1,245x** staging |
+
+- Esperado: >= 1,25x nas duas. Observado: 1,185x e 1,245x -> faixa "entre 1,0x e 1,25x: reprovar com ganho
+  insuficiente". `escr/arq` cai 20% (15,1 -> 12,1) nas duas rodadas, entao o ganho existe e e o previsto em escritas;
+  em tempo ele fica abaixo da barra.
+- Rodada 2 das Tarefas (tirar o `Sync`) **nao** se aplica: `direto` deu 0,88x `atual` (< 1,25x).
+- Ruido: a mesma variante `staging` foi de 405,6 para 280,6 arq/min entre a 1a e a 4a passada (o pendrive desacelera
+  com o uso). As razoes valem por par adjacente; a barra de 1,25x fica dentro do ruido de uma rodada.
+
+**T2 (o usuario, pela UI do app da lane, controle positivo na base):** Playwright sobre o app em modo dev (`t2.cjs` +
+`lib.cjs`, unico stub: a lista de unidades devolve so `E:\`), Baixar Jogos -> filtro "Master System" ->
+"EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360 RGH )" (XEX, `default.xex` na raiz, **2.216 arquivos**, 175 MB) -> XEX ->
+Adicionar a fila. Base = `pipeline.py build` com a lane destacada em `50dcfe9` (volta ao branch logo depois); fix = build
+do branch `b35a4e5`. `config.json` do dev com `"simpleMode": false` so durante o teste (sem a chave o app abre o
+assistente; 1a tentativa em `tentativa1-wizard/`), original devolvido.
+
+| | base (`t2-base-*`) | fix (`t2-fix-*`) |
+|---|---|---|
+| backend | PID 15924, `lanes\wt-1\dist\godsend-windows-x64.exe`, banner na Home | PID 57348, idem |
+| taxa no contador da Fila (i/total) | 405,2 arq/min | **525,2 arq/min (1,30x)** |
+| copia pelo log (`LOCAL XEX` -> `Complete`) | 328 s | 252 s (1,30x) |
+| staging nao vazia durante a gravacao | 44 de 64 amostras (max 1) | **0 de 49** |
+| fim | Ready, 2.216 arquivos, `default.xex`, sem marca, staging vazia | idem |
+
+- Fix: os 2.216 arquivos no pendrive conferem CRC32 e tamanho com o `.zip` de origem (`t2-fix-crc32.txt`: 2216 iguais,
+  0 divergentes, 0 faltando, 0 extras).
+- Sinal do sintoma na base presente (todo arquivo pela staging), ausente no fix; comportamento correto presente.
+
+**T3:** `go test -count=1 ./...` em `src/server` rc 0 (`t3-go-test-all.txt`); `test:safety` 327 pass / 0 fail
+(`t3-test-safety.txt`); `go vet` limpo e `go test ./services/pipeline/` ok (offline). Pendrive:
+`TestFAT32CopyTreeLocalRecoversFragmentedDirectory` **PASS** em 1401 s (`t3-fat32-recovers.txt`): fase 2.12.109 falhou no
+#12569 (controle), fase nova viu **1** `ERROR_CANNOT_MAKE` vindo do `open` do nome final (caminho direto), reorganizou
+a pasta uma vez e gravou os 13.146 arquivos em 9m19s (a mesma fase pela staging levou 14m28s na sessao de teste do bug
+da fragmentacao, mesmo pendrive, 13:44-14:15 — outra hora, so referencia).
+
+**T4:** janelas de log de base e fix: so o erro de CSP das fontes do Google (pre-existente), nenhum erro do backend.
+
+**Nao testado nesta rodada:** `TestFAT32CopyTreeLocalFitsLargeDirectory` (coberto em parte pelo Recovers, que grava a
+mesma pasta pelo caminho direto); retomada pela UI (cancelar na Fila no meio e reenfileirar) — coberta so pelo teste
+de unidade `TestCopyTreeLocalResumesDirectFileCutShortByRemovedDevice`; jogo GOD pequeno no pendrive (nao cabia: 3,2 GB
+livres, o GTA Brasil GOD tem 3,4 GB).
+
+**Para o dev / o dono:** o codigo esta correto e da 1,2-1,3x (pelo app, 1,30x; pelo bench, 1,19x e 1,25x), com 20% menos
+escritas por arquivo; o criterio de 1,25x em duas rodadas do bench nao foi atingido, e a alavanca seguinte do plano (sem
+`Sync`) nao ajuda. Nao ha mudanca de codigo obvia a pedir: a decisao e aceitar 1,2-1,3x (afrouxar o criterio) ou fechar
+como `sem-codigo` (orientar pendrive USB 3.0/HD para jogos com 100 mil+ arquivos).
+
+**Bug lateral (nao pertinente, igual na base):** `docs/bugs/open/pipeline-xex-com-default-xex-na-raiz-do-arquivo-grava-pasta-com-sufixo-hf-ext_2026-10-12T14-56.md`
+— XEX cujo arquivo traz `default.xex` na raiz e gravado em `E:\Games\<nome>_hf_ext`, sem TitleID.
