@@ -665,3 +665,40 @@ como `sem-codigo` (orientar pendrive USB 3.0/HD para jogos com 100 mil+ arquivos
 
 **Bug lateral (nao pertinente, igual na base):** `docs/bugs/open/pipeline-xex-com-default-xex-na-raiz-do-arquivo-grava-pasta-com-sufixo-hf-ext_2026-10-12T14-56.md`
 — XEX cujo arquivo traz `default.xex` na raiz e gravado em `E:\Games\<nome>_hf_ext`, sem TitleID.
+
+### Rodada 1 — reprovada: ganho insuficiente no bench (1,185x e 1,245x contra 1,25x); correcao: bench intercalado (o codigo do fix nao muda)
+
+**Analise (dev, 2026-10-12, antes de editar):** a reprovacao nao aponta defeito no codigo (T2/T3/T4 aprovados); ela
+vem da Medicao. A medicao tem um vies sistematico **contra o fix**, visivel nos proprios numeros do teste:
+
+- As passadas foram sequenciais (`staging,atual,direto,staging,atual`) e o pendrive desacelera com o uso: a mesma
+  variante caiu de 405,6 para 280,6 arq/min (`staging`, passadas 1->4) e de 480,6 para 349,5 (`atual`, 2->5). Taxa
+  por passada (media geometrica em 3 passadas): `staging` 0,884, `atual` 0,899 — ~11% mais lento a cada passada,
+  monotono. As escritas por arquivo ficaram identicas entre rodadas (15,1 e 12,1): o que muda e o custo de cada
+  escrita no aparelho, nao o codigo.
+- Nos **dois** pares o `atual` roda uma passada **depois** do `staging`, entao a razao do par sai ~11% menor que a
+  real. Interpolando so os numeros medidos (log-linear entre passadas da mesma variante, comando abaixo): `staging`
+  na posicao da passada 2 = 358,7 -> `atual`/`staging` = **1,340**; `atual` na posicao da passada 4 = 388,7 ->
+  **1,385**. E uma estimativa, nao prova: a prova e repetir a medicao sem o vies.
+- Coerente com a T2 pelo app (2.216 arquivos, outro jogo, base antes do fix): 1,30x — ali a base tambem rodou antes.
+- `direto` (sem `Sync`) na mesma interpolacao = 0,98x `atual`: confirma que tirar o `Sync` nao ganha nada (a rodada 2
+  das Tarefas segue descartada).
+
+`python -c "s1,a1,s2,a2=405.6,480.6,280.6,349.5; fs=(s2/s1)**(1/3); print(a1/(s1*fs), a1*(a2/a1)**(2/3)/s2)"` ->
+`1.340 1.385`.
+
+**Hipoteses de codigo descartadas para aumentar a margem (sem pendrive o dev nao mede, entao so entra o que tem prova):**
+- Tirar o `Sync`: medido, nao ganha (acima).
+- Pre-alocar o arquivo (`Truncate` ao tamanho final): o dado de um arquivo de ~130 KB ja e 1 chamada de escrita
+  (buffer de 4 MB), a FAT e alocada uma vez; nada a cortar.
+- Suprimir a atualizacao de horario no `Close` (`SetFileTime` com -1) para evitar a 2a gravacao da entrada de
+  diretorio: depende de comportamento do fastfat que nao conferi na fonte e nao posso medir; especulativo.
+- Gravar arquivos em paralelo: pendrive USB 2.0 (bulk-only) atende um comando por vez; complexidade alta, ganho
+  incerto.
+
+**Correcao (a fazer):** `local_copy_bench_test.go::TestFAT32LocalCopyBench` passa a **intercalar** as variantes em
+blocos de `GODSEND_BENCH_BLOCK` arquivos (padrao 100), na ordem ABBA (bloco par: ordem da lista; impar: invertida),
+cada variante na sua pasta. Uma desaceleracao monotona do aparelho cai igual em todas. Imprime o total por variante e
+as duas metades dos blocos como "rodada 1" e "rodada 2", com a razao de cada variante contra a primeira da lista — o
+criterio do plano (`atual` >= 1,25x `staging` nas duas rodadas) se le direto dessas linhas. Variante repetida na
+lista vira erro (com intercalacao a repeticao nao tem sentido). O criterio **nao muda**.
