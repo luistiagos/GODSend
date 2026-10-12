@@ -98,3 +98,11 @@ Verificar só o que foi construído: passar ao verify as chaves das arquiteturas
 
 - dev: effort low, ultrathink nao — duas linhas num script de 92 linhas, com a lista exata acima.
 - teste: effort medium, ultrathink nao — receita mecânica, mas exige mover/devolver os `.exe` e manter a cópia da base fora do commit.
+
+## Correcao (pipeline 20261012-1854, rodada 1)
+
+- `scripts/build-server.js` (calculo de `buildX64`/`buildIa32`): `argv.includes("--all")` nas duas condicoes — `--all` volta a compilar x64 e ia32.
+- `scripts/build-server.js` (chamada final ao verify): `"windows-all"` -> `verifyTargets` = `windows` + `windows-x64` se `buildX64`; `windows-ia32` se `buildIa32` e `dist/godsend-windows-ia32.exe` existir (ia32 continua opcional: sem Go e sem prebuilt e so aviso). Comentario cita o slug.
+- `CHANGELOG.md` `[Unreleased]` `### Fixed`: entrada citando este doc e o lateral (`...win-all-nao-compila...`).
+- Plano de teste sem ajuste.
+- **Pendente:** compile-check. `pipeline.py build --bug <slug>` recusou: "nao tem worktree (estado planejado)" — o ledger (`C:\projects\.bugfix-xbox360\state.json`) mostra `ondas: 0`, sem `elencar`, embora a sessao tenha sido aberta como onda 1 em `lanes/wt-2`. Nao contornado; `enqueue-test` nao rodado. Ao corrigir o ledger: `build` e depois `enqueue-test`.

@@ -27,8 +27,8 @@ for (const p of ["C:\\Program Files\\Go\\bin", "C:\\Go\\bin", path.join(process.
 }
 
 const argv = process.argv.slice(2);
-const buildX64 = argv.length === 0 || argv.includes("x64") || argv.includes("amd64") || argv.includes("--x64") || argv.includes("all");
-const buildIa32 = argv.length === 0 || argv.includes("ia32") || argv.includes("386") || argv.includes("--ia32") || argv.includes("all");
+const buildX64 = argv.length === 0 || argv.includes("x64") || argv.includes("amd64") || argv.includes("--x64") || argv.includes("all") || argv.includes("--all");
+const buildIa32 = argv.length === 0 || argv.includes("ia32") || argv.includes("386") || argv.includes("--ia32") || argv.includes("all") || argv.includes("--all");
 
 function hasGo() {
   try {
@@ -86,7 +86,13 @@ if (buildIa32) {
   }
 }
 
-run(process.execPath, [path.join(__dirname, "verify-go-binaries.js"), "windows-all"], {
+// Verify only what this run built: "windows-all" always required the x64 godsend.exe,
+// failing an ia32-only build [[build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30]].
+// ia32 stays optional (no Go and no prebuilt is only a warning above).
+const verifyTargets = [];
+if (buildX64) verifyTargets.push("windows", "windows-x64");
+if (buildIa32 && fs.existsSync(path.join(dist, "godsend-windows-ia32.exe"))) verifyTargets.push("windows-ia32");
+run(process.execPath, [path.join(__dirname, "verify-go-binaries.js"), ...verifyTargets], {
   cwd: root,
   env: process.env,
 });
