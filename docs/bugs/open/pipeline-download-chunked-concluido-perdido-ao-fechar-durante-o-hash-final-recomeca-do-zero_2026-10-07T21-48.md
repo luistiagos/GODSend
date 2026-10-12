@@ -267,7 +267,8 @@ Ajustes ao Plano de teste: nenhum no E2E. Os nomes de log que o teste procura s�
 Observação para o teste: num `/queue/retry` com `.complete` já gravado, `reusableCompletedDownload` refaz o hash
 inteiro sem status novo (comportamento anterior, fora deste fix; não é reprovação).
 
-**CHANGELOG pendente:** o `claim` de `CHANGELOG.md` saiu 8 (reservado por
-`electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40`). Esta sessão
-commitou o código e ficou em `park`; na retomada: `sync`, entrada em `## [Unreleased]` → `### Fixed`, commit,
-`enqueue-test`.
+**CHANGELOG:** o `claim` de `CHANGELOG.md` saiu 8 duas vezes (reservado primeiro pelo bug dos acentos do
+formatador e, depois do `sync`, pelo `pipeline-mkdir-da-pasta-do-jogo-...`); a sessão commitou o código e ficou em
+`park`. Retomada em 2026-10-11: `sync` sobre `origin/main@c67b4ff` (rc 0), `claim` ok, entrada em
+`## [Unreleased]` → `### Fixed` e rebuild pelo helper sobre a base nova: `build` rc 0 (`tsc` e
+`renderer:typecheck` limpos) e `go test -count=1 ./...` rc 0, 9 pacotes `ok`.

@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Download do Internet Archive que chegou a 100% era jogado fora se o app fechasse durante a conferência final; na volta recomeçava do zero (`src/server/infrastructure/download/ia.go::finalizeDownload`, `::DownloadWithProgress`, `resume.go::finishedResume`)**
+  - Caso: chamado #157 / report `9541`: PES 2015, 7,6 GB em 46 min, ficou 5 min 44 s parado em 99,8% sem nenhuma linha no log; o cliente fechou o app e, ao reabrir, a fila recomeçou em 0,0%.
+  - Causa: `IADownloadChunkedParallel` (e `iaDownloadSingleAttempt`) apagava o mapa de retomada no fim do download, antes de `DownloadWithProgress` gravar o `.complete`, que exige o SHA-256 do arquivo inteiro (minutos num arquivo grande). Fechar o app nessa janela deixava o arquivo íntegro sem nenhum marcador, e a volta truncava o arquivo e baixava tudo de novo. A promoção que fecha essa janela só existia para o modo single.
+  - Correção: `finalizeDownload` grava o `.complete` e só depois apaga o mapa; se a conferência falhar, o mapa fica. `finishedResume` (era `finishedSingleResume`) promove também o download chunked com todos os segmentos confirmados, sem nenhuma requisição. Durante a conferência a fila mostra "Conferindo o arquivo baixado..." e o log traz `DOWNLOAD VERIFY [...]` com a duração.
+  - Testes: `infrastructure/download/ia_test.go` (6 casos; 4 falham no código anterior).
+  - Bug: [docs/bugs/open/pipeline-download-chunked-concluido-perdido-ao-fechar-durante-o-hash-final-recomeca-do-zero_2026-10-07T21-48.md](docs/bugs/open/pipeline-download-chunked-concluido-perdido-ao-fechar-durante-o-hash-final-recomeca-do-zero_2026-10-07T21-48.md)
 - **Mensagens do formatador FAT32 elevado chegavam com acentos corrompidos ("FormataÃ§Ã£o"), e com perfil do Windows acentuado o log nem era gravado (`src/electron-app/infrastructure/fat32Format.ts::writePowerShellScript`, `::formatWindowsFat32`)**
   - Causa: o `.ps1` elevado era gravado em UTF-8 sem BOM; o Windows PowerShell 5.1 lê `-File` sem BOM na página ANSI, então cada letra acentuada do script virava duas — nas mensagens de `throw` que vão ao usuário e nos caminhos embutidos (`$log`, `$exePath` sob `%TEMP%`), que deixavam de existir para o PowerShell (HD > 32 GB não achava o `fat32format.exe` do portátil).
   - Correção: o script passa a ser gravado com BOM (`writePowerShellScript`); o harness `scripts/vhd-format-test/run-elevated.ps1` grava a cópia de teste com BOM também. Teste roda o PowerShell 5.1 real numa pasta com acento.
