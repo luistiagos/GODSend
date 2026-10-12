@@ -312,6 +312,10 @@ dispositivo está conectado), e a lista de unidades sem HD externo (bug próprio
   -> 5 PASS.
 - `go test -count=1 ./...` em `src/server` -> rc 0, 9 pacotes `ok` (igual à linha de base do manual).
 - Compile-check `pipeline.py build --bug <slug>` -> rc 0 (build-server x64/ia32, `tsc`, `renderer:typecheck`).
+- 2026-10-11: esperou o `CHANGELOG.md` do bug
+  `electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40` (park);
+  `sync` sobre `origin/main` @ `bce2fb5` sem conflito, `claim` do `CHANGELOG.md` ok, rebuild rc 0 e
+  `go test -count=1 ./services/pipeline/` `ok`.
 
 **Ajuste ao Plano de teste / nota sobre a análise (2026-10-11):** com um ARQUIVO chamado `Games` no
 lugar da pasta, o Go no Windows NÃO devolve `ENOTDIR`: devolve erro 3 citando `...\Games`
