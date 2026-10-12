@@ -1,5 +1,14 @@
 # Bug: em PC lento o PowerShell passa do prazo fixo da enumeração USB e o preparo do pendrive/HD falha com "O Windows ainda está reconhecendo seu pendrive ou HD", com o dispositivo listado e liberado
 
+## Status
+
+- Movido de `open/` para `retest/` em 2026-10-12 a pedido do dono, depois da execucao 20261010-2242 do pipeline (planning: correcao ja em `origin/main`, sem codigo a mudar).
+- **Corrigido em:** 2026-10-07 (2.12.108); **publicado** na 2.12.109 (x64 e ia32, `version.json` de 2026-10-08).
+- **Commits:** `1ea25b6` fix(usb) (prazo da enumeracao acompanha PC lento).
+- **Onde:** `src/electron-app/infrastructure/windowsUsbDeviceService.ts::enumerationTimeoutFor`/`enumerationTimeout`/`runPowerShell`/`recoverNativeListing`/`fillAllocationUnits`/`explainSlowEnumeration`; `services/fixedBadAvatarPreparationService.ts::waitForFormattedDevice`; `services/badAvatarUsbService.ts::setUsbPreparationActive`.
+- **Evidencia:** secao "Correcao aplicada (2.12.108)" abaixo — `tests/unit/powershellSlowMachine.test.cjs` falha contra o codigo anterior e passa com a correcao; mutacoes derrubam cada teste; `test:safety` 255/255; smoke Electron com pendrive real `E:\` (so leitura); preparo real com PowerShell lento (secao "Prova ponta a ponta").
+- **Falta para `closed/`:** confirmacao de campo — report de maquina lenta com `powershell (...) respondeu em N ms` e nenhum preparo falhando com a letra presente (cliente do chamado #157 / host `DESKTOP-1HAMO38`).
+
 - **Detectado em:** 2026-10-07 20:40 (foto da tela enviada pelo dono + telemetria `9526`–`9530`)
 - **Origem:** foto da tela BadAvatar (caixa vermelha com barra em ~12% abaixo de "Preparar pendrive/HD") + logs anexos dos reports `9527`, `9528`, `9529`, `9530` + leitura de `infrastructure/windowsUsbDeviceService.ts` (`runPowerShell`, `enumerateSafeWindowsUsbDevices`, `requireSafeWindowsUsbTarget`, `annotateRemovableHealth`), `services/badAvatarUsbService.ts` (`listFat32UsbDrives`, `listWindowsUsbDrivesOnVolumeChange`), `services/fixedBadAvatarPreparationService.ts` (`prepareFixedBadAvatarDevice`, `waitForFormattedDevice`, `createThrottledUsbTargetRevalidator`) e `renderer/components/BadAvatarUsbPage.tsx` (`handlePrepare`, `refreshDrives`)
 - **Classe:** falha funcional (o preparo não anda) + mensagem que culpa o dispositivo errado
