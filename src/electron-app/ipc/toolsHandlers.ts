@@ -20,6 +20,14 @@ import { backendGet, backendPost } from "../infrastructure/backendHttp";
 import { getMainWindow } from "../app/window";
 import { doAuroraLibrarySync } from "../services/autoSyncService";
 
+// Rotas /tools/probe-iso e /tools/iso2* falham pelo jsonError do backend:
+// {"state":"Error","message":...}, sem `error` nem `ok`. Sucesso so com o sinal
+// positivo de cada rota (`titleId` / `ok:true`).
+// [[electron-main-ferramentas-iso-mostram-sucesso-quando-o-backend-responde-erro_2026-10-11T13-55]]
+function isoBackendError(r: any, fallback: string): string {
+  return String(r?.message || r?.error || fallback);
+}
+
 export function register(ipcMain: IpcMain): void {
 
   // ── Open folder in Explorer / Finder ────────────────────────────────────────
@@ -81,7 +89,7 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("tools:probe-iso", async (_event, isoPath: string) => {
     try {
       const r = await backendPost("/tools/probe-iso", { isoPath });
-      if (r.error && !r.titleId) return { ok: false, error: r.error };
+      if (!r || !r.titleId) return { ok: false, error: isoBackendError(r, "o servidor local não identificou a ISO") };
       return { ok: true, ...r };
     } catch (err: any) {
       return { ok: false, error: err.message || String(err) };
@@ -91,7 +99,7 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("tools:iso2god", async (_event, { isoPath, outDir }) => {
     try {
       const r = await backendPost("/tools/iso2god", { isoPath, outDir });
-      if (r.error && !r.ok) return { ok: false, error: r.error };
+      if (!r || r.ok !== true) return { ok: false, error: isoBackendError(r, "o servidor local não confirmou a conversão") };
       return { ok: true, ...r };
     } catch (err: any) {
       return { ok: false, error: err.message || String(err) };
@@ -101,7 +109,7 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("tools:iso2xex", async (_event, { isoPath, outDir }) => {
     try {
       const r = await backendPost("/tools/iso2xex", { isoPath, outDir });
-      if (r.error && !r.ok) return { ok: false, error: r.error };
+      if (!r || r.ok !== true) return { ok: false, error: isoBackendError(r, "o servidor local não confirmou a conversão") };
       return { ok: true, ...r };
     } catch (err: any) {
       return { ok: false, error: err.message || String(err) };

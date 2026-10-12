@@ -118,3 +118,15 @@ do `jsonError`.
 - teste: effort medium, ultrathink nao — reaproveita os scripts Playwright da evidência irmã; o único ponto de atenção é usar uma ISO que o backend atual recuse (`Z.iso` de zeros) e fazer o controle positivo revertendo só o handler.
 
 **Achado lateral (doc próprio):** [electron-main-gerenciador-ftp-descarta-o-motivo-do-backend-ao-listar-enviar-e-mover-jogo_2026-10-12T19-00](electron-main-gerenciador-ftp-descarta-o-motivo-do-backend-ao-listar-enviar-e-mover-jogo_2026-10-12T19-00.md) — `tools:ftp-list`, `tools:ftp-upload` e `xbox:move-game` repassam o corpo cru do `jsonError`; fora do escopo deste fix.
+
+## Correcao (pipeline 20261012-1854, rodada 1)
+
+- `src/electron-app/ipc/toolsHandlers.ts::isoBackendError` (novo, privado) — `String(r?.message || r?.error || fallback)`.
+- `toolsHandlers.ts` `tools:iso2god` / `tools:iso2xex` — sucesso so com `r && r.ok === true`; senao `{ok:false, error: isoBackendError(r, "o servidor local não confirmou a conversão")}`. `tools:probe-iso` — sucesso so com `r && r.titleId`; senao falha com fallback "o servidor local não identificou a ISO". `catch` intocado. Comentario cita o slug.
+- `src/electron-app/tests/unit/toolsHandlers.test.cjs` (novo) — os 4 casos do plano nos 3 canais (12 testes), padrao `browseHandlers.test.cjs`, com mock de `electron`.
+- `CHANGELOG.md` — entrada em `[Unreleased] / Fixed`.
+- Plano de teste: sem ajuste.
+
+### Pendente nesta rodada (2026-10-12)
+
+- `pipeline.py build --bug <slug>` recusou: `ERRO: ... nao tem worktree (estado planejado)`. O `state.json` mostra `waves: []`, `wt: None`, sem sessao `dev` registrada para o bug: o `elencar` nao rodou, embora esta sessao de dev tenha sido aberta na `wt-1`. Nao mexi no ledger. Por isso **o compile-check, o `test:safety` e a prova de que o caso 1 falha com o handler antigo NAO foram rodados**; `enqueue-test` nao foi chamado. Proximo passo (maestro): `elencar`/reconciliar o bug com a `wt-1`, depois `build --bug` e `node --test src/electron-app/tests/unit/toolsHandlers.test.cjs`, e `enqueue-test`.
