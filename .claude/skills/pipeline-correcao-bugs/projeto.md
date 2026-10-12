@@ -134,11 +134,20 @@ wt-2 (fonte do bug B) --(espera o slot)--> ...
   (`%APPDATA%\Xbox 360 Companion`), mas o backend dele disputa a porta.
 - **`env-wait`** procura `godsend-windows-x64`, `godsend-windows-ia32`, `godsend` (backend dev) e `godsend-backend`
   (instalado). Feche SO o processo que voce abriu (pelo PID).
-- **Disco real: NENHUM esta liberado** (decisao do dono, 2026-10-09). Preparar, formatar ou gravar pendrive/HD
-  esta proibido; nunca escolha um disco na tela BadAvatar USB nem como destino. O que depende de disco real
-  (FAT32, layout MBR, preparo BadAvatar) e ambiente: vai para "falta para close" no `## Status`, nao e reprovacao.
-  O teste unitario que o repo ja tem para isso (`GODSEND_FAT32_TEST_DIR` num volume FAT32, harness com mock de
-  disco) e o maximo sem disco.
+- **Pendrive de teste — o UNICO disco que o teste pode preparar, formatar ou gravar** (liberado pelo dono em
+  2026-10-12, substitui o "nenhum disco" de 2026-10-09; o conteudo e descartavel): `USB DISK 2.0`, serial
+  `247700023090` (14,5 GB, MBR). Antes de qualquer acao que escreva em disco, confirme pelo serial — a letra muda
+  e o rotulo tambem (hoje `PS2`, porque o PS2Companion usa o mesmo pendrive):
+  `Get-Disk | Where-Object SerialNumber -eq '247700023090'` -> numero do disco e letra. Escolha na tela BadAvatar
+  USB e como destino so esse disco. **Nunca** escreva em outro disco, nem para "conferir"; HD externo nao ha.
+  - **Compartilhado entre projetos** (PS2Companion e outros): antes de usar, crie
+    `C:\projects\.pendrive-teste-247700023090.lock` com projeto, sessao e hora; se ja existir com menos de 3 h,
+    outro projeto esta no pendrive — espere ou trate como ambiente. Apague o lock no fim, inclusive em erro.
+    Convencao manual: o helper nao a impoe.
+  - **Capacidade:** ~14,4 GB. Jogo maior que isso, ou que nao cabe com o que ja esta gravado, e ambiente.
+  - Ausente, ocupado, ou o bug depende de HD externo/console: a parte do teste que precisa de disco real vai para
+    "falta para close" no `## Status`, nao e reprovacao. Sem disco, o maximo e o teste unitario que o repo ja tem
+    (`GODSEND_FAT32_TEST_DIR` num volume FAT32, harness com mock de disco).
 - **Console Xbox (FTP/Aurora):** nao ha console de teste; o que so o console prova fica para o cliente.
 - **Prova:** ponta a ponta pela UI do app da lane; estado final conferido na pasta de destino local e/ou na rota
   HTTP.
