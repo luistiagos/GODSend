@@ -2,8 +2,9 @@
 
 - **Estado:** **respondida sem console em 2026-10-11** (seção "Resultado", no fim). A spec, os dois
   backlogs (R1) e o bug do perfil já foram atualizados com ela. As perguntas que iam para
-  clientes foram avaliadas por pesquisa ("Revisão", no fim) e nenhuma continua necessária; falta
-  só conferir na página do ConsoleMods os trechos que vieram pelo buscador.
+  clientes foram avaliadas por pesquisa ("Revisão", no fim) e nenhuma continua necessária; a
+  página do ConsoleMods foi conferida em 2026-10-12. Só falta o que sai sozinho com o primeiro
+  cliente do app (C27).
 - **Pedido do dono (2026-10-11):** *"sobre a 1 e 2, como eu não tenho um console, preciso que você
   investigue como funciona, pode passar para outra sessão investigar e alterar a documentação"*.
 - **Alimenta:** as "Perguntas ao dono" 1 e 2 da spec
@@ -398,10 +399,25 @@ pergunta que esta investigação deixava para um cliente foi pesquisada primeiro
 **nenhuma pergunta a cliente continua necessária.**
 
 **Fonte nova: ConsoleMods, página "Files and Directories"**
-(`https://consolemods.org/wiki/Xbox_360:Files_and_Directories`) **[wiki — página NÃO aberta: o
-site devolve 403 a `curl` e WebFetch, e a Wayback estava "Temporarily Offline"; os trechos abaixo
-vieram do buscador (`WebSearch` restrito a `consolemods.org`) e precisam ser conferidos na página
-quando ela abrir]:**
+(`https://consolemods.org/wiki/Xbox_360:Files_and_Directories`) **[wiki — CONFERIDA em 2026-10-12
+na cópia da Wayback `20260905200225`** (`curl` da URL `id_`, corpo zstd descomprimido; o site
+direto devolve 403). Os trechos abaixo, que vieram primeiro do buscador, estão na página. Texto
+literal a mais, achado na conferência:**
+- *"if your console has a hard drive attached or has a built-in memory unit, it won't even allow
+  you add the old file system to newly formatted drives. The following instructions only apply to
+  consoles without a memory unit or hard drive."* → nos consoles dos nossos clientes (com Disco
+  Rígido ou Unidade de Memória), um pendrive recém-formatado **nem pode** ganhar `Xbox360/`. A pasta
+  só aparece num pendrive configurado num console sem armazenamento interno ou numa dashboard
+  antiga.
+- *"The "Xbox360" folder precedes the "Content" folder, so if it exists and there's data in it, you
+  will switch to the old format"* (a frase da precedência, literal).
+- *"Removing the Xbox360 folder will remove existing profiles/saves/games/DLC!"*
+- Saída oficial no console: *"Go to the old drive's Device Options, and select Transfer Content
+  ... Go to the old drive's Device Options again and select **Remove Xbox 360 Storage**. After that,
+  it will now be in the "modern" format."* — é o *"Remover Armazenamento do Xbox"* que o operador
+  mandou em `[54461]`.
+
+Trechos que vieram do buscador (todos confirmados):
 - *"If the drive is formatted as FAT32 with an MBR partition table, but does not have an Xbox360
   folder, the drive is already in the "modern" format and ready to be used."*
 - *"Before Dashboard version 2.0.17349.0, external storage connected through the USB ports had a
@@ -447,9 +463,8 @@ o perfil da raiz — o sintoma exato do bug.
 
 ### O que continua sem prova
 
-1. **Conferir na página do ConsoleMods** os trechos acima (precedência da `Xbox360/`, MBR do
-   formato moderno). Só leitura; refazer `curl` da Wayback quando ela voltar. Muda C12 se a
-   precedência não estiver escrita lá.
+1. ~~Conferir na página do ConsoleMods~~ — feito em 2026-10-12 (cópia `20260905200225`):
+   precedência, MBR do formato moderno e *Remove Xbox 360 Storage* estão escritos lá.
 2. O BadAvatar num pendrive preparado só pelo app (C27) — sai com o primeiro cliente, sem pergunta
    extra.
 

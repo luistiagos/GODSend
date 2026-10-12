@@ -147,8 +147,13 @@ Notação: **[auto]** = teste que roda sem o dono; **[dono]** = rodada no celula
   pelo ConsoleMods, com dados na `Xbox360/` o console passa ao formato antigo e a `Content/` da raiz
   — onde fica o perfil do BadAvatar — deixa de valer; gravar ali daria o pior sintoma, "o perfil
   não aparece", sem erro nenhum. O app registra `xbox360Folder: presente|ausente` no log e em
-  "Copiar detalhes". **A conferir:** a frase da precedência veio do buscador; se a página não a
-  confirmar, C12 volta a só registrar.
+  "Copiar detalhes". Fonte conferida em 2026-10-12 (ConsoleMods, cópia Wayback
+  `20260905200225`): *"The "Xbox360" folder precedes the "Content" folder, so if it exists and
+  there's data in it, you will switch to the old format"*. O texto de recusa oferece também a
+  saída oficial do console: *Opções do Dispositivo → Remove Xbox 360 Storage* ("Remover
+  Armazenamento do Xbox", nome visto em campo em `[54461]`), avisando que apaga perfis e saves
+  guardados ali. Caso raro: num console com Disco Rígido ou Unidade de Memória o console nem deixa
+  criar a `Xbox360/` num pendrive recém-formatado (mesma página).
   - **Prova [auto]:** unitário de `DrivePicker` sobre `FakeDriveAccess`: raiz sem `Xbox360/` →
     segue sem aviso; com `Xbox360/` e com `XBOX360/` → estado `CONFIGURADO_PELO_CONSOLE`, nenhuma
     escrita no destino, texto com "Formatar".

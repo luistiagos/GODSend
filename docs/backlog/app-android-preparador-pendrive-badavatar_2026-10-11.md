@@ -71,7 +71,9 @@ afirma que o console foi desbloqueado.
     console tem **Y → Formatar**, que apaga e deixa FAT32 comum **sem `Xbox360/`** e sem reserva — é
     o que o `Du5M9EvkvjE` faz (quadros 1:08–1:14; o celular depois vê só `LOST.DIR`). "Configurar
     agora" apaga e reserva até 32 GB (ajuda oficial e quadros de `G8zs9lWXQFI`). A spec agora
-    ensina o *Formatar*, não avisa pela falta de `Xbox360/` e nunca apaga a pasta. **Respondido:**
+    ensina o *Formatar*, não avisa pela falta de `Xbox360/`, **recusa** pendrive com `Xbox360/`
+    (ConsoleMods, conferido em 2026-10-12: a pasta tem precedência sobre a `Content/` da raiz, onde
+    fica o perfil do exploit) e nunca apaga a pasta. **Respondido:**
     espaço, "a `Xbox360/` aparece?", o app apagar a pasta (não precisa). **Ainda depende de
     console:** a tabela de partição que o *Formatar* deixa (MBR ou sem tabela; `assessXboxLayout`
     fica informativo até medir) e o BadAvatar rodando num pendrive preparado pelo app (C27).
