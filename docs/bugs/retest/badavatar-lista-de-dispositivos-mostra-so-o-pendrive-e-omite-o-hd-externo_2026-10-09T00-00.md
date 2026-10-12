@@ -1,5 +1,14 @@
 # Bug: a lista "Dispositivo conectado" mostra só o pendrive e omite o HD externo
 
+## Status
+
+- Movido de `open/` para `retest/` em 2026-10-12 a pedido do dono, depois da execucao 20261010-2242 do pipeline (planning: correcao ja em `origin/main`, sem codigo a mudar).
+- **Corrigido em:** 2026-10-09. **NAO publicado:** `0a719db` e posterior a 2.12.109 (a publicada).
+- **Commits:** `0a719db` [T1] fix(usb) (enumeracao nativa sinaliza unidades Fixed e a fisica acrescenta o HD).
+- **Onde:** `src/electron-app/infrastructure/windowsUsbDeviceService.ts::ENUMERATE_REMOVABLE_SCRIPT` (marcador `FixedDriveMarker`), `::enumerateSafeWindowsUsbDevices` (`parseNativeOutput`/`finishNative`, tambem via `recoverNativeListing`), `::isFixedDriveMarker` em `revalidateWithScript`.
+- **Evidencia:** secao "Testes executados" abaixo — `tests/unit/usbFixedDriveMerge.test.cjs` 5/5, com o patch revertido 4 falhas e 1 verde (o controle); script nativo real devolve o marcador `D:\` e a linha `E:\`.
+- **Falta para `closed/`:** publicar a versao (dono); prova ponta a ponta com pendrive **e** HD externo USB reais conectados juntos (nao ha HD visivel na maquina de teste) — conferir tambem o `BusType` do HD no `Get-Disk` (se nao for `USB`, e outra correcao); confirmacao do dono/cliente.
+
 - **Detectado em:** 2026-10-09, relato do dono com print
 - **Origem:** tela de preparo BadAvatar (`BadAvatarUsbPage.tsx`, bloco "Dispositivo conectado")
 - **Estado:** passada 1 — só sintoma e evidência. Causa raiz não investigada
