@@ -510,3 +510,35 @@ Reconferido na lane em `c4874fa` (linhas atuais):
   os testes antigos de staging tem de continuar valendo.
 - teste: effort high, ultrathink nao — a medicao e mecanica, mas toca disco real (serial, lock, espaco) e o
   veredito depende de ler os numeros com o ruido.
+
+### Nota do dev (2026-10-12): correcao do plano antes da implementacao — quem vai direto
+
+O plano marca `direct = true` em **toda** entrada que nao e ponto de entrada. Abrindo os chamadores, isso inclui
+`local_install.go::InstallContentLocal` (`copyTreeLocal` de `Content/0000000000000000/<TitleID>/<tipo>/`): pacotes
+STFS soltos (DLC, title update, conteudo de disco de instalacao) nao tem ponto de entrada nenhum, entao o console os
+ve pelo proprio nome. Gravados direto, uma copia interrompida deixaria um pacote **truncado no nome final**, visivel
+ao console (a marca `.xbox-companion-installing` so protege a varredura do Electron, nao o console). Com staging,
+o pacote simplesmente nao existe ate estar completo — a mesma razao do plano para manter `default.xex` em staging.
+E o ganho ali e nulo (poucos arquivos grandes; o custo e por arquivo).
+
+**Regra corrigida:** vai direto so o arquivo que esta **atras de um ponto de entrada** que o proprio manifesto grava
+por ultimo: (a) arvore com `default.xex` na raiz (XEX) -> todo arquivo menos o `default.xex`; (b) arquivo dentro de
+`<cabecalho>.data/` cujo `<cabecalho>` esta no manifesto (GOD, SVOD) -> direto, o cabecalho via staging. Todo o
+resto (pacote STFS solto, `.data/` sem cabecalho, `copyFileLocal`) continua em staging. Para o caso do bug (XEX com
+145 mil arquivos) e para os blocos `Data` do GOD o resultado e o mesmo do plano; o teste do plano em
+`TestCopyTreeLocalMarksFolderUntilLastFileAndWritesEntryPointsLast` (2 com `direct == false`, 4 com `true`) nao muda.
+
+Consequencias nos testes:
+- `local_resilient_fat32_test.go`: as arvores de `TestFAT32CopyTreeLocalFitsLargeDirectory` e
+  `TestFAT32CopyTreeLocalRecoversFragmentedDirectory` nao tem `default.xex`, entao continuariam pela staging e nao
+  provariam o caminho direto em FAT32 real. Os dois ganham um `default.xex` na raiz da origem (a pasta grande vira
+  subpasta `faces/`, como no jogo); a staging continua existindo (o `default.xex` passa por ela) e tem de terminar
+  vazia. O erro de pasta cheia passa a vir do `OpenFile` do nome final, nao do rename: o
+  `TestFAT32CopyTreeLocalRecoversFragmentedDirectory` prova que `isFATDirectoryFull` o reconhece.
+- Teste novo de `orderEntryPointsLast` com arvore de Content (pacote solto: nada direto; GOD/SVOD: so `.data/`).
+
+Detalhe de biblioteca conferido (Go 1.26.6, `syscall/syscall_windows.go:429-480`): `O_CREATE|O_TRUNC` abre com
+`OPEN_ALWAYS` e trunca por `Ftruncate`, entao reescrever um destino existente mantem a mesma entrada de diretorio.
+Um destino somente leitura (copiado de ISO montada por outra ferramenta) faz o `OpenFile` falhar com acesso negado;
+o caminho antigo o substituia porque `os.Remove` limpa o atributo (`os/file_windows.go:222-257`). O caminho direto
+tenta `os.Remove(dst)` e abre de novo uma vez, para nao perder esse caso.
