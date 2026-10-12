@@ -384,8 +384,8 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 |---|---|---|---|---|---|
 | T1 | portão de layout (MBR, 1 partição, tipo FAT32, setor 512, ≤ 2 TiB) nos dois caminhos do preparo | `a6ac2df` | commitado, sem release | claude-opus-5-5 | -- |
 | T2 | formatador volta a garantir MBR e partição única, com conferência no script | `5c08a61` | commitado, sem release; VHD verde (7 cenários); falta o teste em hardware | claude-opus-5-5 | -- |
-| T3 | arquivo de layout do preparo em `.xbox-downloader/` | -- | -- | -- | -- |
-| T4 | telemetria do preparo concluído com o layout (depende do bug de telemetria do preparo) | -- | -- | -- | -- |
+| T3 | layout do disco no recibo `.xbox-downloader/preparo.json` (campo `diskLayout`; ver "Planejamento") | commit do fix (pipeline 20261010-2242) | commitado, sem release; falta a prova em pendrive real | claude-opus-5-5 | -- |
+| T4 | telemetria do preparo concluído com o layout (depende do bug de telemetria do preparo) | -- | fora do pipeline: decisão do dono (canal de evento de sucesso; ver "Hipoteses descartadas" do Planejamento) | -- | -- |
 | T5 | decidir H1–H3 no chamado #153 | -- | -- | -- | -- |
 | T6 | docs (`AGENTS.md`, `CAPACIDADE-E-ESPACO.md`) e orientação do suporte | `8e458ef` | docs do repo commitados; falta a orientação do suporte (fora deste repo) | claude-opus-5-5 | -- |
 
@@ -718,3 +718,24 @@ Símbolos abertos nesta sessão:
 ### Sessoes seguintes
 - dev: effort high, ultrathink nao — o manual pede `high` para `fixedBadAvatarPreparationService.ts`. A mudança é aditiva e mecânica, mas o recibo precisa continuar fora da transação e incapaz de derrubar o preparo. Não há raciocínio aberto.
 - teste: effort medium, ultrathink nao — bateria de unidade, duas mutações e um E2E que só abre a tela. Não há classificação sutil de falha.
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+O que mudou (T3 do Planejamento, sem desvio do plano):
+- `src/electron-app/infrastructure/preparationReceipt.ts`:
+  - `PreparationDiskLayout` (novo, exportado): os 12 campos do plano (`verdict`, `formatted`, `partitionStyle`, `partitionCount`, `mbrType`, `logicalSectorSize`, `physicalSectorSize`, `fileSystem`, `partitionSizeBytes`, `allocationUnitBytes`, `model`, `manufacturer`). Sem serial.
+  - `PreparationReceipt.diskLayout?` e `buildPreparationReceipt({ ..., diskLayout? })`: a chave só entra quando vem (`...(fields.diskLayout ? { diskLayout } : {})`), e o recibo antigo continua idêntico. `schemaVersion` fica 1.
+- `src/electron-app/services/fixedBadAvatarPreparationService.ts`:
+  - `requireXboxReadableLayout` agora devolve `Promise<{ verdict: "ok" | "unknown"; device: PhysicalUsbDevice }>`, com `device = source` (a linha física quando `readLayout` respondeu; senão, a recebida). Os `throw` de reprovação não mudaram.
+  - `prepareFixedBadAvatarDevice` guarda `layoutCheck` e, **dentro do `try` do recibo que já existia**, monta `diskLayout` de `layoutCheck.device`, com `formatted: request.formatDrive === true`, `model: friendlyName` e `allocationUnitBytes: device.allocationUnitBytes || layoutRow.allocationUnitBytes`. `device` aqui é a linha relida pela `requireSafeWindowsUsbTarget` antes da escrita; `enumerateSafeWindowsUsbDevices` a passa por `fillAllocationUnits` (`windowsUsbDeviceService.ts:564`). A linha do log passou a ser `recibo do preparo gravado: modo X, pacote Y, layout <verdict>`. Um erro ali continua só no `appendAppEvent` e não derruba o preparo.
+- Testes:
+  - `tests/unit/preparationReceipt.test.cjs` ganhou um teste novo: o recibo com `diskLayout` grava os 12 campos e não tem `serial`. O `deepEqual` do teste antigo continua exato.
+  - `tests/unit/xboxDiskLayoutPolicy.test.cjs`:
+    - pendrive nativo + leitura física → `verdict "ok"` e `device` com `MBR`/1/12/modelo da linha **física**;
+    - leitura `null` → `verdict "unknown"` e `device === nativeRow`.
+- Docs (doc-sync): `AGENTS.md` (entrada `preparationReceipt.ts`) e `docs/features.md` (o parágrafo do recibo) descrevem `diskLayout`, sem serial e ainda fora da transação. `CHANGELOG.md` `[Unreleased]` → `### Fixed`. A versão não sobe (manual, Dev). `CHANGELOG.md` foi reservado com `claim`.
+
+Ajustes ao Plano de teste: nenhum. As duas mutações do plano valem como escritas:
+- `requireXboxReadableLayout` devolvendo a linha recebida → o teste do pendrive nativo cai em `partitionStyle ""`;
+- `buildPreparationReceipt` sempre com a chave → o `deepEqual` do teste antigo cai.
+

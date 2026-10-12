@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Pendrive que o Xbox 360 mostra como "Não Formatado" depois de um preparo concluído não deixava nenhum dado do layout do disco para o suporte (`src/electron-app/infrastructure/preparationReceipt.ts::buildPreparationReceipt`, `src/electron-app/services/fixedBadAvatarPreparationService.ts::requireXboxReadableLayout`)**
+  - Caso: chamado #153 e um segundo caso com o mesmo print; a causa do primeiro segue sem prova, e o único jeito de saber o layout era pedir PowerShell ao cliente.
+  - Causa: o portão `requireXboxReadableLayout` lia o layout (estilo, partições, tipo, setor) e o descartava; o recibo `.xbox-downloader/preparo.json` só guardava modo, data, versão e release.
+  - Correção: o portão devolve o veredito (`ok`/`unknown`) e a linha de onde leu o layout (a física, quando houve leitura), e o recibo ganha `diskLayout` com esses campos, se formatou, unidade de alocação, modelo e fabricante — sem o serial. Continua fora da escrita transacional e dentro do `try` que nunca derruba o preparo; `schemaVersion` fica 1 (campo aditivo, sem leitor no app).
+  - Testes: `tests/unit/preparationReceipt.test.cjs` (recibo com `diskLayout`, sem serial) e `tests/unit/xboxDiskLayoutPolicy.test.cjs` (portão devolve a linha física com `ok` e a recebida com `unknown`).
+  - Bug: [docs/bugs/open/badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md](docs/bugs/open/badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md)
 - **Download do Internet Archive que chegou a 100% era jogado fora se o app fechasse durante a conferência final; na volta recomeçava do zero (`src/server/infrastructure/download/ia.go::finalizeDownload`, `::DownloadWithProgress`, `resume.go::finishedResume`)**
   - Caso: chamado #157 / report `9541`: PES 2015, 7,6 GB em 46 min, ficou 5 min 44 s parado em 99,8% sem nenhuma linha no log; o cliente fechou o app e, ao reabrir, a fila recomeçou em 0,0%.
   - Causa: `IADownloadChunkedParallel` (e `iaDownloadSingleAttempt`) apagava o mapa de retomada no fim do download, antes de `DownloadWithProgress` gravar o `.complete`, que exige o SHA-256 do arquivo inteiro (minutos num arquivo grande). Fechar o app nessa janela deixava o arquivo íntegro sem nenhum marcador, e a volta truncava o arquivo e baixava tudo de novo. A promoção que fecha essa janela só existia para o modo single.

@@ -398,6 +398,9 @@ function describeDiskLayout(device: PhysicalUsbDevice): string {
  * script físico. Layout desconhecido (essa leitura não respondeu) passa e fica no log, e isso é
  * deliberado: reprovar ali tiraria o preparo sem formatar das máquinas em que o `Get-Disk` não
  * responde. Com "Formatar antes", o script elevado já conferiu o layout que entregou.
+ *
+ * Devolve o veredito e a linha de onde o layout foi lido (a física, quando houve leitura), para o
+ * recibo do preparo levar o layout ao pendrive ([[badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09]]).
  */
 export async function requireXboxReadableLayout(
   driveRoot: string,
@@ -407,7 +410,7 @@ export async function requireXboxReadableLayout(
     readLayout?: (driveRoot: string) => Promise<PhysicalUsbDevice | null>;
     report?: typeof reportError;
   } = {},
-): Promise<void> {
+): Promise<{ verdict: "ok" | "unknown"; device: PhysicalUsbDevice }> {
   const readLayout = deps.readLayout ?? readWindowsUsbDiskLayout;
   const report = deps.report ?? reportError;
 
@@ -422,7 +425,7 @@ export async function requireXboxReadableLayout(
   }
   if (layout.verdict === "unknown") {
     appendAppEvent("BADAVATAR", `layout do disco ${driveRoot} nao conferido: a enumeracao fisica nao o informou`);
-    return;
+    return { verdict: "unknown", device: source };
   }
 
   const summary = describeDiskLayout(source);
@@ -430,7 +433,7 @@ export async function requireXboxReadableLayout(
     "BADAVATAR",
     `layout do disco: ${summary} -> ${layout.verdict === "ok" ? "o Xbox 360 le" : `reprovado (${layout.codes.join(", ")})`}`,
   );
-  if (layout.verdict === "ok") return;
+  if (layout.verdict === "ok") return { verdict: "ok", device: source };
 
   const reasons = layout.reasons.join(" ");
   if (!layout.fixableByFormat) {
@@ -534,7 +537,7 @@ export async function prepareFixedBadAvatarDevice(
   }
 
   onProgress({ status: "Conferindo se o Xbox 360 vai ler o dispositivo…", percent: 13 });
-  await requireXboxReadableLayout(request.driveRoot, device, request.formatDrive);
+  const layoutCheck = await requireXboxReadableLayout(request.driveRoot, device, request.formatDrive);
 
   onProgress({ status: `Verificando o pacote ${manifest.release}…`, percent: 14 });
   const transactionScope = request.isRghOnly
@@ -639,14 +642,33 @@ export async function prepareFixedBadAvatarDevice(
     // dentro do plano faria toda retomada interrompida falhar (ver preparationReceipt.ts).
     // Diagnóstico nunca derruba uma preparação que já terminou de gravar.
     try {
+      const layoutRow = layoutCheck.device;
       const receipt = buildPreparationReceipt({
         isRghOnly: request.isRghOnly === true,
         appVersion: app.getVersion(),
         release: manifest.release,
         readyToPlayVersion: READY_TO_PLAY_CONFIGURATION_VERSION,
+        diskLayout: {
+          verdict: layoutCheck.verdict,
+          formatted: request.formatDrive === true,
+          partitionStyle: layoutRow.partitionStyle,
+          partitionCount: layoutRow.partitionCount,
+          mbrType: layoutRow.mbrType,
+          logicalSectorSize: layoutRow.logicalSectorSize,
+          physicalSectorSize: layoutRow.physicalSectorSize,
+          fileSystem: layoutRow.fileSystem,
+          partitionSizeBytes: layoutRow.partitionSizeBytes,
+          // A linha relida antes da escrita passou por fillAllocationUnits; a do portão pode vir com 0.
+          allocationUnitBytes: device.allocationUnitBytes || layoutRow.allocationUnitBytes,
+          model: layoutRow.friendlyName,
+          manufacturer: layoutRow.manufacturer,
+        },
       });
       await writePreparationReceipt(request.driveRoot, receipt);
-      appendAppEvent("BADAVATAR", `recibo do preparo gravado: modo ${receipt.mode}, pacote ${receipt.release}`);
+      appendAppEvent(
+        "BADAVATAR",
+        `recibo do preparo gravado: modo ${receipt.mode}, pacote ${receipt.release}, layout ${layoutCheck.verdict}`,
+      );
     } catch (error: any) {
       appendAppEvent("BADAVATAR", `falha ao gravar o recibo do preparo: ${error?.message || String(error)}`);
     }

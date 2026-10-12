@@ -141,9 +141,15 @@ function runGate(device, formatted, layoutRow) {
 
 test("pendrive da enumeracao nativa: o portao le o layout fisico uma vez e aprova", async () => {
   const run = runGate(nativeRow, false, physical());
-  await run.promise;
+  const checked = await run.promise;
   assert.deepEqual(run.reads, ["G:\\"]);
   assert.equal(run.reports.length, 0);
+  // O recibo do preparo leva o layout que o portao conferiu: o da linha fisica, nao o da nativa (vazio).
+  assert.equal(checked.verdict, "ok");
+  assert.equal(checked.device.partitionStyle, "MBR");
+  assert.equal(checked.device.partitionCount, 1);
+  assert.equal(checked.device.mbrType, 12);
+  assert.equal(checked.device.friendlyName, "Mass Storage Device USB Device");
 });
 
 test("sem formatar, GPT reprova e manda marcar Formatar antes, sem telemetria", async () => {
@@ -189,8 +195,10 @@ test("HD vem da enumeracao fisica com o layout: nenhuma leitura a mais", async (
 test("layout que nao pode ser lido deixa o preparo seguir", async () => {
   // Storage Management sem resposta: readWindowsUsbDiskLayout devolve null.
   const unreadable = runGate(nativeRow, false, null);
-  await unreadable.promise;
+  const unknown = await unreadable.promise;
   assert.deepEqual(unreadable.reads, ["G:\\"]);
+  assert.equal(unknown.verdict, "unknown");
+  assert.equal(unknown.device, nativeRow, "sem leitura fisica, o recibo fica com a linha recebida");
 
   // Fallback Win32_DiskDrive: a linha existe, mas sem estilo de particao.
   const cimRow = runGate(nativeRow, false, { ...nativeRow, diskNumber: -1 });

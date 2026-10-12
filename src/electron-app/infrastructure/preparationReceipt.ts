@@ -2,7 +2,8 @@ import { promises as fs } from "fs";
 import path from "path";
 
 /**
- * O recibo do preparo: modo, data, versão do aplicativo e release do pacote. Sem ele, nem o app,
+ * O recibo do preparo: modo, data, versão do aplicativo, release do pacote e o layout do disco que
+ * o portão conferiu. Sem ele, nem o app,
  * nem o suporte, nem o agente de IA conseguem responder **como** um pendrive foi preparado — o
  * marcador `ready-to-play-v<N>.marker` guarda uma linha e mais nada.
  *
@@ -21,6 +22,27 @@ export const PREPARATION_RECEIPT_PATH = ".xbox-downloader/preparo.json";
 
 export type PreparationMode = "bloqueado-lt" | "rgh";
 
+/**
+ * O layout que o portão `requireXboxReadableLayout` conferiu. Quando o Xbox mostra "Não Formatado"
+ * num pendrive que o app declarou pronto, é isto que o suporte precisa ler no próprio dispositivo,
+ * sem pedir PowerShell ao cliente ([[badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09]]).
+ * Sem serial: ele identifica o aparelho do cliente.
+ */
+export interface PreparationDiskLayout {
+  verdict: "ok" | "unknown";
+  formatted: boolean;
+  partitionStyle: string;
+  partitionCount: number;
+  mbrType: number;
+  logicalSectorSize: number;
+  physicalSectorSize: number;
+  fileSystem: string;
+  partitionSizeBytes: number;
+  allocationUnitBytes: number;
+  model: string;
+  manufacturer: string;
+}
+
 export interface PreparationReceipt {
   schemaVersion: 1;
   mode: PreparationMode;
@@ -28,6 +50,7 @@ export interface PreparationReceipt {
   appVersion: string;
   release: string;
   readyToPlayVersion: string;
+  diskLayout?: PreparationDiskLayout;
 }
 
 export function buildPreparationReceipt(fields: {
@@ -36,6 +59,7 @@ export function buildPreparationReceipt(fields: {
   release: string;
   readyToPlayVersion: string;
   preparedAt?: Date;
+  diskLayout?: PreparationDiskLayout;
 }): PreparationReceipt {
   return {
     schemaVersion: 1,
@@ -44,6 +68,7 @@ export function buildPreparationReceipt(fields: {
     appVersion: fields.appVersion,
     release: fields.release,
     readyToPlayVersion: fields.readyToPlayVersion,
+    ...(fields.diskLayout ? { diskLayout: fields.diskLayout } : {}),
   };
 }
 

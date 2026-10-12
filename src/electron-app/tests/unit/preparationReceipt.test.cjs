@@ -49,6 +49,37 @@ test("o recibo guarda o modo, a data, a versao do app e o release do pacote", as
   );
 });
 
+test("o recibo guarda o layout do disco que o portao conferiu, sem o serial", async (t) => {
+  const root = temp(t);
+  const diskLayout = {
+    verdict: "ok",
+    formatted: true,
+    partitionStyle: "MBR",
+    partitionCount: 1,
+    mbrType: 12,
+    logicalSectorSize: 512,
+    physicalSectorSize: 512,
+    fileSystem: "FAT32",
+    partitionSizeBytes: 31_650_201_600,
+    allocationUnitBytes: 32_768,
+    model: "Mass Storage Device USB Device",
+    manufacturer: "Generic",
+  };
+  const receipt = buildPreparationReceipt({
+    isRghOnly: false,
+    appVersion: "2.12.110",
+    release: "1.1-test",
+    readyToPlayVersion: "4",
+    preparedAt: new Date("2026-10-10T12:00:00.000Z"),
+    diskLayout,
+  });
+  const written = JSON.parse(fs.readFileSync(await writePreparationReceipt(root, receipt), "utf8"));
+
+  assert.deepEqual(written.diskLayout, diskLayout);
+  assert.equal(Object.keys(written.diskLayout).length, 12);
+  assert.doesNotMatch(JSON.stringify(written), /serial/i, "o serial identifica o aparelho do cliente");
+});
+
 /**
  * A razao de o recibo ficar fora da transacao: o `planHash` sai do conteudo das entradas, e o
  * `transactionId` nao. Dois preparos do mesmo pacote no mesmo dispositivo produzem o mesmo
