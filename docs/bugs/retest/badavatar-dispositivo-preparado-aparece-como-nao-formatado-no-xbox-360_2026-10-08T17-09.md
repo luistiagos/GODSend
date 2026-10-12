@@ -1,5 +1,54 @@
 # Bug: o Xbox 360 mostra como "Não Formatado" um pendrive que o Companion declarou pronto — e o app não confere o layout de disco que o console lê
 
+## Status
+
+**Em retest** (pipeline 20261010-2242, teste rodada 1 aprovado em 2026-10-12 01:30). A causa raiz do caso 1
+(#153) continua **não provada**: o que foi corrigido é o defeito provado no código e o diagnóstico.
+
+- **Commits do fix:** T1 `a6ac2df` (formatador garante MBR) e T2 `5c08a61` (portão de layout), já em
+  `origin/main` antes desta execução; T3 `6169e1d` (2026-10-12 01:14), nesta execução: o recibo do preparo grava
+  o layout do disco que o portão conferiu.
+- **Onde (T3):**
+  - `src/electron-app/infrastructure/preparationReceipt.ts::PreparationDiskLayout` / `buildPreparationReceipt`:
+    campo opcional `diskLayout` (12 campos, sem serial). A chave só entra quando vem, e o recibo continua fora
+    do plano transacional;
+  - `src/electron-app/services/fixedBadAvatarPreparationService.ts::requireXboxReadableLayout`: devolve
+    `{ verdict, device }`, com a linha física quando ela foi lida;
+  - `prepareFixedBadAvatarDevice` passa isso ao recibo, dentro do `try` que nunca derruba o preparo.
+- **Evidência:** `C:\projects\.bugfix-xbox360\evidencia\20261012-0117-badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09\`
+  - **Offline + controle positivo:** `node --test tests/unit/*.test.cjs` depois do `build` do helper deu
+    326 pass / 0 fail (`t3-node-unit-fix.txt`). O comportamento da base foi simulado no `.js` compilado: sem
+    `diskLayout` e com o portão devolvendo `undefined`, **3 testes novos falham** (os dois do portão e o do
+    recibo). Mutações:
+    - portão devolvendo a linha recebida → cai o teste do pendrive nativo;
+    - recibo sempre com `diskLayout: fields.diskLayout` → **sobrevive**. É mutante equivalente: o
+      `undefined` some no `JSON.stringify`, e o arquivo gravado sai idêntico;
+    - com a chave presente com valor (`?? null`) → cai o `deepEqual` do teste antigo, que trava o contrato
+      do arquivo.
+
+    O `.js` foi restaurado (`cmp` idêntico).
+  - **T2 (caminho do cliente, sem disco):** `e2e-badavatar-tela.cjs`, rodado com `electron .` da lane, como no
+    `npm start`. Caminho: Modo de Instalação → Xbox Bloqueado ou LT → Avançar → Gravar em um Pendrive ou HD. A tela
+    "Prepare seu pendrive ou HD" / "Dispositivo conectado" renderizou (`02-badavatar-usb.png`). O `E:\` conectado
+    só foi **listado**: nada foi escolhido nem preparado, e o log não tem nenhum evento `BADAVATAR`. O backend
+    em execução era `lanes\wt-1\dist\godsend-windows-x64.exe`, com o banner
+    `Xbox 360 Companion Backend Server v2.12.110` no log, e respondeu HTTP na `serverPort`. O sinal do sintoma
+    (o layout que não sai da máquina) só aparece num preparo real e foi provado na unidade (controle acima).
+  - **T3:** `go test -count=1 ./...` em `src/server` deu rc 0, com 9 pacotes `ok` (`t3-go-test.txt`). A
+    `test:safety` equivalente (o `tsc` e o `renderer:typecheck` pelo `build` do helper, mais a bateria node)
+    deu 326/0, contra 258/0 na linha de base de 2026-10-09; os testes a mais vieram de bugs posteriores.
+  - **T4:** na janela 04:28–04:30Z (`log-janela-teste.txt`) aparecem só o CSP da fonte do Google, no renderer,
+    e o `QUEUE RESUME` do `pending_queue` da lane. Os dois existem sem o fix: o renderer e o Go não foram
+    tocados. Nenhum erro novo é atribuível ao fix.
+- **Falta para `closed/`:**
+  - versão publicada: subir a versão e rodar `build-and-upload.ps1` (do dono);
+  - prova em pendrive real: `.xbox-downloader/preparo.json` com `diskLayout`, mais o teste GPT → MBR de T2
+    ("Teste em hardware — passo 2");
+  - T5 no #153, com o cliente;
+  - o Xbox listando "Dispositivo USB — N GB livres";
+  - decisão do dono sobre T4: canal para evento de sucesso;
+  - orientação do suporte no `digitalstoregamesproject` (o resto de T6).
+
 - **Detectado em:** 2026-10-08 17:09 (chamado **#153**, sessão `81325272899783@lid`; prints repassados pelo dono)
 - **Origem:** conversa de suporte e prints da cliente + leitura de `infrastructure/fat32Format.ts::buildGuardedWindowsFat32Script`, `services/fixedBadAvatarPreparationService.ts::prepareFixedBadAvatarDevice` / `waitForFormattedDevice`, `infrastructure/windowsUsbDeviceService.ts` (`ENUMERATE_USB_SCRIPT`) e do histórico de `fat32Format.ts` (`git log` / `git show`)
 - **Errors (serviço):** N/A — o preparo **terminou com sucesso**, e preparo bem-sucedido não reporta nada
