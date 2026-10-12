@@ -150,3 +150,5 @@ A causa raiz foi provada por inspeção direta das dependências de runtime e do
 
 - `python pipeline.py build --bug <slug>` -> rc 0 (build:server + tsc + renderer:typecheck).
 - `node --test tests/unit/portableLauncher.test.cjs tests/unit/portableLauncherReport.test.cjs` (em `src/electron-app`) -> `tests 8, pass 8, fail 0` (os 4 do launcher que ja existiam + o novo + os 3 do report).
+- Estragar de proposito: `Call checkWindowsVersion` comentado no `.onInit` -> `node --test --test-name-pattern="Windows anterior" tests/unit/portableLauncher.test.cjs` falha com `actual: 7, expected: 2` (o launcher extraiu e iniciou o app de mentira: o "nem abre" sem aviso). Arquivo restaurado com `git checkout` sobre o commit do fix.
+- Plano de teste: sem ajuste. A T2 (launcher em modo janela com a variavel, print da caixa) e o controle positivo continuam como no Planejamento.
