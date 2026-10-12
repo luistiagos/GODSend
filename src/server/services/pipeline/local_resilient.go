@@ -507,6 +507,9 @@ func copyLocalEntry(entry *localCopyEntry, root, dst string, onProgress func(byt
 var (
 	localIsFATVolume   = helpers.IsFATVolume
 	copyLocalEntryFunc = copyLocalEntry
+	// writeInstallInProgressMarkerFunc lets a test drop the device exactly when
+	// the game folder is created.
+	writeInstallInProgressMarkerFunc = writeInstallInProgressMarker
 )
 
 // rebuildSaturatedFATFolder frees a FAT folder that hit the entry cap with holes
@@ -605,8 +608,22 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 		return fmt.Errorf("%w: %v", ErrLocalDelivery, err)
 	}
 	orderEntryPointsLast(entries)
-	if err := writeInstallInProgressMarker(dstDir, gameName); err != nil {
-		return fmt.Errorf("%w: marcar instalacao em andamento em %s: %v", ErrLocalDelivery, dstDir, err)
+	// Creating the marker is what creates the game folder. Same rule as the
+	// file loop: a device that went away waits for reconnection; with the
+	// device present the failure is final and explained (no blind retries:
+	// the old loop retried 3 times and the error persisted in every report).
+	// [[pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28]]
+	for {
+		markerErr := writeInstallInProgressMarkerFunc(dstDir, gameName)
+		if markerErr == nil {
+			break
+		}
+		if localDeviceMatches(root, expectedID) {
+			return fmt.Errorf("%w: criar a pasta do jogo em %s: %s", ErrLocalDelivery, dstDir, localWriteErrorText(markerErr))
+		}
+		if waitErr := s.waitForLocalDevice(root, expectedID, gameName); waitErr != nil {
+			return waitErr
+		}
 	}
 	s.App.Logf("LOCAL %s: %d arquivos (%.2f GB) -> %s", label, len(entries), float64(totalSize)/1073741824, dstDir)
 

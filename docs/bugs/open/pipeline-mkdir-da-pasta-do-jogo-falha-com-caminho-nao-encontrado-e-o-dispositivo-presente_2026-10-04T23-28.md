@@ -197,7 +197,7 @@ O que se sabe, e onde parou:
 
 ### Tarefas
 
-- [ ] `src/server/services/pipeline/fat_directory.go::localWriteErrorText` — no Windows, quando
+- [x] `src/server/services/pipeline/fat_directory.go::localWriteErrorText` — no Windows, quando
   `errors.As(err, *os.PathError)` e `errors.Is(err, syscall.Errno(3))` (ERROR_PATH_NOT_FOUND), devolver
   texto em português com: o caminho que falhou, "o dispositivo está conectado", o código (`erro 3`), o
   estado da pasta-pai (`os.Stat(filepath.Dir(pe.Path))`: existe / não existe / erro), o sistema de
@@ -210,7 +210,7 @@ O que se sabe, e onde parou:
   (`os.Mkdir(filepath.Join(t.TempDir(), "falta", "jogo"))`, que no Windows devolve exatamente esse
   errno): o texto contém `erro 3`, `Verificar` e o caminho; um erro qualquer (`errors.New`) continua
   igual. Skip fora do Windows, como o teste do 82.
-- [ ] `src/server/services/pipeline/local_resilient.go::copyTreeLocal` (ramo de erro de
+- [x] `src/server/services/pipeline/local_resilient.go::copyTreeLocal` (ramo de erro de
   `writeInstallInProgressMarker`, hoje linhas 608-610) — se `!localDeviceMatches(root, expectedID)`:
   `waitForLocalDevice` e, reconectado, tentar o marcador de novo (mesma regra do laço); se o
   dispositivo confere: `"%w: criar a pasta do jogo em %s: %s"` com `ErrLocalDelivery` e
@@ -225,7 +225,7 @@ O que se sabe, e onde parou:
   `copyLocalEntryFunc`/`localIsFATVolume`), cuja versão de teste apaga o marcador de identidade da raiz
   e devolve erro: remover o marcador ANTES da chamada não serve, porque `ensureLocalDeviceIdentity` no
   topo de `copyTreeLocal` já iria para `waitForLocalDevice` e o ramo novo nunca rodaria.
-- [ ] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva, regra do manual).
+- [x] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva, regra do manual).
 
 Fora do escopo deste fix (não fazer aqui): versão/máquina no report da telemetria (achado lateral
 registrado), mudar o prefixo "Falha no dispositivo local" de `fallback.go` (o texto novo já diz que o
@@ -275,3 +275,53 @@ dispositivo está conectado), e a lista de unidades sem HD externo (bug próprio
 
 - [[pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30]] — o report do
   backend não traz versão nem máquina; é o que impede medir a hipótese 2 aqui.
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+**O que mudou** (`arquivo::simbolo`):
+
+- `src/server/services/pipeline/fat_directory.go::localWriteErrorText` — novo ramo, só no Windows
+  (`errorPathNotFound = syscall.Errno(3)`, mesmo guarda de `isFATDirectoryFull`), para
+  `*os.PathError` com errno 3: texto em português com a operação e o caminho, "com o dispositivo
+  conectado", o estado da pasta-pai (`os.Stat`: existe / não existe / existe mas não é pasta / não pôde
+  ser lida), o sistema de arquivos (`helpers.VolumeFileSystem`, "desconhecido" se vazio) e a ação
+  (Verificar no Windows ou Jogos Instalados > Reparar (CHKDSK)). Erro 82 e os demais erros: inalterados.
+  Todos os chamadores (laço de `copyTreeLocal`, `copyFileLocal` e o ramo novo do marcador) só o
+  chamam depois de `localDeviceMatches` = true, por isso a frase "dispositivo conectado" é verdadeira.
+- `src/server/services/pipeline/local_resilient.go::copyTreeLocal` — a criação do marcador (que cria a
+  pasta do jogo) virou laço: falhou e o dispositivo confere -> `"%w: criar a pasta do jogo em %s: %s"`
+  com `ErrLocalDelivery` e `localWriteErrorText`; não confere -> `waitForLocalDevice` e nova tentativa
+  (mesma regra do laço de arquivos; cancelamento e tempo esgotado saem por `waitForLocalDevice`). Sem
+  novas tentativas cegas com o dispositivo presente.
+- `local_resilient.go` — costura `writeInstallInProgressMarkerFunc` (junto de `copyLocalEntryFunc`).
+- `CHANGELOG.md` — `[Unreleased]` / `### Fixed`.
+
+**Testes novos** (escritos antes do código e rodados na base = controle positivo):
+
+- `fat_directory_test.go::TestLocalWriteErrorTextExplainsPathNotFound` — erro 3 REAL
+  (`os.Mkdir(<tmp>\falta\jogo)`). Base: FALHA (`texto do erro 3 sem "erro 3": "mkdir ...: The system
+  cannot find the path specified."`). Com o fix: passa.
+- `local_install_marker_test.go::TestCopyTreeLocalExplainsGameFolderThatCannotBeCreated` — arquivo
+  `Games` no lugar da pasta. Base: FALHA (`marcar instalacao em andamento em ...`). Com o fix: passa,
+  nenhum arquivo gravado.
+- `local_install_marker_test.go::TestCopyTreeLocalWaitsForDeviceThatLeavesWhenGameFolderIsCreated` —
+  a costura apaga o identificador da raiz e falha; o erro é o de `waitForLocalDevice`
+  ("...nao possui o identificador esperado"), não "criar a pasta do jogo". (Não roda na base: a costura
+  é nova; no código antigo o erro seria "marcar instalacao..." e o teste falharia.)
+- `go test -count=1 ./services/pipeline/ -run "LocalWriteErrorText|InstallInProgress|Marker|GameFolder|LeavesWhen" -v`
+  -> 5 PASS.
+- `go test -count=1 ./...` em `src/server` -> rc 0, 9 pacotes `ok` (igual à linha de base do manual).
+- Compile-check `pipeline.py build --bug <slug>` -> rc 0 (build-server x64/ia32, `tsc`, `renderer:typecheck`).
+
+**Ajuste ao Plano de teste / nota sobre a análise (2026-10-11):** com um ARQUIVO chamado `Games` no
+lugar da pasta, o Go no Windows NÃO devolve `ENOTDIR`: devolve erro 3 citando `...\Games`
+(medido: `mkdir <raiz>\Games: The system cannot find the path specified.`). A hipótese descartada
+"`D:\Games` como arquivo" continua descartada (o erro citaria `Games`, não a pasta do jogo), mas o
+motivo escrito ("devolveria ENOTDIR") está errado. Consequência boa para a T2: o passo 2 também
+exercita o texto novo do erro 3. Texto real que a Fila deve mostrar no passo 2 (medido no teste,
+destino NTFS):
+`falha no dispositivo local: criar a pasta do jogo em <destino>\Games\<jogo> - <TitleID>: o Windows
+respondeu "caminho não encontrado" (erro 3) em mkdir <destino>\Games com o dispositivo conectado
+(pasta-pai <destino>: existe; sistema de arquivos: NTFS). A estrutura de pastas da unidade pode estar
+danificada: verifique o disco (...) e tente de novo`, precedido do prefixo "Falha no dispositivo
+local. O download concluido foi preservado..." de `fallback.go`.

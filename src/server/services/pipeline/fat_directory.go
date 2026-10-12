@@ -3,12 +3,15 @@ package pipeline
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 	"syscall"
 	"unicode/utf16"
+
+	"godsend/infrastructure/helpers"
 )
 
 // fatMaxDirectoryEntries is fastfat's cap on a directory: 64 Ki entries of 32
@@ -20,6 +23,10 @@ const fatMaxDirectoryEntries = 64 * 1024
 // directory at its entry cap. It is checked only on FAT volumes, which exist
 // only on Windows here (helpers.IsFATVolume is false elsewhere).
 const fatErrorCannotMake = syscall.Errno(82)
+
+// errorPathNotFound is ERROR_PATH_NOT_FOUND (3). Outside Windows errno 3 is
+// ESRCH, hence the same GOOS guard as isFATDirectoryFull.
+const errorPathNotFound = syscall.Errno(3)
 
 const fatInvalidShortNameChars = "\"*+,/:;<=>?[\\]| "
 
@@ -68,6 +75,30 @@ func isFATDirectoryFull(err error) bool {
 func localWriteErrorText(err error) string {
 	if isFATDirectoryFull(err) {
 		return "o Windows recusou criar o arquivo porque a pasta atingiu o limite de 65.536 entradas do FAT32 (erro 82)"
+	}
+	// Every caller has just confirmed the device identity marker, so "path not
+	// found" here is not a disconnect: with the parent folder present it points
+	// at a damaged directory structure. The parent state and the filesystem go
+	// into the text, which reaches both the queue and the telemetry, to tell a
+	// damaged volume from a folder removed underneath the copy.
+	// [[pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28]]
+	var pathErr *os.PathError
+	if runtime.GOOS == "windows" && errors.Is(err, errorPathNotFound) && errors.As(err, &pathErr) {
+		parent := filepath.Dir(pathErr.Path)
+		parentState := "existe"
+		if st, statErr := os.Stat(parent); os.IsNotExist(statErr) {
+			parentState = "não existe"
+		} else if statErr != nil {
+			parentState = fmt.Sprintf("não pôde ser lida (%v)", statErr)
+		} else if !st.IsDir() {
+			parentState = "existe mas não é pasta"
+		}
+		fileSystem := helpers.VolumeFileSystem(pathErr.Path)
+		if fileSystem == "" {
+			fileSystem = "desconhecido"
+		}
+		return fmt.Sprintf("o Windows respondeu \"caminho não encontrado\" (erro 3) em %s %s com o dispositivo conectado (pasta-pai %s: %s; sistema de arquivos: %s). A estrutura de pastas da unidade pode estar danificada: verifique o disco (no Windows, Este Computador > botão direito na unidade > Propriedades > Ferramentas > Verificar; ou, no app, Jogos Instalados > Reparar (CHKDSK)) e tente de novo",
+			pathErr.Op, pathErr.Path, parent, parentState, fileSystem)
 	}
 	return err.Error()
 }

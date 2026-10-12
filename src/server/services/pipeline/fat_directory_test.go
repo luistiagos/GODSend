@@ -260,3 +260,24 @@ func TestLocalWriteErrorTextTranslatesCannotMake(t *testing.T) {
 		t.Fatal("outros erros passam como estao")
 	}
 }
+
+// [[pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28]]
+func TestLocalWriteErrorTextExplainsPathNotFound(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("ERROR_PATH_NOT_FOUND (3) so existe no Windows; fora dele o errno 3 e ESRCH")
+	}
+	target := filepath.Join(t.TempDir(), "falta", "jogo")
+	err := os.Mkdir(target, 0755)
+	if err == nil {
+		t.Fatal("mkdir sem a pasta-pai deveria falhar")
+	}
+	text := localWriteErrorText(err)
+	for _, want := range []string{"erro 3", "Verificar", target, "não existe"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("texto do erro 3 sem %q: %q", want, text)
+		}
+	}
+	if other := errors.New("disk exploded"); localWriteErrorText(other) != "disk exploded" {
+		t.Fatal("outros erros passam como estao")
+	}
+}

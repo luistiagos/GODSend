@@ -1,10 +1,13 @@
 package pipeline
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"godsend/app"
 	"godsend/models"
@@ -105,5 +108,55 @@ func TestCopyTreeLocalKeepsMarkerWhenCopyFails(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(destination, installInProgressMarker)); !os.IsNotExist(err) {
 		t.Fatalf("marca deveria sumir na tentativa que completa; err=%v", err)
+	}
+}
+
+// [[pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28]]
+func TestCopyTreeLocalExplainsGameFolderThatCannotBeCreated(t *testing.T) {
+	service, source, root, destination := newMarkerTestCopy(t, map[string]string{"default.xex": "xex"})
+	// Um ARQUIVO no lugar de <raiz>\Games: o MkdirAll da pasta do jogo falha
+	// sempre, com o dispositivo presente.
+	if err := os.WriteFile(filepath.Join(root, "Games"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	copied := 0
+	original := copyLocalEntryFunc
+	defer func() { copyLocalEntryFunc = original }()
+	copyLocalEntryFunc = func(entry *localCopyEntry, root, dst string, onProgress func(int64)) error {
+		copied++
+		return original(entry, root, dst, onProgress)
+	}
+
+	err := service.copyTreeLocal(source, destination, root, "Jogo", "XEX")
+	if !errors.Is(err, ErrLocalDelivery) || !strings.Contains(err.Error(), "criar a pasta do jogo em "+destination) {
+		t.Fatalf("esperava ErrLocalDelivery ao criar a pasta do jogo, veio %v", err)
+	}
+	if copied != 0 {
+		t.Fatalf("nenhum arquivo deveria ser gravado; gravados %d", copied)
+	}
+}
+
+// [[pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28]]
+func TestCopyTreeLocalWaitsForDeviceThatLeavesWhenGameFolderIsCreated(t *testing.T) {
+	service, source, root, destination := newMarkerTestCopy(t, map[string]string{"default.xex": "xex"})
+	previousInterval, previousTimeout, previousMarker := localDevicePollInterval, localDeviceWaitTimeout, writeInstallInProgressMarkerFunc
+	defer func() {
+		localDevicePollInterval, localDeviceWaitTimeout, writeInstallInProgressMarkerFunc = previousInterval, previousTimeout, previousMarker
+	}()
+	localDevicePollInterval = 5 * time.Millisecond
+	localDeviceWaitTimeout = 30 * time.Millisecond
+	// O dispositivo "some" exatamente aqui: o identificador da raiz deixa de
+	// existir e a criacao da pasta falha. Antes da chamada nao serve: o
+	// ensureLocalDeviceIdentity do topo ja iria esperar o dispositivo.
+	writeInstallInProgressMarkerFunc = func(dstDir, gameName string) error {
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(localDeviceIdentityFile))); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		return errors.New("simulado: dispositivo removido")
+	}
+
+	err := service.copyTreeLocal(source, destination, root, "Jogo", "XEX")
+	if !errors.Is(err, ErrLocalDelivery) || !strings.Contains(err.Error(), "identificador") || strings.Contains(err.Error(), "criar a pasta do jogo") {
+		t.Fatalf("esperava o erro de waitForLocalDevice, veio %v", err)
 	}
 }
