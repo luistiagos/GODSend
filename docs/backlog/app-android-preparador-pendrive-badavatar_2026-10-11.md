@@ -65,6 +65,18 @@ afirma que o console foi desbloqueado.
   pendrive configurado pelo console (nada no código procura `Xbox360/`), porque ele mesmo formata.
   Três tutoriais do YouTube fazem desse jeito e dá certo (`Du5M9EvkvjE`, `d3_AQKDejdE`,
   `s9b0X4TlUWg`), mas nenhum mede o espaço.
+  - **Situação em 2026-10-11 (investigação sem console,
+    [`xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md`](xbox360-pendrive-formatado-no-console-investigacao_2026-10-11.md),
+    "Resultado"):** a premissa estava errada. "Formatar no console" não é o "Configurar agora": o
+    console tem **Y → Formatar**, que apaga e deixa FAT32 comum **sem `Xbox360/`** e sem reserva — é
+    o que o `Du5M9EvkvjE` faz (quadros 1:08–1:14; o celular depois vê só `LOST.DIR`). "Configurar
+    agora" apaga e reserva até 32 GB (ajuda oficial e quadros de `G8zs9lWXQFI`). A spec agora
+    ensina o *Formatar*, não avisa pela falta de `Xbox360/` e nunca apaga a pasta. **Respondido:**
+    espaço, "a `Xbox360/` aparece?", o app apagar a pasta (não precisa). **Ainda depende de
+    console:** a tabela de partição que o *Formatar* deixa (MBR ou sem tabela; `assessXboxLayout`
+    fica informativo até medir) e o BadAvatar rodando num pendrive formatado no console e
+    preparado pelo app (C27). **Risco novo:** console sem Disco Rígido e sem Unidade de Memória
+    só lê perfis da unidade do sistema (ConsoleMods), então o preparo sozinho não basta nele.
 - **R2. Ler o layout do disco no Android.** Pelo Storage Access Framework só se veem arquivos,
   sem MBR, tipo de partição nem tamanho de setor. Ler o layout exige acesso USB bruto (API USB
   Host, como fazem EtchDroid e libaums). Decidir se a conferência de layout entra, e por qual

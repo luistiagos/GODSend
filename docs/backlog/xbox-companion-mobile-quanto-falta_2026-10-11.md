@@ -93,7 +93,8 @@ do mesmo APK, x (2) só o completo. Quanto tempo até o primeiro cliente sem PC 
 pendrive em cada caminho.
 
 **5. Riscos que mudam a estimativa:** o espaço que o "Configurar agora" do console deixa (R1 do
-doc irmão, só prova com console); o binário Go no Android (SELinux, 32 bits, aparelhos sem
+doc irmão; **2026-10-11: deixou de ser risco de espaço** — o texto manda *Y → Formatar*, que não
+reserva nada; ver a atualização do R1 no doc irmão); o binário Go no Android (SELinux, 32 bits, aparelhos sem
 arm64: o `abiFilters` só tem arm64-v8a e x86_64); o desempenho de conversão e download no celular.
 
 Registrar premissas, símbolos abertos, comandos com os números obtidos e hipóteses descartadas
@@ -276,7 +277,10 @@ T0 — `MANAGE_EXTERNAL_STORAGE` e binário de 15 MB — só pesava na Play Stor
 - **R1, espaço depois do "Configurar agora" do console.** Igual nos dois caminhos e só se prova com
   console (doc irmão). Se o console ocupar o pendrive inteiro, o app apaga a `Xbox360/` com
   confirmação (+0,5 sessão) ou o texto manda usar "Personalizar". Também vale para os jogos (D): o
-  espaço livre que sobra é o que cabe de jogo.
+  espaço livre que sobra é o que cabe de jogo. **Atualização 2026-10-11:** resolvido sem console
+  e sem custo de código — o console formata sem reservar (*Y → Formatar*, sem `Xbox360/`), e é isso
+  que a spec ensina; o app não apaga a `Xbox360/`. Para os jogos (D), o *Formatar* deixa o
+  pendrive inteiro livre. O que ainda depende de console está no R1 do doc irmão.
 - **DNS do Go no Android** — quase certo que quebra, e é barato (dentro de A). Se a correção por
   `net.DefaultResolver` falhar em algum aparelho, a saída é compilar com cgo pelo NDK: +1 sessão.
 - **`aria2c` no Android** — o maior desconhecido técnico da v1. Precisa de um binário estático
