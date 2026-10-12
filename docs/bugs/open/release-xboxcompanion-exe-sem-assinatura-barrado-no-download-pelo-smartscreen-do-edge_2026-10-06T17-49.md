@@ -134,3 +134,45 @@ O que aconteceu **depois** do download (o programa não abre e não diz por quê
 
 - dev: não há (sem-codigo).
 - teste: não há (sem-codigo).
+
+## Planejamento (pipeline 20261012-1854, 2026-10-12)
+
+**Veredito:** sem-codigo — nada mudou desde o planejamento de 2026-10-10: a release 2.12.110 (publicada hoje) continua sem assinatura Authenticode e o build segue com a assinatura desligada; o remédio continua sendo o dono decidir/contratar o certificado de assinatura de código (pendência 3 de `docs/backlog/bugs-abertos-proximos-passos_2026-10-12.md`), e só então abrir um item `corrigir` para ligar a assinatura no build.
+**Complexidade:** média — empacotamento/release, igual ao planejamento anterior; não há código a mudar antes do certificado.
+**Severidade:** medio — falha com contorno (▼ ao lado de "Excluir" → "Manter mesmo assim", provado no #148), recorrente no suporte.
+**Arquivos a alterar (reserva da onda):** nenhum (sem-codigo).
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Sem mudança em relação ao planejamento de 2026-10-10 (acima): `src/electron-app/package.json::build.win` continua com `"forceCodeSigning": false` e `"signAndEditExecutable": false` (linhas 143-144); nenhum script de release assina o `.exe`. Sem assinatura, cada release recomeça com reputação zero no SmartScreen ("fornecedor desconhecido").
+
+### Provas (comando literal -> resultado)
+
+- `grep -niE "sign|certificate|azure|smartscreen" src/electron-app/package.json` → só as linhas 143-144 (`forceCodeSigning: false`, `signAndEditExecutable: false`).
+- `grep -nilE "signtool|Authenticode|azureSign" build-and-upload.ps1 build-portable-local.ps1 upload-r2.ps1 src/electron-app/build/portable.nsi` → nenhum arquivo (rc 1).
+- `git log --oneline --since=2026-10-10 -- src/electron-app/package.json build-and-upload.ps1 upload-r2.ps1 build-portable-local.ps1` → vazio: nada de build/release mudou desde o planejamento anterior.
+- `curl -sI https://versions.digitalstoregames.com/xboxcompanion.exe` → `200`, `application/x-msdownload`, `Content-Length: 589138900`, `Last-Modified: Mon, 12 Oct 2026 21:26:55 GMT`; `version.json` → `2.12.110`, `releaseDate 2026-10-12` (build novo, hash novo).
+- `curl -s -r 0-4095 -o head.bin <url>` + leitura do `IMAGE_DIRECTORY_ENTRY_SECURITY` (índice 4, `magic 0x10b`) → **`SECURITY dir offset 0 size 0`**: a 2.12.110 também sai sem assinatura.
+- Lado do agente (`digitalstoregamesproject/.../prompt-kb/bugs/2026-10-01-aviso-de-download-do-navegador-confundido-com-bloqueio-do-windows.md`) → `status: no-ar`: o contorno guiado já está em produção; nada a abrir lá.
+
+### Hipoteses descartadas (e por que)
+
+- **"Algo mudou e agora há código a corrigir"**: descartado pelas provas acima (config de build e scripts intocados; binário publicado hoje sem bloco de assinatura).
+- As demais descartadas no planejamento de 2026-10-10 continuam valendo (link/servidor ok; ligar `signtool` sem certificado não muda nada).
+
+### Tarefas
+
+- [ ] **Dono:** decidir e contratar o certificado de assinatura de código (ver tarefas do planejamento de 2026-10-10). Enquanto não houver decisão nova, o pipeline não deve replanejar este bug.
+- [ ] **Depois do certificado:** item `corrigir` novo, com as tarefas e a prova já descritas no planejamento de 2026-10-10 (inclui assinar o backend, ligado a [[release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14]]).
+
+### Plano de teste
+
+- **Offline (sem slot):** teste do cabeçalho PE contra o arquivo publicado: hoje (2.12.110) `size 0`; depois da assinatura, `size > 0` e `Get-AuthenticodeSignature` `Valid`.
+- **T2 reproducao como o usuario (E2E, no slot):** dispensada — bug de distribuição (download no navegador, antes de o app existir na máquina); o app da lane não participa. Receita quando houver certificado: Edge pt-BR, abrir o link publicado; sinal = sem "fornecedor desconhecido".
+- **Controle positivo:** o próprio arquivo publicado hoje (2.12.110) sem bloco de assinatura.
+- **T3 regressao direcionada:** a do planejamento de 2026-10-10 (launcher do portátil, spawn do backend assinado, `sha256` do `version.json` gerado DEPOIS de assinar).
+
+### Sessoes seguintes
+
+- dev: não há (sem-codigo).
+- teste: não há (sem-codigo).

@@ -84,3 +84,86 @@ Leitura de 4 e 5: o hash não muda por acaso. Ele muda pelo **conteúdo**, e par
 
 - T1 e T2 com as provas acima verdes, numa release publicada.
 - O backend de uma release enviado à Microsoft e ao Kaspersky, e a release seguinte sem mudança em `src/server` publicando o **mesmo** SHA-256 de backend.
+
+## Planejamento (pipeline 20261012-1854, 2026-10-12)
+
+**Veredito:** corrigir — o build do backend Windows passa a sair com `-trimpath -buildvcs=false` e com recurso `VERSIONINFO` (gerado por `go-winres`, versionado como `.syso`); a parte "tirar a versão do app do binário" (env `GODSEND_APP_VERSION`) **sai do escopo**, porque colide com o bug irmão desta execução, que já está planejado com uma constante de versão no Go (ver "Hipóteses descartadas").
+**Complexidade:** media — empacotamento do backend (flags de `go build` + recurso PE gerado e commitado), critério do `docs/bugs/open/README.md`; nenhuma lógica de runtime muda.
+**Severidade:** baixo — falso positivo de antivírus sem medição de frequência; o contorno (liberar no antivírus) já é sugerido em `backendClient.ts::startGodsend`; a cura de verdade é a assinatura (bug do SmartScreen, decisão do dono).
+**Arquivos a alterar (reserva da onda):**
+- `scripts/build-server.js` — `-trimpath -buildvcs=false` nos dois `go build` (x64 e ia32)
+- `scripts/build-go-all.js` — as mesmas flags no `go build` do laço de alvos
+- `src/server/winres.json` — novo: `RT_VERSION` (+ `RT_GROUP_ICON`), fonte do recurso (na raiz de `src/server`, não em `winres/`: o helper exige pasta existente na reserva; gera-se com `make --in winres.json`)
+- `src/server/rsrc_windows_amd64.syso` — novo, gerado do `.json` (binário, commitado)
+- `src/server/rsrc_windows_386.syso` — novo, gerado do `.json` (binário, commitado)
+- `docs/building.md` — doc-sync: flags do build Windows e como regenerar o recurso
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+- `scripts/build-server.js` (script inteiro, sem funções nomeadas além de `run`/`hasGo`) — com `go` no PATH, roda `go build -o <dist>\godsend-windows-x64.exe .` (copia para `godsend.exe`) e `go build -o <dist>\godsend-windows-ia32.exe .` em `src/server`, env `GOOS/GOARCH/CGO_ENABLED=0`, **sem nenhuma outra flag**; no fim roda `verify-go-binaries.js windows-all`. Em erro: `run()` faz `process.exit(status)`. É o que o `projeto.json` (build do helper: `npm run build:server`), o `build-and-upload.ps1:239` e o `build-portable-local.ps1:106-110` chamam.
+- `scripts/build-go-all.js` (`build:server:all`) — laço `targets` com `spawnSync("go", ["build", "-o", out, "."])`, as mesmas duas saídas Windows e as Linux/macOS; sem flags. Em erro: `process.exit`.
+- `src/server` não tem `.syso`, `winres/` nem `goversioninfo`/`go-winres` (`ls src/server/*.syso` vazio): o PE sai sem `VERSIONINFO` nem ícone.
+- Nenhum código lê o carimbo de build: `grep -rn "ReadBuildInfo\|vcs\.revision" src/server src/electron-app` vazio — `-buildvcs=false` não tira nada de ninguém. `runtime.Caller`/`debug.Stack` também não aparecem em `src/server` (fora de teste): `-trimpath` não muda texto de log.
+- Nada no app fixa o hash do backend (o `trustedComponentManifest` não cita `godsend`): o hash mudar ou ficar igual não quebra o spawn.
+- Nome com que o backend é instalado no app empacotado: `godsend-backend.exe` (`src/electron-app/infrastructure/fileSystem.ts:37`, `package.json:148` `"to": "godsend-backend.exe"`). Ícone do app Windows: `src/electron-app/assets/tray.ico` (`package.json:142`, `build.win.icon`). Identidade do `.exe` do Electron: `productName` `Xbox 360 Companion` (`package.json:90`), `author` `Nesquin and ghosty99` (`package.json:40`).
+- Biblioteca (aberta no cache de módulos, `github.com/tc-hib/go-winres@v0.3.3`, a última, de 2023-10-13): `make` lê `winres/winres.json` por padrão (`defaultJSONFile`; outro caminho com `--in`), gera `rsrc_windows_amd64.syso` e `rsrc_windows_386.syso` (padrão `defaultArch = "amd64,386"`) no diretório corrente; só gera os recursos listados no `.json` (sem `RT_MANIFEST` no `.json`, sem manifesto). O sufixo `_windows_<arch>` faz o `go build` ligar o `.syso` só naquele GOOS/GOARCH (README da ferramenta e regra de nome de arquivo do Go).
+
+### Provas (comando literal -> resultado)
+
+| # | comando | resultado |
+|---|---|---|
+| P1 | `(Get-Item C:\projects\Downloader-XBOX360-XEX-HDD-Games\dist\godsend-windows-x64.exe).VersionInfo` (build de hoje, 18:22) | `ProductName`, `CompanyName`, `FileDescription` vazios (confirma o comando 1 do doc) |
+| P2 | `go version -m <mesmo arquivo>` | `vcs=git`, `vcs.revision=bc5f5e6c…`, `vcs.time=2026-10-12T21:19:55Z`, `vcs.modified=false`; sem `-trimpath` |
+| P3 | `grep -a -o "C:/Users/[a-zA-Z]*/go/pkg/mod" <mesmo arquivo> \| sort \| uniq -c` | **219** ocorrências de `C:/Users/luist/go/pkg/mod`; e **62** caminhos `C:/projects/Downloader-XBOX360-XEX-HDD-Games/src/server/*.go`. O binário publicado leva o caminho da árvore e o nome de usuário de quem buildou, e o hash muda conforme a pasta (lane x árvore principal) |
+| P4 | `sha256sum <mesmo arquivo>` | `99539683ae54c612…` (controle positivo do base) |
+| P5 | `go list -m -versions github.com/tc-hib/go-winres` | `… v0.3.2 v0.3.3` |
+| P6 | `grep -rn "main\.go" --include=*.ps1 --include=*.js .` e `grep -n main.go AGENTS.md CONTRIBUTING.md docs/...` | nenhum script edita `main.go`; a versão nele é passo manual do bump (AGENTS.md:210, CONTRIBUTING.md:74, `.claude/CLAUDE.md:15`, `docs/ATUALIZACAO-AUTOMATICA.md:205`) |
+
+### Hipoteses descartadas (e por que)
+
+- **Tirar a versão do app do binário (`GODSEND_APP_VERSION` por env do Electron, banners lendo o env) — T1 original deste doc: FORA DO ESCOPO.** O bug irmão desta execução [`pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30`](pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30.md) já está `planejado` com `const appVersion = "2.12.110"` em `main.go` alimentando banners e o `user_agent` da telemetria, e descartou o env com motivo válido: o backend também roda sem o Electron (Android, que o sobe por `GodsendBackendService.kt` com env próprio; Linux/mac direto) e ficaria sem versão. Com a constante, `main.go` muda a cada bump e **o hash do backend muda a cada release de qualquer forma**. Pela medição do próprio doc (comando 6), 7 de 12 releases já mudam código Go de verdade; o ganho de "mesmo hash entre releases sem mudança de Go" valia para ~5 de 12 e dependia de o dono reenviar o binário a Microsoft/Kaspersky — não justifica disputar `main.go`/`settingsService.ts` com um fix de telemetria que a triagem precisa. O que resolve reputação de verdade é a assinatura (bug do SmartScreen).
+- **Versão do recurso = versão do app (`--product-version`/`--file-version`):** descartada. Obrigaria regenerar o `.syso` a cada bump (5º local manual, fácil de esquecer e de ficar velho). O recurso leva versão fixa `1.0.0.0`; a versão do app continua no banner (bug irmão).
+- **`-ldflags -X` para a versão:** fora do escopo pelo mesmo motivo; o irmão também a descartou.
+- **Manifesto (`RT_MANIFEST`) no recurso:** descartado. Hoje o backend não tem manifesto; um manifesto muda o comportamento do processo (compatibilidade de SO, DPI, long path). O objetivo é só identidade: `RT_VERSION` + ícone.
+- **Alinhar o banner esperado em `scripts/verify-go-binaries.js:157`** (estava na T1 original): já é bug próprio, aberto hoje por outro planner — [`testes-smoke-wine-e-specs-playwright-esperam-banner-godsend-backend-server-que-nao-existe-mais_2026-10-12T18-57`](testes-smoke-wine-e-specs-playwright-esperam-banner-godsend-backend-server-que-nao-existe-mais_2026-10-12T18-57.md). Este fix não muda o texto do banner.
+- **`npm run build:server:mac/linux/android`** (`go build` inline no `package.json` e `build-android.js`): não recebem as flags. O falso positivo é de antivírus Windows; mexer neles só aumentaria a reserva.
+
+**Critérios para fechar (revisados por este planejamento; os de cima ficam como histórico):**
+- `VERSIONINFO` presente nos dois backends Windows publicados (`ProductName` `Xbox 360 Companion`).
+- O backend publicado sem `vcs.*` e sem caminho local (`C:/Users/…`, `C:/projects/…`).
+- Dois builds do MESMO código Go em commits/pastas diferentes dão o mesmo SHA-256 (reprodutível; entre releases muda, por causa da constante do bug irmão).
+- (Operacional, dono) enviar o backend da release à Microsoft/Kaspersky quando houver alerta de cliente.
+
+### Tarefas
+
+- [ ] `scripts/build-server.js` — nos dois `run("go", ["build", "-o", …, "."])` (x64 e ia32) usar `["build", "-trimpath", "-buildvcs=false", "-o", out, "."]` (constante única para os dois, comentário citando `[[release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14]]`: sem carimbo de commit nem caminho local o binário só muda quando o Go muda) — prova: P-off-2/P-off-3/P-off-4 abaixo, depois do `build` do helper.
+- [ ] `scripts/build-go-all.js` — as mesmas flags no `spawnSync("go", ["build", …])` do laço `targets` — prova: leitura do diff (o helper não roda este script; não rodar `build:server:all` à mão).
+- [ ] `src/server/winres.json` — novo, só `RT_GROUP_ICON` (`"APP"` → `"0000"` → `"../electron-app/assets/tray.ico"`, caminho relativo ao `.json`; conferir que a ferramenta resolve assim) e `RT_VERSION` `#1`/`0000`: `fixed.file_version` = `fixed.product_version` = `1.0.0.0`, **sem `timestamp`**; `info."0409"`: `ProductName` `Xbox 360 Companion`, `CompanyName` `Nesquin and ghosty99`, `FileDescription` `Xbox 360 Companion - servico local (backend)`, `InternalName` `godsend`, `OriginalFilename` `godsend-backend.exe`, `FileVersion`/`ProductVersion` `1.0.0.0`, `LegalCopyright` vazio. **Sem `RT_MANIFEST`.**
+- [ ] `src/server/rsrc_windows_amd64.syso` e `src/server/rsrc_windows_386.syso` — gerar em `src/server` com `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json` (gerador de código, não é o build do projeto: o build continua SÓ pelo `build` do helper) e commitar os dois junto do `.json`, para o build não baixar a ferramenta — prova: P-off-1 e P-off-5. Se a ferramenta gravar `.syso` de outra arquitetura, commitar só os dois.
+- [ ] `docs/building.md` — logo abaixo da lista "Backend only": os builds Windows usam `-trimpath -buildvcs=false` (por quê, em uma linha) e o recurso de versão vem de `src/server/winres.json` → `.syso` commitados; regenerar com o comando acima ao mudar o `.json` ou o ícone; versão do recurso fixa de propósito. Na árvore "Repository structure", uma linha para `winres.json` e `rsrc_windows_*.syso`.
+- [ ] `CHANGELOG.md` `[Unreleased]` `### Fixed` (fora da reserva, `merge=union`): o porquê, os arquivos e o link deste doc; **sem subir versão** (manual, seção Dev).
+- [ ] Commit `fix(build): backend Windows com VERSIONINFO e build reprodutivel (-trimpath -buildvcs=false) (bug: release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14)`. Depois do `build` do helper no commit do fix, **registrar no doc o SHA-256 de `dist\godsend-windows-x64.exe` e `dist\godsend-windows-ia32.exe`** (entrada da prova de reprodutibilidade do teste).
+
+### Plano de teste
+
+- **Offline (sem slot)** — todos sobre o `dist\` da lane depois do `build` do helper (nunca `go build` à mão):
+  - P-off-1: `(Get-Item dist\godsend-windows-x64.exe).VersionInfo | Select ProductName,CompanyName,FileDescription,OriginalFilename,FileVersion` → `Xbox 360 Companion`, `Nesquin and ghosty99`, a descrição, `godsend-backend.exe`, `1.0.0.0`; idem `dist\godsend-windows-ia32.exe` e `dist\godsend.exe`. (Base: vazio, P1.)
+  - P-off-2: `go version -m dist\godsend-windows-x64.exe` → tem `-buildvcs=false` e `-trimpath=true`, **nenhuma** linha `vcs.` (base: P2). Idem `-ia32`.
+  - P-off-3: `grep -a -c "C:/Users/" dist/godsend-windows-x64.exe` e `grep -a -c "Downloader-XBOX360\|bugfix-xbox360" dist/godsend-windows-x64.exe` → `0` (base: 219 / 62, P3).
+  - P-off-4 (reprodutível): SHA-256 do `dist\godsend-windows-x64.exe`/`-ia32` depois do `build` do helper no HEAD da etapa de teste (que já tem commits de doc a mais que o commit do fix) **igual** ao que o dev registrou no doc. Mesmo toolchain (`go version` = go1.26.6) é pré-requisito; se o Go da máquina mudou entre as duas sessões, registrar e não reprovar por isso.
+  - P-off-5: em `src/server`, `$env:GOOS='linux'; $env:GOARCH='amd64'; go list -f '{{.SysoFiles}}' .` → `[]`; com `GOOS=windows GOARCH=amd64` → `[rsrc_windows_amd64.syso]`; `GOARCH=386` → `[rsrc_windows_386.syso]` (`go list` não compila; prova que Linux/mac/Android não recebem o recurso). Limpar as variáveis depois.
+- **T2 reproducao como o usuario (E2E, no slot):** o sintoma em si (antivírus com reputação na nuvem tratando o backend como desconhecido) **não tem caminho de usuário reproduzível aqui**: depende do Kaspersky/Defender do cliente e da reputação do hash na nuvem — é bug de empacotamento. A T2 é a do usuário usando o app com o backend NOVO (o `.syso` entra no PE que ele executa): `npm start` na lane (config copiada para a evidência antes); na Home o console do backend mostra o banner `Xbox 360 Companion Backend Server v…` e o backend chega a "escutando"; `Get-Process godsend-windows-x64 | Select Id,Path,Description,Product` → `Path` dentro da lane, `Description` = a `FileDescription` do `.json`, `Product` = `Xbox 360 Companion` (é o que o cliente vê no Gerenciador de Tarefas e o que o antivírus registra); abrir Catálogo/Browse (Xbox 360) e ver a lista carregar (rota HTTP do backend respondendo). Print da janela do app (PrintWindow/`page.screenshot`) e a saída do `Get-Process` na evidência. Fechar só o PID aberto; devolver o `config.json`.
+- **Controle positivo:** o backend do base já buildado na árvore principal (`C:\projects\Downloader-XBOX360-XEX-HDD-Games\dist\godsend-windows-x64.exe`, commit `bc5f5e6`, só leitura): P1-P4 acima (identidade vazia, `vcs.*`, 219 caminhos locais). Não há `deploy --at-base` neste projeto. No base, o `Get-Process … Description` vem vazio.
+- **T3 regressao direcionada:** `go test -count=1 ./...` em `src/server` (o pacote `main` passa a ligar o `.syso` no teste Windows; o irmão de telemetria acrescenta `main_test.go`) e `npm --prefix src/electron-app run test:safety`; linha de base do manual (Go rc 0; `test:safety` sem `fail` novo). Vizinhos: (a) o `verify-go-binaries.js windows-all` do fim do `build:server` continua aceitando os PE (magic/machine) com o recurso — sai 0 no `build` do helper; (b) o spawn do backend pelo Electron (T2) — sem manifesto, o processo sobe igual; (c) se o fix de `build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30` (mesmo `build-server.js`) já tiver entrado, conferir que as flags estão nas DUAS chamadas depois do rebase.
+- **T4:** console do backend na Home e `%APPDATA%\xbox-360-companion-electron\logs\` sem erro novo.
+- **Falta para close:** versão publicada pelo dono (`build-and-upload.ps1`) e a conferência P-off-1/P-off-3 no `godsend-backend.exe` instalado pela release; envio ao antivírus se houver alerta de cliente.
+
+### Sessoes seguintes
+
+- dev: effort medium, ultrathink nao — troca mecânica (flags) + gerar um recurso com ferramenta conhecida; o único cuidado é o `.json` (caminho do ícone, sem manifesto, sem timestamp) e registrar os SHA-256.
+- teste: effort medium, ultrathink nao — provas majoritariamente offline (VersionInfo, `go version -m`, `grep`, SHA); E2E curto de subir o app e ver o backend responder.
+
+### Coordenacao com outros itens desta execucao
+
+- `pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30` (planejado): sem arquivo em comum com este plano depois do corte; nenhum dos dois depende do outro. Este fix **não** toca `main.go` nem `settingsService.ts`.
+- `build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30` (em planejamento): também mexe em `scripts/build-server.js` (chamada final ao verify). A reserva serializa os dois; sem dependência lógica.
