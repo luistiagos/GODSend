@@ -1,8 +1,9 @@
 # Investigação: o que o Xbox 360 faz com o pendrive ao formatar ou configurar (perguntas 1 e 2 da spec Android v1)
 
 - **Estado:** **respondida sem console em 2026-10-11** (seção "Resultado", no fim). A spec, os dois
-  backlogs (R1) e o bug do perfil já foram atualizados com ela. O que só um console prova está em
-  "Teste mínimo de campo".
+  backlogs (R1) e o bug do perfil já foram atualizados com ela. As perguntas que iam para
+  clientes foram avaliadas por pesquisa ("Revisão", no fim) e nenhuma continua necessária; falta
+  só conferir na página do ConsoleMods os trechos que vieram pelo buscador.
 - **Pedido do dono (2026-10-11):** *"sobre a 1 e 2, como eu não tenho um console, preciso que você
   investigue como funciona, pode passar para outra sessão investigar e alterar a documentação"*.
 - **Alimenta:** as "Perguntas ao dono" 1 e 2 da spec
@@ -390,26 +391,67 @@ das cópias `id_` da Wayback e extração do texto. Velocity: `curl raw.githubus
   BadAvatar num pendrive formatado no console (H). A primeira busca também misturava conversas do
   Xploid com as do BadAvatar.
 
+### Revisão: as perguntas a clientes, avaliadas antes por pesquisa (2026-10-11)
+
+Pedido do dono: *"Estas perguntas a clientes, deveriam ser avaliadas antes via pesquisa"*. Cada
+pergunta que esta investigação deixava para um cliente foi pesquisada primeiro. Resultado:
+**nenhuma pergunta a cliente continua necessária.**
+
+**Fonte nova: ConsoleMods, página "Files and Directories"**
+(`https://consolemods.org/wiki/Xbox_360:Files_and_Directories`) **[wiki — página NÃO aberta: o
+site devolve 403 a `curl` e WebFetch, e a Wayback estava "Temporarily Offline"; os trechos abaixo
+vieram do buscador (`WebSearch` restrito a `consolemods.org`) e precisam ser conferidos na página
+quando ela abrir]:**
+- *"If the drive is formatted as FAT32 with an MBR partition table, but does not have an Xbox360
+  folder, the drive is already in the "modern" format and ready to be used."*
+- *"Before Dashboard version 2.0.17349.0, external storage connected through the USB ports had a
+  strict requirement to have a FATX file structure on a FAT32 USB drive"* (limite de 32 GB).
+- *"If the drive shows up as Unformatted, select it and click Format. The drive is now formatted as
+  FAT32 and ready to be used."*; depois, criar `Content` na raiz pelo PC; o console trata a raiz
+  como o armazenamento interno.
+- Converter um pendrive no formato antigo: fazer backup da `Xbox360/`, extrair o `Content` de
+  dentro dela com FATXplorer/Horizon/USB XTAF Explorer, **apagar a `Xbox360/`** e pôr o `Content`
+  na raiz.
+- **Precedência:** a pasta `Xbox360` *"takes precedence over Content. If it exists and there's data
+  in it, you will switch to the old format."*
+- *"normal FAT32 storage without the Xbox 360 System Drive folder also can't install the extra data
+  required for the Kinect or avatars"*.
+
+**Cada pergunta, e o que a pesquisa respondeu:**
+
+| pergunta que ia para cliente | resposta pela pesquisa | ainda pedir a cliente? |
+|---|---|---|
+| Tabela de partição que o *Formatar* deixa (C19 item 6) | "modern format" = FAT32 **com MBR**, sem `Xbox360/`; o *Formatar* deixa o pendrive nesse formato, *"ready to be used"* [wiki, a conferir]. Some com o que já se sabe: o console lista GPT como "Não Formatado" (BadBuilder #1), e o MBR com uma partição é o que roda em produção (Companion) | **não** — C19(6) continua informativo até a página ser conferida; o primeiro pendrive real fecha sem pergunta |
+| O exploit roda com `Xbox360/` presente? | **Provavelmente não**: com dados na `Xbox360/`, o console usa o formato antigo e a `Content/` da raiz deixa de valer [wiki, a conferir] — o perfil do BadAvatar mora em `Content/E0002FF78DFBDE7B/` na raiz | **não** — a spec passa a recusar pendrive com `Xbox360/` (C12) e manda formatar no console |
+| O que o *Formatar* faz num pendrive já configurado | Não respondido diretamente. Deixa de importar: com C12 recusando `Xbox360/`, o próprio app confere o resultado quando o pendrive volta (se a pasta continuar lá, recusa de novo e diz o que fazer) | **não** |
+| Apagar a `Xbox360/` é seguro? | É o caminho **documentado** de conversão para o formato moderno, mas **perde o que está dentro** se não for extraído com uma ferramenta de PC [wiki, a conferir] | **não** — o app continua sem apagar (decisão 5); o *Formatar* no console resolve |
+| #66: o console tem Disco Rígido ou Unidade de Memória? | **Tem armazenamento interno** [campo + inferência]: o print `[105347]` mostra 3 perfis **locais** coloridos ("Kichi lacrei", "raffaella", "rogato"); perfil local precisa de onde morar, e o pendrive dele vinha formatado pelo Companion. O chamado fechou com estorno em 2026-09-23 | **não** (e não há a quem perguntar) |
+| BadAvatar num pendrive preparado só pelo app (C27) | Equivalência no PC (C19) + BadAvatar já provado em pendrive formatado no console (H) | sai naturalmente com o primeiro cliente do app; não é pergunta |
+
+**Tentativas que não renderam (registrar para não repetir):**
+- Telemetria (`error_logs`, `errors` via `/diag/query`): o log do Companion só grava `layout do
+  disco: ...` desde as versões recentes — `SELECT ... FROM error_logs WHERE content LIKE '%layout do
+  disco%'` → **1 linha** (2026-10-09, pendrive de 15 GB preparado pelo próprio Companion: `MBR, 1
+  particao, tipo 12, setor 512/512, FAT32 -> o Xbox 360 le`); `LIKE '%Layout de chegada%'` → **0**.
+  O cliente do HD de 976 GB *"formatado no Xbox"* (`[94745]`, 2026-09-03) não deixou log com o
+  disco (busca por `976` nos logs de 2026-09-03 17h a 09-04 03h → 4 linhas, todas despejo de DLLs).
+- Busca web geral por tabela de partição do *Formatar* (guias de EaseUS, AOMEI, fóruns): nada
+  direto.
+- Conversa `[90994]` ("pasta Xbox360"): era a pasta do emulador de **Xbox One**, não a do console.
+
+**Achado que pesa no bug do perfil (registrado lá):** o Companion de Windows não procura nem trata
+a `Xbox360/` (`grep -ri xbox360 src/electron-app/**/*.ts` → só nomes de pasta de jogos em
+`localGameScannerService.ts`). Um pendrive que o cliente **configurou no console** e depois
+preparou **sem** "Formatar antes" mantém a `Xbox360/`; pela precedência acima, o console ignoraria
+o perfil da raiz — o sintoma exato do bug.
+
 ### O que continua sem prova
 
-1. Tabela de partição e cluster que o *Formatar* do console deixa (afeta C19 item 6).
-2. Se o exploit roda num pendrive com `Xbox360/` presente (só importa se o cliente usar Configurar).
-3. O que o *Formatar*/*Remover armazenamento* faz num pendrive já configurado.
-4. O BadAvatar num pendrive formatado no console **e preparado só pelo app** (C27). O BadAvatar
-   num pendrive formatado no console já está provado (H: vídeo `Du5M9EvkvjE` e cliente
-   `265880051138810`); falta só a parte do app, que é a equivalência de C19.
-
-### Teste mínimo de campo (para um cliente acompanhado; o dono decide se pede)
-
-1. No console: *Configurações → Sistema → Armazenamento*, destacar o pendrive, **Y → Formatar →
-   Sim**. Print da tela de *Opções do Dispositivo* antes de apertar.
-2. Se o cliente tem PC (ou o suporte tem acesso remoto): plugar e rodar
-   `Get-Disk | ft Number,PartitionStyle,LogicalSectorSize; Get-Partition -DiskNumber N | ft PartitionNumber,MbrType,Size; Get-Volume | ft DriveLetter,FileSystem,AllocationUnitSize,Size,SizeRemaining`
-   — responde o item 1 de "sem prova". Sem PC: print do gerenciador de arquivos do celular na raiz
-   do pendrive, mostrando o espaço livre.
-3. Preparar (Companion ou app) e rodar o exploit; print da tela de perfis.
-4. Se o cliente já tinha o pendrive configurado: print do menu Y antes de qualquer coisa (responde
-   o item 3).
+1. **Conferir na página do ConsoleMods** os trechos acima (precedência da `Xbox360/`, MBR do
+   formato moderno). Só leitura; refazer `curl` da Wayback quando ela voltar. Muda C12 se a
+   precedência não estiver escrita lá.
+2. O BadAvatar num pendrive preparado só pelo app (C27) — sai com o primeiro cliente, sem pergunta
+   extra.
 
 ## Frase de abertura da próxima sessão
 
