@@ -67,14 +67,32 @@ func loadSingleResume(dest, urlStr string) (*downloadResumeMarker, int64, bool) 
 	return &marker, st.Size(), true
 }
 
-func finishedSingleResume(dest, urlStr string) bool {
+// finishedResume reports a resume marker whose file is already full and
+// durable: a single-stream download synced to its total size, or a chunked one
+// with every segment confirmed (each segment is fsynced before it is marked).
+func finishedResume(dest, urlStr string) bool {
 	data, err := os.ReadFile(resumeMarkerPath(dest))
 	if err != nil {
 		return false
 	}
 	var marker downloadResumeMarker
 	if json.Unmarshal(data, &marker) != nil || marker.Version != downloadResumeVersion ||
-		marker.Mode != "single" || marker.URL != urlStr || marker.TotalSize <= 0 {
+		marker.URL != urlStr || marker.TotalSize <= 0 {
+		return false
+	}
+	switch marker.Mode {
+	case "single":
+	case "chunked":
+		if marker.SegmentSize <= 0 || len(marker.SegmentHashes) != len(marker.Completed) ||
+			int64(len(marker.Completed)) != (marker.TotalSize+marker.SegmentSize-1)/marker.SegmentSize {
+			return false
+		}
+		for _, done := range marker.Completed {
+			if !done {
+				return false
+			}
+		}
+	default:
 		return false
 	}
 	st, err := os.Stat(dest)

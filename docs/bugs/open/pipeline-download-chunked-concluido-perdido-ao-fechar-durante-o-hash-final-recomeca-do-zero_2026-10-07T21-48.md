@@ -203,7 +203,71 @@ Não há log que diga "hash em andamento". Esse log é parte da correção.
   - (d) jogo < 32 MB (single) termina sem deixar `.xbox-companion-resume.json` órfão;
   - (e) arquivo corrompido na extração continua invalidando o cache (`DOWNLOAD CACHE [...]: arquivo local invalidado`), coberto pelos testes do pipeline.
 
+### Nota do dev (2026-10-11, antes da primeira edição)
+
+O código confere com o plano (símbolos reabertos: `ia.go::DownloadWithProgress`, `IADownloadChunkedParallel`,
+`IADownloadSingle`, `iaDownloadSingleAttempt`, `IAProbeDownload`, `iaDownloadRange`, `markDownloadCompleted`;
+`resume.go` inteiro; `app/app.go::LogStatus`/`Logf`; `app/queue_store.go::persistJobState`). Ajustes ao plano:
+
+- `app.IAParallelThreshold` (32 MB), `IAChunkRetries` (5) e `IAChunkRetryBase` (6 s) são **const**, não `var`.
+  Consequências nos testes: (a) `TestDownloadDoesNotPromotePartialChunkedResume` precisa passar pelo caminho chunked
+  de `DownloadWithProgress`, então usa payload de 32 MiB, `iaSegmentSize = 16 MiB` e URL com `archive.org` no
+  caminho (`isIA` é `strings.Contains`); (b) `TestDownloadPromotesFullChunkedResumeWithoutRequest` na BASE cai no
+  single com 5 retentativas de 6..30 s: fica vermelho em ~90 s (não trava; o `go test` tem 10 min).
+- A promoção chunked confere também `SegmentSize > 0` e `len(Completed) == ceil(TotalSize/SegmentSize)` (mapa
+  malformado não promove). Não refaz o hash por segmento: cada segmento já teve `out.Sync()` antes de virar
+  `true`, a mesma garantia de durabilidade do single, e o hash inteiro do `.complete` vem logo em seguida.
+- Se a promoção falhar (`markDownloadCompleted` com erro), o mapa fica e o fluxo segue para a retomada normal,
+  com `WARN` no log (antes falhava em silêncio).
+
 ### Sessões seguintes
 
 - dev: effort high, ultrathink sim — mexe na consistência de marcadores duráveis do pipeline de download (o manual pede `high`). O diff é pequeno, mas a ordem marcador/arquivo e o caminho de erro de cada passo pedem raciocínio, não digitação.
 - teste: effort medium, ultrathink não — o teste offline é direto. A parte sutil é o gatilho do E2E (pegar a janela do hash), e a receita já diz o que fazer se a janela for curta demais.
+
+## Correcao (pipeline 20261010-2242, rodada 1)
+
+O que mudou (`arquivo::simbolo`) e por quê:
+
+- `ia.go::finalizeDownload` (novo): publica "Conferindo o arquivo baixado..." (`LogStatus`, estado `Processing`) e
+  `DOWNLOAD VERIFY [<jogo>]: conferindo <MB> MB antes de liberar`, roda `markDownloadCompleted` (hash inteiro +
+  `.complete`) e **só depois** `removeDownloadResume`; loga `DOWNLOAD VERIFY [<jogo>]: concluido em <duração>`. Em
+  erro devolve o erro e o mapa fica no disco. É o único lugar que apaga o mapa no sucesso (T1 + T3).
+- `ia.go::DownloadWithProgress`: os dois caminhos de download (chunked e single) chamam `finalizeDownload` no lugar
+  de `markDownloadCompleted`. A promoção usa `finishedResume` (chunked ou single) e `finalizeDownload`; o
+  `DOWNLOAD RESUME [...]: promovendo arquivo integral sincronizado` agora sai ANTES da conferência (a ordem do Plano
+  de teste: `promovendo` → `DOWNLOAD VERIFY`). Se a promoção falhar, loga
+  `WARN [...]: promocao do arquivo integral falhou (...), seguindo para o download` e segue para a retomada normal
+  (antes falhava sem log) (T2).
+- `ia.go::IADownloadChunkedParallel` e `ia.go::iaDownloadSingleAttempt`: tirado o `removeDownloadResume(dest)` do
+  caminho de SUCESSO. Os de cancelamento (`ErrJobCancelled`) e de servidor que alterou o arquivo ficam (T1).
+- `resume.go::finishedSingleResume` → `finishedResume`: aceita também `Mode == "chunked"` com `SegmentSize > 0`,
+  `len(SegmentHashes) == len(Completed) == ceil(TotalSize/SegmentSize)`, todos os `Completed` true e
+  `st.Size() == TotalSize`. O single não muda (T2).
+- `ia_test.go`: os 6 testes do plano + helpers `rangeTestServer`, `newResumeTestService`, `readResumeMap`,
+  `writeChunkedResume`.
+
+Provas (comando literal → resultado, em `src/server`):
+
+- Base (testes novos, código ainda sem o fix):
+  `go test -count=1 -run 'KeepsResumeMap|ClearsResumeMap|PromotesFullChunked|NotPromotePartial|ReportsFinalVerification' ./infrastructure/download/`
+  → **4 FAIL**: `TestChunkedDownloadKeepsResumeMapUntilCompletionMarker` e `TestSingleDownloadKeepsResumeMapUntilCompletionMarker`
+  (`mapa de retomada ausente depois do download`), `TestDownloadPromotesFullChunkedResumeWithoutRequest` (90,01 s;
+  `HTTP 500 from .../archive.org/...`: probe + single com 5 retentativas), `TestDownloadWithProgressReportsFinalVerification`
+  (último status `Downloading: 100% ...`). Os 2 guardas (`ClearsResumeMap`, `NotPromotePartial`) passam na base, como esperado.
+- Com o fix: o mesmo comando + os existentes (`ReusesCheckpointed`, `ReusesOnlyVerified`, `PromotesDurableFullSingle`,
+  `SingleDownloadResumes`) → 10 PASS. `go test -count=1 ./...` → rc 0, 9 pacotes `ok` (linha de base do manual).
+- `go vet ./infrastructure/download/` limpo; `gofmt -l` limpo nos três arquivos (lidos sem CR).
+- Compile-check: `pipeline.py build --bug <slug>` → rc 0 (`godsend*.exe` x64/ia32 verificados, `tsc` e
+  `renderer:typecheck` limpos).
+
+Ajustes ao Plano de teste: nenhum no E2E. Os nomes de log que o teste procura são exatamente
+`DOWNLOAD RESUME [<jogo>]: promovendo arquivo integral sincronizado`, `DOWNLOAD VERIFY [<jogo>]: conferindo` e
+`DOWNLOAD VERIFY [<jogo>]: concluido em`; o status da Fila durante o hash é `Conferindo o arquivo baixado...`.
+Observação para o teste: num `/queue/retry` com `.complete` já gravado, `reusableCompletedDownload` refaz o hash
+inteiro sem status novo (comportamento anterior, fora deste fix; não é reprovação).
+
+**CHANGELOG pendente:** o `claim` de `CHANGELOG.md` saiu 8 (reservado por
+`electron-main-mensagens-do-formatador-elevado-chegam-com-acentos-corrompidos_2026-10-08T21-40`). Esta sessão
+commitou o código e ficou em `park`; na retomada: `sync`, entrada em `## [Unreleased]` → `### Fixed`, commit,
+`enqueue-test`.

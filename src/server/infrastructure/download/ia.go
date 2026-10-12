@@ -177,16 +177,19 @@ func (s *Service) DownloadWithProgress(urlStr, dest, name, ref string) error {
 		s.App.LogStatus(name, "Processing", "Download ja concluido. Reutilizando arquivo local...")
 		return nil
 	}
-	// A process can stop after the final fsync but before publishing the
-	// completion marker. Promote that durable full-length single-stream file
-	// instead of issuing another multi-gigabyte request.
-	if finishedSingleResume(dest, urlStr) {
-		if err := markDownloadCompleted(dest, urlStr); err == nil {
-			removeDownloadResume(dest)
-			s.App.Logf("DOWNLOAD RESUME [%s]: promovendo arquivo integral sincronizado", name)
+	// A process can stop after the last byte is durable but before publishing
+	// the completion marker, whose full-file hash takes minutes on a
+	// multi-gigabyte file. Promote that full single-stream or chunked file
+	// instead of truncating it and issuing the whole download again
+	// ([[pipeline-download-chunked-concluido-perdido-ao-fechar-durante-o-hash-final-recomeca-do-zero_2026-10-07T21-48]]).
+	if finishedResume(dest, urlStr) {
+		s.App.Logf("DOWNLOAD RESUME [%s]: promovendo arquivo integral sincronizado", name)
+		err := s.finalizeDownload(dest, urlStr, name)
+		if err == nil {
 			s.App.LogStatus(name, "Processing", "Download ja concluido. Verificando e retomando do arquivo local...")
 			return nil
 		}
+		s.App.Logf("WARN [%s]: promocao do arquivo integral falhou (%v), seguindo para o download", name, err)
 	}
 	_ = os.Remove(completedMarkerPath(dest))
 
@@ -202,7 +205,7 @@ func (s *Service) DownloadWithProgress(urlStr, dest, name, ref string) error {
 				name, float64(size)/1048576, nSeg, iaSegmentSize/(1024*1024), s.App.IADownloadMaxParallel)
 			downloadErr = s.IADownloadChunkedParallel(urlStr, dest, name, ref, size)
 			if downloadErr == nil {
-				if err := markDownloadCompleted(dest, urlStr); err != nil {
+				if err := s.finalizeDownload(dest, urlStr, name); err != nil {
 					return fmt.Errorf("persistir conclusao do download: %w", err)
 				}
 			}
@@ -213,9 +216,31 @@ func (s *Service) DownloadWithProgress(urlStr, dest, name, ref string) error {
 	if downloadErr != nil {
 		return downloadErr
 	}
-	if err := markDownloadCompleted(dest, urlStr); err != nil {
+	if err := s.finalizeDownload(dest, urlStr, name); err != nil {
 		return fmt.Errorf("persistir conclusao do download: %w", err)
 	}
+	return nil
+}
+
+// finalizeDownload publishes the completion marker of a full download and only
+// then drops its resume map. The map is the one durable proof that the file is
+// complete while the full-file hash runs; dropping it first left a window in
+// which closing the app threw the whole download away
+// ([[pipeline-download-chunked-concluido-perdido-ao-fechar-durante-o-hash-final-recomeca-do-zero_2026-10-07T21-48]]).
+// On error the map stays, so the next run promotes or resumes the file.
+func (s *Service) finalizeDownload(dest, urlStr, name string) error {
+	var size int64
+	if st, err := os.Stat(dest); err == nil {
+		size = st.Size()
+	}
+	s.App.LogStatus(name, "Processing", "Conferindo o arquivo baixado...")
+	s.App.Logf("DOWNLOAD VERIFY [%s]: conferindo %.1f MB antes de liberar", name, float64(size)/1048576)
+	started := time.Now()
+	if err := markDownloadCompleted(dest, urlStr); err != nil {
+		return err
+	}
+	removeDownloadResume(dest)
+	s.App.Logf("DOWNLOAD VERIFY [%s]: concluido em %s", name, time.Since(started).Round(time.Millisecond))
 	return nil
 }
 
@@ -522,7 +547,8 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 		}
 		return firstErr
 	}
-	removeDownloadResume(dest)
+	// The segment map stays until DownloadWithProgress publishes the completion
+	// marker (finalizeDownload).
 	return nil
 }
 
@@ -804,6 +830,7 @@ func (s *Service) iaDownloadSingleAttempt(urlStr, dest, name, ref string, isIA b
 	if resumeOffset+written != totalSize {
 		return fmt.Errorf("download incompleto: esperado %d, recebido %d bytes", totalSize, resumeOffset+written)
 	}
-	removeDownloadResume(dest)
+	// The resume marker stays until DownloadWithProgress publishes the
+	// completion marker (finalizeDownload).
 	return nil
 }
