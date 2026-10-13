@@ -17,6 +17,8 @@ Backend only (all platforms): `npm run build:server:all`.
 - Linux amd64 (`x64`): `npm run build:server:linux:amd64`
 - Linux arm64: `npm run build:server:linux:arm64`
 
+Windows backend builds (`build:server`, `build:server:all`) pass `-trimpath -buildvcs=false`: no commit stamp and no local paths in the binary, so its SHA-256 only changes when the Go code changes (antivirus reputation is per hash). Its Windows `VERSIONINFO` and icon come from `src/server/winres.json`, compiled into the committed `src/server/rsrc_windows_amd64.syso` / `rsrc_windows_386.syso` (linked by `go build` only for those GOOS/GOARCH). After editing the `.json` or the icon, regenerate in `src/server` with `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json` and commit both `.syso`. The resource version is fixed (`1.0.0.0`) on purpose: the app version would change the hash on every release.
+
 ## Repository structure
 
 ```
@@ -25,6 +27,8 @@ dist/                    Build artifacts (per-OS binaries and installers) — cr
 
 src/server/              Go backend
   main.go                  Entry point: HTTP server wiring & startup banner
+  winres.json              Windows VERSIONINFO + icon source for the backend .exe
+  rsrc_windows_*.syso      Resource objects generated from winres.json (committed, go-winres)
   models/                  Pure domain types and repository interfaces (Game, Platform, JobStatus…)
   services/                Application-layer service interfaces (GameService)
   infrastructure/          Infrastructure helpers (config loading, path resolution)

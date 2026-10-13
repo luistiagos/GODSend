@@ -51,7 +51,9 @@ const targets = [
 for (const [goos, goarch, name] of targets) {
   const out = path.join(dist, name);
   console.log(`\n[build-go-all] ${goos}/${goarch} -> dist/${name}`);
-  const r = spawnSync("go", ["build", "-o", out, "."], {
+  // Same flags as build-server.js: reproducible binary, no vcs stamp nor local paths
+  // [[release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14]].
+  const r = spawnSync("go", ["build", "-trimpath", "-buildvcs=false", "-o", out, "."], {
     cwd: serverDir,
     stdio: "inherit",
     env: { ...process.env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: "0" },

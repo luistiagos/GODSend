@@ -41,12 +41,17 @@ function hasGo() {
 
 const goAvailable = hasGo();
 
+// No commit stamp (vcs.*) and no local paths (C:/Users/..., the checkout folder) in the binary:
+// the backend hash only changes when the Go code changes, so an antivirus false-positive
+// clearance survives rebuilds [[release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14]].
+const goBuildArgs = (out) => ["build", "-trimpath", "-buildvcs=false", "-o", out, "."];
+
 if (buildX64) {
   const x64Out = path.join(dist, "godsend-windows-x64.exe");
   const defaultExe = path.join(dist, "godsend.exe");
   if (goAvailable) {
     console.log("\n[build-server] windows/amd64 → dist/godsend-windows-x64.exe (and dist/godsend.exe)");
-    run("go", ["build", "-o", x64Out, "."], {
+    run("go", goBuildArgs(x64Out), {
       cwd: serverDir,
       shell: false,
       env: { ...process.env, GOOS: "windows", GOARCH: "amd64", CGO_ENABLED: "0" },
@@ -72,7 +77,7 @@ if (buildIa32) {
   const ia32Out = path.join(dist, "godsend-windows-ia32.exe");
   if (goAvailable) {
     console.log("\n[build-server] windows/386 → dist/godsend-windows-ia32.exe");
-    run("go", ["build", "-o", ia32Out, "."], {
+    run("go", goBuildArgs(ia32Out), {
       cwd: serverDir,
       shell: false,
       env: { ...process.env, GOOS: "windows", GOARCH: "386", CGO_ENABLED: "0" },

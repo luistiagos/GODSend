@@ -10,6 +10,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Backend Go Windows saía sem identidade (`VERSIONINFO` vazio) e com hash que mudava a cada build, mesmo sem mudança no Go (`scripts/build-server.js`, `scripts/build-go-all.js`, `src/server/winres.json`, `src/server/rsrc_windows_*.syso`)**
+  - Causa: o `go build` carimbava o commit (`vcs.*`) e embutia caminhos locais (`C:/Users/...`, a pasta do checkout), e nenhum passo gerava recurso de versão. Antivírus com reputação por hash tratavam cada backend como executável nunca visto, sem nome de produto.
+  - Correção: os builds Windows passam `-trimpath -buildvcs=false` (binário reprodutível); `winres.json` (go-winres) gera os `.syso` commitados com `ProductName` `Xbox 360 Companion`, empresa, descrição, `OriginalFilename` `godsend-backend.exe` e o ícone do app. Versão do recurso fixa `1.0.0.0` de propósito.
+  - Bug: [docs/bugs/open/release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14.md](docs/bugs/open/release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14.md)
 - **Report de telemetria do backend Go não dizia a versão do app, e o backend ignorava o endpoint de telemetria configurado (`src/server/infrastructure/telemetry/telemetry.go::buildReport`, `::Initialize`, `src/server/main.go::appVersion`, `src/server/app/config.go::SetupPaths`)**
   - Caso: na triagem do bug do `mkdir` da pasta do jogo não deu para saber se os reports de 2026-09-25 eram de antes ou depois da 2.12.95; os reports do backend chegavam com `user_agent = '<componente>'` e nada mais.
   - Causa: o `ErrorReport` não tinha origem de versão; a versão só existia como literal nos dois banners de `main.go`, já divergentes (`v2.12.110` e `v2.12.109`). E `SetupPaths` nunca lia `GODSEND_ERROR_REPORTING_ENDPOINT`, que o Electron manda quando o `config.json` tem `errorReportingEndpoint`.

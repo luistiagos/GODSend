@@ -167,3 +167,25 @@ Leitura de 4 e 5: o hash não muda por acaso. Ele muda pelo **conteúdo**, e par
 
 - `pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30` (planejado): sem arquivo em comum com este plano depois do corte; nenhum dos dois depende do outro. Este fix **não** toca `main.go` nem `settingsService.ts`.
 - `build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30` (em planejamento): também mexe em `scripts/build-server.js` (chamada final ao verify). A reserva serializa os dois; sem dependência lógica.
+
+## Correcao (pipeline 20261012-1854, rodada 1)
+
+- `scripts/build-server.js::goBuildArgs` — novo helper `["build", "-trimpath", "-buildvcs=false", "-o", out, "."]`, usado nas duas chamadas (x64 e ia32); comentario cita o slug.
+- `scripts/build-go-all.js` — mesmas flags no `spawnSync("go", ...)` do laco `targets` (so leitura do diff; o helper nao roda este script).
+- `src/server/winres.json` — novo: `RT_GROUP_ICON` `APP` -> `../electron-app/assets/tray.ico` (go-winres resolve caminho relativo ao `.json`: `resdir.go` faz `filepath.Join(filepath.Dir(jsonName), f)`) e `RT_VERSION` 1.0.0.0, sem `timestamp`, sem `RT_MANIFEST`.
+- `src/server/rsrc_windows_amd64.syso` / `rsrc_windows_386.syso` — gerados com `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json` em `src/server` (so esses dois arquivos; `go.mod`/`go.sum` intocados). Gerado duas vezes: SHA-256 dos `.syso` identico (gerador deterministico; a ferramenta nao usa `time.Now`).
+- `docs/building.md` — flags, origem do recurso, comando para regenerar e por que a versao e fixa; arvore do repo com `winres.json` e `rsrc_windows_*.syso`.
+- `CHANGELOG.md` `[Unreleased]` `### Fixed` — entrada nova, sem bump de versao.
+
+**Compile-check:** `build` do helper rc 0 (verify dos tres PE ok, `tsc` e `renderer:typecheck` ok).
+
+**Provas offline ja rodadas no `dist\` da lane (pos-build):**
+- P-off-1: x64, ia32 e `godsend.exe` -> `Xbox 360 Companion` / `Nesquin and ghosty99` / `Xbox 360 Companion - servico local (backend)` / `godsend-backend.exe` / `1.0.0.0`.
+- P-off-2: `go version -m` -> `-trimpath=true`, **zero** linhas `vcs.` (x64 e ia32). Ajuste ao plano: o Go nao grava `-buildvcs=false` na lista de `build` do `go version -m`; a prova do `-buildvcs=false` e a ausencia de `vcs.*`.
+- P-off-3: `grep -a -c "C:/Users/"` = 0 e `grep -a -c "Downloader-XBOX360\|bugfix-xbox360"` = 0 (x64 e ia32).
+- P-off-5: `go list -f '{{.SysoFiles}}' .` -> linux/amd64 `[]`, darwin/arm64 `[]`, windows/amd64 `[rsrc_windows_amd64.syso]`, windows/386 `[rsrc_windows_386.syso]`.
+
+**SHA-256 de referencia para P-off-4** (go1.26.6, build do helper sobre o codigo deste commit de fix):
+- `dist\godsend-windows-x64.exe` (= `dist\godsend.exe`): `EF23D53E6F83E98D691F137F0BB5F860A8ECDEDF2269F514C35B3DCE284BB461`
+- `dist\godsend-windows-ia32.exe`: `3F4DC0674C84CAE8FE3D1A33C8F6B56243D76F8E7BA325BD2AE8BAC89D6CB2B6`
+- Atencao do teste: se o branch for rebaseado sobre `origin/main` com mudanca em `src/server/**/*.go` (ex.: o bug irmao de telemetria muda `main.go`), o SHA muda legitimamente; a prova entao e dois builds do mesmo HEAD em pastas diferentes (lane x worktree temporaria) darem o mesmo SHA.
