@@ -1,5 +1,34 @@
 # Bug: jogo XEX cujo arquivo traz `default.xex` na raiz e gravado numa pasta com o sufixo de scratch `_hf_ext` (e sem TitleID)
 
+## Status
+
+- **Corrigido e testado:** 2026-10-13 (pipeline 20261012-1854, rodada de teste 1, aprovado). Fix: `5714370`.
+- **Onde:** `src/server/services/pipeline/companion_content.go::ripFolderName` (novo: `""` quando o `default.xex` esta na
+  raiz do arquivo extraido) e `::xexDestinationName` (nome vazio -> titulo da release); call-sites
+  `huggingface.go::ProcessHuggingFaceGameWithErr`, `minerva.go::ProcessMinervaGameWithErr`/`ProcessMinervaGenericGameWithErr`,
+  `digital.go::ProcessGenericGameWithErr`, `pipeline.go::ProcessGameWithErr`.
+- **Evidencia:** `C:\projects\.bugfix-xbox360\evidencia\20261013-0449-pipeline-xex-default-xex-raiz-hf-ext\`.
+  - Offline: `go vet ./services/pipeline/` limpo; `go test -count=1 ./services/pipeline/ ./infrastructure/helpers/` ok;
+    os 7 `TestXexDestinationName*`/`TestRipFolderName*` PASS.
+  - **T2 (cliente, pela UI do app da lane, Playwright `t2.cjs`; destino = pendrive de teste `E:`, serial `247700023090`
+    confirmado, lock criado e removido):** Baixar Jogos -> filtro "Master System" -> "EMULADOR MASTER SYSTEM + 376 ROMS" ->
+    XEX -> Adicionar a fila -> "Gravado no dispositivo!".
+    - Controle positivo (base `6b3a61b`, lane destacada para `pipeline.py build`; backend PID 13612 da lane wt-4):
+      `LOCAL XEX: 2216 arquivos (0.16 GB) -> E:\Games\EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360 RGH )_hf_ext`
+      (`t2-base-log-janela.txt`, `t2-base-result.json`) — sintoma presente.
+    - Fix (`5714370`, backend PID 15260 da lane wt-4, banner na Home):
+      `LOCAL XEX: 2216 arquivos (0.16 GB) -> E:\Games\EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360 RGH )`; pasta com esse
+      nome, 2.216 arquivos, `default.xex`, sem marcador, nenhuma pasta `*_hf_ext` em `E:\Games` (`t2-fix-*`). Sem TitleID,
+      correto para este homebrew (sem `0x40006`, ver Planejamento).
+  - **T3:** (1) XEX com subpasta propria pela UI (Digimon All Star Rumble, `t2-t3-digimon-*`):
+    `-> E:\Games\Digimon All Star Rumble (0.421) - 4E4D0869`, `title_id 4E4D0869` — inalterado. (2) `go test -count=1 ./...`
+    em `src/server` rc 0, 10 pacotes `ok` (`t3-go-test-all.txt`); `test:safety` 339 pass / 0 fail (`t3-test-safety.txt`).
+  - **T4:** logs das tres janelas: so o erro de CSP das fontes do Google (pre-existente) e `QUEUE RESUME ... restaurado
+    como Erro` da fila antiga da lane (`pending_queue/`, igual na base). Nenhum erro do backend.
+- **Falta para `closed/`:** versao publicada (subida de versao + `build-and-upload.ps1`, do dono); nome da pasta no HD
+  por FTP ao console (sem console de teste); IA/Minerva/generico com `default.xex` na raiz so pelo teste de unidade do
+  helper comum (sem caso de catalogo conhecido); prova do cliente. Pastas ja gravadas com `_hf_ext` nao sao migradas.
+
 - **Detectado em:** 2026-10-12 14:56 (teste local do pipeline, sessao de teste do bug
   `pipeline-jogo-xex-com-145-mil-arquivos-leva-mais-de-10-horas-para-gravar-em-pendrive-fat32_2026-10-09T19-40`)
 - **Origem:** `src/server/services/pipeline/huggingface.go` (linha 71: `xexDestinationName(xexFolder, filepath.Base(xexFolder), gameName)`)
