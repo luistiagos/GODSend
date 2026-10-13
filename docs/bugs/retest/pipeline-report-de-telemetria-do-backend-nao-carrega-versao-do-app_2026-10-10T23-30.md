@@ -1,5 +1,43 @@
 # Bug: report de telemetria do backend Go não carrega versão do app nem identificação da máquina, e a triagem não separa versões nem máquinas
 
+## Status
+
+- **Corrigido e testado:** 2026-10-12 19:10 (fix) / 2026-10-13 04:17 (teste rodada 1 aprovado), pipeline 20261012-1854.
+- **Commit do fix:** `df3827c` (`fix(telemetria): ...`).
+- **Onde:** `src/server/main.go::appVersion` (constante unica; os dois banners e as duas chamadas de `telemetry.Initialize`);
+  `src/server/infrastructure/telemetry/telemetry.go::Initialize` (3o parametro `appVersion`) e `::buildReport`
+  (`user_agent = "<componente> v<versao>"`); `src/server/app/config.go::SetupPaths` (passa a ler
+  `GODSEND_ERROR_REPORTING_ENDPOINT`). Testes: `telemetry_test.go`, `main_test.go`.
+- **Evidencia:** `C:\projects\.bugfix-xbox360\evidencia\20261012-1913-pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30\`
+  - **Offline:** `go test -count=1 ./infrastructure/telemetry/ .` -> `ok` nos dois pacotes (5 testes novos PASS).
+  - **Controle positivo:** nao rodado no base, como o Plano justifica (o base ignora o endpoint e mandaria o report a
+    producao). Sintoma no base: `git show ea27541:src/server/main.go` -> banners `v2.12.110` (linha 25) e `v2.12.109`
+    (linha 78); `user_agent = 'pipeline'` nas linhas 7026/8565/8616 da telemetria.
+  - **T2 (app da lane, pela UI):** `config.json` dev com `errorReportingEndpoint=http://127.0.0.1:8765/logErr` e
+    `simpleMode=false`, capturador local (`capturador.py`). Console da Home: `[INFO] Xbox 360 Companion Backend Server v2.12.110`
+    e `║   Xbox 360 Companion Server v2.12.110    ║` (`t2-queue.log`). Baixar Jogos -> XBLA -> Aqua -> destino Pendrive
+    `E:` -> Adicionar a fila, com escrita negada (`icacls /deny`) na pasta `Ready\` da lane. Falha de staging ->
+    `fallback.go::haltOnLocalStorageFailure` -> capturador recebeu `POST /logErr` com
+    `"project": "xbox-360-companion/pipeline"`, `"user_agent": "pipeline v2.12.110"`, `"platform": "windows/amd64"`
+    (`capturas.jsonl`, 04:11:37). O backend recebeu `GODSEND_ERROR_REPORTING_ENDPOINT` (log do dia).
+    Caminho usado: o plano sugeria "destino local sem escrita"; o app so oferece pendrive como destino local, e o
+    bloqueio no pendrive (`E:\Content` como arquivo) foi contornado pelo proprio app (o jogo foi gravado), entao a
+    escrita negada foi no armazenamento de trabalho do PC (`ErrLocalStaging`), que cai no mesmo `Report("pipeline")`.
+  - **T3:** `go test -count=1 ./...` em `src/server` rc 0 (todos os pacotes `ok`); `test:safety` 327 pass / 0 fail
+    (linha de base 258/0). Vizinho (a): com `errorReporting=false` a mesma falha do Aqua ocorre e o capturador NAO
+    recebe nada (3 linhas antes e depois). Vizinho (b) (sem endpoint -> padrao) coberto pelo `Initialize` inalterado
+    nesse ramo e pelo log das execucoes anteriores; nao rodado para nao gravar na producao. Vizinho (c): sem report do
+    Electron na janela; codigo do Electron nao mudou.
+  - **T4:** `godsend-server-2026-10-13.log` (copia na evidencia): so o aviso de CSP da fonte do Google (pre-existente,
+    aparece nas lanes wt-1/wt-4 em dias anteriores) e as linhas esperadas de fallback; nada atribuivel ao fix.
+  - **Efeito colateral do teste:** numa primeira tentativa (2026-10-12 ~19:24) o Playwright abriu o app com o
+    `userData` errado (`%APPDATA%\Electron`, sem endpoint), e o job `GTA BRASIL PROJECT KAIZO` do `pending_queue`
+    rastreado falhou por identidade do pendrive: esse report foi para a telemetria de PRODUCAO, ja com
+    `user_agent = 'pipeline v2.12.110'`. Pode ser fechado na triagem como teste. O pendrive de teste ficou com
+    `Games\GTA San Andreas (Xbox 360) - 545408B8` e `Content\...` (Astropop), gravados pelo app durante as tentativas.
+- **Falta para `closed/`:** subida de versao e publicacao (`build-and-upload.ps1`, do dono) e um report real de
+  producao com `user_agent = '<componente> v<versao>'`; decisao do dono sobre o id anonimo da maquina.
+
 - **Detectado em:** 2026-10-10 23:30 (leitura de código e da tabela `errors` da telemetria)
 - **Origem:** achado lateral do pipeline em pipeline-mkdir-da-pasta-do-jogo-falha-com-caminho-nao-encontrado-e-o-dispositivo-presente_2026-10-04T23-28 — `src/server/infrastructure/telemetry/telemetry.go::Report` / `ErrorReport`
 - **Errors (serviço):** N/A (afeta todos os reports `xbox-360-companion/*` do backend; exemplos: 7026, 8565, 8616)
