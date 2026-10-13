@@ -127,6 +127,10 @@ do `jsonError`.
 - `CHANGELOG.md` — entrada em `[Unreleased] / Fixed`.
 - Plano de teste: sem ajuste.
 
-### Pendente nesta rodada (2026-10-12)
+### Compile-check e provas offline (2026-10-13)
 
-- `pipeline.py build --bug <slug>` recusou: `ERRO: ... nao tem worktree (estado planejado)`. O `state.json` mostra `waves: []`, `wt: None`, sem sessao `dev` registrada para o bug: o `elencar` nao rodou, embora esta sessao de dev tenha sido aberta na `wt-1`. Nao mexi no ledger. Por isso **o compile-check, o `test:safety` e a prova de que o caso 1 falha com o handler antigo NAO foram rodados**; `enqueue-test` nao foi chamado. Proximo passo (maestro): `elencar`/reconciliar o bug com a `wt-1`, depois `build --bug` e `node --test src/electron-app/tests/unit/toolsHandlers.test.cjs`, e `enqueue-test`.
+- Na 1a passagem (2026-10-12) o `build` recusou com `nao tem worktree (estado planejado)`: o ledger ainda nao tinha a onda. Resolvido pelo pipeline (onda 1); nada mudou no codigo.
+- `pipeline.py build --bug <slug>` -> ok (backend x64/ia32 verificados, `tsc` e `renderer:typecheck` sem erro).
+- `node --test tests/unit/toolsHandlers.test.cjs` -> 12 pass, 0 fail.
+- Controle negativo: condicoes antigas (`r.error && !r.ok` / `r.error && !r.titleId`) repostas no `ipc/toolsHandlers.js` compilado -> 6 pass, **6 fail** (casos 1 `jsonError` e 2 corpo vazio, nos 3 canais); `.js` restaurado em seguida.
+- `node --test tests/unit/*.test.cjs` -> 339 pass, 0 fail.
