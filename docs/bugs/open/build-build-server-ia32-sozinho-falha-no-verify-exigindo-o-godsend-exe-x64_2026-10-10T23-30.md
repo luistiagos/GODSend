@@ -105,4 +105,4 @@ Verificar só o que foi construído: passar ao verify as chaves das arquiteturas
 - `scripts/build-server.js` (chamada final ao verify): `"windows-all"` -> `verifyTargets` = `windows` + `windows-x64` se `buildX64`; `windows-ia32` se `buildIa32` e `dist/godsend-windows-ia32.exe` existir (ia32 continua opcional: sem Go e sem prebuilt e so aviso). Comentario cita o slug.
 - `CHANGELOG.md` `[Unreleased]` `### Fixed`: entrada citando este doc e o lateral (`...win-all-nao-compila...`).
 - Plano de teste sem ajuste.
-- **Pendente:** compile-check. `pipeline.py build --bug <slug>` recusou: "nao tem worktree (estado planejado)" — o ledger (`C:\projects\.bugfix-xbox360\state.json`) mostra `ondas: 0`, sem `elencar`, embora a sessao tenha sido aberta como onda 1 em `lanes/wt-2`. Nao contornado; `enqueue-test` nao rodado. Ao corrigir o ledger: `build` e depois `enqueue-test`.
+- Compile-check (2026-10-13): `pipeline.py build` exit 0; log com `[build-server] windows/amd64`, `windows/386` e `[verify] ✓` para `godsend.exe`, `godsend-windows-x64.exe` e `godsend-windows-ia32.exe` (a recusa anterior, "estado planejado", foi do ledger antes do `elencar`).
