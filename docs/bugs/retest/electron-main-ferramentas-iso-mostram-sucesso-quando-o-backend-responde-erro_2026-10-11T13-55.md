@@ -1,5 +1,38 @@
 # Bug: "ISO para XEX" / "ISO para GOD" mostram sucesso (check verde) quando o backend responde erro
 
+## Status
+
+- **Corrigido e testado:** 2026-10-13 (pipeline 20261012-1854, teste rodada 1 aprovado).
+- **Commit do fix:** `c28278a` (sobre `origin/main` @ `72e9817`; o SHA publicado pode mudar no rebase do `publish`).
+- **Onde:** `src/electron-app/ipc/toolsHandlers.ts` — handlers `tools:iso2xex` / `tools:iso2god` (sucesso so com `ok === true`)
+  e `tools:probe-iso` (sucesso so com `titleId`); falha leva o `message` do `jsonError` via `::isoBackendError`. Teste:
+  `src/electron-app/tests/unit/toolsHandlers.test.cjs` (12 casos).
+- **Evidencia:** `C:\projects\.bugfix-xbox360\evidencia\20261013-0422-electron-main-ferramentas-iso-mostram-sucesso\`
+  (driver `scripts\t2.js <lane> <ev> <label> xex|god`, Playwright `_electron` sobre a lane; `isos\A.iso` = ISO sintetica valida
+  da evidencia 20261011-1340, `isos\Z.iso` = 1 MiB de zeros; `*-result.json`, `*-3-result.png` e `out-<label>\` por rodada).
+  - **Offline:** `test:safety` 339 pass / 0 fail; controle negativo independente (condicoes antigas repostas no
+    `ipc/toolsHandlers.js` compilado) -> 6 pass / **6 fail** (casos `jsonError` e corpo vazio, 3 canais); restaurado -> 12/0.
+  - **Controle positivo (base):** `ipc/toolsHandlers.js` compilado com as condicoes de `origin/main` (`r.error && !r.ok` /
+    `r.error && !r.titleId`; copia em `toolsHandlers.base.js`), mesmo backend da lane. "ISO para XEX" e "ISO para GOD": `Z.iso`
+    com **check verde**, "Desconhecido —", sem "Saida", sem texto vermelho; botao "Extrair 0 ISOs para XEX" / "Converter 0 ISOs
+    para GOD"; `POST /tools/iso2xex|iso2god` com `Z.iso` -> 500 `{"message":"Probe failed: probeDiscInfo: XDVDFS magic not found
+    — not a valid Xbox/Xbox 360 ISO","state":"Error"}` (`base-xex-*`, `base-god-*`).
+  - **T2 (fix, `toolsHandlers.js` identico ao gerado pelo `tsc` do HEAD; backend `godsend-windows-x64` com Path na lane, PIDs
+    23504/43320):** nas duas telas `Z.iso` com icone de alerta e texto vermelho `Probe failed: probeDiscInfo: XDVDFS magic not
+    found — ...`, sem "Saida"; botao continua contando `Z.iso` ("Extrair 1 ISO para XEX" / "Converter 1 ISO para GOD"); `out-fix-*`
+    so tem a pasta de `A.iso`; `A.iso` com check verde e "Saida: ..." (XEX 5 arquivos, GOD 2 arquivos, igual a base)
+    (`fix-xex-3-result.png`, `fix-god-3-result.png`).
+  - **T3:** `go test -count=1 ./...` em `src/server` rc 0, 11 pacotes `ok` (`t3-go-test.log`); `test:safety` 339 pass / 0 fail
+    (`t3-test-safety.log`; linha de base 258 + testes novos de outros bugs + os 12 deste); conversao de ISO valida intacta (T2).
+  - **T4:** `t4-godsend-server-window.log` (07:22-07:44Z, so os launches deste teste): linhas `[TOOLS] ISO2XEX/ISO2GOD` de `A.iso`
+    concluidas; unico erro e o `console error` de CSP da fonte do Google, presente igual nas rodadas da base — nada atribuivel ao fix.
+  - Ambiente: modo avancado (`simpleMode:false` no `config.json` dev: o modo simples nao tem o menu Ferramentas) e
+    `tools:badavatar-list-drives` stubado no main com um pendrive `preparado-bloqueado-lt` (sem pendrive preparado o assistente
+    da Home nao oferece "Ir para o catalogo"); `config.json` devolvido a copia original no fim.
+- **Falta para `closed/`:** versao publicada (subida de versao + `build-and-upload.ps1`, do dono) e a prova do cliente com uma ISO
+  que o backend recuse. Fora do criterio: o motivo do probe ainda so aparece depois de "Extrair/Converter" (na selecao a linha
+  fica so com o nome do arquivo; o "Desconhecido —" da base sumiu), ver Hipoteses descartadas.
+
 - **Detectado em:** 2026-10-11 13:49 (teste local), no controle positivo do bug
   [backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-...](../retest/backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20.md)
   (pipeline 20261010-2242)
@@ -134,3 +167,9 @@ do `jsonError`.
 - `node --test tests/unit/toolsHandlers.test.cjs` -> 12 pass, 0 fail.
 - Controle negativo: condicoes antigas (`r.error && !r.ok` / `r.error && !r.titleId`) repostas no `ipc/toolsHandlers.js` compilado -> 6 pass, **6 fail** (casos 1 `jsonError` e 2 corpo vazio, nos 3 canais); `.js` restaurado em seguida.
 - `node --test tests/unit/*.test.cjs` -> 339 pass, 0 fail.
+
+### Teste rodada 1 — aprovado (2026-10-13)
+
+Controle positivo, T2, T3 e T4 no `## Status` (topo). Desvios do Plano de teste: o driver ganhou o stub de
+`tools:badavatar-list-drives` e o `simpleMode:false` (navegacao ate Ferramentas, nao toca o fix); o controle da base foi feito
+repondo as condicoes antigas no `ipc/toolsHandlers.js` compilado (equivalente a reverter so o handler).
