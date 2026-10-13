@@ -116,9 +116,35 @@ test("revalidacao do preparo acha o HD com o pendrive conectado", winOnly, async
   const hdd = (await usbDevices.enumerateSafeWindowsUsbDevices()).find((d) => d.rootPath === "F:\\");
   t.mock.restoreAll();
   mockStatfs(t);
-  fakePowerShell(t, outputs);
+  const started = fakePowerShell(t, outputs);
   const revalidated = await usbDevices.requireSafeWindowsUsbTarget("f:", hdd.fingerprint);
   assert.equal(revalidated.fingerprint, hdd.fingerprint);
+  // O HD nao esta na nativa: a revalidacao dele continua precisando da fisica.
+  assert.deepEqual(started, ["nativa", "fisica"]);
+});
+
+// Bug electron-main-preparo-em-pc-lento-para-a-copia-a-cada-revalidacao-usb-e-a-fisica-de-hd-entra-
+// em-toda-revalidacao: com um D: interno montado, toda revalidacao do pendrive abria tambem a
+// fisica, cujas linhas para a raiz ja listada sao descartadas — um powershell.exe a mais por nada.
+test("revalidacao de pendrive com disco Fixed montado: so a nativa roda", winOnly, async (t) => {
+  mockStatfs(t);
+  const outputs = { nativa: [PENDRIVE_NATIVE, marker("D:\\")], fisica: [PENDRIVE_PHYSICAL] };
+  fakePowerShell(t, outputs);
+  const pendrive = (await usbDevices.enumerateSafeWindowsUsbDevices()).find((d) => d.rootPath === "E:\\");
+  t.mock.restoreAll();
+  mockStatfs(t);
+  const started = fakePowerShell(t, outputs);
+  const revalidated = await usbDevices.requireSafeWindowsUsbTarget("e:", pendrive.fingerprint);
+  assert.equal(revalidated.fingerprint, pendrive.fingerprint);
+  assert.deepEqual(started, ["nativa"]);
+});
+
+test("a lista (sem alvo) continua abrindo a fisica quando ha disco Fixed montado", winOnly, async (t) => {
+  mockStatfs(t);
+  const started = fakePowerShell(t, { nativa: [PENDRIVE_NATIVE, marker("D:\\")], fisica: [PENDRIVE_PHYSICAL] });
+  const devices = await usbDevices.enumerateSafeWindowsUsbDevices();
+  assert.deepEqual(devices.map((d) => d.rootPath), ["E:\\"]);
+  assert.deepEqual(started, ["nativa", "fisica"]);
 });
 
 test("controle: sem disco Fixed alem do sistema, so a nativa roda (nenhum PowerShell a mais)", winOnly, async (t) => {

@@ -130,7 +130,7 @@ Confirma a causa do doc, no código de `cab6830` (fluxo principal desta execuç�
 
 ### Tarefas
 
-- [ ] `src/electron-app/infrastructure/windowsUsbDeviceService.ts::enumerateSafeWindowsUsbDevices` — segundo
+- [x] `src/electron-app/infrastructure/windowsUsbDeviceService.ts::enumerateSafeWindowsUsbDevices` — segundo
   parâmetro opcional `targetRoot?: string`; em `finishNative`, depois de `if (!fixedDriveMounted) return devices`
   e de montar `listed`: `if (targetRoot && listed.has(normalizeRoot(targetRoot))) return devices;`, com comentário
   `[[electron-main-preparo-em-pc-lento-para-a-copia-a-cada-revalidacao-usb-e-a-fisica-de-hd-entra-em-toda-revalidacao_2026-10-10T23-00]]`
@@ -140,7 +140,7 @@ Confirma a causa do doc, no código de `cab6830` (fluxo principal desta execuç�
   `requireSafeWindowsUsbTarget("e:", fp)` resolve com `started` = `["nativa"]` (hoje `["nativa","fisica"]`);
   (b) o caso existente do HD (alvo F:) continua com a física; (c) a lista (`enumerateSafeWindowsUsbDevices()` sem
   alvo) continua `["nativa","fisica"]`.
-- [ ] `src/electron-app/services/fixedBadAvatarPreparationService.ts::createThrottledUsbTargetRevalidator` — medir
+- [x] `src/electron-app/services/fixedBadAvatarPreparationService.ts::createThrottledUsbTargetRevalidator` — medir
   `Date.now()` antes de `requireSafeWindowsUsbTarget` e guardar a duração no `.then`; trocar o teste do intervalo
   por `revalidationIntervalFor(lastFullValidationMs)` = `min(30_000, max(DEVICE_REVALIDATION_INTERVAL_MS, 4 × duração))`
   (exportada e pura, como `enumerationTimeoutFor`). Manter o `fs.access` a cada chamada, o reset em erro, o
@@ -152,7 +152,7 @@ Confirma a causa do doc, no código de `cab6830` (fluxo principal desta execuç�
   mockado e `t.mock.timers` em `Date`: validação de 7 s → chamada aos 20 s depois do fim não valida de novo, aos
   29 s valida; validação rápida → continua a cada 10 s; `fs.access` falhando continua lançando e zerando.
   Mutação: voltar o intervalo fixo derruba (b).
-- [ ] `AGENTS.md` (doc-sync, mesmo commit) e entrada em `CHANGELOG.md` `[Unreleased]` `### Fixed` (sem subir versão).
+- [x] `AGENTS.md` (doc-sync, mesmo commit) e entrada em `CHANGELOG.md` `[Unreleased]` `### Fixed` (sem subir versão).
 
 ### Plano de teste
 
@@ -190,3 +190,46 @@ Confirma a causa do doc, no código de `cab6830` (fluxo principal desta execuç�
   `pendingFullValidation` compartilhado pedem raciocínio, ainda que o diff seja curto.
 - teste: effort medium, ultrathink não — os sinais são contagens de linhas de log; o trabalho é montar o shim do
   PowerShell lento e o controle com o pendrive de teste.
+
+## Correcao (pipeline 20261012-1854, rodada 1)
+
+Implementado como planejado, sem desvio do plano.
+
+- `src/electron-app/infrastructure/windowsUsbDeviceService.ts::enumerateSafeWindowsUsbDevices` — segundo parâmetro
+  opcional `targetRoot`; em `finishNative`, depois de `listed`, `if (targetRoot && listed.has(normalizeRoot(targetRoot))) return devices;`.
+  Por que é equivalente: em `requireSafeWindowsUsbTarget` o `matches` é o filtro por raiz, e as linhas da física
+  para uma raiz em `listed` já eram descartadas pelo `.filter(!listed.has(...))`; com o alvo listado a física não
+  podia mudar nem o número de `matches` nem a linha. HD USB (só marcador na nativa) não está em `listed` → a física
+  roda como antes; `recoverNativeListing` usa o mesmo `finishNative` (mesma regra). Efeito colateral aceito: menos
+  amostras da física em `recentPowerShellDurationsMs` (o prazo adaptativo passa a refletir só o que roda de fato).
+- `...::requireSafeWindowsUsbTarget` — chama `enumerateSafeWindowsUsbDevices(false, normalizedRoot)`. Os outros dois
+  chamadores (lista da UI com `includeHealth=true`, `waitForFormattedDevice`) não passam alvo e não mudam; grep
+  confirmou que a função não é passada como callback em lugar nenhum (só chamadas diretas e imports).
+- `src/electron-app/services/fixedBadAvatarPreparationService.ts::revalidationIntervalFor` (nova, exportada, pura) —
+  `min(30_000, max(10_000, 4 × duração))` (constantes `DEVICE_REVALIDATION_INTERVAL_CEILING_MS`,
+  `DEVICE_REVALIDATION_DURATION_FACTOR`). Fator 4 ⇒ ciclo = 5 × duração ⇒ espera ≈ 20% (era ~40% com 7 s).
+- `...::createThrottledUsbTargetRevalidator` (agora exportada, para o teste) — guarda `startedAt` ao criar a
+  validação compartilhada e `lastFullValidationMs` no `.then`; o teste do intervalo usa `revalidationIntervalFor`.
+  Mantidos: `fs.access` a cada chamada com reset em erro, o `await` (a cópia continua esperando), o
+  `pendingFullValidation` compartilhado; validação que falha não atualiza a duração (o erro aborta o preparo).
+- `AGENTS.md` (parágrafo de `windowsUsbDeviceService.ts`): "a cada 10 s" → "a cada 10 s, ou 4 × a última, até 30 s",
+  e o corte da física na revalidação de alvo listado. `CHANGELOG.md` `[Unreleased]` `### Fixed` (sem subir versão).
+
+**Testes (offline, na lane, depois do `build` do helper — saída 0):**
+- `node --test tests/unit/usbFixedDriveMerge.test.cjs tests/unit/preparationRevalidationInterval.test.cjs tests/unit/powershellSlowMachine.test.cjs`
+  → 14/14 pass. Casos novos: `revalidacao de pendrive com disco Fixed montado: so a nativa roda` (`started` =
+  `["nativa"]`), `a lista (sem alvo) continua abrindo a fisica...`, o caso do HD agora também afirma
+  `["nativa","fisica"]`; `preparationRevalidationInterval.test.cjs` (puro: 0/500 → 10 000, 7 000 → 28 000,
+  20 000 → 30 000; revalidador de 7 s: aos 20 s depois do fim não valida, aos 29 s valida; de 0,5 s: aos 9 s não, aos
+  10 s sim, duas chamadas simultâneas = 1 validação; pendrive inacessível lança e a próxima chamada valida na hora).
+- **Mutação** (no JS compilado, restaurado depois): tirar o corte da física derruba `revalidacao de pendrive com disco
+  Fixed montado`; voltar o intervalo fixo de 10 s derruba `revalidador: validacao de 7 s...`. Só esses dois caem.
+- `node --test tests/unit/*.test.cjs` → 345 tests, 345 pass, 0 fail (linha de base do manual: 258; a bateria cresceu
+  com os fixes desde então).
+
+**Ajustes ao Plano de teste:** o mock de relógio é `t.mock.method(Date, "now", ...)` (não `t.mock.timers`); o resto
+do plano vale como está. T2: o sinal "zero `enumeracao fisica de HD USB` entre o clique e o fim" vale para as
+revalidações; a lista da UI fica pausada durante o preparo (`setUsbPreparationActive`), mas a primeira
+`requireSafeWindowsUsbTarget` do preparo (linha 500) e a de "Verificando espaço" (linha ~610) também passam o alvo,
+então nenhuma física deve aparecer para o pendrive. Se aparecer uma `enumeracao fisica de HD USB` ANTES do clique,
+é a lista da UI (sem alvo), esperado.

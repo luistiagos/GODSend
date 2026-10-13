@@ -538,13 +538,16 @@ async function finishRemovableEnumeration(
 /**
  * @param includeHealth Probe the health/repair hints too. Off by default: this
  * function is also the revalidation path, which `createThrottledUsbTargetRevalidator`
- * fires every 10 s for the whole write phase, and the hints are read only by the
- * device list in the UI. Probing them there as well would spawn a Get-Volume every
- * 10 s throughout a preparation — putting Storage Management back on the hot path
+ * fires every 10 s or more for the whole write phase, and the hints are read only by the
+ * device list in the UI. Probing them there as well would spawn a Get-Volume on
+ * every revalidation throughout a preparation — putting Storage Management back on the hot path
  * that ENUMERATE_REMOVABLE_SCRIPT exists to keep clear of it.
+ * @param targetRoot The one drive the caller cares about (the revalidation). When the native
+ * listing already has it, the physical USB HDD pass is skipped: it could only add other drives.
  */
 export async function enumerateSafeWindowsUsbDevices(
   includeHealth = false,
+  targetRoot?: string,
 ): Promise<SafeUsbDevice[]> {
   if (process.platform !== "win32") return [];
   const systemDrive = process.env.SystemDrive || "C:";
@@ -582,6 +585,11 @@ export async function enumerateSafeWindowsUsbDevices(
     const devices = await finishRemovableEnumeration(removable, includeHealth, logPrefix);
     if (!fixedDriveMounted) return devices;
     const listed = new Set(devices.map((device) => normalizeRoot(device.rootPath)));
+    // The physical rows for a root already listed are dropped by the filter below, so for a target
+    // the native script already listed this pass cannot change the row the caller matches — it only
+    // cost the preparation one more powershell.exe per revalidation whenever any non-system Fixed
+    // drive (an internal D:) was mounted. [[electron-main-preparo-em-pc-lento-para-a-copia-a-cada-revalidacao-usb-e-a-fisica-de-hd-entra-em-toda-revalidacao_2026-10-10T23-00]]
+    if (targetRoot && listed.has(normalizeRoot(targetRoot))) return devices;
     try {
       const fixed = (
         await parseOutput(
@@ -768,7 +776,7 @@ export async function requireSafeWindowsUsbTarget(
   const normalizedRoot = normalizeRoot(rootPath);
   let devices: SafeUsbDevice[];
   try {
-    devices = await enumerateSafeWindowsUsbDevices();
+    devices = await enumerateSafeWindowsUsbDevices(false, normalizedRoot);
   } catch (error) {
     throw await explainSlowEnumeration(error, normalizedRoot);
   }

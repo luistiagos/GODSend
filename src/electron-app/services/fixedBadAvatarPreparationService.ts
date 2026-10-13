@@ -39,6 +39,8 @@ import { assessXboxLayout } from "../infrastructure/xboxDiskLayoutPolicy";
 
 const PACKAGE_INDEX_FILE_NAME = "badavatar-package.json";
 const DEVICE_REVALIDATION_INTERVAL_MS = 10_000;
+const DEVICE_REVALIDATION_INTERVAL_CEILING_MS = 30_000;
+const DEVICE_REVALIDATION_DURATION_FACTOR = 4;
 
 interface FixedPayloadPackageIndex {
   schemaVersion: 1;
@@ -457,8 +459,23 @@ export async function requireXboxReadableLayout(
   );
 }
 
-function createThrottledUsbTargetRevalidator(root: string, fingerprint: string): () => Promise<void> {
+/**
+ * Time between full revalidations when the last one took `lastFullValidationMs`. The copy waits
+ * for each full revalidation, so a fixed 10 s interval on a PC where it takes ~7 s left ~40% of the
+ * write phase waiting on PowerShell; spacing it at 4 × its duration keeps that wait near 20%.
+ * Never below 10 s, never above 30 s, so a swapped device is still caught within half a minute.
+ * [[electron-main-preparo-em-pc-lento-para-a-copia-a-cada-revalidacao-usb-e-a-fisica-de-hd-entra-em-toda-revalidacao_2026-10-10T23-00]]
+ */
+export function revalidationIntervalFor(lastFullValidationMs: number): number {
+  return Math.min(
+    DEVICE_REVALIDATION_INTERVAL_CEILING_MS,
+    Math.max(DEVICE_REVALIDATION_INTERVAL_MS, lastFullValidationMs * DEVICE_REVALIDATION_DURATION_FACTOR),
+  );
+}
+
+export function createThrottledUsbTargetRevalidator(root: string, fingerprint: string): () => Promise<void> {
   let lastFullValidationAt = 0;
+  let lastFullValidationMs = 0;
   let pendingFullValidation: Promise<void> | null = null;
 
   return async () => {
@@ -470,12 +487,14 @@ function createThrottledUsbTargetRevalidator(root: string, fingerprint: string):
     }
 
     const now = Date.now();
-    if (now - lastFullValidationAt < DEVICE_REVALIDATION_INTERVAL_MS) return;
+    if (now - lastFullValidationAt < revalidationIntervalFor(lastFullValidationMs)) return;
 
     if (!pendingFullValidation) {
+      const startedAt = Date.now();
       pendingFullValidation = requireSafeWindowsUsbTarget(root, fingerprint)
         .then(() => {
           lastFullValidationAt = Date.now();
+          lastFullValidationMs = lastFullValidationAt - startedAt;
         })
         .finally(() => {
           pendingFullValidation = null;
