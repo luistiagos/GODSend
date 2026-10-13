@@ -1,5 +1,23 @@
 # Bug: o backend Go (`godsend.exe`) sai sem identidade e com hash novo a cada release, e o antivírus o trata como executável nunca visto
 
+## Status
+
+- **Corrigido em:** 2026-10-12 (pipeline 20261012-1854, dev rodada 1); **testado** em 2026-10-13 05:18–05:30 (teste rodada 1, aprovado).
+- **Commit do fix:** `2bc5d87` — `fix(build): backend Windows com VERSIONINFO e build reprodutivel (-trimpath -buildvcs=false)`.
+- **Onde:** `scripts/build-server.js::goBuildArgs` (x64 e ia32 com `-trimpath -buildvcs=false`); `scripts/build-go-all.js` (laço `targets`, mesmas flags); `src/server/winres.json` (fonte go-winres: `RT_VERSION` 1.0.0.0 + `RT_GROUP_ICON`, sem manifesto, sem timestamp) → `src/server/rsrc_windows_amd64.syso` / `rsrc_windows_386.syso` (commitados); `docs/building.md`.
+- **Evidência:** `C:\projects\.bugfix-xbox360\evidencia\20261013-0518-release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14\`
+- **Offline (no `dist\` da lane, após o `build` do helper rc 0):**
+  - P-off-1: x64, ia32 e `godsend.exe` → `ProductName` `Xbox 360 Companion`, `CompanyName` `Nesquin and ghosty99`, `FileDescription` `Xbox 360 Companion - servico local (backend)`, `OriginalFilename` `godsend-backend.exe`, `FileVersion` `1.0.0.0`. Controle (base, `dist\` da árvore principal, 2026-10-12 18:22): os três campos vazios.
+  - P-off-2: `go version -m` → `-trimpath=true`, **0** linhas `vcs.` (x64 e ia32). Base: 3 linhas `vcs.`.
+  - P-off-3: `grep -a -c "C:/Users/"` = 0 e `grep -a -c "Downloader-XBOX360\|bugfix-xbox360"` = 0 (x64 e ia32). Base: `C:/Users/` presente.
+  - P-off-4 (reprodutível, go1.26.6): SHA-256 x64 `EF23D53E…284BB461`, ia32 `3F4DC067…D6CB2B6` — **idênticos** aos registrados pelo dev, num build de outra sessão. O HEAD do teste é o mesmo commit (o `sync` não mudou nada: branch já sobre `origin/main` `d242b16`).
+  - P-off-5: `go list -f '{{.SysoFiles}}'` → linux/amd64 `[]`, darwin/arm64 `[]`, windows/amd64 `[rsrc_windows_amd64.syso]`, windows/386 `[rsrc_windows_386.syso]`.
+- **T2 (app da lane, modo dev, Playwright `_electron.launch` sobre `src/electron-app`; script `t2-backend-identidade.cjs`):** o Electron subiu o backend da lane (`APP_BACKEND spawned pid=59704`); console da Home com `Xbox 360 Companion Backend Server v2.12.110` e `Server bind: 127.0.0.1:8082` (`t2-home.png`, `t2-home-console.txt`); `Get-Process godsend-windows-x64` → `Path` `C:\projects\.bugfix-xbox360\lanes\wt-1\dist\godsend-windows-x64.exe`, `Description` `Xbox 360 Companion - servico local (backend)`, `Product` `Xbox 360 Companion` (`t2-get-process.json`); "Baixar Jogos" carregou o catálogo Xbox 360 (3027 títulos, `t2-baixar-jogos.png`). Sem manifesto, o processo sobe igual. Para a Home mostrar o console, o `config.json` do userData dev recebeu `simpleMode:false` durante o teste e foi devolvido ao original (`config.json.orig`).
+- **T3:** `go test -count=1 ./...` em `src/server` rc 0 (11 pacotes `ok`, `t3-go-test.txt`); `npm --prefix src/electron-app run test:safety` rc 0, **339 pass / 0 fail** (`t3-test-safety.txt`). O `verify-go-binaries.js windows-all` do fim do `build:server` aceitou os três PE com o recurso.
+- **T4:** log do app filtrado pelo PID do meu launch (`t4-app-log-pid24656.txt`): só a violação de CSP da fonte do Google e os dois `QUEUE RESUME … restaurado como Erro` da fila rastreada da lane — os dois aparecem igual no run de outra sessão às 07:22Z (preexistentes) — e o SIGTERM do meu fechamento. Nenhum erro atribuível ao fix.
+- **Não testado aqui:** `build:server:all` (`build-go-all.js`), conferido só pela diff (o helper não o roda); reputação no antivírus (depende do Kaspersky/Defender do cliente).
+- **Falta para `closed/`:** versão publicada pelo dono (subida de versão + `build-and-upload.ps1`) e, no `godsend-backend.exe` instalado por essa release, conferir P-off-1 e P-off-3; enviar o backend à Microsoft/Kaspersky se aparecer alerta de cliente. Não depende de disco real nem do console.
+
 - **Detectado em:** 2026-10-11 00:14 (horário local), investigação
 - **Origem:** alerta do Kaspersky `VHO:Trojan-PSW.Win32.Convagent.gen` no `torrent.test.exe` que o `go test` gera em `%TEMP%\go-build…` na máquina de desenvolvimento (pacote `src/server/infrastructure/torrent`). Esse arquivo nunca chega ao cliente, mas o backend publicado é compilado do mesmo código. Daí a leitura de `scripts/build-server.js`, `scripts/build-go-all.js`, `src/server/main.go`, `src/server/embed_titles.go`, `src/electron-app/services/backendClient.ts` e `settingsService.ts::buildGodsendEnv`, e a medição nos binários de `dist/`
 - **Classe:** distribuição/release (falso positivo de antivírus), sem crash
