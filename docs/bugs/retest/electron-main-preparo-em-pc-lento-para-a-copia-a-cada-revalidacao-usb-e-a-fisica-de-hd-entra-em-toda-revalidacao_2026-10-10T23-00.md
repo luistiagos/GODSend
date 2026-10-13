@@ -1,5 +1,47 @@
 # Bug: em PC lento o preparo do pendrive para a cópia a cada revalidação USB (~7 s de PowerShell a cada ~17 s), e com uma unidade fixa não-sistema (D: interno) cada revalidação roda também a enumeração física
 
+## Status
+
+- **Corrigido:** 2026-10-12 (pipeline 20261012-1854, rodada 1 do dev); **testado:** 2026-10-13 (teste rodada 1, aprovado).
+- **Commit do fix:** `7b8c921` — `fix(usb): revalidacao do preparo espaca com a duracao e pula a fisica de HD para alvo ja listado`.
+- **Onde:** `src/electron-app/infrastructure/windowsUsbDeviceService.ts::enumerateSafeWindowsUsbDevices` (alvo opcional;
+  `finishNative` pula a física quando a nativa já listou o alvo) e `::requireSafeWindowsUsbTarget` (passa o alvo);
+  `src/electron-app/services/fixedBadAvatarPreparationService.ts::revalidationIntervalFor` (novo: 4 × a última
+  validação, entre 10 e 30 s) e `::createThrottledUsbTargetRevalidator` (mede a validação e usa o intervalo).
+- **Evidência:** `C:\projects\.bugfix-xbox360\evidencia\20261013-0532-electron-main-preparo-em-pc-lento\`
+  (`e2e-prepare.cjs`, `slow-ps-shim.cjs`, `<variante>-result.json`, `-log-janela.txt`, prints `01..04`).
+  - **Offline:** `node --test tests/unit/usbFixedDriveMerge.test.cjs tests/unit/preparationRevalidationInterval.test.cjs tests/unit/powershellSlowMachine.test.cjs` → 14/14 pass.
+  - **T2 (app da lane pela UI, Playwright `_electron.launch`):** Home → Xbox Bloqueado ou LT → Gravar em um Pendrive ou HD →
+    pendrive de teste `E:\` (serial `247700023090`, disco 2) → "Formatar antes" DESMARCADO → requisitos aceitos →
+    "Preparar pendrive/HD" até "Pronto! O pendrive está preparado". A máquina tem D: interno (dispara a física).
+    Antes de cada rodada o estado de preparo do pendrive (`.xbox-downloader\transactions`, marcador, `preparo.json`)
+    foi apagado (`reset-pendrive.ps1`) para as quatro rodadas copiarem o pacote inteiro. Controle = o JS compilado
+    da lane com o fix revertido (`js-base/`, só as 3 linhas do diff), restaurado e conferido por sha256 depois.
+
+    | Rodada | Tempo do preparo | Nativas | **Físicas de HD** | Intervalo entre validações | PowerShell/min |
+    |---|---|---|---|---|---|
+    | base, PowerShell normal (controle) | 191,8 s | 16 | **16** | ~12 s | 10,0 |
+    | fix, PowerShell normal | 164,7 s | 16 | **0** | ~10,4 s | 5,8 |
+    | base, PowerShell +6 s (controle, PC lento) | 406,5 s | 17 | **17** | ~24,3 s | 5,0 |
+    | fix, PowerShell +6 s | **218,3 s** | 8 | **0** | ~32 s (4 × 6,4 s, teto 30 s + a validação) | 2,2 |
+
+    Sinal do sintoma (uma `enumeracao fisica de HD USB` por revalidação, cópia parada ~40% do tempo no PC lento)
+    PRESENTE na base e AUSENTE com o fix; o preparo termina com sucesso nas quatro. No PC lento simulado o preparo
+    caiu de 406,5 s para 218,3 s (−46%). A lista da tela (sem alvo) continua abrindo a física antes do clique
+    (esperado) e mostrando o pendrive. O PC lento é simulado por `slow-ps-shim.cjs` (carregado no processo
+    principal via `electronApp.evaluate`: cada `powershell.exe` do serviço USB começa 6 s depois; log confirma
+    `respondeu em 6409–7676 ms`).
+  - **T3:** `go test -count=1 ./...` em `src/server` → rc 0 (11 pacotes `ok`; `t3-go-test.txt`);
+    `npm --prefix src/electron-app run test:safety` → 345 pass / 0 fail (`t3-test-safety.txt`).
+  - **T4:** logs do app por PID das quatro rodadas: nenhuma linha de erro na janela do preparo. Fora dela, só o
+    que a base também tem (console error do renderer no load; no PC lento, prazo de 5 s da primeira nativa e do
+    diagnóstico de integridade antes do aprendizado do prazo) — nada atribuível ao fix.
+- **Não testado na UI:** remover o pendrive no meio do preparo (coberto pelo unitário "pendrive inacessivel lanca a
+  cada chamada e zera o intervalo"; o `fs.access` por chamada não mudou).
+- **Falta para `closed/`:** versão publicada (subida de versão + `build-and-upload.ps1`, do dono); PC lento real
+  (cliente do chamado #157) — campo; HD USB externo real na revalidação (sem HD de teste; coberto pelo unitário
+  "revalidacao do preparo acha o HD com o pendrive conectado").
+
 - **Detectado em:** 2026-10-10 23:00 (leitura de código no planning do pipeline 20261010-2242)
 - **Origem:** achado lateral do pipeline em electron-main-powershell-lento-estoura-prazo-fixo-da-enumeracao-usb-e-preparo-falha-com-pendrive-presente_2026-10-07T20-40 — `services/fixedBadAvatarPreparationService.ts::createThrottledUsbTargetRevalidator`, `infrastructure/windowsUsbDeviceService.ts::enumerateSafeWindowsUsbDevices` (`finishNative`)
 - **Errors (serviço):** N/A (sem report; medido em simulação na 2.12.108)
@@ -51,8 +93,8 @@ A definir com a correção: contar enumerações durante um preparo simulado com
 
 ## Critérios para fechar
 
-- [ ] Custo medido (chamadas de PowerShell por minuto de cópia) antes e depois
-- [ ] A revalidação continua detectando troca de dispositivo (testes de `requireSafeWindowsUsbTarget`)
+- [x] Custo medido (chamadas de PowerShell por minuto de cópia) antes e depois
+- [x] A revalidação continua detectando troca de dispositivo (testes de `requireSafeWindowsUsbTarget`)
 - [ ] Validação em hardware real (PC lento) quando aplicável
 
 ## Planejamento (pipeline 20261012-1854, 2026-10-12)
