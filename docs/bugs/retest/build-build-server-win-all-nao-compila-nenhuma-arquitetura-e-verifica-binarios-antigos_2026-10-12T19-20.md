@@ -1,5 +1,14 @@
 # Bug: `npm run build:server:win:all` não compila nenhuma arquitetura e verifica os binários antigos de `dist/`
 
+## Status
+
+- **Corrigido em:** 2026-10-13, no mesmo commit do bug de origem (`205b514`, `scripts/build-server.js`: `--all` nas
+  condições de `buildX64`/`buildIa32`).
+- **Evidência:** controle positivo na base, `--all` não compila nada (`ctrl-base-all.log`); com o fix, `--all` compila
+  amd64 e 386 e verifica os três com mtimes novos (`t2c-fix-all.log`, `t2c-mtimes.txt`), em `C:\projects\.bugfix-xbox360\evidencia\20261013-0512-build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30`.
+  T3 no Status do bug de origem.
+- **Falta para `closed/`:** versão publicada (do dono) e o próximo `build-portable-local.ps1 -Arch all` do dono.
+
 - **Detectado em:** 2026-10-12 19:20 (leitura de código no planning, execução 20261012-1854)
 - **Origem:** achado lateral do pipeline em build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30 (`scripts/build-server.js`, cálculo de `buildX64`/`buildIa32`)
 - **Errors (serviço):** N/A (build local)

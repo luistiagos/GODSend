@@ -1,5 +1,29 @@
 # Bug: `npm run build:server:win:ia32` sozinho falha no verify, exigindo o `godsend.exe` x64
 
+## Status
+
+- **Corrigido em:** 2026-10-13 (pipeline 20261012-1854, rodada de teste 1 aprovada), sobre `origin/main` 73f3e5d.
+- **Commits:** `205b514` (fix) e `0a267bd` (doc do compile-check).
+- **Onde:** `scripts/build-server.js` — cálculo de `buildX64`/`buildIa32` (aceita `--all`) e chamada final ao verify
+  (`verifyTargets` = `windows` + `windows-x64` se `buildX64`; `windows-ia32` se `buildIa32` e o arquivo existir).
+- **Evidência** (`C:\projects\.bugfix-xbox360\evidencia\20261013-0512-build-build-server-ia32-sozinho-falha-no-verify-exigindo-o-godsend-exe-x64_2026-10-10T23-30`):
+  - Offline: `pipeline.py build` exit 0, `[verify] ✓` para os três `.exe`.
+  - Controle positivo (script da base copiado para `scripts/build-server.base.js`, apagado depois): sem os dois x64,
+    `--ia32` -> **exit 1**, `[verify] ✗ godsend.exe missing` (`ctrl-base-ia32.log`); `--all` -> nenhuma linha
+    `[build-server] windows/...`, só verifica os binários velhos (`ctrl-base-all.log`).
+  - T2-a (sem os dois x64, `--ia32`): **exit 0**, `[verify] ✓ godsend-windows-ia32.exe ... PE32 (ia32/386)`, sem
+    `missing`; `dist/` depois só com o ia32 (`t2a-fix-ia32.log`, `t2a-dist-depois.txt`). Os x64 foram devolvidos.
+  - T2-b (`--x64`): exit 0, verifica `godsend.exe` e `godsend-windows-x64.exe`; **também lista o ia32** (e repete o
+    x64) porque `verify-go-binaries.js::expand("windows")` acrescenta x64/ia32 se existirem. A base faz o mesmo com
+    `--x64`: não é regressão. Registrado à parte em [build-verify-go-binaries-windows-verifica-o-ia32-que-nao-foi-construido-e-duplica-linhas_2026-10-13T05-20](../open/build-verify-go-binaries-windows-verifica-o-ia32-que-nao-foi-construido-e-duplica-linhas_2026-10-13T05-20.md) (`t2b-fix-x64.log`).
+  - T2-c (`--all`): exit 0, `[build-server] windows/amd64` e `windows/386`, verifica os três; mtimes 05:12:38 >
+    início 05:12:37 (`t2c-fix-all.log`, `t2c-inicio.txt`, `t2c-mtimes.txt`).
+  - T3: `go test -count=1 ./...` em `src/server` rc 0 (11 pacotes `ok`); `test:safety` 339 pass / 0 fail
+    (`t3-go-test.log`, `t3-test-safety.log`).
+  - T4: bug de build, sem app; os logs do build não têm erro novo. `git status` da lane limpo depois do teste.
+- **Falta para `closed/`:** versão publicada (subida de versão + `build-and-upload.ps1`, do dono) e o dono
+  confirmar no próximo `build-portable-local.ps1 -Arch ia32`.
+
 - **Detectado em:** 2026-10-07 22:50 (build do portátil ia32 numa worktree limpa, sessão que fez a T3 do bug do 32 bits); registrado em 2026-10-10
 - **Origem:** achado lateral do pipeline em release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30 (`scripts/build-server.js`, chamada final a `scripts/verify-go-binaries.js`)
 - **Errors (serviço):** N/A (build local)
