@@ -265,6 +265,7 @@ report sai, o que bate com a Evidência 3.
    qualquer rip com o jogo na raiz e o disco de instalação ao lado.
 
 Os dois falham alto (erro na fila e na telemetria), não em silêncio, então ficam fora deste bug e do filtro.
+Abertos em [pipeline-conjunto-de-instalacao-do-disco-1-conferido-pelo-nome-recusa-pacotes-com-nome-de-hash_2026-10-16T06-24](pipeline-conjunto-de-instalacao-do-disco-1-conferido-pelo-nome-recusa-pacotes-com-nome-de-hash_2026-10-16T06-24.md) (1) e [pipeline-xex-com-default-xex-na-raiz-do-arquivo-nao-ve-o-content-ao-lado-e-recusa-disco-de-instalacao-que-veio-junto_2026-10-16T06-24](pipeline-xex-com-default-xex-na-raiz-do-arquivo-nao-ve-o-content-ao-lado-e-recusa-disco-de-instalacao-que-veio-junto_2026-10-16T06-24.md) (2).
 
 ### O que T4 faz
 
