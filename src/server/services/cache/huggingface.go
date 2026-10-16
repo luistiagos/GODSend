@@ -140,9 +140,23 @@ func (s *HuggingFaceService) Build(platform string) {
 	s.App.Logf("HUGGINGFACE CACHE: Complete — %d games", len(games))
 }
 
+// knownBadHuggingFaceFiles are catalog releases, by lowercased file name, that cannot deliver
+// the game they are listed as. Each was opened header by header (see the GTA V bug of 2026-10-15).
+var knownBadHuggingFaceFiles = map[string]bool{
+	// Only the playable Disc 2: the install packages it needs to boot are missing.
+	"gta 5 (7.61).7z": true,
+	// A Sleeping Dogs PT-BR rar with no Grand Theft Auto V file in it.
+	"grand theft auto v™ og online + dlc full ( xbox 360 rgh ).zip": true,
+	// Sleeping Dogs' default.xex sits at the root, so the XEX path installs Sleeping Dogs as GTA V.
+	"gta 5 pt-br + dlc + tu + save 100 % .god ( xbox 360 rgh ).zip": true,
+}
+
 func isKnownIncompleteHuggingFaceURL(raw string) bool {
-	lower := strings.ToLower(raw)
-	return strings.Contains(lower, "gta%205%20%287.61%29.7z") || strings.Contains(lower, "gta 5 (7.61).7z")
+	name := raw[strings.LastIndex(raw, "/")+1:]
+	if unescaped, err := url.PathUnescape(name); err == nil {
+		name = unescaped
+	}
+	return knownBadHuggingFaceFiles[strings.ToLower(name)]
 }
 
 func validHuggingFaceDownloadURL(raw string) bool {

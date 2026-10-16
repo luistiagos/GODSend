@@ -10,6 +10,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Duas entradas de GTA V do catálogo HuggingFace entregavam Sleeping Dogs (`src/server/services/cache/huggingface.go::isKnownIncompleteHuggingFaceURL`)**
+  - Caso: "Grand Theft Auto V™ OG ONLINE + DLC FULL" é um `.rar` só com Sleeping Dogs PT-BR. Em "GTA 5 PT-BR + DLC + TU + SAVE 100 % .GOD", o `default.xex` da raiz do zip é do Sleeping Dogs (TitleID `53510811`), e o caminho XEX o instalava como o jogo, com estado "Pronto". O cliente via "GTA abre outro jogo".
+  - Correção: o filtro de releases conhecidas reconhece a entrada pelo nome do arquivo na URL (decodificado, sem diferenciar maiúsculas) e passa a incluir essas duas, além do `GTA 5 (7.61).7z`. O cache já salvo em disco também é limpo.
+  - Testes: `src/server/services/cache/refresh_safety_test.go` (`TestHuggingFaceBuildRejectsGTA5ReleasesThatShipSleepingDogs`, `TestSanitizeHuggingFaceCacheRemovesGTA5ReleasesThatShipSleepingDogs`).
+  - Bug: [docs/bugs/open/pipeline-gta5-multidisco-termina-pronto-e-nao-inicia-no-console-reincidencia_2026-10-15T15-40.md](docs/bugs/open/pipeline-gta5-multidisco-termina-pronto-e-nao-inicia-no-console-reincidencia_2026-10-15T15-40.md) (T4)
 - **Backend Go Windows saía sem identidade (`VERSIONINFO` vazio) e com hash que mudava a cada build, mesmo sem mudança no Go (`scripts/build-server.js`, `scripts/build-go-all.js`, `src/server/winres.json`, `src/server/rsrc_windows_*.syso`)**
   - Causa: o `go build` carimbava o commit (`vcs.*`) e embutia caminhos locais (`C:/Users/...`, a pasta do checkout), e nenhum passo gerava recurso de versão. Antivírus com reputação por hash tratavam cada backend como executável nunca visto, sem nome de produto.
   - Correção: os builds Windows passam `-trimpath -buildvcs=false` (binário reprodutível); `winres.json` (go-winres) gera os `.syso` commitados com `ProductName` `Xbox 360 Companion`, empresa, descrição, `OriginalFilename` `godsend-backend.exe` e o ícone do app. Versão do recurso fixa `1.0.0.0` de propósito.

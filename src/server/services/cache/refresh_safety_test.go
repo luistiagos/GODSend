@@ -187,6 +187,57 @@ func TestHuggingFaceBuildRejectsIncompleteGTA5(t *testing.T) {
 	}
 }
 
+// Both releases are listed as Grand Theft Auto V and deliver Sleeping Dogs: "OG ONLINE" is a
+// Sleeping Dogs rar, and the PT-BR one keeps Sleeping Dogs' default.xex at the root of the zip,
+// which the XEX path installs as the game. The links are the API's own, encoding included.
+const (
+	hfGTA5OGOnlineSleepingDogs = "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/Grand%20Theft%20Auto%20V%E2%84%A2%20OG%20ONLINE%20%2B%20DLC%20FULL%20%28%20XBOX%20360%20RGH%20%29.zip"
+	hfGTA5PTBRSleepingDogsRoot = "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/GTA%205%20PT-BR%20%2B%20DLC%20%2B%20TU%20%2B%20SAVE%20100%20%25%20.GOD%20%28%20XBOX%20360%20RGH%20%29.zip"
+)
+
+func TestHuggingFaceBuildRejectsGTA5ReleasesThatShipSleepingDogs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+{"console":"Xbox 360 RGH","link":"` + hfGTA5OGOnlineSleepingDogs + `","path":"Grand Theft Auto V OG ONLINE + DLC FULL ( XBOX 360 RGH ).zip","size":"4.98 GiB"},
+{"console":"Xbox 360 RGH","link":"` + hfGTA5PTBRSleepingDogsRoot + `","path":"GTA 5 PT-BR + DLC + TU + SAVE 100 % .GOD ( XBOX 360 RGH ).zip","size":"21.96 GiB"},
+{"console":"Xbox 360 RGH","link":"https://archive.org/download/mx360gcpt3-x360-ztm/Grand.Theft.Auto.5.EUR.X360-ZTM.rar","path":"Grand Theft Auto 5.rar","size":"14.36 GiB"}
+]`))
+	}))
+	defer server.Close()
+
+	a := app.NewApp()
+	a.ToolsDir = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(a.ToolsDir, "cache"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	service := &HuggingFaceService{App: a, IA: &IAService{App: a}, CatalogURL: server.URL}
+
+	service.Build("xbox360")
+
+	for k, v := range a.GameEntryMap {
+		if v.FileName == hfGTA5OGOnlineSleepingDogs || v.FileName == hfGTA5PTBRSleepingDogsRoot {
+			t.Fatalf("entry %q points to a release that ships Sleeping Dogs: %s", k, v.FileName)
+		}
+	}
+	if games := a.IAGameCache["hf_xbox360"]; strings.Join(games, ",") != "GTA 5,Grand Theft Auto 5" {
+		t.Fatalf("expected only the ZTM release and its alias, got %v", games)
+	}
+}
+
+func TestSanitizeHuggingFaceCacheRemovesGTA5ReleasesThatShipSleepingDogs(t *testing.T) {
+	games := []string{"GTA 5 PT-BR + DLC + TU + SAVE 100 % .GOD ( XBOX 360 RGH )", "Grand Theft Auto V OG ONLINE + DLC FULL ( XBOX 360 RGH )"}
+	entries := map[string]models.IAGameEntry{
+		"xbox360\x00gta 5 pt-br + dlc + tu + save 100 % .god ( xbox 360 rgh )": {CollectionID: "21.96 GiB", FileName: hfGTA5PTBRSleepingDogsRoot},
+		"xbox360\x00grand theft auto v og online + dlc full ( xbox 360 rgh )":   {CollectionID: "4.98 GiB", FileName: hfGTA5OGOnlineSleepingDogs},
+	}
+
+	cleanGames, cleanEntries, _ := sanitizeHuggingFaceCache("xbox360", games, entries)
+	if len(cleanGames) != 0 || len(cleanEntries) != 0 {
+		t.Fatalf("a cache saved before the filter kept them: games=%v entries=%v", cleanGames, cleanEntries)
+	}
+}
+
 func TestSanitizeHuggingFaceCacheRemovesIncompleteGTA5(t *testing.T) {
 	games := []string{"GTA 5", "Grand Theft Auto 5"}
 	entries := map[string]models.IAGameEntry{
