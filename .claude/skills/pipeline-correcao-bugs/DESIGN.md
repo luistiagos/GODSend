@@ -328,7 +328,9 @@ virou *junction* para la, para o Claude Code encontra-la. O helper acha a raiz p
 1. **Dono:** `claude` uma vez em `C:\projects\retrobatnew`, aceitar o trust.
 2. `/pipeline-correcao-bugs preflight` VERDE, incluindo os itens novos: sessao em background na
    area de trabalho do dono, comando executado no modo `auto` sem ficar esperando permissao, status
-   conhecidos.
+   conhecidos. Sonda que nao roda o comando por limite de uso ou token invalido (o `quota_state` do
+   transcript dela) sai como `NAO TESTADO` com o motivo real, ainda VERMELHO; antes de 2026-10-16 isso
+   aparecia como "esperando permissao" (bug `pipeline-preflight-confunde-limite-de-uso-com-falta-de-permissao_2026-10-16`).
 3. Medir o 1o build do ES numa worktree (`build --bug`): sai em `wt-N\emulationstation-source\bin\
    x64\Release\` e quanto tempo leva.
 4. **[FEITO 2026-10-02, secao 17]** **Execucao piloto ACOMPANHADA** com 1 bug de complexidade baixa (lista de bugs com um item so),

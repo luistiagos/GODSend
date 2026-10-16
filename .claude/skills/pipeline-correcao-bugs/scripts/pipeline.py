@@ -2552,6 +2552,7 @@ def cmd_preflight(a):
                           f"Out-File -Encoding utf8 '{probe}'\"")
                 # Sem flags, como o `spawn` retoma: o comando abaixo so roda se a sessao acordar com o
                 # --permission-mode com que nasceu.
+                t_resume = time.time()
                 r = run(resume_cmd(exe, s["sessionId"],
                                    f"Rode exatamente este comando no PowerShell e depois responda OK2: {ps_cmd}"),
                         cwd=lane, check=False)
@@ -2563,11 +2564,17 @@ def cmd_preflight(a):
                 check(woke == s["sessionId"][:8],
                       f"o resume continuou a MESMA sessao (o CLI acordou {woke}, a sonda e {s['sessionId'][:8]})",
                       f"o CLI abriu uma copia. Saida: {' '.join((r.stdout or '').split())[-240:]}")
-                seen = set()
+                seen, q = set(), {"kind": None}
                 for _ in range(60):                   # ate 2 min para a sessao rodar o comando
                     seen |= {x.get("status") for x in agents() if x.get("sessionId") == s["sessionId"]}
                     if probe.exists():
                         break
+                    # Conta no limite (ou token invalido) tambem "nao roda o comando": sem ler o transcript
+                    # o check culpava a permissao [[pipeline-preflight-confunde-limite-de-uso-com-falta-de-permissao_2026-10-16]]
+                    q = quota_state(s["sessionId"])
+                    if q["kind"] and q["ts"] >= t_resume - 5:
+                        break
+                    q = {"kind": None}
                     time.sleep(2)
                 print(f"        status vistos para a sessao em background: {sorted(map(str, seen))}")
                 unknown = {x for x in seen if x not in RESUMABLE | {"busy", None}}
@@ -2576,9 +2583,22 @@ def cmd_preflight(a):
                 me = run(["powershell", "-NoProfile", "-Command", f"(Get-Process -Id {os.getpid()}).SessionId"],
                          check=False).stdout.strip()
                 got = json.loads(probe.read_text(encoding="utf-8-sig")) if probe.exists() else {}
-                check(bool(got), "sessao em background executou comando (permissao no modo auto)",
-                      "a sessao nao rodou o comando em 2 min: provavelmente esperando permissao — `claude logs` "
-                      "dela (o preflight a encerra no fim)")
+                again = "e rode o preflight de novo"
+                if not got and q["kind"] == "limit":
+                    reset = dt.datetime.fromtimestamp(q["resets_at"]).strftime("%d/%m %H:%M")
+                    check(False, "sessao em background executou comando (permissao no modo auto) — NAO TESTADO: "
+                          f"a conta ativa bateu o limite de uso ({q.get('type') or 'tipo ?'}, volta "
+                          f"{'~' if q.get('estimated') else ''}{reset})",
+                          "nao e permissao: espere o reset, ou arme o rodizio (`accounts activate --label X` num "
+                          f"PowerShell seu, fora do Claude), {again}")
+                elif not got and q["kind"] == "auth":
+                    check(False, "sessao em background executou comando (permissao no modo auto) — NAO TESTADO: "
+                          f"a conta ativa recusou a autenticacao ({q.get('text', '')[:80]})",
+                          f"nao e permissao: `/login`, ou `accounts activate --label X` num PowerShell seu, {again}")
+                else:
+                    check(bool(got), "sessao em background executou comando (permissao no modo auto)",
+                          "a sessao nao rodou o comando em 2 min: provavelmente esperando permissao — `claude logs` "
+                          "dela (o preflight a encerra no fim)")
                 if got and E2E.get("desktop"):   # so o projeto cujo E2E usa a area de trabalho (SendInput/foco)
                     check(str(got.get("session")) == me and got.get("interactive"),
                           f"sessao em background roda na area de trabalho do dono (sessao Windows {got.get('session')} "

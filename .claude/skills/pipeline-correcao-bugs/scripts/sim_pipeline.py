@@ -472,6 +472,28 @@ code, out = probe_preflight()
 check("[OK]   o resume continuou a MESMA sessao (o CLI acordou dddd7777, a sonda e dddd7777)" in out
       and stops_of() == ["dddd7777", "dddd7777"],
       f"[resume] preflight: CLI que acorda a mesma sessao passa; a sonda e parada antes do resume e no fim ({stops_of()})")
+check("provavelmente esperando permissao" in out and "NAO TESTADO" not in out,
+      "[piloto sonda] sem arquivo da sonda e sem limite no transcript: culpa a permissao (controle)")
+# Bug pipeline-preflight-confunde-limite-de-uso-com-falta-de-permissao_2026-10-16: a sonda que bate o limite
+# (forma medida no 57105df9) nao e "esperando permissao".
+R.CLAUDE_PROJECTS = tmp / "projects-sonda"; (R.CLAUDE_PROJECTS / "C--lane").mkdir(parents=True)
+sonda_t = R.CLAUDE_PROJECTS / "C--lane" / "dddd7777-8888.jsonl"
+def sonda_hit(text="You've hit your session limit", **extra):
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    sonda_t.write_text(json.dumps({"type": "user", "timestamp": now, "message": {"content": "Rode..."}}) + "\n" + json.dumps(
+        {"type": "assistant", "timestamp": now, "isApiErrorMessage": True,
+         "message": {"model": "<synthetic>", "content": [{"type": "text", "text": text}]},
+         **extra}) + "\n", encoding="utf-8")
+sonda_hit(quotaLimits={"status": "rejected", "resetsAt": 1792147800, "rateLimitType": "five_hour"})
+probe_calls.clear(); code, out = probe_preflight()
+check("NAO TESTADO: a conta ativa bateu o limite de uso (five_hour, volta" in out
+      and "provavelmente esperando permissao" not in out and code == 1,
+      "[piloto sonda] sonda no limite de uso: o check diz o limite e o reset, nao 'esperando permissao' (e segue vermelho)")
+sonda_hit("Failed to authenticate. API Error: 401", error="authentication_failed", apiErrorStatus=401)
+probe_calls.clear(); code, out = probe_preflight()
+check("NAO TESTADO: a conta ativa recusou a autenticacao" in out and "provavelmente esperando permissao" not in out,
+      "[piloto sonda] sonda com token invalido: o check diz autenticacao, nao permissao")
+sonda_t.unlink()
 probe_calls.clear(); boom[0] = True
 try:
     R.cmd_preflight(types.SimpleNamespace(skip_spawn=False)); check(False, "[piloto sonda] erro simulado nao subiu")
