@@ -215,18 +215,79 @@ repetir, são ~1 h de download (IA a 4–4,5 MB/s). O script que lê a raiz (`xd
 aplica as duas regras de `parseDirSector`) ficou só no scratchpad desta sessão. Se T3 precisar dele, reescrever a partir da
 descrição acima.
 
+## T4 — inspeção das entradas de GTA V do catálogo (2026-10-16)
+
+**Resultado: "OG ONLINE" é Sleeping Dogs PT-BR inteiro, e a entrada PT-BR entrega Sleeping Dogs como se fosse GTA V (o
+`default.xex` da raiz do zip é do Sleeping Dogs). Isso bate com o relato *"GTA tá abrindo outro jogo"* (143516). As duas
+saem do app. DARK e Definitive trazem o conjunto do Disco 1, mas a pipeline as rejeita com erro (não em silêncio), por dois
+defeitos de código que ficam registrados à parte.**
+
+### Como foi medido
+
+Nada foi baixado inteiro. Por HTTP Range, scripts do scratchpad desta sessão (`t4/zipls.py`, `t4/hdr.py`, `t4/rarls.py`):
+leitura do diretório central de cada `.zip` (com zip64), depois dos primeiros 4 KiB de cada membro relevante (stored lido
+direto; deflate descomprimido com `zlib` raw). Cabeçalho STFS: magia em `0x0`, tipo em `0x344`, MediaID em `0x354`, TitleID
+em `0x360`, disco em `0x366/0x367`, nome em `0x411`. XEX2: cabeçalho opcional `0x00040006` (MediaID, TitleID, disco N/M).
+O `.rar` dentro do zip OG foi listado andando pelos cabeçalhos RAR5. Catálogo: `curl -s
+"https://emuladores.pythonanywhere.com/api/rom/list?system=xbox360rgh&source_id=1"` → 1.932 itens em 16/10, as mesmas
+seis entradas de GTA V da Evidência 5 (todas de `luisluis123/xboxrghgames`, menos ZTM e `GTA 5 7z`).
+
+### O que cada arquivo contém
+
+| entrada | conteúdo medido | conjunto do Disco 1 (4 PIRS `545408A7` tipo `0x2`) | o que a pipeline faz (código aberto) |
+|---|---|---|---|
+| `Grand Theft Auto V™ OG ONLINE + DLC FULL` (4,98 GiB) | 1 membro, `sdfasdasdfas.rar` (stored, RAR5): 65 entradas, todas `SLEEPING DOGS PT-BR/...` + 4 atalhos `.url` "GorozinhoBR". **Nenhum arquivo de GTA V.** | não | instala Sleeping Dogs como XEX com o nome do GTA |
+| `GTA 5 PT-BR + DLC + TU + SAVE 100 % .GOD` (21,96 GiB) | raiz = Sleeping Dogs PT-BR completo (`default.xex` XEX2 TitleID **`0x53510811`**, MediaID `0x76B40B17`, disco 1/1; `Game.big`, `data/movies/sleepingdogstitle.bik`...) + `Content/0000000000000000/545408A7/`: GOD `00007000/7AA7931FF6863459F017` (`LIVE`, `545408A7`, MediaID `79E465C5`, disco **2/2**, 49 `Data`); `00000002/` com os 4 PIRS `gtav - part0..3` sob **nomes de hash** (bytes idênticos aos de T1: 2.146.643.968 / 2.147.262.464 / 2.146.807.808 / 1.817.518.080) + 12 DLC `LIVE`; TU `000B0000/tu00000009_00000000`; save em `Content/E0002723BD60C9B5/` | sim, com nomes de hash | **entrega Sleeping Dogs como "Pronto"** (abaixo) |
+| `GTA V MOD DARK V25` (16,61 GiB) | só `Content/`: o mesmo GOD 2/2 (`7AA7931FF6863459F017`, 51 `Data`, nome "Grand Theft Auto V DARK V25"), os mesmos 4 PIRS com nomes de hash, 12 DLC, TU, save | sim, com nomes de hash | caminho GOD: o conjunto é ignorado e o job falha com "release incompleta" se o destino ainda não tem os 4 PIRS |
+| `Grand Theft Auto V + MOD Definitive Edition 1.5.1` (16,34 GiB) | raiz = GTA V jogável em XEX (`default.xex` TitleID `0x545408A7`, MediaID `79E465C5`, disco **2/2**; `xbox360a/b.rpf`, `sfx/`) + `Content/.../545408A7/00000002/` com os 4 PIRS nomeados **`545408A70000000[0-3]`** (`gtav - part0..3`) + DLC, `00009000`, TU "Definitive Edition 1.5.1 PT-BR" | sim, nomes certos | caminho XEX: o `Content/` da raiz não é visto, e o job falha com "release incompleta" se o destino ainda não tem os 4 PIRS |
+| `GTA BRASIL PROJECT KAIZO 2.1` (2,54 GiB) | GOD de `545408B8` (não é GTA V) | — | fora do escopo de T4 |
+
+### Caminho do PT-BR, provado pelo código
+
+`services/pipeline/huggingface.go` (L68-119): `helpers.FindXEXFolder(extDir)` (`helpers.go` L247-267) acha um único
+`default.xex`, o da raiz, e devolve `extDir`. `isInstallDiscFolder` não se aplica (`0x53510811` não está na tabela).
+`installCompanionDiscContent(gameName, extDir, xexFolder=extDir)` → `helpers.FindCompanionContentPayloads(extDir,
+excludeDir=extDir)` (`multi_disc.go` L58-87): a raiz está dentro de `excludeDir` e `utils.CompanionDiscFolders` não acha
+outro `default.xex` com o mesmo TitleID, então dá `SkipDir` na raiz e não há payloads. `playableTitleID(extDir)` = `0x53510811`,
+que não está em `mandatoryInstallDiscs`, então `requireInstallContent` não age. `InstallXEXLocal(extDir, ...)` copia a raiz
+inteira (Sleeping Dogs + a árvore `Content/` do GTA dentro da pasta do jogo, onde o console não lê) para
+`Games/<nome do GTA>`. O maior arquivo tem 2,02 GiB, então o corte FAT32 não pega. O job termina `Ready` sem aviso e nenhum
+report sai, o que bate com a Evidência 3.
+
+### Defeitos de código achados (fora do escopo de T4, para bug próprio)
+
+1. **Conjunto de instalação conferido pelo nome do arquivo.** `models/compat.go::mandatoryInstallDiscs` lista
+   `545408A70000000[0-3]`, e `helpers.LocalPackageProbe` (L243-258) procura por nome. Os mesmos pacotes com nome de hash
+   (PT-BR, DARK) dão "faltam ...". `mandatoryPayloadProblem` ignora o conjunto e `requireInstallContent` falha o job.
+   Falta saber se o console aceita esses pacotes com nome de hash. O nome que o instalador do disco grava não foi medido.
+2. **`default.xex` na raiz esconde o `Content/` irmão.** Com `xexFolder == extDir`, `FindCompanionContentPayloads` pula a
+   árvore inteira. Isso afeta a Definitive (conjunto completo e bem nomeado, rejeitado como "não veio no arquivo baixado") e
+   qualquer rip com o jogo na raiz e o disco de instalação ao lado.
+
+Os dois falham alto (erro na fila e na telemetria), não em silêncio, então ficam fora deste bug e do filtro.
+
+### O que T4 faz
+
+- **App:** `services/cache/huggingface.go::isKnownIncompleteHuggingFaceURL` passa a reconhecer as entradas pelo nome do
+  arquivo (último segmento da URL, decodificado, sem diferenciar maiúsculas) e inclui `Grand Theft Auto V™ OG ONLINE + DLC
+  FULL ( XBOX 360 RGH ).zip` e `GTA 5 PT-BR + DLC + TU + SAVE 100 % .GOD ( XBOX 360 RGH ).zip`, além do `GTA 5 (7.61).7z`
+  que já estava lá. Teste: `cache/refresh_safety_test.go`, com as duas URLs reais da API no `Build` e no
+  `sanitizeHuggingFaceCache` (cache em disco), que falha contra o código atual.
+- **Dono (catálogo remoto):** tirar da API a OG ONLINE (é Sleeping Dogs) e a PT-BR (ou republicar sem o Sleeping Dogs na
+  raiz). Tirar também a `GTA 5 7z` (só Disco 2), que hoje só o app filtra.
+
 ## Tasks
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
 | T1 | reproduzir o par Redump GTA V na 2.12.110 (medição) | -- (sem código) | medido: par entregue (4 PIRS do Disco 1 + GOD disco 2/2), `Ready` sem aviso; causa dos erros antigos = `0230c7d` (seção T1) | claude-opus-5-5 | -- |
 | T2 | reavaliar disco jogável entregue "com aviso" quando o Disco 1 falha | -- | -- | -- | -- |
 | T3 | resolveISOInstallType falha cedo e lista a raiz quando a tabela diz content e a ISO não tem árvore | -- | -- | -- | -- |
-| T4 | validar/remover entradas de GTA V não conferidas do catálogo | -- | -- | -- | -- |
+| T4 | validar/remover entradas de GTA V não conferidas do catálogo | `2d58c66` | inspecionado (seção T4): OG ONLINE e PT-BR entregam Sleeping Dogs → filtradas no app; DARK/Definitive falham alto (defeitos de código à parte); remoção da API = ação do dono | claude-opus-5-5 | -- |
 | T5 | Alien Isolation: conjunto do Disco 1 e irmãos entre regiões | -- | -- | -- | -- |
 
 ## Critérios para fechar
 - [ ] Caminho que atingiu o cliente identificado (print da Fila) e coberto por uma das tasks
 - [x] T1 medido: Disco 1 Redump instala na versão atual, ou causa isolada e corrigida (instala na 2.12.110; causa antiga = `0230c7d`)
 - [ ] Nenhum caminho entrega GTA V como "Pronto" sem os quatro pacotes do Disco 1 no destino (teste automatizado)
-- [ ] Entradas de GTA V do catálogo conferidas ou retiradas
+- [ ] Entradas de GTA V do catálogo conferidas ou retiradas (conferidas e filtradas no app em `2d58c66`; falta o dono tirar OG ONLINE, PT-BR e `GTA 5 7z` da API)
 - [ ] Boot no console (o cliente desta sessão é o candidato natural)
