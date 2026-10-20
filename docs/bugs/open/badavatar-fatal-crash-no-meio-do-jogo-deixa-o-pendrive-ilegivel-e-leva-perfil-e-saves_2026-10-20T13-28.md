@@ -178,3 +178,26 @@ repreparar/formatar). Com o dump em mãos, ler o módulo/endereço e decidir ent
 - `npm run test:safety` → 349/349.
 - **Continua faltando:** o controle positivo (pendrive sujo de verdade → bloqueia), para o retest. O bug **fica em
   `open`**, porque a causa do crash (tarefa 1, o `crashlog.txt`) não foi resolvida.
+
+### E2E da 3a pela UI (2026-10-20, app dev 2.12.114, pendrive de teste `247700023090` = E:)
+
+Playwright `_electron.launch` sobre `main.js` (com `--disable-gpu`: sem ele a captura de tela derrubava o renderer com
+`UnknownVizError`; e sem `ELECTRON_RUN_AS_NODE`, que o terminal do VS Code herda). Caminho do cliente: "Preparar outro
+pendrive/HD" → "Xbox Bloqueado ou LT" → "Avançar" → "Gravar em um Pendrive ou HD" → E:, "Formatar antes" desmarcado,
+requisitos marcados → "Preparar pendrive/HD". Evidência: `C:\projects\.bugfix-xbox360\evidencia\20261020-1551-badavatar-fatal-crash-3a\`.
+
+- **Controle positivo:** bit ligado com `fsutil dirty set E:` (UAC aprovado pelo dono). Com o volume sujo, a tela ainda
+  dizia "Pronto para uso" (o `diagnoseDrive`/`Get-Volume` não vê o bit). Preparo → **bloqueou em 18 s** com a mensagem
+  nova ("Detalhe: o Windows marcou o volume como sujo"), barra a 3%, nada gravado no pendrive (`t2-sujo-05-resultado.png`;
+  log `APP_BADAVATAR sistema de arquivos danificado em E:\` às 19:08:52Z).
+- **Remédio da mensagem:** "Jogos Instalados" → "Reparar (CHKDSK)" → "Iniciar Reparo", **sem admin**: 12 s, "código 0,
+  reparado: true", e o bit voltou a `false`. O `chkdsk /f` num FAT32 removível roda sem elevação.
+- **Controle negativo:** pendrive limpo → o portão passou (3% → 20% → 24%). O preparo então falhou por outro motivo,
+  fora deste bug: "O diário transacional não pertence ao plano de escrita informado" (diário de 13/10 em
+  `.xbox-downloader/transactions`, mesmo `transactionId`, outro `planHash`). O portão só lê e não toca nesse diário. Na
+  telemetria há 3 clientes com esse erro desde 17/10 (10633, 10704, 10726, `open`); vira registro próprio.
+- **Telemetria do teste:** 11041 (o bloqueio) e 11054 (o diário) vieram deste E2E e não são de cliente.
+- **Positivo da varredura `findBrokenEntries` continua sem prova:** um nome terminado em ponto, gravado com `\\?\`, não
+  serve de dano simulado, porque o Node já usa `\\?\` em caminho absoluto e o `lstat` abre o arquivo. Simular dano real
+  pede escrita raw (admin). Achado lateral: o `chkdsk E:` só leitura **roda sem admin** e confere a FAT de verdade (~15 s
+  aqui). Seria um sinal melhor que a varredura, se a varredura não pegar o dano do Xbox.
