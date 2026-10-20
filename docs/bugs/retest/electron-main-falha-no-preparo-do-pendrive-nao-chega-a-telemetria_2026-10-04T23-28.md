@@ -166,3 +166,21 @@ e é por causa deste ponto cego que não há como medir.
 - 2026-10-11: `enqueue-test` recusou (saida 9: `CHANGELOG.md` nao reservado; o manual diz que ele nao entra na reserva, mas o helper exige) e o `claim` deu saida 8 (reservado por `electron-main-reparo-chkdsk-acusa-tempo-limite-de-5-min-mas-o-chkdsk-continua-rodando_2026-10-09T22-50`). Codigo commitado; `park` ate o dono liberar. Na retomada: `sync`, conferir a entrada do CHANGELOG e `enqueue-test`.
 - 2026-10-11: CHKDSK liberou; `sync` sobre origin/main @ 2e886d2 sem conflito. Novo `claim` do `CHANGELOG.md` deu saida 8 (agora reservado por `backend-iso2god-leitor-xdvdfs-para-no-primeiro-arquivo-vazio-e-extrai-iso-incompleta-sem-erro_2026-10-09T20-20`); `park` de novo.
 - 2026-10-11: iso2god liberou; `sync` sobre origin/main @ e5e658f sem conflito; `claim` do `CHANGELOG.md` ok. Rebuild rc 0; `node --test tests/unit/*.test.cjs` -> 311 pass / 0 fail. `enqueue-test`.
+
+## Evidência de campo — segundo cliente com `mkdir UNKNOWN` (chamado #18, triagem de 2026-10-20)
+
+Responde em parte ao que o "Falta para `closed/`" pede ("decide se o `mkdir UNKNOWN` é caso isolado"): **não é**.
+Este episódio é anterior ao fix (`203484d`, 11/10), então ele confirma a frequência mas **não** valida o reporte.
+
+- Sessão `258204978155575@lid`, 2026-09-18 UTC, app **v2.12.98** (o cliente atualizou de 2.12.43 pelo próprio app às
+  03:18, [111996]). Pendrive de 29,3 GB FAT32 vindo de um crash do console (doc
+  [[badavatar-fatal-crash-no-meio-do-jogo-deixa-o-pendrive-ilegivel-e-leva-perfil-e-saves_2026-10-20T13-28]]).
+- 03:22:41 [112006]: print com `UNKNOWN: unknown error, mkdir 'D:\xbox-downloader'`, com a barra quase completa. Como
+  no #144, a [DESCRIÇÃO] da visão deve ter perdido o ponto e o resto do caminho (`D:\.xbox-downloader\transactions`).
+- Mesmo remédio do #144: o agente mandou fechar o Explorer, trocar de porta e abrir como administrador ([112007]). O
+  preparo seguinte rodou (03:35, [112020]).
+- Telemetria: 0 linhas em `errors` na janela 18/09 03:00–05:30. Esperado, porque o episódio é pré-fix, e esta
+  instalação parece estar com a telemetria desligada (nem as falhas do pipeline daquela noite chegaram).
+- Novo dado sobre a causa: nos **dois** casos o volume estava em mau estado antes do preparo. Aqui ele vinha de um crash
+  com FAT suja; no #144 o mesmo volume falhou em `mkdir` dois dias depois, no pipeline. Fica como pista para a causa do
+  `mkdir UNKNOWN`, que segue fora deste bug.
