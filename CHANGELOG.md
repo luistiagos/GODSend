@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Preparo do pendrive BadAvatar recomeçava depois de chegar ao fim, várias vezes seguidas (`src/electron-app/renderer/components/BadAvatarUsbPage.tsx::canPrepare`)** (2.12.113)
+  - Caso: chamado #18 — a barra ia até o fim, ficava verde e voltava do começo por ~11 min; o cliente não sabia se podia tirar o pendrive.
+  - Causa: depois de um preparo concluído, o botão "Preparar pendrive/HD" voltava habilitado no mesmo lugar, e qualquer acionamento que chegasse (clique repetido, Enter, clique enfileirado com a janela travada) iniciava um preparo novo sem pergunta. Não há retentativa no serviço nem no escritor transacional.
+  - Correção: com o preparo concluído, o botão fica desabilitado e mostra "Pendrive pronto"; escolher outra unidade na lista libera de novo.
+  - Teste: Electron real com os handlers USB falsos — antes, 3 acionamentos depois do verde geravam 3 preparos novos; depois, nenhum (evidência em `C:\projects\.bugfix-xbox360\evidencia\20261020-1500-badavatar-preparo-recomeca-sozinho-depois-de-chegar-ao-fim_2026-10-20T13-28\`). `test:safety`: 345 pass / 0 fail.
+  - Bug: [docs/bugs/retest/badavatar-preparo-recomeca-sozinho-depois-de-chegar-ao-fim_2026-10-20T13-28.md](docs/bugs/retest/badavatar-preparo-recomeca-sozinho-depois-de-chegar-ao-fim_2026-10-20T13-28.md)
 - **Extração enchia o disco do PC no meio do caminho, depois do download inteiro, e a fila mostrava a mensagem crua meio em inglês (`src/server/utils/iso2god.go::ArchiveSpaceNeeded`, `src/server/services/pipeline/local_install.go::ensureScratchSpace`, `src/server/services/pipeline/fallback.go::localStagingMessage`)**
   - Caso: FIFA 18 (`.rar` do HuggingFace) baixou e falhou ao gravar `data3.big` com "There is not enough space on the disk", numa frase que repetia "falha no armazenamento de trabalho do PC".
   - Correção: antes de extrair (`extractArchiveResilient`, `extractISOResilient`), o tamanho descompactado é lido do índice do `.zip`/`.7z`/`.rar` (sem descompactar), descontando o que já foi extraído, e comparado com o espaço livre do volume. Se não couber, a tarefa para antes de gravar o primeiro byte. Quando o disco fica cheio, a fila mostra só uma frase em português com o volume (e os GB necessários/livres, na checagem prévia); o erro cru continua no log e na telemetria.

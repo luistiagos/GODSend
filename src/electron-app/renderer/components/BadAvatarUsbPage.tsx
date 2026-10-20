@@ -233,12 +233,17 @@ export default function BadAvatarUsbPage({
   useEffect(() => {
     if (!safeFormattingAvailable) setFormatDrive(false);
   }, [safeFormattingAvailable]);
+  // Um preparo concluído não rearma o botão: qualquer clique ou Enter que chegasse depois
+  // recomeçava tudo, e o cliente via a barra "voltar do começo" sem saber se podia tirar o
+  // pendrive. Escolher outra unidade na lista libera de novo
+  // [[badavatar-preparo-recomeca-sozinho-depois-de-chegar-ao-fim_2026-10-20T13-28]].
   const canPrepare = Boolean(
     preparationEnabled &&
       deviceAllowed &&
       (isRghOnly === true || (isRghOnly === false && requirementsAccepted)) &&
       !loading &&
-      !busy,
+      !busy &&
+      !done,
   );
 
   const deviceName = selectedDevice
@@ -502,7 +507,11 @@ export default function BadAvatarUsbPage({
                 className="h-11 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none focus:border-green-500/70"
                 value={selectedDrive}
                 disabled={loading || busy}
-                onChange={(event) => setSelectedDrive(event.target.value)}
+                onChange={(event) => {
+                  setSelectedDrive(event.target.value);
+                  setDone(false);
+                  setStatus("");
+                }}
               >
                 {drives.map((drive) => (
                   <option key={drive.fingerprint || drive.rootPath} value={drive.rootPath}>
@@ -714,8 +723,8 @@ export default function BadAvatarUsbPage({
             disabled={!canPrepare}
             onClick={handlePrepare}
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-            {busy ? "Preparando…" : "Preparar pendrive/HD"}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <Check className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+            {busy ? "Preparando…" : done ? "Pendrive pronto" : "Preparar pendrive/HD"}
           </Button>
         </div>
 

@@ -24,7 +24,7 @@ import (
 // appVersion is the single source of the backend version: both banners and the
 // telemetry user_agent use it ([[pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30]]).
 // main_test.go keeps it equal to package.json.
-const appVersion = "2.12.112"
+const appVersion = "2.12.113"
 
 func main() {
 	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v%s\n", appVersion)
