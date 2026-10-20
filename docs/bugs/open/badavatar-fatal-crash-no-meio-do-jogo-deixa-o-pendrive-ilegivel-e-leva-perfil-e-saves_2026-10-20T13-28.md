@@ -125,3 +125,56 @@ Hipóteses descartadas: nenhuma nesta sessão.
 
 Próximo passo exato: continua a tarefa 1 (suporte pedir o `crashlog.txt` e o print da raiz ao cliente, **antes** de ele
 repreparar/formatar). Com o dump em mãos, ler o módulo/endereço e decidir entre jogo, DashLaunch ou hardware.
+
+### 3a — como detectar o volume sujo (análise, dono escolheu a 3a em 2026-10-20)
+
+- **O "sujo" do Windows é só um bit do boot sector.** Fonte do FastFAT (`microsoft/Windows-driver-samples`,
+  `filesys/fastfat`): `verfysup.c::FatCheckDirtyBit` lê `CurrentHead & FAT_BOOT_SECTOR_DIRTY` (0x01, byte de flags NT do
+  boot sector) e liga `VCB_STATE_FLAG_MOUNTED_DIRTY`; `fsctrl.c::FatIsVolumeDirty` (FSCTL_IS_VOLUME_DIRTY, 0x90078)
+  devolve só esse flag. A FAT[1] (`ClnShutBit`) **não** é lida para isso. `FatIsVolumeDirty` não confere acesso: basta
+  um handle `UserVolumeOpen`.
+- **Consequência:** o bit só fica ligado se quem escreveu por último segue a convenção NT. O Windows segue (desconexão
+  no meio de uma gravação no PC). **Não se sabe se o kernel do Xbox 360 liga esse bit** — se não ligar, a detecção não
+  vê justamente a corrupção deste bug (crash no console).
+- **Sem admin, sem prova em FAT:** nesta máquina (sem admin, sem pendrive), `CreateFileW("\\.\C:", 0x80)` +
+  FSCTL_IS_VOLUME_DIRTY deu `ERROR_INVALID_FUNCTION` (1) em NTFS; `GENERIC_READ` deu `ERROR_ACCESS_DENIED` (5). Em FAT32
+  removível não testado.
+- **Sinal alternativo, sem admin:** o sintoma de 18/09 (o Windows lista a entrada mas não consegue apagá-la: "nome
+  inválido ou muito longo") é uma entrada de diretório que `readdir` devolve e `lstat` não abre. Uma varredura
+  `readdir` + `lstat` do pendrive acharia isso. Não testado; custo proporcional ao número de arquivos (o chkdsk levou
+  16 min para 65.912).
+- **Prova que falta para qualquer caminho:** um pendrive FAT32 de verdade — (1) o FSCTL sem admin; (2) um pendrive
+  sujo (ex.: pendrive que o Xbox deixou corrompido, ou um arrancado no meio de uma gravação no PC).
+
+**Prova num pendrive real (E:, FAT32 removível de 15,5 GB, sem admin, só leitura), 2026-10-20:**
+- `CreateFileW("\\.\E:", GENERIC_READ, share 3)` + FSCTL_IS_VOLUME_DIRTY → `state 0` (limpo). Com acesso `0` ou
+  `0x80` → `ERROR_INVALID_FUNCTION`: sem acesso a dados o handle vai para o volume, não para o FastFAT. Em `C:` (fixo)
+  `GENERIC_READ` → `ERROR_ACCESS_DENIED`; em removível abre. **Falta o controle positivo** (volume sujo → 1): pede admin
+  (`fsutil dirty set E:`) ou um pendrive sujo de verdade. Fica para o retest.
+- Varredura `readdir` + `lstat` (Node): 10.942 arquivos, 210 pastas, **0 falhas, 11,1 s**. Sem falso positivo. Falta o
+  controle positivo (pendrive com entrada corrompida).
+
+### Tarefas da 3a
+1. `src/electron-app/services/driveRepairService.ts` — `isVolumeDirty(root)` (FSCTL acima via PowerShell; `null` em
+   erro, nunca "limpo") e `findBrokenEntries(root)` (readdir+lstat; conta só código de corrupção, não `EACCES`/`EPERM`/
+   `EBUSY`). Teste: `tests/unit/driveRepairService.test.cjs` com `lstat`/`readdir` simulados.
+2. `src/electron-app/services/fixedBadAvatarPreparationService.ts::prepareFixedBadAvatarDevice` — sem "Formatar antes",
+   depois de recolher os vestígios e antes de qualquer gravação: volume sujo ou entrada quebrada → erro que manda usar
+   "Reparar (CHKDSK)" em "Jogos Instalados" (preserva o que der dos saves) ou marcar "Formatar antes" (apaga tudo).
+   Verificação que falha (`null`) não bloqueia, só registra. Teste: tsc + unidade da tarefa 1.
+
+### 3a implementada (2.12.114)
+
+- Feito como planejado, em `requireCleanFileSystem()` (exportada, chamada em `prepareFixedBadAvatarDevice` a 3%, depois
+  de `reportConsoleCrashArtifacts`, só quando `formatDrive` é falso).
+- **A implementação corrigiu a análise em dois pontos:**
+  - Na primeira rodada do portão no pendrive E:, a varredura acusou 5 arquivos `ENOENT` (`godsend-fat32-test-…/Games/EA FC
+    26/faces/face_121xx_….rx3`) que abriram em todas as rodadas seguintes. Causa não achada. Por isso `findBrokenEntries`
+    **repete a chamada que falhou** em cada suspeito depois da varredura e só acusa o que falha duas vezes.
+  - `'\\.\${driveLetter}:'` dentro do `String.raw` não interpola (o `\` antes de `${` escapa a substituição). O
+    PowerShell recebia o texto literal e o `CreateFileW` dava erro 2. O caminho agora é montado fora do template.
+- Prova pelo caminho real (`gate.js` com o JS compilado, no E:): `isVolumeDirty` → `false` em 1,4 s; `findBrokenEntries`
+  → `[]` em ~12 s; portão passou. `C:` (fixo) → `null` por acesso negado (erro 5), sem bloquear.
+- `npm run test:safety` → 349/349.
+- **Continua faltando:** o controle positivo (pendrive sujo de verdade → bloqueia), para o retest. O bug **fica em
+  `open`**, porque a causa do crash (tarefa 1, o `crashlog.txt`) não foi resolvida.

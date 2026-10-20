@@ -75,6 +75,12 @@ A mensagem na tela explica o motivo e o que fazer. Os casos mais comuns:
 | Capacidade menor que 1 GB | Use um dispositivo de pelo menos 1 GB. |
 | Mais de uma partição | Use um pendrive com partição única **ou** marque "Formatar antes". |
 
+### "O sistema de arquivos do pendrive está danificado"
+O pendrive tem erros (por exemplo, depois de o console travar com ele conectado) e
+gravar por cima pode falhar ou piorar o dano. Em **Jogos Instalados**, use
+**Reparar (CHKDSK)**, que tenta preservar perfis e saves, e prepare de novo. Se o
+reparo não resolver, marque **"Formatar antes"** (apaga tudo no pendrive).
+
 ### A opção "Formatar antes" está desabilitada
 O formatador FAT32 não veio nesta instalação. Você pode formatar o pendrive em
 FAT32 pelo próprio Windows antes de preparar.

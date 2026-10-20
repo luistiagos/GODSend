@@ -7,6 +7,7 @@ import {
   describeConsoleCrashArtifacts,
 } from "../infrastructure/consoleCrashArtifacts";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
+import { findBrokenEntries, isVolumeDirty } from "./driveRepairService";
 import { isExploitProfilePath } from "../infrastructure/exploitProfile";
 import { getBundledResourcesRoot, getRepoRoot } from "../infrastructure/fileSystem";
 import { isForeignConsoleStatePath, quarantineForeignConsoleState } from "../infrastructure/foreignConsoleState";
@@ -294,6 +295,29 @@ async function reportConsoleCrashArtifacts(
   }
 }
 
+/**
+ * Gravar por cima de um FAT32 danificado foi o que aconteceu em 18/09: o Windows ainda listava os
+ * arquivos, mas as gravações seguintes do pipeline falharam e só o formatar resolveu. O console que
+ * corrompe o pendrive no meio do jogo leva junto o perfil e os saves gravados nele. Uma verificação
+ * que não chegou a uma resposta não bloqueia: só fica no log.
+ */
+export async function requireCleanFileSystem(driveRoot: string): Promise<void> {
+  const dirty = await isVolumeDirty(driveRoot);
+  const broken = await findBrokenEntries(driveRoot);
+  if (dirty !== true && broken.length === 0) return;
+  const reason = [
+    dirty === true ? "o Windows marcou o volume como sujo" : "",
+    broken.length > 0 ? `entradas ilegíveis: ${broken.join("; ")}` : "",
+  ].filter(Boolean).join("; ");
+  appendAppEvent("BADAVATAR", `sistema de arquivos danificado em ${driveRoot}: ${reason}`);
+  throw new Error(
+    "O sistema de arquivos do pendrive está danificado e gravar por cima pode falhar ou piorar o dano. " +
+    "Em “Jogos Instalados”, use “Reparar (CHKDSK)”, que tenta preservar perfis e saves, e prepare de novo. " +
+    "Se o reparo não resolver, marque “Formatar antes” (apaga tudo no pendrive). " +
+    `Detalhe: ${reason}.`,
+  );
+}
+
 export interface ExploitProfileFile {
   path: string;
   sizeBytes: number;
@@ -534,6 +558,11 @@ export async function prepareFixedBadAvatarDevice(
       percent: 2,
       detail: `${crashArtifacts} arquivo(s)`,
     });
+  }
+
+  if (!request.formatDrive) {
+    onProgress({ status: "Conferindo o sistema de arquivos do pendrive…", percent: 3 });
+    await requireCleanFileSystem(request.driveRoot);
   }
 
   if (request.formatDrive) {

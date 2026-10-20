@@ -104,3 +104,56 @@ test("repairDrive: sem prazo; resolve só no close, com a duração e o código 
   assert.equal(killed.result().exitCode, -1);
   assert.ok(logEvents.some((m) => m.includes("(código nenhum")), logEvents.join("\n"));
 });
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { findBrokenEntries } = require("../../services/driveRepairService.js");
+
+test("findBrokenEntries: pasta íntegra não acusa nada", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "broken-entries-"));
+  try {
+    fs.mkdirSync(path.join(root, "Content", "0000000000000000"), { recursive: true });
+    fs.writeFileSync(path.join(root, "Content", "0000000000000000", "save.bin"), "x");
+    fs.writeFileSync(path.join(root, "launch.ini"), "x");
+    assert.deepEqual(await findBrokenEntries(root), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("findBrokenEntries: entrada listada que não abre é dano; erro de acesso não é", async (t) => {
+  const tree = {
+    "E:\\": ["Content", "lixo\u0001", "System Volume Information"],
+    "E:\\Content": ["perfil"],
+    "E:\\Content\\perfil": [],
+  };
+  const fail = (code) => Object.assign(new Error(code), { code });
+  t.mock.method(fs.promises, "readdir", async (dir) => {
+    if (dir === "E:\\System Volume Information") throw fail("EPERM");
+    return tree[dir];
+  });
+  t.mock.method(fs.promises, "lstat", async (p) => {
+    if (p === "E:\\lixo\u0001") throw fail("ENOENT");
+    return { isDirectory: () => true };
+  });
+  assert.deepEqual(await findBrokenEntries("E:\\"), ["E:\\lixo\u0001 (ENOENT)"]);
+});
+
+test("findBrokenEntries: entrada que falha uma vez e abre na reconferência não bloqueia", async (t) => {
+  t.mock.method(fs.promises, "readdir", async (dir) => (dir === "E:\\" ? ["face.rx3"] : []));
+  let calls = 0;
+  t.mock.method(fs.promises, "lstat", async () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error("x"), { code: "ENOENT" });
+    return { isDirectory: () => false };
+  });
+  assert.deepEqual(await findBrokenEntries("E:\\"), []);
+  assert.equal(calls, 2);
+});
+
+test("findBrokenEntries: para no limite", async (t) => {
+  t.mock.method(fs.promises, "readdir", async () => ["a", "b", "c"]);
+  t.mock.method(fs.promises, "lstat", async () => { throw Object.assign(new Error("x"), { code: "UNKNOWN" }); });
+  assert.equal((await findBrokenEntries("E:\\", 2)).length, 2);
+});

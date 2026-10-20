@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Preparo sem "Formatar antes" gravava por cima de um FAT32 danificado (`src/electron-app/services/fixedBadAvatarPreparationService.ts::requireCleanFileSystem`)** (2.12.114)
+  - Caso: chamados #18 e #233 — um "fatal" no meio do jogo deixou o pendrive ilegível no Xbox (perfil e saves estavam nele). O cliente preparou de novo por cima, sem formatar, e as gravações seguintes de jogo falharam no dispositivo; o Windows não conseguia apagar entradas ("nome inválido ou muito longo"). Só o formatar resolveu.
+  - Causa: o preparo só conferia FAT32, layout e espaço; nada olhava a integridade do sistema de arquivos. A causa do crash no console continua sem prova (falta o `crashlog.txt`); esta entrada é só a reação do app ao volume danificado (tarefa 3a do bug).
+  - Correção: sem "Formatar antes", antes de gravar, o preparo para se o Windows marcou o volume como sujo (`driveRepairService.ts::isVolumeDirty`, FSCTL_IS_VOLUME_DIRTY sem admin) ou se há entrada listada que não abre (`findBrokenEntries`, reconferida antes de acusar). A mensagem manda usar "Reparar (CHKDSK)" em "Jogos Instalados" ou marcar "Formatar antes". Consulta sem resposta não bloqueia.
+  - Testes: `src/electron-app/tests/unit/driveRepairService.test.cjs` (`findBrokenEntries`: pasta íntegra, entrada quebrada × erro de acesso, falha passageira, limite). Prova num pendrive FAT32 real de 15,5 GB sem admin: bit consultado (`false`, 1,4 s), varredura de 10.942 arquivos sem falso positivo (~12 s). Falta o controle positivo num pendrive sujo de verdade.
+  - Bug: [docs/bugs/open/badavatar-fatal-crash-no-meio-do-jogo-deixa-o-pendrive-ilegivel-e-leva-perfil-e-saves_2026-10-20T13-28.md](docs/bugs/open/badavatar-fatal-crash-no-meio-do-jogo-deixa-o-pendrive-ilegivel-e-leva-perfil-e-saves_2026-10-20T13-28.md)
 - **Preparo do pendrive BadAvatar recomeçava depois de chegar ao fim, várias vezes seguidas (`src/electron-app/renderer/components/BadAvatarUsbPage.tsx::canPrepare`)** (2.12.113)
   - Caso: chamado #18 — a barra ia até o fim, ficava verde e voltava do começo por ~11 min; o cliente não sabia se podia tirar o pendrive.
   - Causa: depois de um preparo concluído, o botão "Preparar pendrive/HD" voltava habilitado no mesmo lugar, e qualquer acionamento que chegasse (clique repetido, Enter, clique enfileirado com a janela travada) iniciava um preparo novo sem pergunta. Não há retentativa no serviço nem no escritor transacional.

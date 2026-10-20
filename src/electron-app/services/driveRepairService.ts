@@ -1,4 +1,6 @@
 import { spawn } from "child_process";
+import { promises as fsPromises } from "fs";
+import path from "path";
 import { normalizeDriveRoot } from "../infrastructure/deviceSafetyPolicy";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { powerShellExe, system32Exe } from "../infrastructure/windowsSystemExecutables";
@@ -131,6 +133,121 @@ if ($vol) {
       });
     });
   });
+}
+
+/**
+ * Reads the dirty bit FastFAT keeps for a mounted volume (FSCTL_IS_VOLUME_DIRTY). It is set from the
+ * NT flags byte of the boot sector, not from FAT[1]. The handle needs GENERIC_READ: with no data
+ * access the request goes to the volume driver and fails with ERROR_INVALID_FUNCTION. A removable
+ * volume opens without admin; a fixed one does not. Returns null when the answer is unknown, never
+ * "clean".
+ */
+export async function isVolumeDirty(rootPath: string): Promise<boolean | null> {
+  if (process.platform !== "win32") return null;
+  const driveLetter = extractDriveLetter(rootPath);
+  if (!/^[A-Z]$/.test(driveLetter)) return null;
+  // Built outside the template: a backslash right before `${` escapes the substitution.
+  const volumePath = `\\\\.\\${driveLetter}:`;
+
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class XboxCompanionVolumeDirty {
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr sa, uint disposition, uint flags, IntPtr template);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool DeviceIoControl(IntPtr handle, uint code, IntPtr input, uint inputSize, out uint output, uint outputSize, out uint returned, IntPtr overlapped);
+  [DllImport("kernel32.dll")]
+  static extern bool CloseHandle(IntPtr handle);
+  public static string Query(string path) {
+    IntPtr handle = CreateFileW(path, 0x80000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+    if (handle == new IntPtr(-1)) return "error " + Marshal.GetLastWin32Error();
+    try {
+      uint state, returned;
+      if (!DeviceIoControl(handle, 0x00090078, IntPtr.Zero, 0, out state, 4, out returned, IntPtr.Zero)) return "error " + Marshal.GetLastWin32Error();
+      return "state " + state;
+    } finally { CloseHandle(handle); }
+  }
+}
+'@
+[XboxCompanionVolumeDirty]::Query('${volumePath}')
+`;
+
+  return new Promise((resolve) => {
+    const child = spawn(
+      powerShellExe(),
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { windowsHide: true },
+    );
+    let stdout = "";
+    child.stdout.on("data", (d) => { stdout += d.toString(); });
+    child.on("close", () => {
+      const match = stdout.match(/state (\d+)/);
+      if (!match) {
+        appendAppEvent("usb", `Bit de sujo de ${driveLetter}: não consultado (${stdout.trim() || "sem saída"})`);
+        resolve(null);
+        return;
+      }
+      // VOLUME_IS_DIRTY = 0x1
+      resolve((Number(match[1]) & 1) === 1);
+    });
+    child.on("error", (err) => {
+      appendAppEvent("usb", `Bit de sujo de ${driveLetter}: não consultado (${err.message})`);
+      resolve(null);
+    });
+  });
+}
+
+// Codes a damaged directory entry gives back: Windows lists it, but cannot open it (18/09 the user
+// could not delete one: "O nome de arquivo especificado é inválido ou muito longo"). Access errors
+// (EACCES, EPERM, EBUSY) say nothing about the FAT and are left out.
+const DAMAGED_ENTRY_CODES = new Set(["ENOENT", "EINVAL", "EIO", "ENAMETOOLONG", "UNKNOWN"]);
+
+/**
+ * Walks the volume with readdir + lstat and returns up to `limit` entries that are listed but
+ * cannot be opened. Read-only. On a real 15 GB pendrive, 10,942 files took 11 s.
+ * Each suspect is opened once more after the walk: on that same pendrive one run flagged 5 files
+ * with ENOENT that opened fine on every run after it, and a false alarm here blocks a preparation.
+ */
+export async function findBrokenEntries(rootPath: string, limit = 5): Promise<string[]> {
+  // Each suspect keeps the call that failed, to repeat it: a directory that cannot be listed
+  // may still lstat fine.
+  const suspects: Array<{ entry: string; open: () => Promise<unknown> }> = [];
+  const pending = [rootPath];
+  while (pending.length > 0 && suspects.length < limit) {
+    const directory = pending.pop()!;
+    let names: string[];
+    try {
+      names = await fsPromises.readdir(directory);
+    } catch (error: any) {
+      if (DAMAGED_ENTRY_CODES.has(error?.code)) {
+        suspects.push({ entry: directory, open: () => fsPromises.readdir(directory) });
+      }
+      continue;
+    }
+    for (const name of names) {
+      const fullPath = path.join(directory, name);
+      try {
+        const stats = await fsPromises.lstat(fullPath);
+        if (stats.isDirectory()) pending.push(fullPath);
+      } catch (error: any) {
+        if (!DAMAGED_ENTRY_CODES.has(error?.code)) continue;
+        suspects.push({ entry: fullPath, open: () => fsPromises.lstat(fullPath) });
+        if (suspects.length >= limit) break;
+      }
+    }
+  }
+
+  const broken: string[] = [];
+  for (const { entry, open } of suspects) {
+    try {
+      await open();
+    } catch (error: any) {
+      if (DAMAGED_ENTRY_CODES.has(error?.code)) broken.push(`${entry} (${error.code})`);
+    }
+  }
+  return broken;
 }
 
 /**
