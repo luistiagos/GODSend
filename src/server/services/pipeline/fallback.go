@@ -4,6 +4,7 @@ package pipeline
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"godsend/app"
@@ -20,6 +21,27 @@ func isFAT32LimitError(err error) bool {
 		errors.Is(err, ErrFAT32DirectoryLimit) ||
 		strings.Contains(err.Error(), "excede o limite maximo de 4 GB") ||
 		strings.Contains(err.Error(), "incompativel com pendrive FAT32")
+}
+
+// localStagingMessage is the queue text for an ErrLocalStaging halt. A full
+// disk gets one Portuguese sentence naming the volume: the raw chain repeated
+// the sentinel and ended in the OS text in English
+// ([[pipeline-extracao-enche-o-disco-do-pc-no-meio-sem-conferir-espaco-antes]]).
+// The raw error still goes to the log and telemetry.
+func localStagingMessage(err error, tempDir string) string {
+	var space *scratchSpaceError
+	if errors.As(err, &space) {
+		return fmt.Sprintf("Não há espaço no disco do PC (%s) para extrair o jogo: são necessários %.2f GB e há %.2f GB livres. Libere espaço e tente novamente; o download já concluído é reaproveitado.",
+			space.Volume, float64(space.Need)/1073741824, float64(space.Free)/1073741824)
+	}
+	if isDiskFullError(err) {
+		volume := filepath.VolumeName(tempDir)
+		if volume == "" {
+			volume = tempDir
+		}
+		return fmt.Sprintf("O disco do PC (%s) ficou sem espaço enquanto o jogo era preparado. Libere espaço e tente novamente; o download já concluído é reaproveitado.", volume)
+	}
+	return "Falha no armazenamento de trabalho do PC, onde o jogo e baixado e montado antes de ir para o destino. Verifique espaco livre e permissoes no disco do aplicativo e tente novamente: " + err.Error()
 }
 
 func isDownloadTooSlowError(err error) bool {
@@ -105,7 +127,7 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			// do usuario esta intacto. Em modo FTP nem existe dispositivo local
 			// para culpar, e e por isso que ErrLocalStaging nao vem mais
 			// embrulhado em ErrLocalDelivery — a mensagem seria falsa.
-			message = "Falha no armazenamento de trabalho do PC, onde o jogo e baixado e montado antes de ir para o destino. Verifique espaco livre e permissoes no disco do aplicativo e tente novamente: " + err.Error()
+			message = localStagingMessage(err, s.App.TempDir)
 			if reverted := s.App.EnsureWorkingVolume(); reverted != "" {
 				s.App.Logf("[WARN] Working volume %s failed during job; reverted to default %s", reverted, s.App.TempDir)
 				message += fmt.Sprintf(" (O volume temporário %s ficou indisponível e foi revertido para %s)", reverted, s.App.TempDir)

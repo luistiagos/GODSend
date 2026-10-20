@@ -170,15 +170,11 @@ func isLikelyLocalDeviceError(err error) bool {
 	return false
 }
 
-// isLikelyLocalStorageError separates destination/storage failures from bad
-// provider data. Retrying another provider cannot fix a full, read-only or
-// unavailable processing volume, so the downloaded source must be retained.
-func isLikelyLocalStorageError(err error) bool {
+// isDiskFullError reports a volume out of space, either from the OS write or
+// from a check made before writing (ensureFreeSpace, ensureScratchSpace).
+func isDiskFullError(err error) bool {
 	if err == nil {
 		return false
-	}
-	if isLikelyLocalDeviceError(err) {
-		return true
 	}
 	message := strings.ToLower(err.Error())
 	for _, fragment := range []string{
@@ -190,6 +186,29 @@ func isLikelyLocalStorageError(err error) bool {
 		"espaco insuficiente",
 		"espaço insuficiente",
 		"disco cheio",
+	} {
+		if strings.Contains(message, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+// isLikelyLocalStorageError separates destination/storage failures from bad
+// provider data. Retrying another provider cannot fix a full, read-only or
+// unavailable processing volume, so the downloaded source must be retained.
+func isLikelyLocalStorageError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if isLikelyLocalDeviceError(err) {
+		return true
+	}
+	if isDiskFullError(err) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	for _, fragment := range []string{
 		"write protected",
 		"write-protected",
 		"read-only file system",

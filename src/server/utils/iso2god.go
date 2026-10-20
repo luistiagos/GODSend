@@ -856,6 +856,80 @@ func extractArchiveFilter(archivePath, destDir, wantExt string, progress *archiv
 	}
 }
 
+// ArchiveSpaceNeeded returns how many more bytes extracting archivePath into
+// destDir will write, reading only the archive index. wantExt filters entries
+// the same way ExtractISO does ("" = all). zip/7z entries already extracted
+// with the right size are skipped by the extractor, so they cost nothing; RAR
+// rewrites every entry beside the old copy, so the largest present entry is
+// added as peak. It errors when the size cannot be known in advance.
+func ArchiveSpaceNeeded(archivePath, destDir, wantExt string) (int64, error) {
+	type entry struct {
+		name string
+		size int64
+	}
+	var entries []entry
+	reuse := true
+	switch strings.ToLower(filepath.Ext(archivePath)) {
+	case ".zip":
+		r, err := zip.OpenReader(archivePath)
+		if err != nil {
+			return 0, fmt.Errorf("open zip: %w", err)
+		}
+		defer r.Close()
+		for _, f := range r.File {
+			if !f.FileInfo().IsDir() {
+				entries = append(entries, entry{f.Name, int64(f.UncompressedSize64)})
+			}
+		}
+	case ".7z":
+		r, err := sevenzip.OpenReader(archivePath)
+		if err != nil {
+			return 0, fmt.Errorf("open 7z: %w", err)
+		}
+		defer r.Close()
+		for _, f := range r.File {
+			if !f.FileInfo().IsDir() {
+				entries = append(entries, entry{f.Name, f.FileInfo().Size()})
+			}
+		}
+	case ".rar":
+		files, err := rardecode.List(archivePath)
+		if err != nil {
+			return 0, fmt.Errorf("open rar: %w", err)
+		}
+		for _, f := range files {
+			if f.IsDir {
+				continue
+			}
+			if f.UnKnownSize {
+				return 0, fmt.Errorf("rar sem tamanho descompactado: %s", f.Name)
+			}
+			entries = append(entries, entry{f.Name, f.UnPackedSize})
+		}
+		reuse = false
+	default:
+		return 0, fmt.Errorf("unsupported archive format: %s", filepath.Ext(archivePath))
+	}
+	var need, largestPresent int64
+	for _, e := range entries {
+		if wantExt != "" && !strings.EqualFold(filepath.Ext(e.name), wantExt) {
+			continue
+		}
+		outPath := filepath.Join(destDir, filepath.FromSlash(e.name))
+		if st, err := os.Stat(outPath); err == nil && st.Mode().IsRegular() && st.Size() == e.size {
+			if e.size > largestPresent {
+				largestPresent = e.size
+			}
+			continue
+		}
+		need += e.size
+	}
+	if !reuse {
+		need += largestPresent
+	}
+	return need, nil
+}
+
 // ExtractISO extracts the first .iso file found inside a .zip/.7z/.rar archive.
 // tempRoot is typically GODSEND_HOME/Temp (caller passes filepath.Join(home, "Temp")).
 func ExtractISO(archivePath, safeName, tempRoot string) (string, error) {

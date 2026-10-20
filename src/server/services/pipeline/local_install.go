@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"godsend/infrastructure/helpers"
+	"godsend/utils"
 )
 
 // joinSub joins a "/" or "\"-delimited sub-path (e.g. a custom GOD/XEX path) under
@@ -39,6 +40,52 @@ func (s *Service) ensureFreeSpace(root string, needBytes int64) error {
 	if uint64(needBytes)+localSpaceMargin > free {
 		return fmt.Errorf("espaço insuficiente no destino: o jogo precisa de %.2f GB, mas há apenas %.2f GB livres. Libere espaço ou use outro dispositivo",
 			float64(needBytes)/1073741824, float64(free)/1073741824)
+	}
+	return nil
+}
+
+// freeSpaceBytes is a variable so tests can fake a full working volume.
+var freeSpaceBytes = helpers.FreeSpaceBytes
+
+// scratchSpaceError is the PC's working volume being too small for the
+// extracted game, found before the first byte is written. The text carries
+// "espaço insuficiente" so classifyLocalStorageFailure files it as
+// ErrLocalStaging like a real disk-full write.
+type scratchSpaceError struct {
+	Volume     string
+	Need, Free uint64
+}
+
+func (e *scratchSpaceError) Error() string {
+	return fmt.Sprintf("espaço insuficiente no disco do PC (%s): o jogo extraído precisa de %.2f GB, mas há apenas %.2f GB livres",
+		e.Volume, float64(e.Need)/1073741824, float64(e.Free)/1073741824)
+}
+
+// ensureScratchSpace checks that extracting archivePath into destDir fits the
+// PC's working volume ([[pipeline-extracao-enche-o-disco-do-pc-no-meio-sem-conferir-espaco-antes]]):
+// without it the disk filled up only after the whole download, halfway through
+// the extraction. Like ensureFreeSpace, it lets the extraction run when the
+// size or the free space cannot be measured.
+func (s *Service) ensureScratchSpace(archivePath, destDir, wantExt string) error {
+	need, err := utils.ArchiveSpaceNeeded(archivePath, destDir, wantExt)
+	if err != nil {
+		s.App.Logf("EXTRACT: tamanho extraido de %s desconhecido: %v (seguindo)", filepath.Base(archivePath), err)
+		return nil
+	}
+	volume := filepath.VolumeName(destDir)
+	query := destDir
+	if volume != "" {
+		query = volume + string(filepath.Separator)
+	} else {
+		volume = destDir
+	}
+	free, err := freeSpaceBytes(query)
+	if err != nil {
+		s.App.Logf("EXTRACT: não foi possível medir espaço livre em %s: %v (seguindo)", query, err)
+		return nil
+	}
+	if uint64(need)+localSpaceMargin > free {
+		return &scratchSpaceError{Volume: volume, Need: uint64(need) + localSpaceMargin, Free: free}
 	}
 	return nil
 }

@@ -308,6 +308,9 @@ func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string,
 
 func (s *Service) extractArchiveResilient(gameName, archivePath, destDir string) error {
 	err := s.runDirectoryStage(gameName, "extract-archive", archivePath, destDir, false, func() error {
+		if err := s.ensureScratchSpace(archivePath, destDir, ""); err != nil {
+			return err
+		}
 		return utils.ExtractArchiveWithProgress(archivePath, destDir, s.archiveExtractionProgress(gameName))
 	})
 	if err == nil {
@@ -323,6 +326,9 @@ func (s *Service) extractArchiveResilient(gameName, archivePath, destDir string)
 func (s *Service) extractISOResilient(gameName, safeName, archivePath, tempRoot string) (string, string, error) {
 	destDir := filepath.Join(tempRoot, safeName+"_extracted")
 	err := s.runDirectoryStage(gameName, "extract-iso", archivePath, destDir, false, func() error {
+		if err := s.ensureScratchSpace(archivePath, destDir, ".iso"); err != nil {
+			return err
+		}
 		_, err := utils.ExtractISOWithProgress(archivePath, safeName, tempRoot, s.archiveExtractionProgress(gameName))
 		return err
 	})

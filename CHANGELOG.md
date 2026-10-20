@@ -10,6 +10,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Extração enchia o disco do PC no meio do caminho, depois do download inteiro, e a fila mostrava a mensagem crua meio em inglês (`src/server/utils/iso2god.go::ArchiveSpaceNeeded`, `src/server/services/pipeline/local_install.go::ensureScratchSpace`, `src/server/services/pipeline/fallback.go::localStagingMessage`)**
+  - Caso: FIFA 18 (`.rar` do HuggingFace) baixou e falhou ao gravar `data3.big` com "There is not enough space on the disk", numa frase que repetia "falha no armazenamento de trabalho do PC".
+  - Correção: antes de extrair (`extractArchiveResilient`, `extractISOResilient`), o tamanho descompactado é lido do índice do `.zip`/`.7z`/`.rar` (sem descompactar), descontando o que já foi extraído, e comparado com o espaço livre do volume. Se não couber, a tarefa para antes de gravar o primeiro byte. Quando o disco fica cheio, a fila mostra só uma frase em português com o volume (e os GB necessários/livres, na checagem prévia); o erro cru continua no log e na telemetria.
+  - Testes: `src/server/utils/archive_space_test.go` (`TestArchiveSpaceNeeded`), `src/server/services/pipeline/scratch_space_test.go` (`TestExtractionStopsBeforeWritingWhenPCVolumeIsTooSmall`, `TestExtractionRunsWhenPCVolumeFits`, `TestLocalStagingMessageHidesRawDiskFullText`).
+  - Bug: [docs/bugs/retest/pipeline-extracao-enche-o-disco-do-pc-no-meio-sem-conferir-espaco-antes_2026-10-20T01-45.md](docs/bugs/retest/pipeline-extracao-enche-o-disco-do-pc-no-meio-sem-conferir-espaco-antes_2026-10-20T01-45.md) (T1, T3)
 - **Duas entradas de GTA V do catálogo HuggingFace entregavam Sleeping Dogs (`src/server/services/cache/huggingface.go::isKnownIncompleteHuggingFaceURL`)**
   - Caso: "Grand Theft Auto V™ OG ONLINE + DLC FULL" é um `.rar` só com Sleeping Dogs PT-BR. Em "GTA 5 PT-BR + DLC + TU + SAVE 100 % .GOD", o `default.xex` da raiz do zip é do Sleeping Dogs (TitleID `53510811`), e o caminho XEX o instalava como o jogo, com estado "Pronto". O cliente via "GTA abre outro jogo".
   - Correção: o filtro de releases conhecidas reconhece a entrada pelo nome do arquivo na URL (decodificado, sem diferenciar maiúsculas) e passa a incluir essas duas, além do `GTA 5 (7.61).7z`. O cache já salvo em disco também é limpo.

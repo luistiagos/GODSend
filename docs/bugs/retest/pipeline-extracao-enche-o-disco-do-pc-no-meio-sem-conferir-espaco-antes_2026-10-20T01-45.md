@@ -70,6 +70,62 @@ O download do HuggingFace terminou; a falha veio no meio da extração, ao grava
    os GB, sem o `err.Error()` cru (que vai para o log/telemetria). Teste: unitário da mensagem.
 4. Versão em 4 lugares + `CHANGELOG.md` `[Unreleased]`.
 
+## Planejamento das tasks 1 e 3 (sessão de 2026-10-20)
+
+Achados novos (símbolos abertos):
+
+- **O FIFA 18 é `.rar`** (`cache/hf_xbox360.json`: `FIFA.18.USA.X360-ZTM.rar`), e o catálogo HF tem
+  1353 `.rar`, 335 `.7z`, 156 `.zip` (`grep -oE '\.(zip|7z|rar)"' cache/hf_xbox360.json | sort | uniq -c`).
+  Pular RAR deixaria o caso do bug de fora — **RAR entra na checagem**.
+- `rardecode/v2@v2.4.1::List(name, opts...)` (reader.go:774) devolve os `FileHeader` (com `UnPackedSize`,
+  `UnKnownSize`, `IsDir`) lendo só os headers, sem descompactar. Serve.
+- `utils/iso2god.go::extractFileAtomically` — zip/7z reaproveitam arquivo final com tamanho (e CRC) certo;
+  RAR (`drainRAR`, `allowReuse=false`) **regrava** toda entrada: grava o `.xbox-companion-part` com o
+  antigo ainda no disco e só depois troca. Para RAR o pico é `soma dos ausentes + maior já presente`.
+- `pipeline/stage_checkpoint.go::runDirectoryStage` — pode dar `RemoveAll(destDir)` (fonte divergente)
+  **antes** de chamar `action`; por isso a checagem vai **dentro** da `action`, depois da limpeza, e não
+  antes de `runDirectoryStage`. Erro de `action` com texto "espaço insuficiente" passa por
+  `classifyLocalStorageFailure` → `ErrLocalStaging` (fase `extract-*` é `hostStagedPhase`), em todos os modos.
+- `pipeline/local_install.go::ensureFreeSpace` — mensagem fala de "destino/dispositivo"; errada para o
+  disco do PC. Não reaproveitada; a nova checagem usa o mesmo `helpers.FreeSpaceBytes` + `localSpaceMargin`
+  e, como ela, segue em frente se não conseguir medir.
+- `pipeline/fallback.go::haltOnLocalStorageFailure` — ramo `ErrLocalStaging` concatena `err.Error()`; a
+  telemetria (`telemetry.Report`) já leva o `err` cru, então tirá-lo da tela não perde diagnóstico.
+
+Tarefas:
+
+1. `utils/iso2god.go::ArchiveSpaceNeeded(archivePath, destDir, wantExt)` — bytes que a extração ainda vai
+   gravar (zip/7z: soma das entradas sem arquivo de tamanho certo em `destDir`; rar: idem + maior entrada
+   já presente). Erro quando o tamanho não é conhecido (rar `UnKnownSize`, formato desconhecido).
+   `pipeline`: `ensureScratchSpace(dir, need)` devolve `*scratchSpaceError{Volume, Need, Free}` (texto em
+   português com "espaço insuficiente"); chamado na `action` de `extractArchiveResilient` e
+   `extractISOResilient`. `freeSpaceBytes` vira variável de pacote para o teste.
+   Teste: `utils` — zip sintético, com e sem arquivo já extraído; `pipeline` — `extractArchiveResilient`
+   com espaço falso pequeno → `ErrLocalStaging` + `*scratchSpaceError`, nenhum arquivo do zip em `destDir`.
+2. Task 3: em `haltOnLocalStorageFailure`, ramo `ErrLocalStaging`: `*scratchSpaceError` → frase com volume
+   e GB; outro disco cheio (fragmentos de espaço de `isLikelyLocalStorageError`, extraídos para uma lista
+   compartilhada `diskFullFragments`) → frase com o volume de `TempDir`, sem `err.Error()`.
+   Teste: unitário da função de mensagem.
+
+## Correção (2026-10-20, 2.12.112) — tasks 1 e 3
+
+- `utils/iso2god.go::ArchiveSpaceNeeded` — como planejado; rar via `rardecode.List`.
+- `pipeline/local_install.go::freeSpaceBytes` (variável), `scratchSpaceError`, `Service.ensureScratchSpace` —
+  chamado no começo da `action` de `stage_checkpoint.go::extractArchiveResilient` (`""`) e
+  `extractISOResilient` (`".iso"`). Necessário mostrado = descompactado restante + `localSpaceMargin`.
+- `pipeline/local_resilient.go::isDiskFullError` — fragmentos de espaço saíram de
+  `isLikelyLocalStorageError`, que agora o chama (mesmo conjunto de textos reconhecidos).
+- `pipeline/fallback.go::localStagingMessage` — ramo `ErrLocalStaging` de `haltOnLocalStorageFailure`;
+  falha que não é de espaço (permissão etc.) mantém o texto antigo com a causa.
+- Testes: `go test ./utils ./services/pipeline` verde (`TestArchiveSpaceNeeded`,
+  `TestExtractionStopsBeforeWritingWhenPCVolumeIsTooSmall`, `TestExtractionRunsWhenPCVolumeFits`,
+  `TestLocalStagingMessageHidesRawDiskFullText`).
+- **Task 2 não feita** (opcional pelo próprio doc: só se a task 1 não bastar).
+- **Reteste:** num PC com pouco espaço no volume do `TempDir`, pedir um jogo cujo extraído não caiba: a
+  tarefa deve parar logo depois do download com "Não há espaço no disco do PC (C:) para extrair o jogo:
+  são necessários X GB e há Y GB livres..." e nenhum arquivo do jogo na pasta `_hf_ext`. Liberar espaço e ↻
+  deve extrair sem baixar de novo.
+
 ## Orientação dada ao cliente
 
 Liberar espaço no C: (≈ 2,5× o tamanho do jogo; FIFA 18 ≈ 15–20 GB) e clicar em ↻ na tarefa — o download
