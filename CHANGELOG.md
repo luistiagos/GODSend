@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **HD preparado em "Xbox Bloqueado ou LT" voltava do console acusado de RGH sem o perfil do exploit (`src/electron-app/services/preparedDeviceState.ts::hasCompleteProfilePackage`)** (2.12.115)
+  - Caso: sessão `32822140117221@lid` — o cliente preparou um HD em modo BadAvatar, jogou no console e, de volta ao PC, o Companion disse "tem a Aurora para console RGH, mas não tem o perfil do exploit". Seguindo o aviso, ele formatou e perdeu os jogos.
+  - Causa: a detecção exigia que o perfil do exploit tivesse exatamente o tamanho do manifesto. O perfil é um pacote STFS `CON ` que o console regrava e aumenta ao usar o perfil.
+  - Correção: o perfil conta como presente quando é um pacote STFS que contém todos os blocos que o próprio cabeçalho declara. Isso aceita o perfil regravado e recusa a cópia truncada, em qualquer tamanho. Sem console de teste: a fórmula do cabeçalho dá exatamente os 335.872 bytes do perfil do pacote.
+  - Testes: `src/electron-app/tests/unit/preparedDeviceState.test.cjs` (perfil aumentado em um bloco, truncado, arquivo não-STFS com o tamanho do manifesto, perfil real do pacote). Com a regra antiga, os casos do perfil aumentado e do aumentado-e-truncado falham. `test:safety`: 357 pass / 0 fail.
+  - Bug: [docs/bugs/open/badavatar-hd-preparado-em-modo-bloqueado-acusado-como-rgh-depois-de-usado-no-console_2026-10-21T17-49.md](docs/bugs/open/badavatar-hd-preparado-em-modo-bloqueado-acusado-como-rgh-depois-de-usado-no-console_2026-10-21T17-49.md)
 - **Preparo sem "Formatar antes" gravava por cima de um FAT32 danificado (`src/electron-app/services/fixedBadAvatarPreparationService.ts::requireCleanFileSystem`)** (2.12.114)
   - Caso: chamados #18 e #233 — um "fatal" no meio do jogo deixou o pendrive ilegível no Xbox (perfil e saves estavam nele). O cliente preparou de novo por cima, sem formatar, e as gravações seguintes de jogo falharam no dispositivo; o Windows não conseguia apagar entradas ("nome inválido ou muito longo"). Só o formatar resolveu.
   - Causa: o preparo só conferia FAT32, layout e espaço; nada olhava a integridade do sistema de arquivos. A causa do crash no console continua sem prova (falta o `crashlog.txt`); esta entrada é só a reação do app ao volume danificado (tarefa 3a do bug).

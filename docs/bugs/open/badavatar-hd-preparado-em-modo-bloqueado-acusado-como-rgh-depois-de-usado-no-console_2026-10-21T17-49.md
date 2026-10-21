@@ -56,18 +56,107 @@ Cliente com Xbox 360 travado (comprou a Plataforma Xbox 360 em 20/10, transaçã
 
 ## Causa raiz
 
-_Pendente (passada 2)._ Pergunta a responder com prova: depois que o console usa o perfil do exploit, algum arquivo de
-`Content/<id-do-perfil>/` muda de tamanho ou some? Ou o perfil foi apagado por outro motivo (crash, como no bug P0)?
+**A detecção trata como imutável um arquivo que o console regrava.** Não houve console para a prova antes/depois (o
+dono não tem console de teste, 2026-10-21); a causa foi fechada pela consistência do próprio arquivo, como o dono
+pediu.
+
+- `preparedDeviceState.ts::matchesBundledSize` exige `stat.size === file.sizeBytes` do manifesto. Em erro de `lstat`
+  devolve `false`. Um único `false` faz `detectPreparedDeviceState` (linhas 89–94) cair para `preparado-rgh` quando
+  existe o marcador. Chamador único: `badAvatarUsbService.ts:514` (lista de dispositivos, a cada 5 s).
+- O perfil do exploit é **um** arquivo, `Content/E0002FF78DFBDE7B/FFFE07D1/00010000/E0002FF78DFBDE7B` (manifesto
+  `badavatar-1.1`, filtrado por `isExploitProfilePath`). É um pacote STFS `CON ` de perfil (content type
+  `0x00010000`, title `FFFE07D1` = dashboard). Pacote `CON ` é assinado pelo console, que o regrava quando grava no
+  perfil (GPD do dashboard, títulos jogados, conquistas). Um GPD novo ocupa blocos novos, e o pacote **cresce** em
+  blocos de 4 KiB. O cliente jogou (FIFA World Cup 2006, Amped 3) entre o preparo e o aviso.
+- O tamanho do pacote é determinado pelo próprio cabeçalho. Fórmula de bloco do STFS
+  (`ComputeBackingDataBlockNumber`, a mesma do Velocity/XContent), aplicada ao perfil do pacote:
+  `headerSize 0x971A`, `blockSeparation 2` → tabelas de hash de 2 blocos, `allocated 70`. Último bloco de dados (69)
+  → bloco físico 71 → exigido `0xA000 + 72 × 0x1000 = 335872`; o arquivo tem **335872** (script Python no cabeçalho do
+  arquivo do pacote: `required 335872 actual 335872`). Então "o arquivo contém todos os blocos que o cabeçalho
+  declara" é uma conferência exata, que vale para qualquer tamanho que o console deixar.
+
+Limite desta prova: ela mostra que a regra atual recusa todo perfil que o console aumentou, e que a regra nova aceita
+o perfil regravado e recusa o truncado. Ela **não** mostra em hardware que o perfil do cliente cresceu, em vez de ter
+sido apagado. Se ele foi apagado, o aviso estava certo e continua igual depois da correção.
+
+## Hipóteses descartadas
+
+- **Telemetria 11181/11182 como evidência:** o log é de outra máquina (ver Evidência).
+- **Pendrive `E:` como prova antes/depois:** nada nele é mais novo que o preparo (`find -newer launch.ini` → vazio).
+  Os arquivos de console em `Content/0000000000000000` vieram do próprio pacote.
+- **Trocar `===` por `>=` o tamanho do manifesto:** aceita o crescimento e recusa a cópia truncada do pacote, mas
+  depende de o console nunca encolher o pacote, o que não dá para provar sem console. Pior: um pacote que cresceu e
+  foi truncado depois (cópia do perfil regravado interrompida) passaria. A conferência pelo cabeçalho cobre os dois.
+- **Comparar SHA-256:** o console reassina o pacote, então o hash muda sempre depois do primeiro uso. Seria pior que
+  o tamanho.
+
+## Correção planejada
+
+- `src/electron-app/services/preparedDeviceState.ts`: trocar `matchesBundledSize` por uma conferência de pacote STFS
+  completo. Ler o começo do arquivo e exigir magic `CON `/`LIVE`/`PIRS`, `allocated > 0` e
+  `tamanho ≥ endereço do fim do último bloco alocado` (fórmula acima). Arquivo comum, sem symlink, como hoje. Erro de
+  leitura → `false`, como hoje. Custo: um `read` de ~1 KiB por varredura de 5 s.
+- Testes em `src/electron-app/tests/unit/preparedDeviceState.test.cjs`, com o perfil real do pacote copiado para uma
+  raiz temporária:
+  - o perfil do pacote é reconhecido (`preparado-bloqueado-lt`);
+  - o perfil que o console aumentou em um bloco (`allocated 71` + 4 KiB) é reconhecido (este é o caso do bug: hoje dá
+    `preparado-rgh`);
+  - o mesmo perfil sem o último bloco é recusado (`preparado-rgh`);
+  - um arquivo que não é STFS, com o tamanho do manifesto, é recusado.
+- Versão 2.12.115 nos quatro lugares + `CHANGELOG.md`.
+
+## Tasks
+
+| # | task | commit | estado | modelo | revisao |
+|---|---|---|---|---|---|
+| T1 | detecção confere o perfil do exploit pela consistência do pacote STFS, não pelo tamanho do manifesto | -- | -- | -- | -- |
 
 ## Como reproduzir
 
-_Pendente._ Roteiro proposto: pendrive de teste preparado em "Xbox Bloqueado ou LT" → listar tamanho de cada arquivo
-de `Content/` → bootar no console travado pelo perfil do exploit, abrir a Aurora e um jogo → voltar ao PC, listar de
-novo e abrir o Companion.
+_Em andamento (2026-10-21)._ Roteiro: pendrive de teste preparado em "Xbox Bloqueado ou LT" → listar tamanho de cada
+arquivo de `Content/` → bootar no console travado pelo perfil do exploit, abrir a Aurora e um jogo → voltar ao PC,
+listar de novo e abrir o Companion.
+
+**Linha de base, pendrive de teste `E:` (FAT32 15,5 GB, "USB DISK 2.0"), antes de ir ao console:**
+
+- `preparo.json`: `mode: bloqueado-lt`, release `1.1-autostart-aurora-freestyle-dashlaunch-xexmenu`.
+- O manifesto `badavatar-1.1` tem **um** arquivo de perfil do exploit:
+  `Content/E0002FF78DFBDE7B/FFFE07D1/00010000/E0002FF78DFBDE7B`, `sizeBytes 335872`.
+- No pendrive, esse arquivo é idêntico ao do pacote: 335872 bytes, mtime 2026-10-13 05:45, SHA-256
+  `51631962a981136bdee63a2dcf31ff27f64a706ecc70af6c20aae87f86cca4b9` nos dois (`sha256sum`; `cmp -l | wc -l` → 0).
+- Nenhum arquivo em `Content/` ou `Aurora/` é mais novo que `launch.ini` (`find -newer` → vazio): este pendrive **não
+  voltou** do console desde o preparo, então não serve como prova antes/depois.
+- Cabeçalho do perfil (STFS): magic `CON ` (pacote assinado por console), content type `0x00010000` (perfil),
+  descritor com 70 blocos alocados e 7 não alocados, cerca de 72 blocos de 4 KiB no arquivo. Um pacote `CON ` é
+  reassinado e regravado pelo console quando ele grava no perfil, e é isso que o retorno do console vai mostrar.
+
+Comando para comparar na volta:
+`ls -la --time-style=full-iso /e/Content/E0002FF78DFBDE7B/FFFE07D1/00010000/; sha256sum /e/Content/E0002FF78DFBDE7B/FFFE07D1/00010000/E0002FF78DFBDE7B`
+
+## Correção aplicada
+
+Como planejado, versão 2.12.115. `preparedDeviceState.ts::matchesBundledSize` virou
+`hasCompleteProfilePackage` + `stfsRequiredBytes`: lê os primeiros 0x3A0 bytes e exige magic `CON `/`LIVE`/`PIRS`,
+`allocated > 0` e `tamanho ≥ fim do último bloco alocado`. Erro de leitura → `false`, como antes. O campo `sizeBytes`
+de `ExploitProfileFile` continua no tipo, mas a detecção não o usa mais.
+
+O segundo e o terceiro nível de tabelas de hash (perfis com mais de 170 blocos, ~680 KiB) seguem a fórmula do STFS,
+mas só o primeiro nível foi conferido contra um arquivo real.
+
+## Testes executados
+
+- `node --test tests/unit/preparedDeviceState.test.cjs` (depois de `npx tsc`): 12 pass / 0 fail, com o perfil real
+  do pacote presente (teste 10 não pulou).
+- Sabotagem: no JS compilado, `stat.size >= required` trocado por `stat.size === file.sizeBytes` (a regra antiga)
+  → falham o 7 (perfil aumentado em um bloco: o caso do cliente) e o 8 (perfil aumentado e depois truncado, que
+  tem 335872 bytes e passava pela regra antiga). Recompilado em seguida.
+- `npm run test:safety`: 357 pass / 0 fail.
 
 ## Critérios para fechar
 
-- [ ] Reprodução confirmada em hardware (ou hipótese descartada com a listagem antes/depois)
-- [ ] Causa raiz isolada e corrigida
-- [ ] Teste unitário cobrindo o caso
-- [ ] Validação em hardware real
+- [ ] Reprodução confirmada em hardware (ou hipótese descartada com a listagem antes/depois) — sem console de teste;
+  substituída pela conferência do cabeçalho (ver Causa raiz)
+- [x] Causa raiz isolada e corrigida
+- [x] Teste unitário cobrindo o caso
+- [ ] Validação em hardware real — primeiro pendrive/HD BadAvatar que voltar do console: abrir o Companion e
+  conferir que aparece como preparado para Bloqueado/LT; anotar o tamanho do perfil antes/depois

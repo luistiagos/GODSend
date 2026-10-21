@@ -10,8 +10,22 @@ const { isExploitProfilePath } = require("../../infrastructure/exploitProfile.js
 // Um perfil do exploit sintetico, com a mesma forma do que o manifesto ativo descreve:
 // `Content/<XUID>/...`, com XUID diferente de 0000000000000000.
 const EXPLOIT_PROFILE = [
-  { path: "Content/E0002FF78DFBDE7B/FFFE07D1/00010000/E0002FF78DFBDE7B", sizeBytes: 7 },
+  { path: "Content/E0002FF78DFBDE7B/FFFE07D1/00010000/E0002FF78DFBDE7B", sizeBytes: 335872 },
 ];
+
+// Pacote STFS com os campos do perfil do pacote badavatar-1.1: `CON `, headerSize 0x971A,
+// blockSeparation 2 (tabelas de hash de 2 blocos) e `allocated` blocos de dados. Com 70 blocos o
+// pacote completo tem 0xA000 + 72 * 0x1000 = 335872 bytes, o tamanho do manifesto.
+function stfsProfile(allocated, sizeBytes = 0xa000 + (allocated + 2) * 0x1000) {
+  const data = Buffer.alloc(sizeBytes);
+  data.write("CON ", 0, "latin1");
+  data.writeUInt32BE(0x971a, 0x340);
+  data.writeUInt32BE(0x00010000, 0x344);
+  data[0x379] = 0x24;
+  data[0x37b] = 2;
+  data.writeUInt32BE(allocated, 0x395);
+  return data;
+}
 
 function temp(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "prepared-device-state-"));
@@ -68,15 +82,50 @@ test("o perfil do exploit gravado e o que declara o dispositivo preparado", asyn
   write(root, "Aurora/default.xex", "aurora");
   write(root, "launch.ini", "[Paths]");
   write(root, ".xbox-downloader/ready-to-play-v4.marker", "marker");
-  write(root, EXPLOIT_PROFILE[0].path, "profile");
-  assert.equal(EXPLOIT_PROFILE[0].sizeBytes, "profile".length);
+  write(root, EXPLOIT_PROFILE[0].path, stfsProfile(70));
+  assert.equal(stfsProfile(70).length, EXPLOIT_PROFILE[0].sizeBytes);
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-bloqueado-lt");
+});
+
+// O caso do cliente 32822140117221@lid: HD preparado em "Xbox Bloqueado ou LT", usado no console
+// (jogou FIFA e Amped 3), e de volta ao PC a tela dizia que era RGH sem o perfil do exploit. O
+// console regrava o pacote do perfil e ele cresce; o tamanho do manifesto deixa de bater.
+test("perfil que o console aumentou continua sendo o perfil do exploit", async (t) => {
+  const root = temp(t);
+  write(root, ".xbox-downloader/ready-to-play-v4.marker", "marker");
+  write(root, EXPLOIT_PROFILE[0].path, stfsProfile(71));
   assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-bloqueado-lt");
 });
 
 test("perfil truncado nao passa por perfil gravado", async (t) => {
   const root = temp(t);
   write(root, ".xbox-downloader/ready-to-play-v4.marker", "marker");
-  write(root, EXPLOIT_PROFILE[0].path, "pro");
+  write(root, EXPLOIT_PROFILE[0].path, stfsProfile(71, stfsProfile(71).length - 0x1000));
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-rgh");
+  write(root, EXPLOIT_PROFILE[0].path, stfsProfile(70).subarray(0, 0x100));
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-rgh");
+});
+
+test("arquivo que nao e pacote STFS nao passa por perfil, nem com o tamanho do manifesto", async (t) => {
+  const root = temp(t);
+  write(root, ".xbox-downloader/ready-to-play-v4.marker", "marker");
+  write(root, EXPLOIT_PROFILE[0].path, Buffer.alloc(EXPLOIT_PROFILE[0].sizeBytes));
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-rgh");
+});
+
+// O perfil real do pacote (gitignored; `npm run payload:update` o traz): a conta do cabeçalho tem de
+// dar exatamente o tamanho dele, e ele sem o último bloco tem de ser recusado.
+test("o perfil real do pacote confere pelo proprio cabecalho", async (t) => {
+  const assetsRoot = path.resolve(__dirname, "../../assets");
+  const index = JSON.parse(fs.readFileSync(path.join(assetsRoot, "badavatar-package.json"), "utf8"));
+  const bundled = path.join(assetsRoot, index.directoryName, ...EXPLOIT_PROFILE[0].path.split("/"));
+  if (!fs.existsSync(bundled)) return t.skip("pacote BadAvatar ausente");
+  const profile = fs.readFileSync(bundled);
+  const root = temp(t);
+  write(root, ".xbox-downloader/ready-to-play-v4.marker", "marker");
+  write(root, EXPLOIT_PROFILE[0].path, profile);
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-bloqueado-lt");
+  write(root, EXPLOIT_PROFILE[0].path, profile.subarray(0, profile.length - 0x1000));
   assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-rgh");
 });
 
@@ -86,7 +135,7 @@ test("sem o perfil do pacote para conferir, nada e declarado desbloqueado", asyn
   const root = temp(t);
   write(root, "Aurora/default.xex", "aurora");
   write(root, "launch.ini", "[Paths]");
-  write(root, EXPLOIT_PROFILE[0].path, "profile");
+  write(root, EXPLOIT_PROFILE[0].path, stfsProfile(70));
   assert.equal(await detectPreparedDeviceState(root, []), "preparado-rgh");
 });
 
