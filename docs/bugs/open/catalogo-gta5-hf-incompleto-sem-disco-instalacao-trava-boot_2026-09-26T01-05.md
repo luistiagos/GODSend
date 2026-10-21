@@ -261,6 +261,12 @@ Validação de código: `go vet ./...` limpo; `go test ./...` verde (uma falha i
 - [ ] **Catálogo online:** retirar a linha `GTA 5 7z` (`source_id` 1, `xbox360rgh`) da API de ROMs. A chamada é `POST https://emuladores.pythonanywhere.com/api/rom/delete` com `{"manifest_path":"xbox360rgh/GTA 5 7z","source_id":1}`; ela foi bloqueada pela política de permissões desta sessão e ficou com o dono. Para restaurar: `path` "GTA 5 7z", link `https://huggingface.co/datasets/luistiagos/xbx/resolve/main/GTA%205%20%287.61%29.7z`, tamanho "6758.12MB". O endpoint não exige autenticação.
 - [ ] Conferência por FTP contra console real (inalterada).
 
+## Reincidência — 2026-10-15
+
+Cliente na 2.12.110 recebeu GTA V como "Pronto" e o jogo não inicia. A validação acima cobriu só o caminho HuggingFace → ZTM; o
+Disco 1 Redump e outras quatro entradas de GTA V do catálogo remoto não foram conferidas. Análise e tasks em
+[pipeline-gta5-multidisco-termina-pronto-e-nao-inicia-no-console-reincidencia_2026-10-15T15-40](pipeline-gta5-multidisco-termina-pronto-e-nao-inicia-no-console-reincidencia_2026-10-15T15-40.md).
+
 ## Planejamento (pipeline 20261010-2242, 2026-10-10)
 
 **Veredito:** sem-codigo — a correcao de codigo ja esta no `origin/main` (2.12.102 + 2.12.105, commits `0ec8342` e `4574121`); o que falta e o dono apagar a linha `GTA 5 7z` da API de ROMs remota e a prova de boot no console (cliente do chamado #85).

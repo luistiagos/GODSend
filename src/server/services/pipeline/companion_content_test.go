@@ -81,14 +81,16 @@ func writeRootXexArchive(t *testing.T, extDir string) string {
 
 func TestXexDestinationNameNamesARootRipAfterTheReleaseNotTheScratchDir(t *testing.T) {
 	// [[pipeline-xex-com-default-xex-na-raiz-do-arquivo-grava-pasta-com-sufixo-hf-ext_2026-10-12T14-56]]
+	// [[pipeline-nome-de-pasta-xex-sem-titleid-com-mais-de-42-caracteres-nao-e-cortado-para-o-hd-fatx_2026-10-12T19-15]]
 	const game = "EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360 RGH )"
 	extDir := writeRootXexArchive(t, filepath.Join(t.TempDir(), game+"_hf_ext"))
 	xexFolder := helpers.FindXEXFolder(extDir)
 
 	got := xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), game)
 
-	if got != game {
-		t.Errorf("esperado %q, obtido %q", game, got)
+	expected := "EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 3"
+	if got != expected {
+		t.Errorf("esperado %q, obtido %q", expected, got)
 	}
 }
 

@@ -121,8 +121,54 @@ function entryId(relativePath: string, sha256: string, sizeBytes: number): strin
     .digest("hex");
 }
 
-function planHash(plan: Omit<TransactionalWritePlan, "planHash">): string {
-  return createHash("sha256").update(canonicalizeJson(plan), "utf8").digest("hex");
+export interface TransactionalWritePlanIdentityPayload {
+  planVersion: 1;
+  transactionId: string;
+  createdAt: string;
+  deviceFingerprint: string;
+  manifestId: string;
+  manifestRelease: string;
+  totalBytes: number;
+  entries: Array<{
+    entryId: string;
+    relativePath: string;
+    sizeBytes: number;
+    sha256: string;
+  }>;
+}
+
+export function planIdentityPayload(
+  plan: Pick<
+    TransactionalWritePlan,
+    | "planVersion"
+    | "transactionId"
+    | "createdAt"
+    | "deviceFingerprint"
+    | "manifestId"
+    | "manifestRelease"
+    | "totalBytes"
+    | "entries"
+  >,
+): TransactionalWritePlanIdentityPayload {
+  return {
+    planVersion: plan.planVersion,
+    transactionId: plan.transactionId,
+    createdAt: plan.createdAt,
+    deviceFingerprint: plan.deviceFingerprint,
+    manifestId: plan.manifestId,
+    manifestRelease: plan.manifestRelease,
+    totalBytes: plan.totalBytes,
+    entries: plan.entries.map((entry) => ({
+      entryId: entry.entryId,
+      relativePath: entry.relativePath,
+      sizeBytes: entry.sizeBytes,
+      sha256: entry.sha256,
+    })),
+  };
+}
+
+export function planHash(plan: Omit<TransactionalWritePlan, "planHash">): string {
+  return createHash("sha256").update(canonicalizeJson(planIdentityPayload(plan)), "utf8").digest("hex");
 }
 
 function deepFreeze<T>(value: T): T {

@@ -125,3 +125,19 @@ test("recusa destinos duplicados sem diferenciar maiúsculas", async (t) => {
   second.relativePath = "aurora/DEFAULT.XEX";
   await assert.rejects(() => plan(root, [first, second]), /destino duplicado/i);
 });
+
+test("planHash independe de sourceRoot ou sourcePath absoluto do host", async (t) => {
+  const rootA = staging(t);
+  const entryA = write(rootA, "aurora.xex", "aurora");
+  entryA.relativePath = "Aurora/default.xex";
+  const planA = await plan(rootA, [entryA]);
+
+  const rootB = staging(t);
+  const entryB = write(rootB, "outra-pasta/aurora.xex", "aurora");
+  entryB.relativePath = "Aurora/default.xex";
+  const planB = await plan(rootB, [entryB]);
+
+  assert.notEqual(planA.sourceRoot, planB.sourceRoot);
+  assert.notEqual(planA.entries[0].sourcePath, planB.entries[0].sourcePath);
+  assert.equal(planA.planHash, planB.planHash);
+});

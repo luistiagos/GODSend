@@ -15,6 +15,7 @@ const {
 const {
   buildTransactionalWritePlan,
 } = require("../../infrastructure/transactionalWritePlan.js");
+const { canonicalizeJson } = require("../../infrastructure/trustedComponentManifest.js");
 
 function temp(t, prefix) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -268,3 +269,120 @@ for (const [faultPoint, transactionId] of [
     assert.equal(fs.readFileSync(path.join(target, "launch.ini"), "utf8"), "launch");
   });
 }
+
+test("repreparo sem formatar a partir de outro sourceRoot reutiliza arquivos e conclui", async (t) => {
+  const target = createSimulationRoot(t);
+  const transactionId = "71111111-1111-4111-8111-111111111111";
+  const planA = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+  ], transactionId);
+
+  const initial = await executeTransactionalWriteSimulation(planA, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(initial.journal.state, "completed");
+  assert.equal(initial.writtenFiles, 2);
+
+  // Segunda abertura do app (outro sourceRoot temporário, mesmos arquivos e transactionId)
+  const planB = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+  ], transactionId);
+
+  assert.notEqual(planA.sourceRoot, planB.sourceRoot);
+
+  const second = await executeTransactionalWriteSimulation(planB, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(second.journal.state, "completed");
+  assert.equal(second.resumed, true);
+  assert.equal(second.reusedFiles, 2);
+  assert.equal(second.writtenFiles, 0);
+});
+
+test("retomada de preparo interrompido a partir de outro sourceRoot continua a gravacao", async (t) => {
+  const target = createSimulationRoot(t);
+  const transactionId = "72222222-2222-4222-8222-222222222222";
+  const planA = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+  ], transactionId);
+
+  let interrupted = false;
+  await assert.rejects(
+    () => executeTransactionalWriteSimulation(planA, target, {
+      revalidateTarget: async () => {},
+      faultInjector: async (point) => {
+        if (!interrupted && point === "after-entry-staged") {
+          interrupted = true;
+          throw new SimulatedInterruptionError();
+        }
+      },
+    }),
+    SimulatedInterruptionError,
+  );
+
+  // Segunda abertura do app (outro sourceRoot temporário)
+  const planB = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+  ], transactionId);
+
+  assert.notEqual(planA.sourceRoot, planB.sourceRoot);
+
+  const resumed = await executeTransactionalWriteSimulation(planB, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.journal.state, "completed");
+  assert.equal(fs.readFileSync(path.join(target, "Aurora", "default.xex"), "utf8"), "aurora");
+  assert.equal(fs.readFileSync(path.join(target, "launch.ini"), "utf8"), "launch");
+});
+
+test("adota diário legado com planHash diferente quando todas as entradas conferem", async (t) => {
+  const target = createSimulationRoot(t);
+  const transactionId = "73333333-3333-4333-8333-333333333333";
+  const plan = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+  ], transactionId);
+
+  // Simula um diário gravado pela 2.12.110 (com planHash legado diferente)
+  const legacyJournal = {
+    journalVersion: 1,
+    transactionId,
+    planHash: "f".repeat(64),
+    deviceFingerprint: plan.deviceFingerprint,
+    state: "completed",
+    updatedAt: new Date().toISOString(),
+    entries: plan.entries.map((entry) => ({
+      entryId: entry.entryId,
+      relativePath: entry.relativePath,
+      status: "committed",
+    })),
+  };
+  const { journalHash: _, ...contents } = legacyJournal;
+  const signedLegacy = {
+    ...contents,
+    journalHash: crypto.createHash("sha256").update(canonicalizeJson(contents), "utf8").digest("hex"),
+  };
+
+  const journalDir = path.join(target, ".xbox-downloader-sim", "transactions");
+  fs.mkdirSync(journalDir, { recursive: true });
+  fs.writeFileSync(path.join(journalDir, `${transactionId}.json`), JSON.stringify(signedLegacy));
+
+  // Também cria os arquivos no destino
+  fs.mkdirSync(path.join(target, "Aurora"), { recursive: true });
+  fs.writeFileSync(path.join(target, "Aurora", "default.xex"), "aurora");
+  fs.writeFileSync(path.join(target, "launch.ini"), "launch");
+
+  const result = await executeTransactionalWriteSimulation(plan, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(result.journal.state, "completed");
+  assert.equal(result.resumed, true);
+  assert.equal(result.reusedFiles, 2);
+  assert.equal(result.writtenFiles, 0);
+  assert.equal(result.journal.planHash, plan.planHash);
+});

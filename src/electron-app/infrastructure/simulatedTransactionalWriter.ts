@@ -4,7 +4,9 @@ import path from "path";
 import { pipeline } from "stream/promises";
 import { hashFileSha256 } from "./secureComponentStaging";
 import {
+  adoptJournalForPlan,
   createTransactionJournal,
+  journalEntriesMatchPlan,
   loadTransactionJournal,
   transitionJournalEntry,
   transitionTransactionState,
@@ -228,8 +230,31 @@ async function loadOrCreateJournal(
   const previous = path.join(paths.journalRoot, `${plan.transactionId}.previous.json`);
   if (await pathExists(current) || await pathExists(previous)) {
     const journal = await loadTransactionJournal(paths.journalRoot, plan.transactionId);
+    if (journal.planHash === plan.planHash) {
+      verifyTransactionJournalAgainstPlan(journal, plan);
+      return { journal, resumed: true };
+    }
+    if (journalEntriesMatchPlan(journal, plan)) {
+      const adopted = adoptJournalForPlan(journal, plan);
+      await persistJournal(paths, adopted, revalidate);
+      return { journal: adopted, resumed: true };
+    }
+    if (journal.state === "completed") {
+      if (await completedPlanStillMatchesTarget(root, plan)) {
+        let completed = transitionTransactionState(createTransactionJournal(plan), "staging");
+        for (const entry of plan.entries) {
+          completed = transitionJournalEntry(completed, entry.entryId, "committed");
+        }
+        completed = transitionTransactionState(completed, "completed");
+        await persistJournal(paths, completed, revalidate);
+        return { journal: completed, resumed: true };
+      }
+      await resetCompletedJournalForRepair(paths, plan, revalidate);
+      const fresh = createTransactionJournal(plan);
+      await persistJournal(paths, fresh, revalidate);
+      return { journal: fresh, resumed: false };
+    }
     verifyTransactionJournalAgainstPlan(journal, plan);
-    return { journal, resumed: true };
   }
   await ensureSafeDirectory(root, paths.journalRoot, revalidate);
   const journal = createTransactionJournal(plan);

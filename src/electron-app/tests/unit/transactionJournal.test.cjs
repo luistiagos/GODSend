@@ -6,7 +6,9 @@ const os = require("node:os");
 const path = require("node:path");
 
 const {
+  adoptJournalForPlan,
   createTransactionJournal,
+  journalEntriesMatchPlan,
   loadTransactionJournal,
   transitionJournalEntry,
   transitionTransactionState,
@@ -124,4 +126,21 @@ test("vincula o diário ao plano exato", async (t) => {
     () => verifyTransactionJournalAgainstPlan(journal, differentPlan),
     /plano de escrita foi alterado|não pertence ao plano/i,
   );
+});
+
+test("adota diário com planHash diferente quando entradas conferem", async (t) => {
+  const plan = await makePlan(t);
+  const journal = createTransactionJournal(plan);
+  const legacyJournal = JSON.parse(JSON.stringify(journal));
+  legacyJournal.planHash = "e".repeat(64);
+  const { journalHash: _, ...contents } = legacyJournal;
+  const signed = {
+    ...contents,
+    journalHash: crypto.createHash("sha256").update(JSON.stringify(contents)).digest("hex"),
+  };
+
+  assert.equal(journalEntriesMatchPlan(journal, plan), true);
+  const adopted = adoptJournalForPlan(journal, plan);
+  assert.equal(adopted.planHash, plan.planHash);
+  assert.doesNotThrow(() => verifyTransactionJournalAgainstPlan(adopted, plan));
 });

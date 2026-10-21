@@ -121,6 +121,48 @@ export function verifyTransactionJournal(journal: TransactionJournal): void {
   }
 }
 
+export function journalEntriesMatchPlan(
+  journal: TransactionJournal,
+  plan: TransactionalWritePlan,
+): boolean {
+  if (
+    journal.transactionId !== plan.transactionId ||
+    journal.deviceFingerprint !== plan.deviceFingerprint ||
+    journal.entries.length !== plan.entries.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < plan.entries.length; index++) {
+    const journalEntry = journal.entries[index];
+    const planEntry = plan.entries[index];
+    if (
+      journalEntry.entryId !== planEntry.entryId ||
+      journalEntry.relativePath !== planEntry.relativePath
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function adoptJournalForPlan(
+  journal: TransactionJournal,
+  plan: TransactionalWritePlan,
+  now = new Date(),
+): TransactionJournal {
+  verifyTransactionJournal(journal);
+  verifyTransactionalWritePlan(plan);
+  if (!journalEntriesMatchPlan(journal, plan)) {
+    throw new Error("As entradas do diário não correspondem ao plano de escrita.");
+  }
+  const { journalHash: _oldHash, ...contents } = journal;
+  return withHash({
+    ...contents,
+    planHash: plan.planHash,
+    updatedAt: now.toISOString(),
+  });
+}
+
 export function verifyTransactionJournalAgainstPlan(
   journal: TransactionJournal,
   plan: TransactionalWritePlan,

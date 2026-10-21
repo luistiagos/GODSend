@@ -114,3 +114,65 @@ func TestXEXFolderNameKeepsShortNamesIntact(t *testing.T) {
 		t.Errorf("nome curto não deve ser cortado, obtido %q", got)
 	}
 }
+
+func TestXEXFolderNameFitsFATXNameLimitWithoutTitleID(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "leiame.txt"), []byte("sem cabeçalho Xbox"), 0o644); err != nil {
+		t.Fatalf("gravar arquivo: %v", err)
+	}
+
+	long := "EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 360 RGH )"
+	got := XEXFolderName(dir, long)
+
+	if len([]rune(got)) > fatxMaxNameLen {
+		t.Errorf("nome com %d caracteres excede o limite FATX de %d: %q", len([]rune(got)), fatxMaxNameLen, got)
+	}
+	expected := "EMULADOR MASTER SYSTEM + 376 ROMS ( XBOX 3"
+	if got != expected {
+		t.Errorf("esperado %q, obtido %q", expected, got)
+	}
+	if got != strings.TrimRight(got, " .") {
+		t.Errorf("nome cortado terminou em espaço ou ponto: %q", got)
+	}
+}
+
+func TestXEXFolderNameFitsFATXNameLimitWithSystemTitleID(t *testing.T) {
+	dir := t.TempDir()
+	writeStfsPackage(t, filepath.Join(dir, "Database.xmplr"), SystemTitleID)
+
+	long := "Jogo Com Kinect E Nome Gigantesco Que Passa De Quarenta E Dois Caracteres"
+	got := XEXFolderName(dir, long)
+
+	if len([]rune(got)) > fatxMaxNameLen {
+		t.Errorf("nome com %d caracteres excede o limite FATX de %d: %q", len([]rune(got)), fatxMaxNameLen, got)
+	}
+	if strings.Contains(got, SystemTitleID) {
+		t.Errorf("nome não deve conter SystemTitleID, obtido %q", got)
+	}
+	if got != strings.TrimRight(got, " .") {
+		t.Errorf("nome cortado terminou em espaço ou ponto: %q", got)
+	}
+}
+
+func TestXEXFolderNameFitsFATXNameLimitWhenTitleIDAlreadyPresent(t *testing.T) {
+	dir := t.TempDir()
+	writeStfsPackage(t, filepath.Join(dir, "nxeart"), "4D53084D")
+
+	long := "Forza.Horizon.2.Presents.Fast.&.Furious.USA.X360-ZTM - 4D53084D"
+	got := XEXFolderName(dir, long)
+
+	if len([]rune(got)) > fatxMaxNameLen {
+		t.Errorf("nome com %d caracteres excede o limite FATX de %d: %q", len([]rune(got)), fatxMaxNameLen, got)
+	}
+	if !strings.HasSuffix(got, " - 4D53084D") {
+		t.Errorf("o TitleID tem de sobreviver ao corte, obtido %q", got)
+	}
+	if strings.Count(got, "4D53084D") != 1 {
+		t.Errorf("o TitleID não deve ser duplicado, obtido %q", got)
+	}
+	base := strings.TrimSuffix(got, " - 4D53084D")
+	if base != strings.TrimRight(base, " .") {
+		t.Errorf("nome cortado terminou em espaço ou ponto: %q", got)
+	}
+}
+

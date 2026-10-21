@@ -299,8 +299,24 @@ func XEXFolderName(xexFolder, folderName string) string {
 	// itself — FindTitleIDInDir walks lexically, and names like "Database.xmplr" sort ahead of
 	// "default.xex". Suffixing it would produce a folder the installed-games scan discards as
 	// system data, so keep the archive name and accept the rarer collision instead.
-	if titleID == "" || titleID == SystemTitleID || strings.HasSuffix(strings.ToUpper(folderName), titleID) {
+	if titleID == "" || titleID == SystemTitleID {
+		if name := []rune(folderName); len(name) > fatxMaxNameLen {
+			folderName = strings.TrimRight(string(name[:fatxMaxNameLen]), " .")
+			if folderName == "" {
+				folderName = string(name[:fatxMaxNameLen])
+			}
+		}
 		return folderName
+	}
+	if strings.HasSuffix(strings.ToUpper(folderName), titleID) {
+		if len([]rune(folderName)) <= fatxMaxNameLen {
+			return folderName
+		}
+		trimmed := folderName[:len(folderName)-len(titleID)]
+		trimmed = strings.TrimRight(trimmed, " -_.")
+		if trimmed != "" {
+			folderName = trimmed
+		}
 	}
 	suffix := " - " + titleID
 	if name := []rune(folderName); len(name)+len(suffix) > fatxMaxNameLen {
