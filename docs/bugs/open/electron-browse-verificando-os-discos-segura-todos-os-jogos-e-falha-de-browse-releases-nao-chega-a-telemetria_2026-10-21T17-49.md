@@ -118,12 +118,48 @@ Fora deste bug (não feito aqui): o botão continuar desabilitado no `failed` é
 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
-| T1 | scanner resolve TitleIDs em paralelo e memoriza os nomes | -- | -- | -- | -- |
-| T2 | `browse:get-release-groups` reporta falha à telemetria | -- | -- | -- | -- |
+| T1 | scanner resolve TitleIDs em paralelo e memoriza os nomes | `68d7b47` | commitado, sem release (2.12.116); `go test ./...` verde | claude-opus-5-5 | -- |
+| T2 | `browse:get-release-groups` reporta falha à telemetria | `b1377ad` | commitado, sem release (2.12.116); `test:safety` 358/0 | claude-opus-5-5 | -- |
+
+## Correção aplicada
+
+- **T1 (`68d7b47`)**, como planejado. `scanner.go::ScanTransferFolder` e `scanGamesSubdir` agora só **juntam** os
+  TitleIDs. A resolução acontece no fim, numa única chamada a `resolveTitleNames`: no máximo 8 consultas ao mesmo tempo
+  (`slots`), nomes resolvidos guardados em `resolvedTitleNames` (`sync.Map`, vida do processo) e falha não guardada.
+  A consulta passa pela variável `lookupTitleName` (= `services.LookupTitleName`), para que o teste possa injetá-la.
+  `LookupTitleName` e os outros chamadores não mudaram.
+  Efeito colateral aceito: os nomes resolvidos entram na lista depois dos ISOs e das pastas nomeadas. A ordem final não
+  muda (`sort.Strings`). Só em empate de nome sem diferença de maiúsculas fica a grafia do ISO.
+  Versão subiu para 2.12.116 nos quatro lugares, com entrada no CHANGELOG.
+- **T2 (`b1377ad`)**, como planejado: `reportError("electron-main", "browseHandlers.ts", "browse:get-release-groups",
+  msg, "", [platform=…, stack], false)`, no mesmo formato do `browse:get-games`.
+- Não feito, de propósito: a tela continua com o botão desabilitado em `failed` (decisão anterior, contra baixar meio
+  lançamento). O IPC continua com prazo de 120 s.
+
+## Testes executados
+
+- `go test ./services/local -v`: `TestResolveTitleNamesLooksUpInParallel` (8 × 300 ms em 0,30 s) e
+  `TestResolveTitleNamesRemembersHitsAndRetriesMisses` passam. **Mutação:** com `slots` = 1, o primeiro falha
+  (`took 2.40s`). Sem o `Store`, o segundo falha (`looked up 2 times, want 1`).
+- `go build ./... && go test ./... -count=1` (src/server): verde.
+- Reprodução real, `subst W:` com 8 TitleIDs e rede de verdade. Antes: `scan 0: 1.75s`, `scan 1: 1.30s`. Depois:
+  `scan 0: 758ms`, `scan 1: 2ms`. Mesmos 8 nomes nos dois casos. `W:` removido em seguida (`subst W: /d`).
+- `node --test tests/unit/browseHandlers.test.cjs`: 10/10. **Mutação:** sem o `reportError` novo, só o teste novo falha
+  (9 pass / 1 fail).
+- `npm run test:safety` (src/electron-app): 358 pass / 0 fail.
+- Não testado: o XboxUnity pendurado de verdade (10 s por fonte). O pior caso calculado passa de N × 20 s para
+  ⌈N/8⌉ × 20 s. Também não testado: HD real usado no console, nem a máquina do cliente.
+
+## Próximo passo
+
+Publicar a 2.12.116 (`build-and-upload.ps1`). Depois, na telemetria, procurar `browse:get-release-groups`:
+- sem linhas nos dias seguintes à atualização dos clientes: o critério da tela está cumprido;
+- com linhas: o `msg` diz se é `ETIMEDOUT` (ainda lento) ou outra falha.
 
 ## Critérios para fechar
 
-- [ ] Reprodução confirmada e compreendida
-- [ ] Causa raiz isolada e corrigida
-- [ ] Falha de `browse:get-release-groups` reportada à telemetria
-- [ ] Teste automatizado cobrindo o caso
+- [x] Reprodução confirmada e compreendida (mecanismo; a máquina do cliente não foi vista)
+- [x] Causa raiz isolada e corrigida (T1, sem release)
+- [x] Falha de `browse:get-release-groups` reportada à telemetria (T2, sem release)
+- [x] Teste automatizado cobrindo o caso
+- [ ] `verificacao:` em produção — telemetria sem `browse:get-release-groups` depois da 2.12.116 nos clientes
