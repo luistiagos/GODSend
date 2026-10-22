@@ -109,7 +109,7 @@ sido apagado. Se ele foi apagado, o aviso estava certo e continua igual depois d
 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
-| T1 | detecção confere o perfil do exploit pela consistência do pacote STFS, não pelo tamanho do manifesto | `d06e424` | commitado, sem release; 12/12 unitários verdes (reconferido 2026-10-21); falta a validação em hardware | claude-opus-5-5 | -- |
+| T1 | detecção confere o perfil do exploit pela consistência do pacote STFS, não pelo tamanho do manifesto | `d06e424` | release 2.12.115 (publicada 2026-10-22; version.json e binários x64/ia32 conferidos); 12/12 unitários verdes (reconferido 2026-10-21); falta a validação em hardware | claude-opus-5-5 | -- |
 
 ## Como reproduzir
 
@@ -168,7 +168,8 @@ commit desta sessão. Os dois arquivos de `src/android-app` modificados na árvo
 
 Próxima sessão, nesta ordem:
 
-1. **Publicar a 2.12.115.** Rodar `build-and-upload.ps1` na raiz do repo (HF + R2 + `version.json`). Antes,
+1. ~~**Publicar a 2.12.115.**~~ Feito em 2026-10-22: `version.json` publicado diz 2.12.115; Content-Length do
+   x64 (589161738) e do ia32 (572174389) iguais aos de `dist/`. Instrução original: rodar `build-and-upload.ps1` na raiz do repo (HF + R2 + `version.json`). Antes,
    `git log --oneline -5`: se o dono já publicou, só anotar. Depois, conferir no `version.json` publicado que a versão
    é `2.12.115` e atualizar a célula `estado` da T1 para "release 2.12.115".
 2. **Graphify: nada a fazer.** `graphify-out/` não existe no repo, e o comando `graphify` não está instalado
