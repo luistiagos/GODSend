@@ -109,7 +109,7 @@ sido apagado. Se ele foi apagado, o aviso estava certo e continua igual depois d
 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
-| T1 | detecção confere o perfil do exploit pela consistência do pacote STFS, não pelo tamanho do manifesto | -- | -- | -- | -- |
+| T1 | detecção confere o perfil do exploit pela consistência do pacote STFS, não pelo tamanho do manifesto | `d06e424` | commitado, sem release; 12/12 unitários verdes (reconferido 2026-10-21); falta a validação em hardware | claude-opus-5-5 | -- |
 
 ## Como reproduzir
 
