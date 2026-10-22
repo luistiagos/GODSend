@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -80,7 +81,8 @@ func findGamesDirInRoot(root string) string {
 	return ""
 }
 
-func scanGamesSubdir(gamesDir string, seen map[string]bool, result *[]string) {
+// titleIDs collects bare TitleID folders; the caller resolves them together (resolveTitleNames).
+func scanGamesSubdir(gamesDir string, seen map[string]bool, result *[]string, titleIDs *[]string) {
 	entries, err := os.ReadDir(gamesDir)
 	if err != nil {
 		return
@@ -105,9 +107,8 @@ func scanGamesSubdir(gamesDir string, seen map[string]bool, result *[]string) {
 			}
 		} else if len(dirName) == 8 && helpers.IsHexString(dirName) {
 			// TitleID folder
-			if resolved := services.LookupTitleName(dirName); resolved != "" {
-				titleName = resolved
-			}
+			*titleIDs = append(*titleIDs, dirName)
+			continue
 		}
 
 		key := strings.ToLower(titleName)
@@ -118,9 +119,61 @@ func scanGamesSubdir(gamesDir string, seen map[string]bool, result *[]string) {
 	}
 }
 
+// lookupTitleName is a variable so tests can replace the network lookup.
+var lookupTitleName = services.LookupTitleName
+
+// resolvedTitleNames remembers every TitleID a scan resolved, for the life of the process.
+var resolvedTitleNames sync.Map
+
+// resolveTitleNames resolves TitleIDs to display names, in parallel, and remembers the hits.
+// ScanTransferFolder runs on every catalog load (/browse/releases goes through companionCatalog).
+// Each lookup can take 20 s (XboxUnity then XboxDB, 10 s timeout each). A drive used on a
+// console has a TitleID folder per system app and per game, so resolving them one by one,
+// every time, went past the app's 120 s IPC timeout. "Verificando os discos deste jogo…"
+// then never turned into a usable download button. Misses are not remembered: a network
+// blip should not leave the folder showing its hex ID for the whole session.
+func resolveTitleNames(ids []string) map[string]string {
+	names := make(map[string]string, len(ids))
+	var pending []string
+	for _, id := range ids {
+		if _, done := names[id]; done {
+			continue
+		}
+		names[id] = ""
+		if v, ok := resolvedTitleNames.Load(id); ok {
+			names[id] = v.(string)
+		} else {
+			pending = append(pending, id)
+		}
+	}
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 8)
+	for _, id := range pending {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func(id string) {
+			defer wg.Done()
+			defer func() { <-slots }()
+			name := lookupTitleName(id)
+			if name == "" {
+				return
+			}
+			resolvedTitleNames.Store(id, name)
+			mu.Lock()
+			names[id] = name
+			mu.Unlock()
+		}(id)
+	}
+	wg.Wait()
+	return names
+}
+
 func (s *Service) ScanTransferFolder() []string {
 	seen := make(map[string]bool)
 	var games []string
+	var titleIDs []string
 
 	// 1. Scan Transfer folder for ISOs and Games subfolder
 	if s.App.TransferDir != "" {
@@ -143,7 +196,7 @@ func (s *Service) ScanTransferFolder() []string {
 		// Also scan Transfer/Games if present
 		transferGames := filepath.Join(s.App.TransferDir, "Games")
 		if fi, err := os.Stat(transferGames); err == nil && fi.IsDir() {
-			scanGamesSubdir(transferGames, seen, &games)
+			scanGamesSubdir(transferGames, seen, &games, &titleIDs)
 		}
 	}
 
@@ -153,26 +206,31 @@ func (s *Service) ScanTransferFolder() []string {
 			root := string(r) + ":\\"
 			if fi, err := os.Stat(root); err == nil && fi.IsDir() {
 				if gdir := findGamesDirInRoot(root); gdir != "" {
-					scanGamesSubdir(gdir, seen, &games)
+					scanGamesSubdir(gdir, seen, &games, &titleIDs)
 				}
 				// Also check Content/0000000000000000
 				contentDir := filepath.Join(root, "Content", "0000000000000000")
 				if centries, err := os.ReadDir(contentDir); err == nil {
 					for _, ce := range centries {
 						if ce.IsDir() && len(ce.Name()) == 8 && helpers.IsHexString(ce.Name()) {
-							name := ce.Name()
-							if resolved := services.LookupTitleName(name); resolved != "" {
-								name = resolved
-							}
-							key := strings.ToLower(name)
-							if !seen[key] {
-								seen[key] = true
-								games = append(games, name)
-							}
+							titleIDs = append(titleIDs, ce.Name())
 						}
 					}
 				}
 			}
+		}
+	}
+
+	resolved := resolveTitleNames(titleIDs)
+	for _, id := range titleIDs {
+		name := id
+		if n := resolved[id]; n != "" {
+			name = n
+		}
+		key := strings.ToLower(name)
+		if !seen[key] {
+			seen[key] = true
+			games = append(games, name)
 		}
 	}
 
