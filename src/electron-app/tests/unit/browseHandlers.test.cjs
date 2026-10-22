@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
 
-function createBrowseHandler(backendReply, port = 8097) {
+function createBrowseHandler(backendReply, port = 8097, releasesReply = null) {
   const handlers = new Map();
   const calls = [];
   const events = [];
@@ -19,7 +19,11 @@ function createBrowseHandler(backendReply, port = 8097) {
         calls.push(url);
         return backendReply();
       },
-      backendGet: () => { throw new Error("A listagem precisa conferir o status HTTP"); },
+      backendGet: async (url) => {
+        if (!releasesReply) throw new Error("A listagem precisa conferir o status HTTP");
+        calls.push(url);
+        return releasesReply();
+      },
     },
     "../infrastructure/serverLog": { appendAppEvent: (...args) => events.push(args) },
     "../infrastructure/telemetry": { reportError: (...args) => reports.push(args) },
@@ -37,6 +41,7 @@ function createBrowseHandler(backendReply, port = 8097) {
   loaded.exports.register({ handle: (name, handler) => handlers.set(name, handler) });
   return {
     browse: (request = { platform: "xbox360", source: "ia" }) => handlers.get("browse:get-games")(null, request),
+    releaseGroups: (platform = "xbox360") => handlers.get("browse:get-release-groups")(null, { platform }),
     calls,
     events,
     reports,
@@ -140,6 +145,30 @@ test("browse:get-games supplies nonempty diagnostics for message-less rejections
     assert.equal(h.reports.length, 1);
     assert.match(h.reports[0][5][0], /source=unified/);
   }
+});
+
+// The queue dialog keeps every download button disabled until the disc grouping arrives, so a
+// failure of this call blocks the whole catalog. It used to reach only the local log.
+test("browse:get-release-groups reports failures to telemetry and stays quiet on success", async () => {
+  const error = new Error("ETIMEDOUT: o servidor local nao respondeu em 120s");
+  const failing = createBrowseHandler(() => { throw new Error("unused"); }, 8097, () => { throw error; });
+  const result = await failing.releaseGroups();
+  assert.deepEqual(result, { ok: false, error: error.message, releases: [] });
+  assert.equal(failing.events.length, 1);
+  assert.equal(failing.reports.length, 1);
+  const [component, file, method, message, , logs, terminal] = failing.reports[0];
+  assert.equal(component, "electron-main");
+  assert.equal(file, "browseHandlers.ts");
+  assert.equal(method, "browse:get-release-groups");
+  assert.equal(message, error.message);
+  assert.deepEqual(logs, ["platform=xbox360", error.stack]);
+  assert.equal(terminal, false);
+
+  const ok = createBrowseHandler(() => { throw new Error("unused"); }, 8097,
+    () => JSON.stringify({ releases: [{ release_title: "Halo", discs: [] }] }));
+  assert.deepEqual(await ok.releaseGroups(), { ok: true, releases: [{ release_title: "Halo", discs: [] }] });
+  assert.equal(ok.calls[0], "/browse/releases?platform=xbox360");
+  assert.deepEqual(ok.reports, []);
 });
 
 function createCoverHandlers({ custom = [], covers = {} } = {}) {

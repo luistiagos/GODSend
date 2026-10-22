@@ -99,7 +99,20 @@ export function register(ipcMain: IpcMain): void {
       return { ok: true, releases: Array.isArray(parsed.releases) ? parsed.releases : [] };
     } catch (err: unknown) {
       const msg = errorMessage(err);
-      appendAppEvent("BROWSE", `browse:get-release-groups falhou (platform=${platform}): ${msg}`);
+      const context = `platform=${platform}`;
+      const stack = err instanceof Error ? err.stack : undefined;
+      appendAppEvent("BROWSE", `browse:get-release-groups falhou (${context}): ${msg}`);
+      // The queue dialog keeps every download button disabled until this answers, so a failure
+      // here blocks the whole catalog; it has to be visible in telemetry, not only in the local log.
+      reportError(
+        "electron-main",
+        "browseHandlers.ts",
+        "browse:get-release-groups",
+        msg,
+        "",
+        stack ? [context, stack] : [context],
+        false,
+      );
       return { ok: false, error: msg, releases: [] };
     }
   });
