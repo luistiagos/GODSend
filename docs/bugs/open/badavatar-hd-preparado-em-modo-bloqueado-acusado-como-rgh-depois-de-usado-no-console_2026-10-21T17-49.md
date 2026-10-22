@@ -160,3 +160,20 @@ mas só o primeiro nível foi conferido contra um arquivo real.
 - [x] Teste unitário cobrindo o caso
 - [ ] Validação em hardware real — primeiro pendrive/HD BadAvatar que voltar do console: abrir o Companion e
   conferir que aparece como preparado para Bloqueado/LT; anotar o tamanho do perfil antes/depois
+
+## Passagem de bastão (2026-10-21)
+
+Feito: T1 em `d06e424` (código, testes, versão 2.12.115, CHANGELOG), carimbado em `eea2bfe`. Não há edição sem
+commit desta sessão. Os dois arquivos de `src/android-app` modificados na árvore não são deste bug.
+
+Próxima sessão, nesta ordem:
+
+1. **Publicar a 2.12.115.** Rodar `build-and-upload.ps1` na raiz do repo (HF + R2 + `version.json`). Antes,
+   `git log --oneline -5`: se o dono já publicou, só anotar. Depois, conferir no `version.json` publicado que a versão
+   é `2.12.115` e atualizar a célula `estado` da T1 para "release 2.12.115".
+2. **Graphify: nada a fazer.** `graphify-out/` não existe no repo, e o comando `graphify` não está instalado
+   (exit 127). A regra do CLAUDE.md ("rodar `graphify update .` depois de mudar código") vale só quando o grafo
+   existe. Criar o grafo é decisão do dono, fora deste bug.
+3. **Fechar o bug** só depois da validação em hardware (critério acima). Até lá o doc fica em `docs/bugs/open`. Se
+   o perfil voltar do console **menor** que o do pacote, ou ausente, a causa provada aqui não é a do cliente: reabrir
+   a Causa raiz.
