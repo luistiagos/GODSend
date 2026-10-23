@@ -70,7 +70,7 @@
 
 - A falha do formatador em 17/10 (*"Set-Partition : Not Supported"*), que levou o cliente a formatar em outro
   aplicativo, é evidência anexada ao bug em retest
-  [`../retest/badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md`](../retest/badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md).
+  [`badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md`](badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md).
 - As respostas do agente de WhatsApp: as promessas de suporte sem humano foram anexadas ao bug do
   `digitalstoregamesproject` `docs/modules/chatbot-whatsapp/areas/estado-handoff/bugs/2026-09-14-promessa-de-atendente-sem-lastro-depois-que-o-pino-e-liberado.md`.
   O agente seguiu o guia: o roteiro de reaplicar a 17559 é o "Como resolver" dos avatares cinzas. O guia é que

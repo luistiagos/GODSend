@@ -2,7 +2,12 @@
 
 ## Status
 
-**Em retest** (pipeline 20261010-2242, teste rodada 1 aprovado em 2026-10-12 01:30). A causa raiz do caso 1
+**REABERTO em 2026-10-23: voltou de `retest/` para `open/`.** O `Set-Partition -MbrType 12` que a T2 acrescentou
+falha em hardware real e mata o preparo sem saída: 17 falhas, 4 clientes, 6 dispositivos, todas na 2.12.110 (ver
+"Confirmação de campo — NEGATIVA", no fim). **O próximo passo é a T7, em "Passagem de bastão — T7"**, também no fim.
+O histórico abaixo é o de quando o doc estava em retest.
+
+**Era: em retest** (pipeline 20261010-2242, teste rodada 1 aprovado em 2026-10-12 01:30). A causa raiz do caso 1
 (#153) continua **não provada**: o que foi corrigido é o defeito provado no código e o diagnóstico.
 
 - **Commits do fix:** T1 `a6ac2df` (formatador garante MBR) e T2 `5c08a61` (portão de layout), já em
@@ -794,8 +799,7 @@ Ajustes ao Plano de teste: nenhum. As duas mutações do plano valem como escrit
 **Resultado limpo, não inconclusivo:** nenhuma outra falha estava ativa nas medições abaixo. O preparo falha
 **no próprio passo que esta correção acrescentou**. A decisão aberta "(b) `Set-Partition -MbrType 12` incluído
 antes de H2 ser decidida" (Passagem de bastão) teve resposta em campo, e ela foi contra. Pela regra de
-[`../retest/README.md`](README.md), o doc deve **voltar para `open/`**. A mudança de pasta fica para o dono ou
-para o fluxo `/bug`; esta triagem não move arquivo.
+[`../retest/README.md`](../retest/README.md), o doc deve **voltar para `open/`**. Voltou em 2026-10-23, a pedido do dono.
 
 ### O que o cliente viveu (chamado #254, sessão `268796283584649@lid`, Xbox LT, horários UTC)
 
@@ -878,3 +882,56 @@ O pendrive de 17/10 o cliente resolveu sozinho. A falha `11367` (23/10 01:02) é
 (`tools:badavatar-prepare`) num segundo Kingston (disco 2), na mesma noite em que o HD preparado não disparava o
 exploit. A conversa não diz para que era esse pendrive (ver
 [`badavatar-hd-preparado-nao-dispara-com-avatares-cinzas-no-console-onde-o-pendrive-funcionou_2026-10-22T23-00.md`](../open/badavatar-hd-preparado-nao-dispara-com-avatares-cinzas-no-console-onde-o-pendrive-funcionou_2026-10-22T23-00.md)).
+
+## Passagem de bastão — T7 (2026-10-23): tipo errado vira "recriar a tabela", e o `Set-Partition` deixa de ser beco sem saída
+
+**Objetivo testável:** um dispositivo que chega `MBR, 1 partição, tipo ≠ 11/12` termina o preparo com "Formatar
+antes" em `MBR, 1, tipo 12`, **sem** depender do `Set-Partition`. Se o tipo final ainda vier errado, o preparo não
+morre no `Set-Partition`: recria a tabela uma vez antes de desistir.
+
+**Símbolos já abertos nesta análise** (`src/electron-app/infrastructure/fat32Format.ts::buildGuardedWindowsFat32Script`, HEAD `4fb09d8`):
+
+- `Get-XboxLayoutProblem` (linhas 128–134): devolve problema só para estilo ≠ MBR ou contagem ≠ 1. **Não olha o
+  tipo**, e é por isso que o tipo 4 cai no formatar-no-lugar.
+- `Get-Fat32MbrTypeProblem` (linhas 136–140): devolve problema para tipo ≠ 11/12. Hoje só é usada na conferência
+  final.
+- Linhas 286–295: `$arrivalProblem = Get-XboxLayoutProblem …` → `$needsNewTable`. `$targetBytes` passa a ser o
+  disco inteiro quando `$needsNewTable` é verdadeiro.
+- Ramo `<= 32 GB` (linhas 301–398): sem `$needsNewTable`, roda `Format-Volume`, depois `fat32format`, depois
+  `format.com` no lugar. Com `$needsNewTable` (ou se os três falharem), roda `diskpart clean`, `convert mbr`,
+  `create partition primary` e `format fs=fat32` (linhas 339–360), com recurso a NTFS + `fat32format` (362–393).
+- Ramo `> 32 GB` (linhas 399–470): `$needsNewTable` → partição crua via diskpart (413–434) → `fat32format`.
+- Conferência final (linhas 489–511): `Set-Partition … -MbrType 12 -ErrorAction Stop` (linha 505). Em erro, cai
+  no `catch` (516–519), que grava o log e faz `exit 1`. **Não há recurso.**
+- Portão do app `infrastructure/xboxDiskLayoutPolicy.ts` (linha 65–66): reprova `MBR_TYPE` com *"A partição está
+  marcada com o tipo N…"*. O texto que chega ao cliente manda "Marque 'Formatar antes'". O portão está **certo**
+  (o pendrive com tipo 11/12 foi lido pelo console no #254) e não deve mudar.
+
+**Tarefas:**
+
+1. **T7a — tipo na chegada.** Incluir o tipo na decisão de `$needsNewTable`, chamando
+   `Get-Fat32MbrTypeProblem $partition` junto com `Get-XboxLayoutProblem`. **Só quando "Formatar antes" está
+   marcado**, porque o script inteiro só roda nesse caso. O log passa a dizer o motivo.
+2. **T7b — recurso no fim.** Se a conferência final achar tipo errado, tentar `Set-Partition` em `try/catch`. Na
+   falha, recriar a tabela pelo caminho do diskpart do ramo correspondente, uma vez, e conferir de novo. Só então
+   fazer `throw`, com mensagem que **não** mande "marcar Formatar antes".
+3. **Prova:**
+   - unidade: teste sobre o **texto gerado** pelo `buildGuardedWindowsFat32Script`, no padrão de
+     `tests/unit/fat32FormatGuard.test.cjs`, provando que o tipo entra na decisão de recriar e que o
+     `Set-Partition` não está mais solto com `-ErrorAction Stop`. **Ele precisa falhar no código de hoje.**
+   - VHD: cenário novo em `scripts/vhd-format-test/generate.cjs`, com MBR de 1 partição remarcada com **tipo 4**
+     antes do preparo. Deve sair `Recriando a tabela…` e `Layout final: MBR, 1 particao, tipo 12`. Atenção: no VHD
+     o `Set-Partition` **funciona** (S6), então o VHD não reproduz o *Not Supported*. O que o VHD prova é o caminho
+     novo; a falha original só se reproduz em pendrive real.
+   - hardware (critério para fechar): um pendrive real que chegue com tipo 4. Também vale reaproveitar a
+     telemetria: depois de publicar, `SELECT … FROM errors WHERE message LIKE '%Set-Partition%'` deve zerar nas
+     versões novas.
+4. **Doc-sync e versão** (regras do repo): `AGENTS.md`, na entrada de `fat32Format.ts` (a invariante ganha "tipo ≠
+   11/12 → recriar"); `docs/CAPACIDADE-E-ESPACO.md`, se citar a regra; versão nos 4 lugares e `CHANGELOG.md`
+   `[Unreleased]`.
+
+**Hipóteses abertas** (não bloqueiam T7, que resolve as duas): HA (superfloppy) e HB (provedor recusa em
+removível), em "Confirmação de campo — NEGATIVA", acima.
+
+**Frase de abertura da próxima sessão:**
+`/bug docs/bugs/open/badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md — ler "Status", "Confirmação de campo — NEGATIVA" e "Passagem de bastão — T7" (no fim) e implementar a T7.`

@@ -17,7 +17,7 @@
 # Bug: as mensagens do formatador elevado (Windows) chegam ao usuário com acentos corrompidos
 
 - **Detectado em:** 2026-10-08 21:40, no teste em VHD do bug
-  [`badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md`](badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md)
+  [`badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md`](../open/badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md)
   (seção "Teste em VHD")
 - **Origem:** logs do formatador nos 7 cenários do teste, mais a leitura de `infrastructure/fat32Format.ts::formatWindowsFat32`
 - **Errors (serviço):** N/A. A mensagem corrompida só aparece quando a formatação falha, e o texto do erro é o mesmo que vai para o report
