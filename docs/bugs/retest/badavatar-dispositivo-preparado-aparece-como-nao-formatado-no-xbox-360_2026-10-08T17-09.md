@@ -788,3 +788,93 @@ Ajustes ao Plano de teste: nenhum. As duas mutações do plano valem como escrit
 - `requireXboxReadableLayout` devolvendo a linha recebida → o teste do pendrive nativo cai em `partitionStyle ""`;
 - `buildPreparationReceipt` sempre com a chave → o `deepEqual` do teste antigo cai.
 
+
+## Confirmação de campo — NEGATIVA: o `Set-Partition -MbrType 12` da T2 falha em pendrive e HD reais e o preparo morre sem saída (chamado #254, triagem de 2026-10-22)
+
+**Resultado limpo, não inconclusivo:** nenhuma outra falha estava ativa nas medições abaixo. O preparo falha
+**no próprio passo que esta correção acrescentou**. A decisão aberta "(b) `Set-Partition -MbrType 12` incluído
+antes de H2 ser decidida" (Passagem de bastão) teve resposta em campo, e ela foi contra. Pela regra de
+[`../retest/README.md`](README.md), o doc deve **voltar para `open/`**. A mudança de pasta fica para o dono ou
+para o fluxo `/bug`; esta triagem não move arquivo.
+
+### O que o cliente viveu (chamado #254, sessão `268796283584649@lid`, Xbox LT, horários UTC)
+
+- `[145373]` 17/10 00:25: print do preparo com *"Format-Volume FAT32 realizado com sucesso"* seguido de
+  *"Set-Partition : Not Supported … StorageWMI 1,Set-Partition"*;
+- `[145375]` *"Mesma mensagem"* e `[145377]` *"Mesma coisa"* (trocou de porta e reiniciou o PC);
+- `[145379]`: formatou em FAT32 pelo Windows e preparou **sem** "Formatar antes". O portão respondeu: *"A partição
+  está marcada com o tipo 4, e não como FAT32 (11 ou 12). Marque 'Formatar antes' e tente novamente"*. É um beco
+  sem saída: o caminho "com formatar" é justamente o que falha;
+- `[145383]`: com "Formatar antes", o mesmo `Set-Partition` falhou;
+- `[145405]` 00:57: *"consegui, formatei em outro app"*. O preparo **sem formatar** passou pelo portão, e
+  portanto o tipo já era 11/12. `[145419]` 01:01: *"Funcionou"*. **O console leu esse pendrive.** O cliente só
+  saiu do beco com uma ferramenta de terceiros.
+
+### Telemetria (`errors`, `xbox-360-companion/electron-main`, `tools:badavatar-prepare`, todas `ElectronApp v2.12.110`)
+
+`SELECT id, time, … FROM errors WHERE message LIKE '%Set-Partition%'`: **17 falhas, 4 clientes, 6 dispositivos,
+de 13/10 a 23/10**. Todas ainda com `status = open`, ou seja, nenhuma triagem de telemetria as viu.
+
+| ids | quando (UTC) | máquina (`Users\…`) | dispositivo | erro |
+|---|---|---|---|---|
+| 9936, 9937, 9940, 9956 | 13/10 | `ronni.bassoli` / `Ronni Cesar Ba…` | SanDisk Cruzer Fit, Cruzer Blade | `Not Supported` |
+| 10019, 10020 | 14/10 | `USER` | **TOSHIBA MK3265GSX** (HD de 320 GB, ramo `> 32 GB` com `fat32format`) | `Not Supported` |
+| 10527, 10529–10531, 10533, 10534 | 17/10 | `PNA-USER` (**este cliente**) | Kingston DataTraveler SE9, VendorCo ProductCode | `Not Supported` |
+| 10722, 10723, 10727, 10732 | 19/10 | `jhsil` | USB DISK 2.0 | **`Invalid Parameter`** (`StorageWMI 5`) |
+| 11367 | 23/10 01:02 | `PNA-USER` | Kingston DataTraveler SE9 (outro, disco 2) | `Not Supported` |
+
+Mais o portão (`… marcada com o tipo …`): 9 rejeições entre 13/10 e 20/10, entre elas `10526` e `10532`, que são deste cliente.
+
+O log é o mesmo em todas as linhas (exemplo: `10527`):
+
+```
+Disco USB validado: 1 (Kingston DataTraveler SE9)
+Layout de chegada: MBR, 1 particao(oes), tipo 4, setor 512
+Formatando unidade (<= 32 GB) diretamente...
+Format-Volume FAT32 realizado com sucesso.
+Particao marcada com tipo 4, nao FAT32; corrigindo para 12 (FAT32 LBA)...
+Set-Partition : Not Supported
+```
+
+### O que isto prova no código (aberto em `HEAD`, 2.12.116, sem mudança desde a 2.12.110 neste trecho)
+
+- `infrastructure/fat32Format.ts::buildGuardedWindowsFat32Script`: `Get-XboxLayoutProblem` (linhas 128–134) olha
+  só o estilo e a contagem de partições. Por isso `MBR, 1 partição, tipo 4` **não** dispara `$needsNewTable`, e
+  o ramo `<= 32 GB` formata no lugar com `Format-Volume` (linha 308). Esse ramo é o único que este cliente viu;
+  o HD de 320 GB entrou no ramo do `fat32format`.
+- A conferência final (linhas 501–511) chama `Set-Partition … -MbrType 12 -ErrorAction Stop` **sem nenhum
+  plano B**. A exceção cai no `catch` (linhas 516–519), que grava o erro no log e faz `exit 1`. O preparo falha,
+  e o dispositivo fica formatado em FAT32 com o tipo 4.
+- **H2 confirmada em hardware real:** `Format-Volume` (e o `fat32format`, no caso do Toshiba) **mantém** o byte de
+  tipo que chegou. No VHD (S3/S5) eles tinham gravado 12; em pendrive real, não gravaram.
+- **O portão estava certo:** o pendrive que outro aplicativo deixou com tipo 11/12 passou pelo portão e foi lido
+  pelo console (`[145419]`). Isso reforça a H2 como causa provável do "Não Formatado" do caso 1.
+
+### Hipóteses — nenhuma verificada — sobre por que o `Set-Partition` recusa
+
+- **HA — o disco é "superfloppy"** (volume FAT direto no setor 0, sem tabela MBR de verdade). Nesse caso o
+  Windows sintetiza `MBR, 1 partição`, o `MbrType` reportado não corresponde a byte nenhum, e não há tabela para o
+  `Set-Partition` alterar (daí o *Not Supported*). A favor: **todos** os 6 dispositivos, inclusive o HD, chegaram
+  com o mesmo tipo 4. Byte `0x04` de verdade (FAT16 < 32 MB) em pendrive de vários GB seria raro. Teste: ler o
+  setor 0 de um desses dispositivos (assinatura `55AA` + tabela em `0x1BE`, ou boot sector FAT em `0x0`).
+- **HB — o provedor de armazenamento não aceita trocar o `MbrType` de disco removível.** Teste: `Set-Partition
+  -MbrType 12` num pendrive com MBR real e tipo 4 gravado de propósito.
+
+### Correção sugerida (não implementada; vale para HA e para HB)
+
+- `Get-XboxLayoutProblem` passa a tratar **tipo fora de 11/12 na chegada** como layout que o Xbox não lê. Isso
+  manda o dispositivo para o `diskpart clean` + `convert mbr`, o caminho que o teste em VHD provou que sai com tipo
+  12 (S1, S2, S4). Com isso, o `Set-Partition` só roda depois do caminho limpo, se é que ainda precisa rodar.
+- Se o tipo final continuar errado depois de formatar no lugar, o script **recria a tabela** pelo mesmo caminho
+  limpo, em vez de `throw` (ou, no mínimo, tenta `diskpart … set id=0C override` antes de desistir).
+- O texto do portão "Marque 'Formatar antes'" não pode ser a única saída enquanto "Formatar antes" falhar no
+  mesmo dispositivo.
+- Prova: reproduzir com um pendrive em superfloppy (HA) ou com tipo 4 gravado (HB) em `scripts/vhd-format-test/`.
+  O teste precisa falhar no código de hoje com `Set-Partition`. Depois do fix, precisa terminar em `MBR, 1, tipo 12`.
+
+### Cliente
+
+O pendrive de 17/10 o cliente resolveu sozinho. A falha `11367` (23/10 01:02) é um preparo BadAvatar novo
+(`tools:badavatar-prepare`) num segundo Kingston (disco 2), na mesma noite em que o HD preparado não disparava o
+exploit. A conversa não diz para que era esse pendrive (ver
+[`badavatar-hd-preparado-nao-dispara-com-avatares-cinzas-no-console-onde-o-pendrive-funcionou_2026-10-22T23-00.md`](../open/badavatar-hd-preparado-nao-dispara-com-avatares-cinzas-no-console-onde-o-pendrive-funcionou_2026-10-22T23-00.md)).
