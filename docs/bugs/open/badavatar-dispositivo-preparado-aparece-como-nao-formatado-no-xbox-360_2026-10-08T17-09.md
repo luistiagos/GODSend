@@ -4,7 +4,7 @@
 
 **REABERTO em 2026-10-23: voltou de `retest/` para `open/`.** O `Set-Partition -MbrType 12` que a T2 acrescentou
 falha em hardware real e mata o preparo sem saída: 17 falhas, 4 clientes, 6 dispositivos, todas na 2.12.110 (ver
-"Confirmação de campo — NEGATIVA", no fim). **O próximo passo é a T7, em "Passagem de bastão — T7"**, também no fim.
+"Confirmação de campo — NEGATIVA", no fim). **T7 implementada na 2.12.117 (sem release)**: tipo ≠ 11/12 na chegada recria a tabela, e o `Set-Partition` tem recurso pelo `diskpart set id=0C` (ver "Correção aplicada — T7" e "Testes executados — T7", no fim). Falta: o VHD elevado S8/S9 (UAC do dono), publicar a versão e a prova em hardware ou na telemetria.
 O histórico abaixo é o de quando o doc estava em retest.
 
 **Era: em retest** (pipeline 20261010-2242, teste rodada 1 aprovado em 2026-10-12 01:30). A causa raiz do caso 1
@@ -442,6 +442,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 | T4 | telemetria do preparo concluído com o layout (depende do bug de telemetria do preparo) | -- | fora do pipeline: decisão do dono (canal de evento de sucesso; ver "Hipoteses descartadas" do Planejamento) | -- | -- |
 | T5 | decidir H1–H3 no chamado #153 | -- | -- | -- | -- |
 | T6 | docs (`AGENTS.md`, `CAPACIDADE-E-ESPACO.md`) e orientação do suporte | `8e458ef` | docs do repo commitados; falta a orientação do suporte (fora deste repo) | claude-opus-5-5 | -- |
+| T7 | tipo ≠ 11/12 na chegada recria a tabela; `Set-Partition` com recurso pelo `diskpart set id=0C` (ver "Análise antes de implementar T7") | -- | -- | -- | -- |
 
 ## Correção aplicada (T1 e T2, 2026-10-08, sem release)
 
@@ -935,3 +936,92 @@ removível), em "Confirmação de campo — NEGATIVA", acima.
 
 **Frase de abertura da próxima sessão:**
 `/bug docs/bugs/open/badavatar-dispositivo-preparado-aparece-como-nao-formatado-no-xbox-360_2026-10-08T17-09.md — ler "Status", "Confirmação de campo — NEGATIVA" e "Passagem de bastão — T7" (no fim) e implementar a T7.`
+
+## Análise antes de implementar T7 (2026-10-23, HEAD `3c635df`)
+
+### Símbolos abertos
+
+- `src/electron-app/infrastructure/fat32Format.ts::buildGuardedWindowsFat32Script`: conferido o que a passagem de
+  bastão descreve (linhas 128–140, 286–295, 301–470 e 489–519). Um detalhe a mais: o `$partition` da chegada é a
+  partição com letra (`Get-Partition -DriveLetter`). Quando `Get-XboxLayoutProblem` passa (MBR, 1 partição), ela
+  é a única do disco, então olhar o tipo dela é olhar o tipo do disco.
+- `fat32Format.ts::formatWindowsFat32` (linhas 637–689): em `code !== 0`, o erro que chega ao cliente é o
+  `readLogTail(logPath)`, o fim do log do script. Logo, a mensagem do `throw` final é o que o cliente lê. Nenhum
+  texto do script manda marcar "Formatar antes"; esse texto só sai do portão do app.
+- `services/fixedBadAvatarPreparationService.ts::requireXboxReadableLayout` (linhas 431–480): sem formatar, o
+  layout reprovado pede "Marque “Formatar antes”". Com a T7a, "Formatar antes" passa a corrigir o tipo 4, e essa
+  orientação deixa de ser um beco sem saída. **O portão não muda.**
+- `tests/unit/fat32FormatGuard.test.cjs`: o padrão é executar funções do script de verdade no PowerShell
+  (`psFunction` + `runPowerShellCode`, linhas 278–315), mais a ordem do texto gerado (linhas 383–403). O teste das
+  linhas 383–403 crava a linha `Set-Partition … -ErrorAction Stop` e o `throw … $typeProblem.`. Os dois mudam.
+- `scripts/vhd-format-test/generate.cjs`: S3, S5 e S6 chegam com **tipo 7** e `expectRecreate: false/null`. Com
+  a T7a os três passam a recriar a tabela. Isso muda a expectativa, não o objetivo: S6 continua exercitando a
+  correção do tipo no fim, porque a remarcação para 7 é aplicada depois da formatação.
+
+### Decisões
+
+- **T7a:** `if (-not $arrivalProblem) { $arrivalProblem = Get-Fat32MbrTypeProblem $partition }`, logo depois do
+  `Get-XboxLayoutProblem`. O log de motivo que já existe ("O Xbox 360 nao le este layout (…)") passa a dizer
+  `particao com tipo 4, nao FAT32 (11 ou 12)`. Efeito colateral aceito: um pendrive NTFS/exFAT (tipo 7) com
+  "Formatar antes" volta ao `clean` + `convert mbr`, que até a 2.12.63 era o caminho de todo preparo. Só
+  pendrive que já chega em FAT32 (11/12) é formatado no lugar.
+- **T7b:** a correção do tipo no fim vira a função `Repair-Fat32MbrType`. Ela tenta `Set-Partition` em
+  `try/catch` e, na recusa, `diskpart select partition N` + `set id=0C override`, que grava o mesmo byte por outro
+  caminho (VDS, e não o provedor `StorageWMI` que recusou). Depois relê a partição. Se o tipo continuar errado, o
+  `throw` diz que o Windows recusou corrigir o tipo neste dispositivo e manda usar outro pendrive ou HD. **Não**
+  manda marcar "Formatar antes".
+- **Desvio da passagem de bastão: sem "recriar a tabela uma vez" no fim.** Depois da T7a, o fim só vê tipo errado
+  em dois casos. (1) A tabela **acabou** de ser recriada: recriar de novo repete o mesmo `diskpart` e dá o mesmo
+  resultado. (2) A partição chegou 11/12 e foi formatada no lugar: `Format-Volume` e `format.com` mantêm o tipo que
+  chegou (H2, confirmada no #254), e o `fat32format` grava 12 ou mantém. Nenhum dos dois caminhos deixa tipo fora
+  de 11/12. O ramo de recriar seria código que não roda, e por isso não foi escrito.
+
+### Tarefas
+
+| | arquivo::símbolo | prova |
+|---|---|---|
+| T7a | `fat32Format.ts::buildGuardedWindowsFat32Script` (decisão de `$needsNewTable`) | unidade: as duas linhas de `$arrivalProblem` do texto gerado, executadas no PowerShell com chegada `MBR, 1, tipo 4` → `$needsNewTable` verdadeiro; com tipo 12 → falso. **Falha no código de hoje.** VHD: S3/S5/S6 passam a `expectRecreate: true`, mais o S8 (MBR com 1 partição FAT32 remarcada como tipo 4 antes do preparo) |
+| T7b | `fat32Format.ts::Repair-Fat32MbrType` (nova) e conferência final | unidade: a função executada no PowerShell com `Set-Partition` falso que lança *Not Supported* → chama o diskpart com `set id=0C override` e devolve a partição relida; e o `Set-Partition` do texto gerado fica dentro de `try`. **Falha no código de hoje** (a função não existe). VHD: S9 = S6 com o `Set-Partition` da cópia trocado por `throw 'Not Supported'` → log `tentando pelo diskpart`, final tipo 12 |
+| doc-sync | `AGENTS.md` (entrada `fat32Format.ts`), `docs/CAPACIDADE-E-ESPACO.md` (linha 68), versão nos 4 lugares, `CHANGELOG.md` | -- |
+
+O VHD é elevado (UAC) e roda à parte. A prova em hardware continua sendo o critério para fechar: pendrive real com
+tipo 4, ou a query de telemetria `message LIKE '%Set-Partition%'` zerada nas versões novas.
+
+## Correção aplicada — T7 (2026-10-23, 2.12.117, sem release)
+
+- `fat32Format.ts::buildGuardedWindowsFat32Script`, decisão de chegada: `if (-not $arrivalProblem) { $arrivalProblem
+  = Get-Fat32MbrTypeProblem $partition }`. Tipo fora de 11/12 liga `$needsNewTable` e leva ao `clean` + `convert
+  mbr` nos dois ramos. O log de motivo que já existia passa a mostrar `particao com tipo 4, nao FAT32 (11 ou 12)`.
+- `fat32Format.ts::Repair-Fat32MbrType` (nova): `Set-Partition -MbrType 12` dentro de `try`. No `catch`, grava no log
+  `Set-Partition recusou a troca do tipo (<mensagem>); tentando pelo diskpart...` e roda `select disk N`,
+  `select partition P` e `set id=0C override`, mais `Update-Disk`. No fim, devolve a partição relida. A conferência
+  final chama essa função. Se o tipo continuar errado, lança `… $typeProblem. O Windows recusou corrigir o tipo da
+  particao neste dispositivo; use outro pendrive ou HD.`, sem "Formatar antes".
+- O parâmetro da função se chama `$diskNumber`, e não `$diskNo`, de propósito: assim o `Update-Disk` dela não
+  repete o texto da linha que os patches S6/S7/S9 do VHD trocam, e que o `Replace-Once` exige casar uma vez só.
+- **Desvio do plano:** não há "recriar a tabela uma vez" na conferência final. O motivo está em "Análise antes de
+  implementar T7 → Decisões".
+- `scripts/vhd-format-test/`: S3 e S5 (tipo 7) passam a `expectRecreate: true`. S6 passa a chegar `fat32` (tipo
+  12), para continuar exercitando a formatação no lugar mais o `Set-Partition`. Entram o S8 (setup novo
+  `fat32-type4` em `run-elevated.ps1`, chegada MBR 1 partição tipo 4) e o S9 (S6 com o `Set-Partition` de
+  `Repair-Fat32MbrType` trocado por `throw 'Not Supported…'`).
+- Doc-sync: `AGENTS.md` (entrada `fat32Format.ts`), `docs/CAPACIDADE-E-ESPACO.md`, `CHANGELOG.md` e a versão 2.12.117
+  nos 4 lugares. O portão do app (`xboxDiskLayoutPolicy.ts` / `requireXboxReadableLayout`) **não mudou**.
+
+## Testes executados — T7 (2026-10-23)
+
+- `npm run tsc` e depois `node --test tests/unit/fat32FormatGuard.test.cjs`: 22 pass / 0 fail.
+- **Controle negativo:** `git show HEAD:…/fat32Format.ts` transpilado (`typescript.transpileModule`) por cima do
+  `infrastructure/fat32Format.js` compilado deu 19 pass / **3 fail**, cada um pelo motivo certo:
+  - `tipo fora de 11/12 na chegada…`: `actual { recria: false, motivo: '' }`, quando o esperado era `recria: true`;
+  - `Set-Partition recusado…`: `Repair-Fat32MbrType existe no script`;
+  - a ordem da conferência: falta `$finalPartition = Repair-Fat32MbrType …`.
+
+  O `.js` foi restaurado (`cmp` idêntico).
+- `npm run test:safety` (tsc, renderer:typecheck e `node --test tests/unit/*.test.cjs`): **360 pass / 0 fail**.
+- `node scripts/vhd-format-test/generate.cjs <dir>` gerou 9 cenários. Contados no template, todos os textos que o
+  `run-elevated.ps1` troca (guarda de BusType e patches) casam exatamente uma vez: S6, S7 e S9 inclusive.
+- **Não rodado:** o VHD elevado (`run-elevated.ps1`, pede UAC ao dono) e o pendrive real com tipo 4. O VHD prova o
+  caminho novo (S8, S9). O *Not Supported* de verdade só se reproduz em hardware. O critério para fechar continua
+  sendo o hardware, ou a telemetria zerada nas versões ≥ 2.12.117:
+  `SELECT COUNT(*) FROM errors WHERE message LIKE '%Set-Partition%' AND <versão> >= '2.12.117'`.

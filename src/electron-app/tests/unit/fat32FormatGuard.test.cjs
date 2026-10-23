@@ -388,8 +388,8 @@ test("depois de formatar o script confere MBR, particao unica e tipo FAT32 antes
     "$finalPartitions = @(Get-Partition -DiskNumber $diskNo -ErrorAction Stop)",
     "$finalProblem = Get-XboxLayoutProblem $finalDisk $finalPartitions",
     'throw "A formatacao terminou, mas o Xbox 360 nao vai ler o disco: $finalProblem."',
-    "Set-Partition -DiskNumber $diskNo -PartitionNumber $finalPartition.PartitionNumber -MbrType 12 -ErrorAction Stop",
-    'throw "A formatacao terminou, mas o Xbox 360 nao vai ler o disco: $typeProblem."',
+    "$finalPartition = Repair-Fat32MbrType $diskNo $finalPartition",
+    'throw "A formatacao terminou, mas o Xbox 360 nao vai ler o disco: $typeProblem.',
     '"Particao final: $([int64]$finalPartition.Size) bytes"',
     "Formatação FAT32 concluída com sucesso.",
   ].map((needle) => {
@@ -400,6 +400,90 @@ test("depois de formatar o script confere MBR, particao unica e tipo FAT32 antes
   assert.deepEqual(order, [...order].sort((a, b) => a - b), "conferencia na ordem certa");
   // Dentro do try principal: a reprovacao sai por exit 1 e o finally devolve o Defender.
   assert.ok(order[order.length - 1] < script.lastIndexOf("\n} catch {"));
+});
+
+test("tipo fora de 11/12 na chegada recria a tabela em vez de formatar no lugar (chamado #254)", (t) => {
+  if (process.platform !== "win32") {
+    t.skip("execucao PowerShell disponivel somente no Windows");
+    return;
+  }
+  for (const script of [smallDriveScript(), bigDriveScript()]) {
+    const start = script.indexOf("  $arrivalProblem = Get-XboxLayoutProblem");
+    const endNeedle = "$needsNewTable = [bool]$arrivalProblem";
+    assert.ok(start > 0 && script.indexOf(endNeedle, start) > start);
+    const decision = script.slice(start, script.indexOf(endNeedle, start) + endNeedle.length);
+    const executed = runPowerShellCode([
+      psFunction(script, "Get-XboxLayoutProblem"),
+      psFunction(script, "Get-Fat32MbrTypeProblem"),
+      "function Decide($style, $type) {",
+      "  $disk = [pscustomobject]@{ PartitionStyle = $style }",
+      "  $partition = [pscustomobject]@{ MbrType = [uint16]$type }",
+      "  $arrivalPartitions = @($partition)",
+      decision,
+      "  @{ recria = $needsNewTable; motivo = [string]$arrivalProblem }",
+      "}",
+      "[ordered]@{",
+      "  tipo4 = Decide 'MBR' 4",
+      "  tipo7 = Decide 'MBR' 7",
+      "  tipo11 = Decide 'MBR' 11",
+      "  tipo12 = Decide 'MBR' 12",
+      "  gpt = Decide 'GPT' 0",
+      "} | ConvertTo-Json -Compress",
+    ].join("\n"));
+    assert.equal(executed.status, 0, executed.stderr || executed.stdout);
+    const result = JSON.parse(executed.stdout.trim());
+    // O layout que os 6 dispositivos de campo trouxeram: MBR, 1 particao, tipo 4.
+    assert.deepEqual(result.tipo4, { recria: true, motivo: "particao com tipo 4, nao FAT32 (11 ou 12)" });
+    assert.equal(result.tipo7.recria, true);
+    assert.deepEqual(result.tipo11, { recria: false, motivo: "" });
+    assert.deepEqual(result.tipo12, { recria: false, motivo: "" });
+    assert.deepEqual(result.gpt, { recria: true, motivo: "disco GPT, nao MBR" });
+  }
+});
+
+test("Set-Partition recusado nao mata o preparo: o tipo e gravado pelo diskpart", (t) => {
+  const script = bigDriveScript();
+  const repair = psFunction(script, "Repair-Fat32MbrType");
+  // O unico Set-Partition do script fica dentro do try da funcao de reparo.
+  assert.equal(script.split("Set-Partition -DiskNumber").length - 1, 1);
+  const inRepair = repair.indexOf("Set-Partition -DiskNumber");
+  assert.ok(repair.indexOf("try {") < inRepair && inRepair < repair.indexOf("} catch {"));
+  const finalThrow = script.split("\n").find((line) => line.includes("$typeProblem. O Windows recusou"));
+  assert.ok(finalThrow, "a reprovacao final explica a recusa");
+  assert.doesNotMatch(finalThrow, /Formatar antes/, "marcar 'Formatar antes' e justamente o que ja falhou");
+
+  if (process.platform !== "win32") {
+    t.skip("execucao PowerShell disponivel somente no Windows");
+    return;
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fat32-repair-"));
+  try {
+    const run = (setPartitionBody) => {
+      const executed = runPowerShellCode([
+        `$log = '${path.join(dir, "fat32.log").replace(/'/g, "''")}'`,
+        "$script:dp = @()",
+        "$script:setCalls = 0",
+        `function Set-Partition { $script:setCalls++; ${setPartitionBody} }`,
+        "function Invoke-DiskpartScript([string[]]$commands) { $script:dp = $commands; return $true }",
+        "function Update-Disk { }",
+        "function Get-Partition { [pscustomobject]@{ PartitionNumber = 1; MbrType = [uint16]12 } }",
+        repair,
+        "$r = Repair-Fat32MbrType 3 ([pscustomobject]@{ PartitionNumber = 1; MbrType = [uint16]4 })",
+        "@{ unico = -not ($r -is [array]); tipo = [int]$r.MbrType; set = $script:setCalls; dp = ($script:dp -join '|') } | ConvertTo-Json -Compress",
+      ].join("\n"));
+      assert.equal(executed.status, 0, executed.stderr || executed.stdout);
+      return JSON.parse(executed.stdout.trim());
+    };
+    // Como em pendrive e HD reais (erros 10527, 10722): Not Supported / Invalid Parameter.
+    assert.deepEqual(run("throw 'Not Supported'"), {
+      unico: true, tipo: 12, set: 1, dp: "select disk 3|select partition 1|set id=0C override",
+    });
+    assert.match(fs.readFileSync(path.join(dir, "fat32.log"), "utf8"), /Set-Partition recusou a troca do tipo \(Not Supported\)/);
+    // Como no VHD (S6): Set-Partition aceita e o diskpart nao roda.
+    assert.deepEqual(run(""), { unico: true, tipo: 12, set: 1, dp: "" });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("o tamanho final da particao chega ao app pela linha do log", (t) => {

@@ -139,6 +139,22 @@ function Get-Fat32MbrTypeProblem($partition) {
   return ''
 }
 
+# Ultima linha de defesa da conferencia final: o tipo errado na chegada ja recriou a tabela. Em
+# pendrive e HD reais o Set-Partition recusou a troca ("Not Supported", "Invalid Parameter") e
+# matava o preparo; o diskpart grava o mesmo byte por outro caminho.
+function Repair-Fat32MbrType([int]$diskNumber, $partition) {
+  $number = $partition.PartitionNumber
+  "Particao marcada com tipo $($partition.MbrType), nao FAT32; corrigindo para 12 (FAT32 LBA)..." | Out-File -FilePath $log -Append -Encoding utf8
+  try {
+    Set-Partition -DiskNumber $diskNumber -PartitionNumber $number -MbrType 12 -ErrorAction Stop
+  } catch {
+    "Set-Partition recusou a troca do tipo ($($_.Exception.Message)); tentando pelo diskpart..." | Out-File -FilePath $log -Append -Encoding utf8
+    Invoke-DiskpartScript @("select disk $diskNumber", "select partition $number", "set id=0C override") | Out-Null
+    Update-Disk -Number $diskNumber -ErrorAction SilentlyContinue
+  }
+  return Get-Partition -DiskNumber $diskNumber -PartitionNumber $number -ErrorAction Stop
+}
+
 # Acesso controlado a pastas (protecao contra ransomware do Defender): 0 desligado,
 # 1 ligado, 2 auditoria, 3 so bloqueio de disco, 4 auditoria de disco. Os modos 1 e 3
 # barram a escrita bruta de setores que o fat32format faz em \\.\X: e aparecem para o
@@ -285,6 +301,9 @@ try {
   "Disco USB validado: $diskNo ($($disk.FriendlyName))" | Out-File -FilePath $log -Append -Encoding utf8
   "Layout de chegada: $($disk.PartitionStyle), $($arrivalPartitions.Count) particao(oes), tipo $($partition.MbrType), setor $($disk.LogicalSectorSize)" | Out-File -FilePath $log -Append -Encoding utf8
   $arrivalProblem = Get-XboxLayoutProblem $disk $arrivalPartitions
+  # Formatar no lugar mantem o byte de tipo que chegou (pendrive e HD reais, chamado #254), e o
+  # Set-Partition recusou troca-lo nesses dispositivos; so a tabela recriada sai com tipo 12.
+  if (-not $arrivalProblem) { $arrivalProblem = Get-Fat32MbrTypeProblem $partition }
   $needsNewTable = [bool]$arrivalProblem
   if ($needsNewTable) {
     "O Xbox 360 nao le este layout ($arrivalProblem); a tabela de particoes sera recriada em MBR com particao unica." | Out-File -FilePath $log -Append -Encoding utf8
@@ -499,14 +518,10 @@ try {
   }
   $finalPartition = $finalPartitions[0]
   if (Get-Fat32MbrTypeProblem $finalPartition) {
-    # Formatar a particao existente pode manter o byte de tipo anterior (hipotese H2 do bug
-    # "Nao Formatado"). Sem esta correcao, esses dispositivos nunca passariam da conferencia.
-    "Particao marcada com tipo $($finalPartition.MbrType), nao FAT32; corrigindo para 12 (FAT32 LBA)..." | Out-File -FilePath $log -Append -Encoding utf8
-    Set-Partition -DiskNumber $diskNo -PartitionNumber $finalPartition.PartitionNumber -MbrType 12 -ErrorAction Stop
-    $finalPartition = Get-Partition -DiskNumber $diskNo -PartitionNumber $finalPartition.PartitionNumber -ErrorAction Stop
+    $finalPartition = Repair-Fat32MbrType $diskNo $finalPartition
     $typeProblem = Get-Fat32MbrTypeProblem $finalPartition
     if ($typeProblem) {
-      throw "A formatacao terminou, mas o Xbox 360 nao vai ler o disco: $typeProblem."
+      throw "A formatacao terminou, mas o Xbox 360 nao vai ler o disco: $typeProblem. O Windows recusou corrigir o tipo da particao neste dispositivo; use outro pendrive ou HD."
     }
   }
   "Layout final: MBR, 1 particao, tipo $($finalPartition.MbrType)." | Out-File -FilePath $log -Append -Encoding utf8

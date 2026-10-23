@@ -21,13 +21,13 @@ const DUMMY_BYTES = 1073741824;
 const SCENARIOS = [
   { id: "S1", letter: "T", sizeMb: 8192, style: "GPT", setup: "fat32", expectRecreate: true, note: "<= 32 GB, GPT: diskpart clean + convert mbr" },
   { id: "S2", letter: "U", sizeMb: 8192, style: "MBR", setup: "two-partitions", expectRecreate: true, note: "<= 32 GB, MBR com 2 particoes (a 2a sem letra)" },
-  { id: "S3", letter: "V", sizeMb: 8192, style: "MBR", setup: "ntfs-type7", expectRecreate: false, note: "<= 32 GB, MBR 1 particao tipo 7: Format-Volume na existente (H2)" },
+  { id: "S3", letter: "V", sizeMb: 8192, style: "MBR", setup: "ntfs-type7", expectRecreate: true, note: "<= 32 GB, MBR 1 particao tipo 7: tipo fora de 11/12 recria a tabela (T7)" },
   { id: "S4", letter: "W", sizeMb: 40960, style: "GPT", setup: "ntfs", expectRecreate: true, note: "> 32 GB, GPT: particao crua + fat32format" },
-  { id: "S5", letter: "X", sizeMb: 40960, style: "MBR", setup: "ntfs-type7", expectRecreate: null, note: "> 32 GB, MBR 1 particao NTFS montada: caminho comum" },
+  { id: "S5", letter: "X", sizeMb: 40960, style: "MBR", setup: "ntfs-type7", expectRecreate: true, note: "> 32 GB, MBR 1 particao NTFS tipo 7: tabela recriada, particao crua + fat32format (T7)" },
   // Nos VHDs, Format-Volume e fat32format ja gravam o tipo 12; para exercitar a correcao de tipo
   // (H2), a copia de teste remarca a particao como 7 logo antes da conferencia final.
   {
-    id: "S6", letter: "Y", sizeMb: 8192, style: "MBR", setup: "ntfs-type7", expectRecreate: false,
+    id: "S6", letter: "Y", sizeMb: 8192, style: "MBR", setup: "fat32", expectRecreate: false,
     note: "H2 simulada: tipo 7 depois de formatar -> Set-Partition -MbrType 12 no volume montado",
     expectLog: /corrigindo para 12/,
     patches: [{
@@ -41,6 +41,30 @@ const SCENARIOS = [
     id: "S7", letter: "Z", sizeMb: 8192, style: "GPT", setup: "fat32", expectRecreate: true,
     note: "S1 sem Update-Disk antes da conferencia final",
     patches: [{ old: "  Update-Disk -Number $diskNo -ErrorAction SilentlyContinue", new: "  # Update-Disk retirado no teste S7" }],
+  },
+  // Chamado #254: MBR, 1 particao FAT32 com tipo 4. Ate a 2.12.116 formatava no lugar e morria no
+  // Set-Partition; agora recria a tabela e nem chega a precisar dele.
+  {
+    id: "S8", letter: "R", sizeMb: 8192, style: "MBR", setup: "fat32-type4", expectRecreate: true,
+    note: "chegada MBR 1 particao tipo 4 -> tabela recriada, final tipo 12 sem Set-Partition (T7)",
+    expectLog: /particao com tipo 4, nao FAT32/,
+  },
+  // No VHD o Set-Partition aceita a troca (S6); a copia de teste o faz recusar como em hardware real
+  // para exercitar o recurso pelo diskpart set id.
+  {
+    id: "S9", letter: "S", sizeMb: 8192, style: "MBR", setup: "fat32", expectRecreate: false,
+    note: "S6 com Set-Partition recusado (Not Supported) -> diskpart set id=0C override (T7)",
+    expectLog: /tentando pelo diskpart/,
+    patches: [
+      {
+        old: "  Update-Disk -Number $diskNo -ErrorAction SilentlyContinue",
+        new: "  Set-Partition -DiskNumber $diskNo -PartitionNumber 1 -MbrType 7 -ErrorAction Stop\n  Update-Disk -Number $diskNo -ErrorAction SilentlyContinue",
+      },
+      {
+        old: "    Set-Partition -DiskNumber $diskNumber -PartitionNumber $number -MbrType 12 -ErrorAction Stop",
+        new: "    throw 'Not Supported (simulado no teste S9)'",
+      },
+    ],
   },
 ];
 

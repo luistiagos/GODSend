@@ -57,11 +57,12 @@ pendente, é um requisito do alvo**.
 
 Antes de escolher o formatador, o script elevado olha a tabela que chegou
 (`Get-XboxLayoutProblem` em
-[`fat32Format.ts`](../src/electron-app/infrastructure/fat32Format.ts)). Disco GPT, ou com
-contagem de partições diferente de 1, **sempre** passa por `clean` + `convert mbr`, e o ramo
+[`fat32Format.ts`](../src/electron-app/infrastructure/fat32Format.ts)). Disco GPT, com
+contagem de partições diferente de 1, ou com partição de tipo fora de FAT32 (11/12), **sempre**
+passa por `clean` + `convert mbr`, e o ramo
 (≤ 32 GB ou > 32 GB) é escolhido pelo tamanho que a partição nova vai ter: o do disco,
 limitado a 2 TiB. É por esse caminho que um HD de 4 TB que chega com partição GPT de
-3,64 TiB termina em 2 TiB. Só um disco que já é MBR com partição única é formatado no
+3,64 TiB termina em 2 TiB. Só um disco que já é MBR com uma partição FAT32 é formatado no
 lugar (acima de 32 GB, `fat32format.exe` na partição existente) e mantém o tamanho que
 tinha.
 

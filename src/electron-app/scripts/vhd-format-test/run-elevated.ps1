@@ -50,6 +50,12 @@ foreach ($s in $manifest.scenarios) {
         $p = New-Partition -DiskNumber $n -UseMaximumSize -DriveLetter $s.letter
         Format-Volume -Partition $p -FileSystem FAT32 -NewFileSystemLabel 'CHEGADA' -Confirm:$false | Out-Null
       }
+      'fat32-type4' {
+        # O layout que os pendrives e o HD de campo trouxeram (chamado #254): FAT32 com o byte de tipo 4.
+        $p = New-Partition -DiskNumber $n -UseMaximumSize -DriveLetter $s.letter
+        Format-Volume -Partition $p -FileSystem FAT32 -NewFileSystemLabel 'CHEGADA' -Confirm:$false | Out-Null
+        Set-Partition -DiskNumber $n -PartitionNumber $p.PartitionNumber -MbrType 4
+      }
       'ntfs' {
         $p = New-Partition -DiskNumber $n -UseMaximumSize -DriveLetter $s.letter
         Format-Volume -Partition $p -FileSystem NTFS -NewFileSystemLabel 'CHEGADA' -Confirm:$false | Out-Null
