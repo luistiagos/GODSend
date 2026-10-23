@@ -442,7 +442,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 | T4 | telemetria do preparo concluído com o layout (depende do bug de telemetria do preparo) | -- | fora do pipeline: decisão do dono (canal de evento de sucesso; ver "Hipoteses descartadas" do Planejamento) | -- | -- |
 | T5 | decidir H1–H3 no chamado #153 | -- | -- | -- | -- |
 | T6 | docs (`AGENTS.md`, `CAPACIDADE-E-ESPACO.md`) e orientação do suporte | `8e458ef` | docs do repo commitados; falta a orientação do suporte (fora deste repo) | claude-opus-5-5 | -- |
-| T7 | tipo ≠ 11/12 na chegada recria a tabela; `Set-Partition` com recurso pelo `diskpart set id=0C` (ver "Análise antes de implementar T7") | `46cb81b` | commitado, sem release (2.12.117); falta o VHD S8/S9 elevado e a prova em hardware/telemetria | claude-opus-5-5 | -- |
+| T7 | tipo ≠ 11/12 na chegada recria a tabela; `Set-Partition` com recurso pelo `diskpart set id=0C` (ver "Análise antes de implementar T7") | `46cb81b` | **publicado na 2.12.117** (`version.json` de 2026-10-23, conferido); falta o VHD S8/S9 elevado e a prova em hardware/telemetria (`errors` com `Set-Partition` zerado a partir de `ElectronApp v2.12.117`) | claude-opus-5-5 | -- |
 
 ## Correção aplicada (T1 e T2, 2026-10-08, sem release)
 
