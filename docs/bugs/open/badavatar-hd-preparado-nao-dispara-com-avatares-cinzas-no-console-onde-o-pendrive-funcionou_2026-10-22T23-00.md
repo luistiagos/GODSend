@@ -84,3 +84,9 @@
    - no app (aviso no preparo de HD para console sem HD interno, se H1);
    - na KB (`docs/SUPPORT_AGENT_KB.md`, `docs/BASE_CONHECIMENTO_SUPORTE_WHATSAPP.md`);
    - no guia do agente (moratória de prompts do `digitalstoregamesproject`: doc + eval + aprovação do dono).
+
+## Ocorrencia - chamado #254 (2026-10-23): resposta do operador depois do registro
+
+Mesmo chamado e mesma sessao (`268796283584649@lid`), mensagem posterior ao fim da leitura acima:
+`[152050]` 2026-10-23 03:04 UTC, operador humano: *"Tente refazer o processo pelo xboxcompanion, e veja se dai funciona, se nao funcionar e algum problema com o hd."*
+O operador atribui a falha ao HD; as hipoteses H1/H2 (dado de avatar fora do console, todos os perfis cinzas, incluindo `gui`) nao foram propostas ao cliente, e o teste barato de H1 (ligar so com o pendrive de 17/10) segue pendente.
