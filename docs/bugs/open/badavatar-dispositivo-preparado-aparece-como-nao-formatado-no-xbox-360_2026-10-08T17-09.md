@@ -442,7 +442,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 | T4 | telemetria do preparo concluído com o layout (depende do bug de telemetria do preparo) | -- | fora do pipeline: decisão do dono (canal de evento de sucesso; ver "Hipoteses descartadas" do Planejamento) | -- | -- |
 | T5 | decidir H1–H3 no chamado #153 | -- | -- | -- | -- |
 | T6 | docs (`AGENTS.md`, `CAPACIDADE-E-ESPACO.md`) e orientação do suporte | `8e458ef` | docs do repo commitados; falta a orientação do suporte (fora deste repo) | claude-opus-5-5 | -- |
-| T7 | tipo ≠ 11/12 na chegada recria a tabela; `Set-Partition` com recurso pelo `diskpart set id=0C` (ver "Análise antes de implementar T7") | `46cb81b` | **publicado na 2.12.117** (`version.json` de 2026-10-23, conferido); falta o VHD S8/S9 elevado e a prova em hardware/telemetria (`errors` com `Set-Partition` zerado a partir de `ElectronApp v2.12.117`) | claude-opus-5-5 | -- |
+| T7 | tipo ≠ 11/12 na chegada recria a tabela; `Set-Partition` com recurso pelo `diskpart set id=0C` (ver "Análise antes de implementar T7") | `46cb81b` | **publicado na 2.12.117** (`version.json` de 2026-10-23, conferido); VHD S1–S9 verde em 2026-10-23; falta a prova em hardware/telemetria (`errors` com `Set-Partition` zerado a partir de `ElectronApp v2.12.117`) | claude-opus-5-5 | -- |
 
 ## Correção aplicada (T1 e T2, 2026-10-08, sem release)
 
@@ -1021,7 +1021,35 @@ tipo 4, ou a query de telemetria `message LIKE '%Set-Partition%'` zerada nas ver
 - `npm run test:safety` (tsc, renderer:typecheck e `node --test tests/unit/*.test.cjs`): **360 pass / 0 fail**.
 - `node scripts/vhd-format-test/generate.cjs <dir>` gerou 9 cenários. Contados no template, todos os textos que o
   `run-elevated.ps1` troca (guarda de BusType e patches) casam exatamente uma vez: S6, S7 e S9 inclusive.
-- **Não rodado:** o VHD elevado (`run-elevated.ps1`, pede UAC ao dono) e o pendrive real com tipo 4. O VHD prova o
-  caminho novo (S8, S9). O *Not Supported* de verdade só se reproduz em hardware. O critério para fechar continua
-  sendo o hardware, ou a telemetria zerada nas versões ≥ 2.12.117:
+- **Não rodado:** o pendrive real com tipo 4. O *Not Supported* de verdade só se reproduz em hardware. O critério
+  para fechar continua sendo o hardware, ou a telemetria zerada nas versões ≥ 2.12.117:
   `SELECT COUNT(*) FROM errors WHERE message LIKE '%Set-Partition%' AND <versão> >= '2.12.117'`.
+
+### Teste em VHD — T7 (2026-10-23 12:21–12:36, elevado, Windows 10.0.26300)
+
+`run-elevated.ps1` elevado (via `Start-Process -Verb RunAs`) seguido de `generate.cjs --verify`: **9/9 `ok`, exit 0**.
+Os discos estavam `2, 1, 0` antes e depois, e os VHDs foram apagados.
+
+| | Chegada (lida pelo harness) | Caminho no log | Final |
+|---|---|---|---|
+| S1, S7 | 8 GB, GPT, MSR + dados | `disco GPT, nao MBR` → `diskpart clean` + `convert mbr` + `format fs=fat32` | MBR, 1, tipo 12, FAT32 |
+| S2 | 8 GB, MBR, 2 partições (FAT32 tipo 12 + NTFS tipo 7) | `2 particoes no disco` → mesmo diskpart | MBR, 1, tipo 12; 4 GB → 8 GB |
+| S3 | 8 GB, MBR, 1 partição NTFS **tipo 7** | **T7a:** tabela recriada (antes: `Format-Volume` no lugar) | MBR, 1, tipo 12 |
+| S4 | 40 GB, GPT | partição crua + `fat32format` | MBR, 1, tipo 12 |
+| S5 | 40 GB, MBR, 1 partição NTFS **tipo 7** | **T7a:** `Recriando a tabela…` → partição crua + `fat32format` | MBR, 1, tipo 12 |
+| S6 | 8 GB, MBR, 1 partição FAT32 tipo 12; remarcada como 7 depois de formatar | `Format-Volume` no lugar → `corrigindo para 12` → `Set-Partition` aceitou | MBR, 1, tipo 12 |
+| **S8** | 8 GB, MBR, 1 partição `FAT16/mbr4` (**tipo 4**, o layout de campo) | `O Xbox 360 nao le este layout (particao com tipo 4, nao FAT32 (11 ou 12))` → diskpart clean | MBR, 1, **tipo 12**, sem `Set-Partition` |
+| **S9** | igual a S6, com o `Set-Partition` da cópia trocado por `throw` | `Set-Partition recusou a troca do tipo (Not Supported (simulado no teste S9)); tentando pelo diskpart...` → *"O DiskPart definiu com êxito a identificação da partição"* | MBR, 1, **tipo 12**, volume FAT32 com a letra |
+
+**O que isto prova:** a T7a recria a tabela para a chegada de tipo 4 (S8) e de tipo 7 (S3, S5) nos dois ramos, e o
+caminho limpo sai com tipo 12 sem depender do `Set-Partition`. A T7b sobrevive à recusa do `Set-Partition`: o
+`diskpart set id=0C override` grava o tipo, e o volume continua FAT32 e montado (S9). **Continua sem prova:** que
+o `diskpart set id` funcione no dispositivo real em que o `Set-Partition` recusou (HA/HB). Com a T7a esse recurso
+só roda em casos raros, então a prova de campo é a telemetria.
+
+**Achados do harness nesta rodada:**
+- A primeira rodada do dono, num console **não elevado**, falhou nos 9 cenários com `diskpart falhou ()`, sem
+  saída e sem `$LASTEXITCODE`: o `diskpart.exe` exige administrador e foi aberto por fora do console. O
+  `run-elevated.ps1` passou a conferir a elevação no início e a parar com uma mensagem clara.
+- Cada cenário levou de 29 a 53 s, contra 5 a 9 s em 2026-10-08. O Windows passou de 10.0.26200 para 10.0.26300
+  entre as duas rodadas. Não foi investigado: não afeta o resultado.

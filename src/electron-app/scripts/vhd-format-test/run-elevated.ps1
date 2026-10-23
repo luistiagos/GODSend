@@ -6,6 +6,12 @@
 # como ANSI).
 param([Parameter(Mandatory = $true)][string]$WorkDir)
 $ErrorActionPreference = 'Stop'
+# Sem elevacao o diskpart.exe (requireAdministrator) e aberto por fora do console: sem saida, sem
+# $LASTEXITCODE, e todo cenario falha com "diskpart falhou ()".
+$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  throw 'run-elevated.ps1 precisa de um PowerShell aberto como administrador.'
+}
 $WorkDir = (Resolve-Path $WorkDir).Path
 Start-Transcript -Path (Join-Path $WorkDir 'harness.transcript.txt') -Force | Out-Null
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
