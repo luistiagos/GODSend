@@ -19,6 +19,7 @@
     "^src/android-app/(\\.gradle|app/build|build)/"
   ],
   "entradas_ignoradas": ["src/electron-app/node_modules", "dist/tools", "src/electron-app/assets/badavatar-1.1"],
+  "reserva_livre": ["CHANGELOG.md"],
   "e2e": {"processos": ["godsend-windows-x64", "godsend-windows-ia32", "godsend", "godsend-backend"], "desktop": true},
   "preflight": [
     {"cmd": ["go", "version"], "msg": "go no PATH (build do servidor)"},
