@@ -46,7 +46,8 @@ vez. Quando dois testes seus podem rodar juntos dentro do slot, o manual diz.
 ## Passo 3 — Ambiente
 
 `python <helper> env-wait --minutes 9`. Ele procura os processos do app que o projeto declara (em
-qualquer lugar) e qualquer processo rodando de dentro das pastas do ambiente de teste.
+qualquer lugar, menos nas `ignorar_pastas` do projeto: outro produto com o mesmo executavel) e qualquer
+processo rodando de dentro das pastas do ambiente de teste.
 
 - `AMBIENTE LIVRE` -> Passo 4.
 - Saida 11 (`OCUPADO: ...`) = outra sessao, ou o dono, esta usando. **Nao mate.** Repita o

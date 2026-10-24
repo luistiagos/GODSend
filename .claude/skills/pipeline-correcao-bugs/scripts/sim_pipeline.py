@@ -6,10 +6,21 @@ spec = importlib.util.spec_from_file_location("pipeline", Path(__file__).with_na
 P = importlib.util.module_from_spec(spec); spec.loader.exec_module(P)
 
 tmp = Path(tempfile.mkdtemp())
+# o caso do `norm` manda 'source/launcher/...' (layout do retrobatnew); o `configure` real deriva o prefixo da pasta
+# onde o modulo carregou (lane/repo-copia -> outro valor): fixa-lo deixa o sim independente de layout
+# [[pipeline-sim-pipeline-reprova-fora-de-pasta-source-src-prefix-da-worktree_2026-10-10]]
+P.SRC_PREFIX = "source/"
 P.PIPE = tmp; P.STATE = tmp / "state.json"; P.WTS = tmp / "lanes"; P.DSG = tmp / "nao-existe"
 # nenhuma copia do modulo enxerga a guarda de contas nem o arquivo de credenciais reais (F3 do rodizio);
 # o `tick` le o transcript da sessao parada antes de cutucar (F5): nunca o ~/.claude/projects real
 P.ACCOUNTS_DIR = tmp / "contas-p"; P.CRED_FILE = tmp / "cred-p.json"; P.CLAUDE_PROJECTS = tmp / "projects"
+# sem rodizio (nenhuma conta aqui), `start` e todo `tick` com efeito abrem o vigia de reset DESTACADO, e o filho resolve
+# PIPE pelo local do script, nao pelo P.PIPE daqui: nenhuma copia do modulo lanca processo de verdade (P aqui; Q, R e D
+# ao carregar; C grava em `popens` pelo Popen falso). Antes da 1a chamada que roda o `tick` (o `start`, abaixo).
+# [[pipeline-sessao-parada-no-limite-de-uso-sem-rodizio-so-volta-com-reconcile-fix_2026-10-11]]
+detached = []
+def no_detach(m): m.launch_detached = lambda args: detached.append(list(args))
+no_detach(P)
 spawned, stops, docs_only, publish_fail = [], [], [], [0]
 def fake_spawn(st, slug, stage, message=""):
     eff, ut = P.stage_tuning(st, slug, stage)
@@ -28,6 +39,12 @@ P.publish_head = fake_publish
 P.guard_wt = lambda p: Path(p)
 P.publish_docs_only = lambda st, slug: (docs_only.append(slug), "sha-docs")[1]
 P.agents = lambda: []
+# o `dispatch_slot` confere o ambiente E2E (`foreign_processes`: PowerShell REAL com o `e2e` do projeto) e, ocupado, abre o
+# `env-watch` destacado: nenhum caso depende do que esta aberto na maquina nem abre processo. O real vai para `[ambiente]`.
+# [[pipeline-e2e-casa-processo-so-pelo-nome-e-slot-concedido-sem-conferir-ambiente_2026-10-11]]
+REAL_FOREIGN, REAL_SCHED_ENV, env_procs, env_watches = P.foreign_processes, P.schedule_env_watch, [], []
+P.foreign_processes = lambda: list(env_procs)
+P.schedule_env_watch = lambda: env_watches.append(1)
 GIT = {"status": "", "ls-tree": "x", "rev-parse": "abc", "rev-list": "1"}
 def fake_git(*args, cwd=None, check=True):
     if args[0] == "diff":
@@ -62,6 +79,8 @@ call("start")
 s = state()
 check([b["state"] for b in s["bugs"].values()].count("planning") == 4, "planning: 4 em paralelo, os outros esperam")
 check(all(x[2] == "medium" and x[3] for x in spawned), "planning com effort medium + ultrathink")
+check(detached == [["reset-watch", "--origem", "start"]],
+      f"[reset-watch] start sem rodizio abre o vigia de reset (falso aqui: nenhum processo real) ({detached})")
 
 bad = tmp / "bad.json"; bad.write_text(json.dumps({"verdict": "corrigir", "complexity": "baixa", "severity": "alto",
                                                    "files": ["launcher/A.cs"]}), encoding="utf-8")
@@ -284,7 +303,160 @@ st8["bugs"]["s"]["plan"]["files"] = [SKILL_PY]
 P.save(st8)
 call("enqueue-test", bug="s")
 check(state()["bugs"]["s"]["state"] == "teste", "[revalidacao 8] reservado -> entra em teste (nao e 'nenhum commit de codigo')")
+
+# [reserva_livre] arquivo que todo fix toca (CHANGELOG.md do Downloader, `merge=union`) nao serializa a onda
+# [[pipeline-changelog-obrigatorio-na-reserva-serializa-a-onda-inteira_2026-10-11]]
+def livre_state(**plans):
+    return base_state(base="origin/versao3", run_id="t",
+                      worktrees={f"wt-{s}": {"path": str(tmp / f"wt-{s}"), "bug": s} for s in plans},
+                      bugs={s: {"state": "dev", "plan": {"files": [f]}, "claims": [], "test_round": 0, "wt": f"wt-{s}",
+                                "sessions": {}, "history": [], "title": s} for s, f in plans.items()})
+GIT["diff_wt-x"] = "launcher/X.cs\nCHANGELOG.md"; GIT["diff_wt-y"] = "launcher/Y.cs\nCHANGELOG.md"; GIT["diff_wt-z"] = "CHANGELOG.md"
+wave_st = base_state(max_dev=4, bugs={s: {"state": "planejado", "order": i, "plan": {"complexity": "baixa",
+                                          "files": [f"launcher/{s.upper()}.cs", "CHANGELOG.md"]}} for i, s in enumerate("pq")})
+P.RESERVA_LIVRE = []                             # controle negativo: sem a chave, o comportamento de antes
+P.save(livre_state(x="launcher/X.cs", y="launcher/Y.cs"))
+call("claim", bug="x", file=["CHANGELOG.md"])
+expect_exit(8, lambda: call("claim", bug="y", file=["CHANGELOG.md"]),
+            "[reserva_livre] controle: sem reserva_livre, o 2o claim do CHANGELOG.md sai OCUPADO (o sintoma)")
+check(P.compute_wave(wave_st) == ["p"], "[reserva_livre] controle: sem reserva_livre, planos com o CHANGELOG.md vao para ondas diferentes")
+P.RESERVA_LIVRE = ["CHANGELOG.md"]
+P.save(livre_state(x="launcher/X.cs", y="launcher/Y.cs", z="launcher/Z.cs"))
+call("claim", bug="x", file=["CHANGELOG.md"]); call("claim", bug="y", file=["source/changelog.md"])
+check(all(b["claims"] == [] for b in state()["bugs"].values()),
+      "[reserva_livre] claim do livre sai 0 nos dois bugs (sem diferenciar maiusculas/prefixo) e nao vira reserva")
+call("enqueue-test", bug="x"); call("enqueue-test", bug="y")
+s = state()
+check(s["bugs"]["x"]["state"] == s["bugs"]["y"]["state"] == "teste" and not any(b.get("parked_on") for b in s["bugs"].values()),
+      "[reserva_livre] diff <arquivo do plano> + CHANGELOG.md: os dois enqueue-test passam sem claim, ninguem aguardando-arquivo")
+expect_exit(2, lambda: call("enqueue-test", bug="z"), "[reserva_livre] diff SO com o livre: 'nenhum commit de codigo' (nao e fix)")
+check(P.compute_wave(wave_st) == ["p", "q"], "[reserva_livre] planos [P, CHANGELOG.md] e [Q, CHANGELOG.md] na mesma onda")
+P.RESERVA_LIVRE = []                             # os casos seguintes nao herdam
 P.run = real_run
+
+# [ambiente] processo HOMONIMO de outro projeto parou a fila ~8 h (Downloader: o godsend-backend do PS2Companion) e o
+# `dispatch_slot` acordava a sessao de teste com o ambiente ocupado
+# [[pipeline-e2e-casa-processo-so-pelo-nome-e-slot-concedido-sem-conferir-ambiente_2026-10-11]]
+import contextlib, io, os
+def out_of(fn):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fn()
+    return buf.getvalue()
+ps_out, ps_calls = [""], []
+def fake_ps(cmd, cwd=None, check=True, timeout=None):
+    ps_calls.append(list(map(str, cmd)))
+    return types.SimpleNamespace(returncode=0, stdout=ps_out[0], stderr="")
+real_e2e, P.run, P.foreign_processes = P.E2E, fake_ps, REAL_FOREIGN
+outro = tmp / "D" / "PS2Companion"
+os.environ["SIM_OUTRO_REPO"] = str(outro)
+gb = lambda pid, path: {"Id": pid, "ProcessName": "godsend-backend", "Path": path}
+procs = [gb(1, str(outro / "dist" / "godsend-backend.exe")),                        # outro repo (o caso real)
+         gb(2, str(tmp / "AppData" / "Programs" / "godsend" / "godsend-backend.exe")),  # o instalado: ocupa
+         gb(3, str(tmp / "D" / "PS2Companion2" / "godsend-backend.exe")),            # prefixo-irmao: NAO e do outro repo
+         gb(4, str(outro).upper() + "\\DIST\\GODSEND-BACKEND.EXE"),                  # caixa diferente: e do outro repo
+         gb(5, None),                                                                # elevado, Path ilegivel: ocupa
+         gb(6, str(P.ROOT / "vizinho" / "godsend-backend.exe"))]                     # 'vizinho' relativo a ROOT
+ps_out[0] = json.dumps(procs)
+P.E2E = {"processos": ["godsend-backend"], "ignorar_pastas": ["%SIM_OUTRO_REPO%", "vizinho"]}
+got = [x["Id"] for x in P.foreign_processes()]
+check(got == [2, 3, 5], f"[ambiente] ignorar_pastas tira o homonimo de outro repo (%VAR%, relativo a ROOT, sem diferenciar "
+      f"maiusculas) e mantem o instalado, o prefixo-irmao e o Path nulo ({got})")
+ps_out[0] = json.dumps(procs[0])                                                     # 1 processo: o PowerShell da objeto
+check(P.foreign_processes() == [], "[ambiente] ConvertTo-Json de 1 processo (objeto, nao lista) tambem e filtrado")
+dist_proc = {"Id": 7, "ProcessName": "retroarch", "Path": str(P.ROOT / "dist" / "retroarch.exe")}
+ps_out[0] = json.dumps([dist_proc, procs[5]])
+P.E2E = {"processos": ["godsend-backend"], "pastas": ["dist"], "ignorar_pastas": [str(P.ROOT)]}
+got = [x["Id"] for x in P.foreign_processes()]
+check(got == [7], f"[ambiente] processo dentro das `pastas` conta mesmo dentro de uma ignorada ({got})")
+ps_out[0], P.E2E = json.dumps(procs + [dist_proc]), real_e2e
+n_ps = len(ps_calls)
+check(P.foreign_processes() == procs + [dist_proc] and len(ps_calls) == n_ps + 1 and ps_calls[-1][0] == "powershell",
+      "[ambiente] sem ignorar_pastas (e2e do RetroBat): a lista do PowerShell volta intacta, como antes")
+ps_out[0] = ""
+check(P.foreign_processes() == [], "[ambiente] PowerShell sem saida: livre, como antes")
+P.run, P.foreign_processes = real_run, (lambda: list(env_procs))
+
+def env_state(**kw):
+    bug = lambda o, st_, **x: {"state": st_, "order": o, "wave": 1, "returns": 0, "plan": None, "sessions": {},
+                               "history": [], "title": "x", "retry_after": None, **x}
+    return base_state(base="origin/versao3", run_id="t", worktrees={"wt-g": {"path": str(tmp / "wt-g"), "bug": "g1"}},
+                      bugs={"q1": bug(1, "aguardando-slot"), "q2": bug(2, "aguardando-slot"),
+                            "g1": bug(3, "teste-e2e", wt="wt-g", commit=None, doc="docs/bugs/open/g1.md")},
+                      test_queue=["q1", "q2"], **kw)
+alheio = {"Id": 7924, "ProcessName": "godsend-backend", "Path": "D:\\projects\\PS2Companion\\dist\\godsend-backend.exe"}
+granted = lambda n0: [x[0] for x in spawned[n0:] if "SLOT CONCEDIDO" in x[4]]
+env_procs[:] = [alheio]
+P.save(env_state())
+snap, n0, w0 = P.STATE.read_text(encoding="utf-8"), len(spawned), len(env_watches)
+out = out_of(lambda: call("reconcile", fix=False, grace=99999))
+check("fila parada por ambiente (q1 espera o slot): godsend-backend pid=7924 D:\\projects\\PS2Companion" in out
+      and "nada parado" not in out and P.STATE.read_text(encoding="utf-8") == snap and not granted(n0),
+      f"[ambiente] reconcile sem --fix com a fila parada diz o motivo (antes: 'nada parado'), sem gravar ({out.strip()})")
+out = out_of(lambda: call("reconcile", fix=True, grace=99999))
+s = state()
+check(s["test_slot"] is None and s["test_queue"] == ["q1", "q2"] and s["bugs"]["q1"]["state"] == "aguardando-slot"
+      and s["bugs"]["q1"]["retry_after"] is None and not granted(n0) and "fila parada por ambiente" in out,
+      "[ambiente] reconcile --fix com ambiente ocupado NAO concede nem acorda sessao; fila intacta, sem backoff novo")
+check(s["env_busy"]["next"] == "q1" and s["env_busy"]["procs"] == [alheio] and len(env_watches) == w0 + 1,
+      f"[ambiente] motivo no ledger (env_busy) e env-watch aberto ({s.get('env_busy')})")
+s["env_busy"]["since"] = "2000-01-01T00:00:00"; P.save(s)
+call("reconcile", fix=True, grace=99999)
+check(state()["env_busy"]["since"] == "2000-01-01T00:00:00", "[ambiente] continua ocupado: o `since` e o da 1a vez")
+out = out_of(lambda: call("status"))
+check("AMBIENTE OCUPADO desde 2000-01-01T00:00:00" in out and "q1 espera o slot" in out and "godsend-backend pid=7924" in out,
+      "[ambiente] status mostra a fila parada por ambiente")
+env_procs.clear()
+out = out_of(lambda: call("reconcile", fix=False, grace=99999))
+check("seria concedido a q1" in out and not granted(n0), "[ambiente] reconcile sem --fix, ambiente livre: diz a quem concederia")
+call("reconcile", fix=True, grace=99999)
+s = state()
+check(s["test_slot"] == "q1" and s["bugs"]["q1"]["state"] == "teste-e2e" and granted(n0) == ["q1"] and "env_busy" not in s
+      and s["test_queue"] == ["q2"], "[ambiente] ambiente livre no reconcile --fix seguinte: concede a q1 e limpa o env_busy")
+check("AMBIENTE OCUPADO" not in out_of(lambda: call("status")), "[ambiente] status sem a linha depois de conceder")
+
+# o `ambiente` do teste devolve o slot: o proximo da fila NAO e acordado no mesmo ambiente ocupado (sintoma 3)
+s = env_state(); s["test_slot"] = "g1"; P.save(s)
+env_procs[:] = [alheio]; n0 = len(spawned)
+call("test-done", bug="g1", result="ambiente", report=None, note="godsend-backend alheio")
+s = state()
+check(s["test_slot"] is None and s["test_queue"] == ["q1", "q2", "g1"] and s["bugs"]["g1"]["retry_after"]
+      and not granted(n0) and s["env_busy"]["next"] == "q1",
+      "[ambiente] test-done ambiente: slot livre, g1 em backoff, q1 NAO acordado (ambiente ocupado), motivo no ledger")
+
+# env-watch: a janela de ~2 h que o env-wait da sessao acordada cobria, sem acordar sessao
+real_sleep_ew, sleeps = time.sleep, []
+def ew_sleep(sec):
+    sleeps.append(sec)
+    if len(sleeps) == 2:
+        env_procs.clear()                        # o dono fecha o app alheio
+time.sleep = ew_sleep
+n0 = len(spawned)
+out = out_of(lambda: call("env-watch", minutes=120))
+s = state()
+check(s["test_slot"] == "q1" and granted(n0) == ["q1"] and "env_busy" not in s and sleeps == [30, 30]
+      and "AMBIENTE LIVRE" in out, f"[ambiente] env-watch: ocupado, ocupado, livre -> concede a q1 sozinho ({sleeps}, {out.strip()})")
+sleeps.clear(); n0 = len(spawned); snap = P.STATE.read_text(encoding="utf-8")
+out = out_of(lambda: call("env-watch", minutes=120))
+check(not sleeps and not granted(n0) and P.STATE.read_text(encoding="utf-8") == snap and "nada a conceder" in out,
+      "[ambiente] env-watch com o slot ja concedido: sai na hora, sem tocar o ledger")
+P.save(env_state(env_busy={"since": "x", "checked": "x", "next": "q1", "procs": [alheio]}))
+env_procs[:] = [alheio]; sleeps.clear(); n0 = len(spawned)
+out = out_of(lambda: call("env-watch", minutes=0))
+check(not sleeps and not granted(n0) and state()["test_slot"] is None and "ocupado ha 0 min" in out,
+      "[ambiente] env-watch no prazo: desiste sem conceder (a fila espera o proximo tick)")
+time.sleep = real_sleep_ew
+h = P.try_lock("env-watch")
+launched, real_ld = [], P.launch_detached
+P.launch_detached = lambda args: launched.append(args)
+out = out_of(lambda: call("env-watch", minutes=120))
+check("ja ha um env-watch" in out and P.env_watch_alive() and REAL_SCHED_ENV() is False and not launched,
+      "[ambiente] instancia unica: com o lock preso, nem o env-watch nem o schedule_env_watch abrem outro")
+P.unlock(h)
+check(not P.env_watch_alive() and REAL_SCHED_ENV() is True and launched == [["env-watch"]],
+      "[ambiente] sem vigia vivo, o schedule_env_watch abre `env-watch` destacado")
+P.launch_detached = real_ld
+env_procs.clear()
 
 # [piloto sessao perdida] transicao morta entre save e spawn (DESIGN secao 16): bug em 'teste' sem sessao
 def lost(**kw):
@@ -322,7 +494,7 @@ check(not [x for x in spawned[n0:] if x[0] == "p"] and st16c["bugs"]["p"]["sessi
       "[piloto sessao perdida] sessao viva com o nome da etapa (posterior a transicao) -> ADOTA, nao abre outra")
 
 # [piloto stop] `claude stop` so casa pelo id curto do job (DESIGN secao 16): modulo novo, stop_sessions real
-Q = importlib.util.module_from_spec(spec); spec.loader.exec_module(Q)
+Q = importlib.util.module_from_spec(spec); spec.loader.exec_module(Q); no_detach(Q)
 Q.ACCOUNTS_DIR = tmp / "contas-q"; Q.CRED_FILE = tmp / "cred-q.json"
 calls = []
 Q.claude_exe = lambda: "claude"
@@ -411,17 +583,28 @@ check(not P.worktrees_trusted(), "[piloto trust] sem ~/.claude.json -> falha (na
 
 # [piloto sonda] a sonda do preflight (cwd na lane wt-planning) e ENCERRADA no fim, inclusive em erro:
 # viva, ela trava a pasta (bug pipeline-daemon-claude-bg-orfao-trava-pasta-da-lane_2026-10-02)
-R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
+R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R); no_detach(R)
 R.ACCOUNTS_DIR = tmp / "contas-r"; R.CRED_FILE = tmp / "cred-r.json"
 R.PIPE = tmp; R.WTS = tmp / "lanes-sonda"; R.ROOT = tmp; R.CLAUDE_JSON = tmp / "nao-existe.json"
 R.DEPLOY = tmp / "deploy.ps1"; R.DEPLOY.write_text("$SourceRoot $BuildOnly", encoding="utf-8")
 R.claude_exe = lambda: "claude"
 R.git = lambda *a, **k: "0"
-probe_calls, boom, cli_copies = [], [False], [True]
+probe_calls, boom, cli_copies, wt_add_fail, untrusted = [], [False], [True], [False], [False]
 def probe_run(cmd, cwd=None, check=True, timeout=None):
     probe_calls.append((list(cmd), cwd))
     if boom[0] and "--resume" in cmd:
         raise RuntimeError("simulado: falha no meio do preflight")
+    # git worktree falso: o `add` cria a pasta com o `.git` ARQUIVO (worktree vinculada), o `remove` a apaga
+    # [[pipeline-preflight-sonda-de-spawn-em-pasta-comum-exige-trust-de-pasta-exata_2026-10-11]]
+    if cmd[:3] == ["git", "worktree", "add"]:
+        if wt_add_fail[0]:
+            return types.SimpleNamespace(returncode=128, stdout="", stderr="fatal: invalid reference: origin/x")
+        Path(cmd[-2]).mkdir(parents=True, exist_ok=True); (Path(cmd[-2]) / ".git").write_text("gitdir: x")
+    if cmd[:3] == ["git", "worktree", "remove"]:
+        import shutil; shutil.rmtree(cmd[-1])
+    if untrusted[0] and "--bg" in cmd and "--resume" not in cmd:
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="Workspace not trusted. Run `claude` in "
+                                     f"{cwd} once and accept the trust dialog")
     out = "1"
     if "--bg" in cmd:      # formato real do CLI 2.1.288: copia = outro id impresso, sem nome
         out = "backgrounded \u00b7 \x1b[36mdddd7777\x1b[39m \u00b7 pipeline-preflight-x"
@@ -458,6 +641,16 @@ check(code == 1, "[piloto sonda] preflight roda ate o fim (vermelho: sem dist/pr
 spawn_cwd = [cwd for c, cwd in probe_calls if "--bg" in c and "-n" in c]
 check(spawn_cwd == [R.WTS / "wt-planning"], "[piloto sonda] a sonda nasce na lane wt-planning (cenario do bug)")
 check(not (R.WTS / "wt-planning").exists(), "[finalizacao] o preflight remove a pasta de lane que ele mesmo criou")
+lane_s = R.WTS / "wt-planning"
+def at(pred): return [i for i, (c, _) in enumerate(probe_calls) if pred(c)]
+adds, rems = at(lambda c: c[:3] == ["git", "worktree", "add"]), at(lambda c: c[:3] == ["git", "worktree", "remove"])
+bgs, stps = at(lambda c: "--bg" in c), at(lambda c: c[:2] == ["claude", "stop"])
+check(len(adds) == 1 and probe_calls[adds[0]] == (["git", "worktree", "add", "--detach", str(lane_s), R.BASE], R.SRC)
+      and adds[0] < bgs[0] and len(rems) == 1 and probe_calls[rems[0]][0][3] == "--force"
+      and Path(probe_calls[rems[0]][0][4]) == lane_s.resolve() and rems[0] > max(stps)
+      and "[OK]   lane da sonda" in out and "descartavel" in out,
+      "[piloto sonda] (a) sem wt-planning: `worktree add --detach <lane> <base>` ANTES do --bg, `worktree remove --force` "
+      "DEPOIS do stop (a sonda nasce numa worktree, nao numa pasta comum)")
 check(stops_of()[-2:] == ["dddd7777", "eeee9999"],
       f"[piloto sonda] fim do preflight: stop na sonda E na copia RENOMEADA do resume, pelo id impresso ({stops_of()})")
 check("ffff1111" not in stops_of() and "abab1212" not in stops_of(),
@@ -501,6 +694,33 @@ except RuntimeError:
     pass
 check(stops_of() and stops_of()[-1] == "dddd7777" and "eeee9999" not in stops_of(),
       f"[piloto sonda] erro no resume (antes da copia existir): a sonda e encerrada mesmo assim ({stops_of()})")
+check(not lane_s.exists() and at(lambda c: c[:3] == ["git", "worktree", "remove"]),
+      "[piloto sonda] erro no meio do preflight: a worktree da sonda e removida mesmo assim")
+boom[0] = False
+# (b) execucao aberta: wt-planning ja e worktree -> a sonda roda nela e nada e criado nem removido
+lane_s.mkdir(parents=True); (lane_s / ".git").write_text("gitdir: da execucao aberta")
+probe_calls.clear(); code, out = probe_preflight()
+check(not at(lambda c: c[:2] == ["git", "worktree"]) and (lane_s / ".git").is_file()
+      and [cwd for c, cwd in probe_calls if "--bg" in c and "-n" in c] == [lane_s] and "worktree da execucao aberta" in out,
+      "[piloto sonda] (b) wt-planning ja worktree: a sonda roda nela, nenhum worktree add/remove, ela continua no fim")
+import shutil; shutil.rmtree(lane_s)
+# (c) o `worktree add` falha, ou a lane e pasta comum com arquivo: [FALHA] e a sonda NAO roda (nunca em pasta comum)
+wt_add_fail[0] = True; probe_calls.clear(); code, out = probe_preflight(); wt_add_fail[0] = False
+check(code == 1 and "[FALHA] lane da sonda" in out and "invalid reference" in out and not at(lambda c: "--bg" in c)
+      and not stops_of() and not lane_s.exists(),
+      "[piloto sonda] (c) worktree add que falha: [FALHA] com a saida do git, nenhum --bg, nenhuma pasta deixada")
+lane_s.mkdir(parents=True); (lane_s / "de-alguem.txt").write_text("x")
+probe_calls.clear(); code, out = probe_preflight()
+check(code == 1 and "[FALHA] lane da sonda" in out and "pasta comum" in out and not at(lambda c: "--bg" in c)
+      and not at(lambda c: c[:2] == ["git", "worktree"]) and (lane_s / "de-alguem.txt").exists(),
+      "[piloto sonda] (c) lane pasta comum com arquivo: [FALHA], nenhum --bg, nenhum worktree add, nada apagado")
+shutil.rmtree(lane_s)
+# (d) "Workspace not trusted" na sonda = repo sem trust: a dica e a do `worktrees_trusted`, nunca "pasta exata"
+untrusted[0] = True; probe_calls.clear(); code, out = probe_preflight(); untrusted[0] = False
+hint = out.split("[FALHA] spawn de sessao --bg em ", 1)[-1].split("\n[", 1)[0]
+check("[FALHA] spawn de sessao --bg em " in out and f"terminal em {R.SRC}, aceita e sai" in hint
+      and "pasta exata" not in out and not lane_s.exists(),
+      "[piloto sonda] (d) sonda 'Workspace not trusted': a dica manda aceitar o trust no repo (SRC), sem 'pasta exata'")
 check(R.bg_id("backgrounded \ufffd \x1b[36md2426956\x1b[39m \ufffd pipeline-finalizacao") == "d2426956"
       and R.bg_id("Error: workspace not trusted") is None and R.bg_id(None) is None,
       "[piloto sonda] bg_id: le o id com ANSI e separador corrompido (cli_output real do state.json); sem id -> None")
@@ -522,7 +742,8 @@ check(all(w in out for w in ("[AVISO] arvore principal: 3 commit(s) local(is)", 
                              "1 arquivo(s) real(is) nao commitado(s) (docs/de-outra-sessao.md)")),
       "[finalizacao] preflight: ahead, behind e arquivo real nao commitado viram AVISO, com numero e nome")
 R.git = lambda *a, **k: "0"
-check(not stops_of() and not [c for c, _ in probe_calls if "--bg" in c], "[piloto sonda] --skip-spawn: sem sonda, sem stop")
+check(not stops_of() and not [c for c, _ in probe_calls if "--bg" in c] and not at(lambda c: c[:2] == ["git", "worktree"]),
+      "[piloto sonda] --skip-spawn: sem sonda, sem stop, sem worktree add")
 # [cota] F1 do rodizio de contas (docs/backlog/rodizio-automatico-de-contas-no-pipeline.md): deteccao de
 # limite pelo transcript, so leitura. Fixtures com a forma medida (fato 1, B3); nunca o ~/.claude real.
 P.CLAUDE_PROJECTS = tmp / "projects"; (tmp / "projects" / "C--pasta").mkdir(parents=True)
@@ -599,6 +820,7 @@ REAL_CRED, REAL_ACC = Path.home() / ".claude" / ".credentials.json", Path.home()
 def mtime_ns(p): return p.stat().st_mtime_ns if p.exists() else None
 real0 = (mtime_ns(REAL_CRED), mtime_ns(REAL_ACC))
 C = importlib.util.module_from_spec(spec); spec.loader.exec_module(C)
+C.foreign_processes, C.schedule_env_watch = (lambda: []), (lambda: None)   # S21 despacha o slot: ambiente livre, sem PowerShell
 C.PIPE = tmp / "pipe-cota"; C.STATE = C.PIPE / "state.json"; C.ACCOUNTS_DIR = tmp / "contas"; C.DSG = tmp / "nao-existe"
 C.PIPE.mkdir()
 C.CRED_FILE = tmp / "cred-c.json"
@@ -1260,7 +1482,12 @@ sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0cccc-nada", account=None))})
 notes = tick5(sx)
 check(not sx["bugs"]["x"].get("nudges") and not bg_calls() and not resumes and any("aguardando cota" in n for n in notes),
       "[cota] F5: portao fechado (rodizio ligado sem ativa, o estado que o f2-contas.ps1 deixa): o tick nao cutuca nem sessao sem marcador")
-# S13 (R18): rodizio desligado -> a cutucada de sessao limitada so e ADIADA ate resets_at + 2 min
+# S13 (R18): rodizio desligado -> a sessao limitada nao e cutucada antes de resets_at + 2 min; depois, e RETOMADA com a
+# mensagem de retomada apos limite, sem gastar cutucada e sem esperar a tolerancia (o hit ja prova que parou). Nenhum
+# vigia de cota abre (so o de reset) e o arquivo de credenciais fica intocado.
+# [[pipeline-sessao-parada-no-limite-de-uso-sem-rodizio-so-volta-com-reconcile-fix_2026-10-11]]
+QMARK = "RETOMADA APOS LIMITE DE USO"
+def only_reset_watch(): return bool(popens) and all(p_[0][-3:-1] == ["reset-watch", "--origem"] for p_ in popens)
 f4_reset("a"); acc_set(paused=True); snap = cred_snap(); popens.clear()   # os casos acima, com o rodizio ligado, abrem o vigia
 sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None))})
 sp_reply[0] = (0, "backgrounded · f5e0dddd · bug01-dev-x\n", ""); live5["f5e0dddd-s13"] = "bug01-dev-x"
@@ -1269,20 +1496,64 @@ notes = tick5(sx); held = not sx["bugs"]["x"].get("nudges") and not bg_calls() a
 limited("f5e0dddd-s13", T5 - 7200, int(T5) - 60)                                  # reset ha 1 min: dentro da folga
 tick5(sx); held2 = not sx["bugs"]["x"].get("nudges") and not bg_calls()
 limited("f5e0dddd-s13", T5 - 7200, int(T5) - 200)                                 # passou da folga de 2 min
+notes = tick5(sx); b13 = bg_calls()
+check(held and held2 and not sx["bugs"]["x"].get("nudges") and resumes == ["f5e0dddd-s13"] and len(b13) == 1 and QMARK in b13[0][-1]
+      and sx["bugs"]["x"]["history"][-1]["note"] == "retomada apos limite (sem rodizio)" and any("sem gastar cutucada" in n for n in notes)
+      and sx["bugs"]["x"]["sessions"]["dev"]["account"] is None and cred_snap() == snap and only_reset_watch(),
+      "[cota] S13 (R18): rodizio pausado: sessao limitada nao e cutucada antes de resets_at + 2 min; depois, 1 retomada com "
+      "RETOMADA APOS LIMITE DE USO, nudges vazio; so o vigia de reset abre, CRED_FILE intocado")
+notes = tick5(sx)
+check(not bg_calls() and not sx["bugs"]["x"].get("nudges"),
+      "[cota] S13: a retomada moveu o sent_ts: o mesmo hit nao retoma de novo no tick seguinte")
+# idle MENOR que a tolerancia (transicao ha pouco) tambem retoma: o hit prova que a sessao parou
+sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None))}); sx["bugs"]["x"]["history"][-1]["ts"] = C.now()
+notes = tick5(sx)
+check(len(bg_calls()) == 1 and QMARK in bg_calls()[0][-1] and not sx["bugs"]["x"].get("nudges"),
+      "[cota] S13: reset passado com a ultima transicao ha segundos (idle < tolerancia): retoma ja, sem esperar a tolerancia")
+# correcao 1: entrega feita DEPOIS do reset e recusada de novo (o reset nao efetivou): espera LATE_WAIT desde a recusa,
+# senao o vigia de reset a retomaria a cada passada
+limited("f5e0dddd-s13", T5 - 600, int(T5) - 6000)
+sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None, sent=T5 - 700))})
+notes = tick5(sx); late_held = not bg_calls() and not sx["bugs"]["x"].get("nudges") and "sem cutucada antes do reset" in " ".join(notes)
+limited("f5e0dddd-s13", T5 - 4000, int(T5) - 6000)
+sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None, sent=T5 - 5000))})
 tick5(sx)
-check(held and held2 and sx["bugs"]["x"].get("nudges") == {"dev": 1} and resumes == ["f5e0dddd-s13"] and len(bg_calls()) == 1
-      and sx["bugs"]["x"]["sessions"]["dev"]["account"] is None and cred_snap() == snap and not popens,
-      "[cota] S13 (R18): rodizio pausado: sessao limitada nao e cutucada antes de resets_at + 2 min e e depois; sem vigia, CRED_FILE intocado")
+check(late_held and len(bg_calls()) == 1 and QMARK in bg_calls()[0][-1] and not sx["bugs"]["x"].get("nudges"),
+      "[cota] S13: limite recusado DEPOIS do reset (reset < sent_ts < hit): nada antes de hit + LATE_WAIT; depois, 1 retomada")
+# correcao 2: reentrega pendente da etapa que acabou de falhar: nem retomada dupla nem cutucada generica
+limited("f5e0dddd-s13", T5 - 7200, int(T5) - 200)
+sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None))},
+         pending_spawns=[{"slug": "x", "stage": "dev", "message": "msg antiga", "why": "sessao busy (x)", "ts": "t"}])
+sp_reply[0] = (1, "", "erro simulado")
+notes = tick5(sx); sp_reply[0] = (0, "backgrounded · f5e0dddd · bug01-dev-x\n", "")
+check(len(bg_calls()) == 1 and pend5(sx) and pend5(sx)[0][:2] == ("x", "dev") and not sx["bugs"]["x"].get("nudges")
+      and any("sem retomada dupla" in n for n in notes),
+      "[cota] S13: reentrega da etapa falhou no mesmo tick: 1 chamada so (a da reentrega), sem retomada nem cutucada a mais")
+# finalizacao: o mesmo, com `since` andando e `nudges` parado
+live5["f5e0fin0-fin"] = "pipeline-finalizacao-r5"; sp_reply[0] = (0, "backgrounded · f5e0fin0 · pipeline-finalizacao-r5\n", "")
+limited("f5e0fin0-fin", T5 - 7200, int(T5) - 200)
+sf = st5({}, final={"state": "rodando", "since": OLD, "session": {"id": "f5e0fin0-fin", "name": "pipeline-finalizacao-r5",
+                                                                  "account": None, "sent_ts": T5 - 7300}})
+notes = tick5(sf)
+check(len(bg_calls()) == 1 and QMARK in bg_calls()[0][-1] and not sf["final"].get("nudges") and sf["final"]["since"] != OLD
+      and any(n.startswith("finalizacao: sessao") and "sem gastar cutucada" in n for n in notes),
+      "[cota] S13: finalizacao parada por limite, reset passado, sem rodizio: retomada com a mensagem, sem cutucada (nudges vazio)")
 f4_reset("a"); a_ = acc_json(); a_["order"] = ["a"]; (C.ACCOUNTS_DIR / "accounts.json").write_text(json.dumps(a_), encoding="utf-8")
-snap = cred_snap(); limited("f5e0dddd-s13", T5 - 7200, int(T5) + 3600)
+snap = cred_snap(); limited("f5e0dddd-s13", T5 - 7200, int(T5) + 3600); popens.clear()
+sp_reply[0] = (0, "backgrounded · f5e0dddd · bug01-dev-x\n", "")
 sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None))})
 tick5(sx); held = not sx["bugs"]["x"].get("nudges") and not bg_calls()
 tick5(sx, force=True); forced = sx["bugs"]["x"].get("nudges") == {"dev": 1} and len(bg_calls()) == 1
+limited("f5e0dddd-s13", T5 - 7200, int(T5) - 200)
+sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None))})
+tick5(sx); one_back = len(bg_calls()) == 1 and QMARK in bg_calls()[0][-1] and not sx["bugs"]["x"].get("nudges")
 jl("f5e0dddd-s13", u(iso(T5 - 7300)), auth(iso(T5 - 7200)))
 sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None))})
 tick5(sx)
-check(held and forced and sx["bugs"]["x"].get("nudges") == {"dev": 1} and len(bg_calls()) == 1 and cred_snap() == snap and not popens,
-      "[cota] S13 (R18): 1 conta: limite adia; `reconcile --fix` (force) cutuca ja; hit auth sem rodizio segue a cutucada de hoje")
+check(held and forced and one_back and sx["bugs"]["x"].get("nudges") == {"dev": 1} and len(bg_calls()) == 1
+      and QMARK not in bg_calls()[0][-1] and cred_snap() == snap and only_reset_watch(),
+      "[cota] S13 (R18): 1 conta: limite adia; `reconcile --fix` (force) antes do reset cutuca ja; depois do reset, retomada "
+      "sem cutucada; hit auth sem rodizio segue a cutucada de hoje")
 # S21 (R3): todas esgotadas -> reentrega, ramo 'sem sessao registrada', dispatch_slot e next_wave viram pendencia, sem CLI
 f4_reset("a", applied=True, **{k: ex(T5 + 3600) for k in "abcd"}); snap = cred_snap(); live5.clear()
 s21 = st5({"v": bug5(1, "retest"), "w": bug5(2, "planejado"),
@@ -1444,8 +1715,10 @@ st6({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x"))}, max_planning=4); popens.c
 saved6 = []; real_save6 = C.save; C.save = lambda s_: (saved6.append(len(popens)), real_save6(s_))[1]
 captured(lambda: C.cmd_start(types.SimpleNamespace())); C.save = real_save6
 acc_set(paused=True); n_st = len(popens); captured(lambda: C.cmd_start(types.SimpleNamespace()))
-check(n_st == 1 and popens[0][0][-1] == "start" and saved6 == [0] and len(popens) == 1,
-      "[cota] F6 cmd_start: abre o vigia (--origem start) depois de gravar o state.json; com o rodizio pausado, nao abre")
+check(n_st == 1 and popens[0][0][-3:] == ["quota-watch", "--origem", "start"] and saved6 == [0]
+      and [p_[0][-3:] for p_ in popens[1:]] == [["reset-watch", "--origem", "start"]],
+      "[cota] F6 cmd_start: abre o vigia de cota (--origem start) depois de gravar o state.json, e so ele; com o rodizio "
+      "pausado, nao o abre e abre o vigia de reset")
 # S29: arquivo em b, active = a (esgotada) -> a passada regrava a e o passo 4 gira para b; sem CLI; a 2a passada so confere
 f4_reset("a", applied=True, a=ex(T5 + 3600)); st6({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x"))})
 d6 = cred_get(); d6["claudeAiOauth"]["accessToken"] = TK["b"]; cred_put(d6)
@@ -1499,6 +1772,95 @@ st6({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x"))}); popens.clear(); out_r3, 
 check("rode `accounts restore`" in out_r and "se foi um `accounts activate` seu" in out_r and code_r == 1 and "accounts restore" not in out_r2
       and len(popens) == 1 and popens[0][0][-1] == "reconcile",
       "[cota] F6 reconcile: sem execucao e com o arquivo numa conta do rodizio, avisa (so sem vigia vivo); --fix abre o vigia")
+# [reset-watch] sem rodizio, quem acorda depois do reset quando nenhuma sessao chama transicao. Relogio falso do F6a;
+# guarda f4 pausada; o vigia so LE a guarda (accounts.json e arquivo de credenciais com bytes e mtime iguais no fim).
+# [[pipeline-sessao-parada-no-limite-de-uso-sem-rodizio-so-volta-com-reconcile-fix_2026-10-11]]
+def rwatch(once=True, interval=300):
+    sp_calls.clear(); resumes.clear()
+    box["rout"], box["rcode"] = captured(lambda: C.cmd_reset_watch(types.SimpleNamespace(once=once, interval=interval, origem="teste")))
+    return box["rout"]
+def guard_snap(): p_ = C.ACCOUNTS_DIR / "accounts.json"; return (p_.read_bytes(), p_.stat().st_mtime_ns, cred_snap())
+T6[0] = T5; f4_reset("a"); acc_set(paused=True); live5.clear(); popens.clear(); gs = guard_snap()
+# (i) o caso real: a sessao de planning bate o limite DEPOIS da ultima transicao e ninguem chama o `tick`
+RR = int(T5) + 600
+limited("rw00plan-x", T5 - 60, RR); live5["rw00plan-x"] = "bug01-planning-x"
+sp_reply[0] = (0, "backgrounded · rw00plan · bug01-planning-x\n", "")
+st6({"x": bug5(1, "planning", None, {"planning": {"id": "rw00plan-x", "name": "bug01-planning-x", "account": None, "sent_ts": T5 - 3600}})})
+out0 = rwatch(); bg0, s0 = bg_calls(), state6()
+T6[0] = RR + C.RESET_SLACK + 1
+out1 = rwatch(); bg1, s1 = bg_calls(), state6()
+check(not bg0 and not s0["bugs"]["x"].get("nudges") and "vigia de reset subiu (origem=teste" in out0 and f"retomada as {C.when(RR + C.RESET_SLACK)}" in out0
+      and len(bg1) == 1 and bg1[0][3] == "rw00plan-x" and QMARK in bg1[0][-1] and not s1["bugs"]["x"].get("nudges")
+      and s1["bugs"]["x"]["sessions"]["planning"]["sent_ts"] == T6[0] and "reset passou: x/planning" in out1
+      and "vigia de reset subiu" in cota_log("r5"),
+      "[reset-watch] (i) caso real: planning limitada depois da ultima transicao, sem tick: antes de reset + 2 min nenhum CLI; "
+      "depois, 1 --bg --resume da MESMA sessao com RETOMADA APOS LIMITE DE USO, nudges vazio, log de cota da execucao")
+out1b = rwatch()
+check(not bg_calls() and "reset passou" not in out1b, "[reset-watch] (i) passada seguinte: o sent_ts andou, nada a retomar")
+# o sono acaba no proximo reset + 2 min (antes do --interval) e e em passos de ate 60 s de relogio de parede
+limited("rw00plan-x", T6[0] + 10, int(T6[0]) + 200); sleeps_rw = []
+real_sleep_rw = C.time.sleep
+def sleep_rw(s):
+    sleeps_rw.append(s); real_sleep_rw(s)
+    if len(sleeps_rw) == 7: C.save(st5({"v": bug5(1, "retest")}))       # a execucao fecha no sono DEPOIS da retomada
+C.time = types.SimpleNamespace(time=C.time.time, sleep=sleep_rw)
+out2 = rwatch(once=False, interval=3600); C.time = types.SimpleNamespace(time=C.time.time, sleep=real_sleep_rw)
+check(sleeps_rw[:6] == [60.0] * 5 + [20.0] and len(bg_calls()) == 1 and "reset passou: x/planning" in out2
+      and "vigia de reset saindo (fim da execucao)" in out2 and not C.reset_watch_alive(),
+      f"[reset-watch] laco: dorme em passos de 60 s ate reset + 2 min (nao a hora inteira do --interval), retoma, e sai "
+      f"quando a execucao fecha, soltando o lock ({sleeps_rw[:8]})")
+# (ii) rodizio ligado: o vigia sai na hora, sem CLI, e o lancador nao abre
+f4_reset("a", applied=True); gs_on = guard_snap()
+st6({"x": bug5(1, "planning", None, {"planning": {"id": "rw00plan-x", "name": "bug01-planning-x", "account": None, "sent_ts": T5 - 3600}})})
+limited("rw00plan-x", T6[0] - 600, int(T6[0]) - 300); popens.clear()
+out3 = rwatch()                                   # once: um vigia que regrediu nao trava a bateria
+check("vigia de reset saindo (rodizio ligado: a retomada e do vigia de cota)" in out3 and not bg_calls()
+      and C.schedule_reset_watch(state6(), "tick") is False and not popens and guard_snap() == gs_on,
+      "[reset-watch] (ii) rodizio ligado: o vigia sai na hora sem CLI nem gravar a guarda; schedule_reset_watch nao abre")
+# (iii) execucao fechada / sem state.json: sai; o lancador nao abre para execucao fechada
+f4_reset("a"); acc_set(paused=True); gs = guard_snap()
+st6({"v": bug5(1, "retest")}); out4 = rwatch(once=False)
+C.STATE.unlink(); out5 = rwatch(once=False)
+check("vigia de reset saindo (fim da execucao)" in out4 and "vigia de reset saindo (sem execucao)" in out5 and not bg_calls()
+      and C.schedule_reset_watch(st5({"v": bug5(1, "retest")}), "tick") is False and not popens and not C.reset_watch_alive(),
+      "[reset-watch] (iii) execucao fechada ou sem state.json: o vigia sai; o lancador nao abre para execucao fechada")
+# instancia unica: com o lock preso, o 2o vigia sai e o lancador nao abre
+st6({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x", account=None))})
+hold_rw = C.try_lock("reset-watch"); out6 = rwatch(); sch_busy = C.schedule_reset_watch(state6(), "tick"); C.unlock(hold_rw)
+sch_free = C.schedule_reset_watch(state6(), "tick")
+check("ja ha um vigia de reset" in out6 and sch_busy is False and sch_free is True and [p_[0][-3:] for p_ in popens] == [["reset-watch", "--origem", "tick"]],
+      "[reset-watch] instancia unica por pasta do pipeline: lock preso -> o 2o sai e o lancador nao abre; livre -> abre 1")
+# (iv) o tick: com efeito e sem rodizio abre o reset-watch; report=True e lock preso nao; rodizio ligado so o vigia de cota
+popens.clear(); sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x", account=None))})
+tick5(sx, report=True); n_rep = len(popens); tick5(sx); n_eff = [p_[0][-3:] for p_ in popens]
+hold_rw = C.try_lock("reset-watch"); popens.clear(); tick5(sx); n_busy = len(popens); C.unlock(hold_rw)
+f4_reset("a", applied=True); limited("f6e0tick-x", T6[0] - 7200, int(T6[0]) + 3600); live5["f6e0tick-x"] = "bug01-dev-x"; popens.clear()
+tick5(st5({"x": bug5(1, "dev", "wt-1", dev5("f6e0tick-x"))})); n_on = [p_[0][-3:] for p_ in popens]
+check(n_rep == 0 and n_eff == [["reset-watch", "--origem", "tick"]] and n_busy == 0 and n_on == [["quota-watch", "--origem", "tick"]],
+      f"[reset-watch] (iv) tick sem rodizio abre o reset-watch (1); report=True e lock preso nao abrem; rodizio ligado: so o "
+      f"vigia de cota ({n_eff}, {n_on})")
+# (v) nada disso tocou a guarda de contas nem o arquivo de credenciais (rodizio pausado)
+f4_reset("a"); acc_set(paused=True); gs = guard_snap(); live5.clear()
+limited("rw00plan-x", T6[0] - 600, int(T6[0]) - 300); live5["rw00plan-x"] = "bug01-planning-x"
+st6({"x": bug5(1, "planning", None, {"planning": {"id": "rw00plan-x", "name": "bug01-planning-x", "account": None, "sent_ts": T6[0] - 3600}})})
+rwatch(); n_v = len(bg_calls()); tick5(st5({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x", account=None))}))
+check(n_v == 1 and guard_snap() == gs, "[reset-watch] (v) retomada pelo vigia e tick sem rodizio: accounts.json e arquivo de "
+      "credenciais com bytes e mtime iguais (o vigia de reset so le a guarda)")
+# T3: reconcile sem --fix fala no condicional e nao envia; com efeito, o texto de antes
+sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x", account=None))}); before_rep = json.dumps(sx, sort_keys=True)
+notes_r = tick5(sx, report=True); same_r = json.dumps(sx, sort_keys=True) == before_rep and not bg_calls()
+notes_f = tick5(sx)
+sf_r = st5({}, final={"state": "rodando", "since": OLD, "session": {"id": "f6e0nada-x", "name": "pipeline-finalizacao-r5"}})
+fin_r = tick5(sf_r, report=True)
+check(not any("cutucando" in n for n in notes_r + fin_r) and any("cutucaria a sessao (1): so reconcile --fix envia" in n for n in notes_r)
+      and any("finalizacao parada" in n and "cutucaria" in n for n in fin_r) and same_r and not bg_calls()
+      and any("cutucando a sessao (1)" in n for n in notes_f) and sx["bugs"]["x"]["nudges"] == {"dev": 1},
+      "[reconcile] report=True: 'cutucaria ... so reconcile --fix envia' (bug e finalizacao), nada enviado; com efeito: 'cutucando (1)'")
+st6({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x", account=None))}); m0 = C.STATE.stat().st_mtime_ns; sp_calls.clear()
+out_rr, _ = captured(lambda: C.cmd_reconcile(types.SimpleNamespace(fix=False, grace=45)))
+check(out_rr.startswith("reconcile sem --fix: so relata, nada abaixo foi enviado") and "cutucaria a sessao (1)" in out_rr
+      and "cutucando" not in out_rr and not bg_calls() and C.STATE.stat().st_mtime_ns == m0,
+      f"[reconcile] sem --fix: avisa antes das notas que nada foi enviado; state.json intocado ({out_rr.strip()[:160]})")
 # [cota] F6b: passo 5 do vigia (secao 6.5): retomada das sessoes paradas por cota e entrega das pendencias,
 # um file_lock("state") por alvo, revalidacao R2, count_hit (R21) e contadores zerados quando a sessao responde.
 # Mesmo relogio falso e ajudantes do bloco F6a; o spawn e o REAL, com o subprocess falso.
@@ -1935,7 +2297,7 @@ check(code_y8 is None and "sem /login guardado" in out_y8 and a8["applied"] and 
       "[armado] restore sem login.bak (applied fica, rodizio pausado): a marca nao vale, porque nenhum vigia vai subir")
 # ---- [tasks] DESIGN 22.9 (B2.9): `depende_de` nas ondas, numa copia nova do modulo com os mesmos falsos do inicio.
 # b espera a (retest); h depende de a2, que reprova; f depende de g (documentado); d e e se esperam (ciclo).
-D = importlib.util.module_from_spec(spec); spec.loader.exec_module(D)
+D = importlib.util.module_from_spec(spec); spec.loader.exec_module(D); no_detach(D)
 dtmp = Path(tempfile.mkdtemp())
 D.PIPE = dtmp; D.STATE = dtmp / "state.json"; D.WTS = dtmp / "lanes"; D.DSG = dtmp / "nao-existe"
 D.ACCOUNTS_DIR = dtmp / "contas-d"; D.CRED_FILE = dtmp / "cred-d.json"; D.CLAUDE_PROJECTS = dtmp / "projects"

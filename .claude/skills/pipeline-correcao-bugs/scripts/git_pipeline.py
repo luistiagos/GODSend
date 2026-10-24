@@ -38,6 +38,9 @@ P.SRC = src; P.PIPE = tmp / "pipe"; P.WTS = tmp / "pipe/lanes"
 P.STATE = tmp / "pipe/state.json"                   # NUNCA o ledger real (.bugfix-pipeline/state.json)
 P.PIPE.mkdir(parents=True)
 assert str(P.STATE).startswith(str(tmp)) and str(P.SRC).startswith(str(tmp))
+# o `dispatch_slot` confere o ambiente E2E: o [revalidacao 7] despacha o slot e nao pode depender do que esta aberto
+# na maquina (PowerShell real) [[pipeline-e2e-casa-processo-so-pelo-nome-e-slot-concedido-sem-conferir-ambiente_2026-10-11]]
+P.foreign_processes = lambda: []
 st = {"base": "origin/versao3", "branch": "versao3", "worktrees": {}, "run_id": "t",
       "bugs": {s: {"branch": f"bugfix/{s}", "wt": w, "doc": f"docs/bugs/open/{s}.md", "synced_base": None}
                for s, w in (("a", "wt-1"), ("c", "wt-2"))}}
@@ -124,6 +127,49 @@ P.checkout_fresh(w1, "origin/versao3", "bugfix/g")
 (w1 / "launcher/bin/Release").mkdir(parents=True); sh("git", "mv", "launcher/A.cs", "launcher/bin/Release/A.cs", cwd=w1)
 sh("git", "commit", "-qm", "renomeia fonte para saida de build", cwd=w1)
 expect_exit(5, lambda: P.publish_head(st, w1), "[publish-remove-gerado] RENOMEAR fonte para bin/Release continua recusado")
+
+# [[pipeline-changelog-obrigatorio-na-reserva-serializa-a-onda-inteira_2026-10-11]] arquivo da reserva_livre: dois
+# fixes acrescentam no MESMO ponto do CHANGELOG.md (`merge=union`) e publicam sem conflito e sem refazer a T2.
+# Lanes proprias (fora do ledger `st`), para os casos seguintes acharem w1/w2 como estavam.
+CL = "# Changelog\n\n## [Unreleased]\n\n## [1.0]\n- velho\n"
+anda(".gitattributes", "CHANGELOG.md merge=union\n", "attr union"); anda("CHANGELOG.md", CL, "changelog")
+anda("OUTRO.md", CL, "livre SEM o atributo (controle)")
+sh("git", "fetch", "-q", "origin", cwd=src)
+l1, l2 = P.WTS / "wt-l1", P.WTS / "wt-l2"
+for lane_, br in ((l1, "bugfix/l1"), (l2, "bugfix/l2")):
+    sh("git", "worktree", "add", "-q", "-b", br, str(lane_), "origin/versao3", cwd=src)
+def poe(lane_, rel, linha):
+    f = lane_ / rel; f.write_text(f.read_text().replace("## [Unreleased]\n", f"## [Unreleased]\n{linha}\n", 1))
+sync_l = sh("git", "rev-parse", "origin/versao3", cwd=l1)
+poe(l1, "CHANGELOG.md", "- fix l1"); sh("git", "commit", "-qam", "fix l1 (so o changelog)", cwd=l1)
+poe(l2, "CHANGELOG.md", "- fix l2"); (l2 / "launcher/L2.cs").write_text("l2\n"); sh("git", "add", "launcher/L2.cs", cwd=l2)
+sh("git", "commit", "-qam", "fix l2", cwd=l2)
+P.RESERVA_LIVRE = ["CHANGELOG.md", "OUTRO.md"]
+P.publish_head(st, l1, sync_l, code_check=True)
+P.RESERVA_LIVRE = []
+expect_exit(3, lambda: P.publish_head(st, l2, sync_l, code_check=True),
+            "[reserva_livre] controle: sem reserva_livre, base que andou SO com o CHANGELOG.md exige refazer a T2")
+P.RESERVA_LIVRE = ["CHANGELOG.md", "OUTRO.md"]
+P.publish_head(st, l2, sync_l, code_check=True)
+ocl = sh("git", "--git-dir", str(origin), "show", "versao3:CHANGELOG.md")
+check("- fix l1" in ocl and "- fix l2" in ocl and ocl.count("## [Unreleased]") == 1 and "<<<<" not in ocl
+      and sh("git", "--git-dir", str(origin), "show", "versao3:launcher/L2.cs") == "l2",
+      "[reserva_livre] 2 publishes com entrada no mesmo ponto do livre (merge=union): sem saida 3, sem 4, as duas linhas no origin")
+sync_l = sh("git", "rev-parse", "origin/versao3", cwd=l1)
+for lane_, br in ((l1, "bugfix/l3"), (l2, "bugfix/l4")):
+    sh("git", "checkout", "-q", "-B", br, "origin/versao3", cwd=lane_)
+poe(l1, "OUTRO.md", "- fix l3"); sh("git", "commit", "-qam", "fix l3", cwd=l1)
+poe(l2, "OUTRO.md", "- fix l4"); sh("git", "commit", "-qam", "fix l4", cwd=l2)
+P.publish_head(st, l1, sync_l, code_check=True)
+expect_exit(4, lambda: P.publish_head(st, l2, sync_l, code_check=True),
+            "[reserva_livre] controle: livre SEM merge=union, mesmo cenario -> conflito no rebase (saida 4)")
+sh("git", "fetch", "-q", "origin", cwd=src)
+check(P.free_without_union(src, "origin/versao3") == ["OUTRO.md"],
+      "[reserva_livre] preflight: o livre sem merge=union e apontado; o CHANGELOG.md (com o atributo) nao")
+P.RESERVA_LIVRE = []                             # os casos seguintes nao herdam
+for lane_ in (l1, l2):
+    sh("git", "worktree", "remove", "--force", str(lane_), cwd=src)
+sh("git", "branch", "-D", "bugfix/l1", "bugfix/l2", "bugfix/l3", "bugfix/l4", cwd=src)
 
 # bug que termina em open: so docs vao para o fluxo principal, codigo fica no -wip
 P.checkout_fresh(w1, "origin/versao3", "bugfix/a")
@@ -356,6 +402,38 @@ P.cmd_cleanup(None)
 check(cli_calls[-1] == ["claude-falso", "stop", "eeee0003"] and len(cli_calls) == 2 and not w1.exists(),
       f"[piloto lane presa] lane sem .git: background ociosa e parada e a pasta vazia some ({cli_calls})")
 P.run = real_run
+# [piloto sonda] a lane da sonda do preflight e WORKTREE de verdade (trust do repo), nao pasta comum, e some no fim
+# [[pipeline-preflight-sonda-de-spawn-em-pasta-comum-exige-trust-de-pasta-exata_2026-10-11]]
+wl = lambda: sh("git", "worktree", "list", cwd=src)
+lane, created, err = P.preflight_lane()
+check(created and not err and (lane / ".git").is_file() and "wt-planning" in wl()
+      and (lane / "launcher/A.cs").exists() and not (lane / "emulationstation-source/win32-libs").exists(),
+      "[piloto sonda] lane da sonda: `worktree add` real (.git ARQUIVO, no worktree list, checkout da base, sem provision)")
+check(P.preflight_lane() == (lane, False, None), "[piloto sonda] lane que ja e worktree: reaproveitada, nada criado")
+check(P.drop_preflight_lane(lane) and not lane.exists() and "wt-planning" not in wl(),
+      "[piloto sonda] remocao: sai do worktree list e a pasta some")
+lane, created, err = P.preflight_lane()
+holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], cwd=lane)  # processo REAL com cwd na lane
+time.sleep(1)
+out = io.StringIO()
+try:
+    with contextlib.redirect_stdout(out):
+        gone = P.drop_preflight_lane(lane)
+    print(out.getvalue().rstrip())
+    check(not gone and lane.exists() and not any(lane.iterdir()) and "wt-planning" not in wl()
+          and "[AVISO]" in out.getvalue() and str(lane) in out.getvalue(),
+          "[piloto sonda] lane presa por processo: sem excecao, desregistrada, pasta vazia fica com [AVISO]")
+    stp = {"base": "origin/versao3", "worktrees": {}}
+    check(P.ensure_wt(stp, "wt-planning") == lane and (lane / ".git").is_file() and "wt-planning" in wl(),
+          "[piloto sonda] depois da lane presa, o `start` (ensure_wt) reaproveita a pasta vazia")
+finally:
+    holder.kill(); holder.wait()
+sh("git", "worktree", "remove", "--force", str(lane), cwd=src)
+(lane / "x").mkdir(parents=True); (lane / "x/y.txt").write_text("de alguem\n")
+lane2, created, err = P.preflight_lane()
+check(not created and err and "pasta comum" in err and (lane / "x/y.txt").exists() and "wt-planning" not in wl(),
+      "[piloto sonda] lane pasta comum com arquivo: recusada, nada apagado, nenhum worktree add")
+import shutil; shutil.rmtree(lane)
 check((src / "emulationstation-source/win32-libs/SDL2/SDL2.lib").exists(),
       "[prontidao] remover a worktree NAO apaga a win32-libs da arvore principal")
 check("bugfix/a-wip" in branches() and len(sh("git", "worktree", "list", cwd=src).splitlines()) == 1,
@@ -371,7 +449,6 @@ oshow = lambda f: sh("git", "--git-dir", str(origin), "show", f"versao3:{f}")
 head_o = lambda: sh("git", "--git-dir", str(origin), "rev-parse", "versao3")
 header = lambda: sh("git", "status", "-sb", cwd=src).splitlines()[0]
 P.agents = lambda: []
-P.foreign_processes = lambda: []
 P.DIST_ES = tmp / "dist"; P.DIST_ES.mkdir()
 deploys = []
 def fake_deploy(path, kind, extra=()):
@@ -509,6 +586,27 @@ check("(docs/notas-terceiro.md)" in olog()[0] and oshow("launcher/batocera-ports
       and rec["blocked"] and any("NAO compila" in x for x in rec["pending"]),
       "[finalizacao] nao compila: so o doc foi publicado; o codigo fica em commit local, intacto, com pendencia")
 check(falta("C2", "dono") and not falta("C2"), "[finalizacao] portao: principal a frente por codigo que nao compila e decisao do DONO")
+# [[pipeline-portao-c4-link-morto-mecanico-com-arvore-principal-atras-por-pendencia-do-dono_2026-10-10]] o caso
+# real de 20261010-0216: o origin tem o doc em retest/, a principal esta atras porque o sync ficou bloqueado (o
+# codigo local nao compila) e o briefing tem o link do manual. Antes o link saia [FALTA] irresolvivel.
+sh("git", "fetch", "-q", "origin", cwd=lane); sh("git", "checkout", "-q", "--detach", "origin/versao3", cwd=lane)
+(lane / "docs/bugs/retest/so-no-origin.md").write_text("# so no origin\n")
+sh("git", "add", "docs/bugs/retest/so-no-origin.md", cwd=lane); sh("git", "commit", "-q", "-m", "docs(bugs): so-no-origin", cwd=lane)
+sh("git", "push", "-q", "origin", "HEAD:versao3", cwd=lane)
+expect_exit(7, sync, "[finalizacao] C4 link dono: sync de novo, ainda bloqueado pelo codigo que nao compila")
+check(P.load()["final"]["sync"]["blocked"] and not (src / "docs/bugs/retest/so-no-origin.md").exists()
+      and sh("git", "rev-list", "--count", "HEAD..origin/versao3", cwd=src) == "1",
+      f"[finalizacao] C4 link dono: cenario montado (sync fresco e bloqueado, principal atras: {header()})")
+brief_a = P.briefing_path(P.load()); brief_a.parent.mkdir(parents=True, exist_ok=True)
+brief_a.write_text("# Briefing t\n- c, a\n- [x](../../source/docs/bugs/retest/so-no-origin.md)"
+                   " [y](../../source/docs/bugs/retest/nao-existe-nem-no-origin.md)\n", encoding="utf-8")
+c4m, c4d = falta("C4"), falta("C4", "dono")
+check(any("so-no-origin.md" in m for m in c4d) and not any("so-no-origin.md" in m for m in c4m),
+      f"[finalizacao] C4 link dono: link que so o origin resolve sai [DONO ], nao [FALTA] ({c4d})")
+check(any("link morto" in m and "nao-existe-nem-no-origin.md" in m for m in c4m)
+      and not any("nao-existe-nem-no-origin.md" in m for m in c4d),
+      f"[finalizacao] C4 link dono controle: link que nem o origin tem continua [FALTA] ({c4m})")
+brief_a.unlink()                                  # os casos seguintes partem sem briefing
 (src / "launcher/batocera-ports.sln").write_text("compila agora\n")
 sh("git", "commit", "-q", "-m", "conserto do dono", "--", "launcher/batocera-ports.sln", cwd=src)
 check(falta("C2") and not falta("C2", "dono"), "[finalizacao] portao: sync velho (a principal mudou) -> manda rodar de novo")
@@ -615,6 +713,32 @@ P.ensure_wt({"worktrees": {}, "base": "origin/versao3"}, "wt-9")
 check((wt9 / ".git").is_file(), "[finalizacao] a lane que ficou so com subpasta vazia e reaproveitada (worktree add ok)")
 P.cmd_cleanup(None)
 check(not wt9.exists() and [d.name for d in P.WTS.iterdir()] == ["desconhecida"], "[finalizacao] 2a passada: so a pasta desconhecida sobra")
+
+# [[pipeline-portao-c4-link-morto-mecanico-com-arvore-principal-atras-por-pendencia-do-dono_2026-10-10]] doc
+# achado depois do `cleanup`: o final-prepare dava a TRAVA (saida 13) na wt-planning removida (entrada ainda
+# no ledger, sem .git). Agora recria a lane, o final-docs publica e o final-done exige `cleanup` de novo.
+check(not (P.planning_wt(P.load()) / ".git").exists(), "[finalizacao] final-prepare depois do cleanup: wt-planning sem .git, no ledger")
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    P.cmd_final_prepare(None)
+lane = P.planning_wt(P.load())
+check((lane / ".git").is_file() and sh("git", "rev-parse", "HEAD", cwd=lane) == head_o()
+      and "rode `cleanup` de novo" in out.getvalue(),
+      "[finalizacao] final-prepare depois do cleanup: lane recriada no origin, sem saida 13, com AVISO")
+(lane / "docs/achado-depois-do-cleanup.md").write_text("# achado depois do cleanup\n")
+P.cmd_final_docs(ns(message="docs(bugs): achado depois do cleanup"))
+check(olog()[0] == "docs(bugs): achado depois do cleanup", "[finalizacao] final-prepare depois do cleanup: final-docs publica")
+err = io.StringIO()
+with contextlib.redirect_stderr(err):
+    expect_exit(2, lambda: P.cmd_final_done(ns(note="x")), "[finalizacao] final-prepare depois do cleanup: final-done recusa")
+check("rode `cleanup` antes" in err.getvalue() and "wt-planning" in err.getvalue() and P.load()["final"]["state"] == "rodando",
+      f"[finalizacao] final-prepare depois do cleanup: a recusa e a lane recriada ({err.getvalue().strip()})")
+P.cmd_cleanup(None)
+check(not lane.exists() and [d.name for d in P.WTS.iterdir()] == ["desconhecida"],
+      "[finalizacao] final-prepare depois do cleanup: cleanup de novo remove a lane recriada")
+expect_exit(7, sync, "[finalizacao] final-prepare depois do cleanup: principal alcanca o doc publicado (sobras de terceiros ficam)")
+check(header() == "## versao3...origin/versao3" and (src / "docs/achado-depois-do-cleanup.md").exists(),
+      "[finalizacao] final-prepare depois do cleanup: principal = origin de novo")
 
 # o portao fecha: com pendencia que e decisao do dono, e depois sem nenhuma
 stops = []

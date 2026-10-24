@@ -93,6 +93,11 @@ def configure(cfg: dict, skill: Path = SKILL):
     PROIBIDO = cfg.get("proibido_na_sessao", "")
     # O planning pode citar arquivo pelo caminho a partir de ROOT ('source/...'): o ledger guarda relativo a SRC.
     SRC_PREFIX = (SRC.relative_to(ROOT).as_posix() + "/") if ROOT != SRC and ROOT in SRC.parents else ""
+    # Arquivos que TODO fix toca e que fundem sozinhos no rebase (`merge=union` no .gitattributes; o preflight
+    # confere): fora da reserva, da onda e do code_check (DESIGN 22.12). Ausente = nenhum, como antes.
+    # [[pipeline-changelog-obrigatorio-na-reserva-serializa-a-onda-inteira_2026-10-11]] (Downloader: CHANGELOG.md)
+    global RESERVA_LIVRE
+    RESERVA_LIVRE = [norm(f) for f in cfg.get("reserva_livre") or []]   # depois do SRC_PREFIX: o norm o usa
     # Itens do tipo task e task exigida pelo fix de bug (DESIGN 22.9). Ausente = so bugs, como antes.
     global TAREFAS, TASK_RE, RETEST_FLAT, COMMIT_DOCS_OUTROS, COMMIT_TERCEIROS, ANTES_DO_PUSH
     t = cfg.get("tarefas")
@@ -332,6 +337,11 @@ def norm(path: str) -> str:
 def fk(path: str) -> str:
     """Chave de comparacao de arquivo: NTFS nao diferencia maiusculas."""
     return norm(path).lower()
+
+
+def free(path: str) -> bool:
+    """Arquivo da `reserva_livre` do projeto.json: nao se reserva, nao separa ondas, nao e entrada de build."""
+    return fk(path) in {fk(f) for f in RESERVA_LIVRE}
 
 
 # --------------------------------------------------------------------------- itens: bug ou task (DESIGN 22.9)
@@ -1291,20 +1301,32 @@ def session_hit(rec: dict) -> dict:
     return q if q["kind"] and q["ts"] > (rec.get("sent_ts") or 0) else {"kind": None}
 
 
+def limit_due(rec: dict, hit: dict) -> float:
+    """Sem rodizio: a partir de quando a sessao parada pelo limite `hit` (de session_hit) e retomada. RESET_SLACK
+    depois do reset; se a ultima entrega ja foi DEPOIS do reset e a conta recusou de novo (o reset nao efetivou, o
+    R8 do rodizio), LATE_WAIT depois dessa recusa: sem o piso, o vigia de reset a retomaria a cada passada.
+    [[pipeline-sessao-parada-no-limite-de-uso-sem-rodizio-so-volta-com-reconcile-fix_2026-10-11]]"""
+    due = hit["resets_at"] + RESET_SLACK
+    if hit["resets_at"] <= (rec.get("sent_ts") or 0):
+        due = max(due, hit["ts"] + LATE_WAIT)
+    return due
+
+
 def nudge_hold(st: dict, slug: str | None, stage: str, rec: dict, gate: tuple, force: bool) -> str | None:
     """Desvio do `tick` ANTES de cutucar: a nota, se a cutucada NAO deve sair; senao None. `gate` e o
     gate_now() da passada. Rodizio ligado: sessao parada por limite/auth, ou portao fechado -> nao cutuca
     nem gasta `nudges`, nem com `force`: quem retoma e o vigia de cota, pela fila. HITS_MAX hits seguidos
-    da etapa: precisa do dono (R21). Rodizio desligado (R18): so ADIA, e so o limite, ate RESET_SLACK
-    depois do reset. `force` (`reconcile --fix`) nao adia: o dono pode ter trocado de conta a mao."""
+    da etapa: precisa do dono (R21). Rodizio desligado (R18): so ADIA, e so o limite, ate `limit_due`
+    (depois dele, quem retoma e o `resume_after_limit`, antes deste desvio). `force` (`reconcile --fix`)
+    nao adia: o dono pode ter trocado de conta a mao."""
     rot, _, why = gate
     hit = session_hit(rec)
     who = f"{slug or 'finalizacao'}: sessao {rec.get('name')} parada"
     if not rot:
-        if hit["kind"] != "limit" or force or time.time() >= hit["resets_at"] + RESET_SLACK:
+        if hit["kind"] != "limit" or force or time.time() >= limit_due(rec, hit):
             return None
-        return (f"{who} por limite de cota; sem cutucada antes do reset ({when(hit['resets_at'])}). "
-                "Trocou de conta a mao? `reconcile --fix` cutuca ja.")
+        return (f"{who} por limite de cota; sem cutucada antes do reset ({when(hit['resets_at'])}): o vigia de "
+                f"reset retoma as {when(limit_due(rec, hit))}. Trocou de conta a mao? `reconcile --fix` cutuca ja.")
     if not hit["kind"] and not why:
         return None
     cause = {"limit": f"limite de cota, reset {when(hit.get('resets_at'))}",
@@ -1313,6 +1335,32 @@ def nudge_hold(st: dict, slug: str | None, stage: str, rec: dict, gate: tuple, f
     if stuck:
         return f"{who} ({cause}): PRECISA DO DONO ({stuck})"
     return f"{who} ({cause}); sem cutucada: a retomada e do vigia de cota"
+
+
+def resume_after_limit(st: dict, slug: str | None, stage: str, rec: dict, gate: tuple, report: bool) -> str | None:
+    """Ramo do `tick` ANTES da tolerancia: rodizio desligado (`gate` da passada) e a sessao PARADA da etapa (quem
+    chama ja tirou busy e status desconhecido) com hit de limite cujo `limit_due` passou -> retoma JA, com a
+    QUOTA_MSG, sem gastar `nudges` e fora do MAX_NUDGES: o limite nao e falha da sessao, e a retomada move o
+    `sent_ts` (so um hit novo volta a valer). Devolve a nota, ou None quando o caso nao e este (o `tick` segue).
+    report=True: so a nota. Com rodizio, quem retoma e o vigia de cota.
+    [[pipeline-sessao-parada-no-limite-de-uso-sem-rodizio-so-volta-com-reconcile-fix_2026-10-11]]"""
+    if gate[0]:
+        return None
+    hit = session_hit(rec)
+    if hit["kind"] != "limit" or time.time() < limit_due(rec, hit):
+        return None
+    who = f"{slug or 'finalizacao'}: sessao {rec.get('name')} parada por limite de cota (reset {when(hit['resets_at'])})"
+    if any(e["slug"] == slug and e["stage"] == stage for e in st.get("pending_spawns", [])):
+        return f"{who}; a mensagem pendente da etapa sai antes (sem retomada dupla)"   # reentrega que acabou de falhar
+    if report:
+        return f"{who}; retomaria ja, sem gastar cutucada: so reconcile --fix envia"
+    if slug:
+        b = bug_of(st, slug)
+        b["history"].append({"ts": now(), "from": b["state"], "to": b["state"], "note": "retomada apos limite (sem rodizio)"})
+    else:
+        st["final"]["since"] = now()
+    spawn(st, slug, stage, QUOTA_MSG)
+    return f"{who}; retomando com a mensagem de retomada apos limite, sem gastar cutucada"
 
 
 def stage_tuning(st: dict, slug: str | None, stage: str) -> tuple[str, bool]:
@@ -1782,7 +1830,7 @@ def compute_wave(st: dict) -> list[str]:
                   key=lambda s: (COMPLEXITY_RANK[st["bugs"][s]["plan"]["complexity"]], st["bugs"][s]["order"]))
     wave, used = [], set()
     for s in rest:
-        files = {fk(f) for f in st["bugs"][s]["plan"]["files"]}
+        files = {fk(f) for f in st["bugs"][s]["plan"]["files"] if not free(f)}
         if not wave or files.isdisjoint(used):
             wave.append(s)
             used |= files
@@ -1871,6 +1919,8 @@ def write_waves_md(st: dict):
 
 
 def owner_of(st: dict, path: str, me: str) -> str | None:
+    if free(path):
+        return None
     for s, b in st["bugs"].items():
         if s != me and b["state"] in ACTIVE_DEV and fk(path) in {fk(f) for f in b["plan"]["files"] + b["claims"]}:
             return s
@@ -1949,13 +1999,40 @@ def defer_bug(st: dict, slug: str, extra_file: str, owner: str):
 
 # --------------------------------------------------------------------------- etapa 4: slot
 
-def dispatch_slot(st: dict):
+def slot_next(st: dict) -> str | None:
+    """Quem o `dispatch_slot` acordaria agora: o 1o da fila com o backoff vencido, se o slot esta livre."""
     if st["test_slot"]:
-        return
+        return None
     ready = [s for s in st["test_queue"] if (bug_of(st, s).get("retry_after") or "") <= now()]
-    if not ready:
-        return
-    slug = ready[0]
+    return ready[0] if ready else None
+
+
+def procs_line(procs: list[dict]) -> str:
+    return "; ".join(f"{p.get('ProcessName')} pid={p.get('Id')} {p.get('Path') or ''}".rstrip() for p in procs)
+
+
+def env_busy_note(slug: str, procs: list[dict]) -> str:
+    return f"fila parada por ambiente ({slug} espera o slot): {procs_line(procs)}"
+
+
+def dispatch_slot(st: dict) -> str | None:
+    """Concede o slot ao 1o da fila pronto e ACORDA a sessao de teste dele. Com o ambiente ocupado nao
+    concede: a sessao acordaria so para o `env-wait` desistir. O bug fica na fila, pronto e sem backoff
+    novo (o proximo `tick`/`reconcile --fix` com o ambiente livre concede), o motivo vai para `env_busy`
+    no ledger e a nota volta para o `tick` imprimir. Quem espera o ambiente liberar e o `env-watch`
+    destacado (a janela de ~2 h que o `env-wait` da sessao acordada cobria), nao uma sessao.
+    [[pipeline-e2e-casa-processo-so-pelo-nome-e-slot-concedido-sem-conferir-ambiente_2026-10-11]]"""
+    slug = slot_next(st)
+    if not slug:
+        st.pop("env_busy", None)                 # slot com alguem ou ninguem pronto: o ambiente nao para nada
+        return None
+    busy = foreign_processes()
+    if busy:
+        st["env_busy"] = {"since": (st.get("env_busy") or {}).get("since") or now(), "checked": now(),
+                          "next": slug, "procs": busy[:10]}
+        schedule_env_watch()
+        return env_busy_note(slug, busy)
+    st.pop("env_busy", None)
     st["test_queue"].remove(slug)
     b = bug_of(st, slug)
     b["retry_after"] = None
@@ -2031,8 +2108,10 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
     """Vigia SEM agendamento: roda no fim de toda transicao chamada por qualquer sessao (e no
     `reconcile` a pedido do dono). Reentrega mensagens pendentes, encerra sessoes de bugs que
     terminaram, cutuca etapa parada (sessao ociosa sem chamar transicao) ate MAX_NUDGES vezes,
-    despacha o slot e abre a proxima onda. Nunca mexe na sessao do proprio chamador. Sessao parada
-    por cota nao e cutucada (`nudge_hold`).
+    despacha o slot (so com o ambiente E2E livre) e abre a proxima onda. Nunca mexe na sessao do
+    proprio chamador. Sessao parada por cota nao e cutucada (`nudge_hold`); sem rodizio, passado o
+    reset ela e retomada (`resume_after_limit`), e quem roda o `tick` quando nenhuma sessao chama
+    transicao e o vigia de reset, que o fim do `tick` abre (`schedule_reset_watch`).
 
     report=True e LEITURA PURA (revisao, achado 3): nenhum spawn, nenhum stop, nenhuma mudanca em
     `st`. Tudo que seria feito vira so nota."""
@@ -2079,6 +2158,10 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
             notes.append(f"{slug}: sessao {rec.get('name')} com status '{sst}' (talvez esperando permissao): "
                          "precisa do dono, `claude attach`; o pipeline nao mexe nela")
             continue
+        back = resume_after_limit(st, slug, stage, rec, gate, report)
+        if back:                                 # sem rodizio e reset passado: o hit ja prova que parou (sem tolerancia)
+            notes.append(back)
+            continue
         last = b["history"][-1]["ts"] if b["history"] else st["created"]
         idle = (dt.datetime.now() - dt.datetime.fromisoformat(last)).total_seconds() / 60
         if idle < grace_min:
@@ -2093,7 +2176,10 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
             notes.append(f"PARADO e sem mais cutucoes: {slug} em '{b['state']}' ha {idle:.0f} min "
                          f"(sessao {rec and rec.get('name')}). Precisa do dono: claude attach.")
             continue
-        notes.append(f"PARADO: {slug} em '{b['state']}' ha {idle:.0f} min; cutucando a sessao ({nudges + 1})")
+        # report (reconcile sem --fix) nao envia: "cutucando" ali fazia o dono achar que a cutucada saiu
+        notes.append(f"PARADO: {slug} em '{b['state']}' ha {idle:.0f} min; "
+                     + (f"cutucaria a sessao ({nudges + 1}): so reconcile --fix envia" if report
+                        else f"cutucando a sessao ({nudges + 1})"))
         if not report:
             b.setdefault("nudges", {})[stage] = nudges + 1
             b["history"].append({"ts": now(), "from": b["state"], "to": b["state"], "note": "cutucada"})
@@ -2112,32 +2198,67 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
                 if not report:
                     spawn(st, None, "finalizacao", "Todas as ondas terminaram. Comece pelo Passo 1 do etapas/finalizacao.md.")
         elif status.get(rec["id"]) not in ("busy",) and (status.get(rec["id"]) is None or status.get(rec["id"]) in RESUMABLE):
+            back = resume_after_limit(st, None, "finalizacao", rec, gate, report)
             idle = (dt.datetime.now() - dt.datetime.fromisoformat(fin.get("since", st["created"]))).total_seconds() / 60
-            hold = nudge_hold(st, None, "finalizacao", rec, gate, force) if idle >= grace_min else None
-            if hold:
+            hold = nudge_hold(st, None, "finalizacao", rec, gate, force) if idle >= grace_min and not back else None
+            if back:
+                notes.append(back)
+            elif hold:
                 notes.append(hold)
                 watch = watch or gate[0]
             elif idle >= grace_min and (fin.get("nudges", 0) < MAX_NUDGES or force):
-                notes.append(f"finalizacao parada ha {idle:.0f} min; cutucando")
+                notes.append(f"finalizacao parada ha {idle:.0f} min; "
+                             + ("cutucaria: so reconcile --fix envia" if report else "cutucando"))
                 if not report:
                     fin["nudges"], fin["since"] = fin.get("nudges", 0) + 1, now()
                     spawn(st, None, "finalizacao", "A finalizacao parou sem `final-done`. Retome de onde parou.")
-    if not report:
-        dispatch_slot(st)
+    if report:                                   # o ambiente so e LIDO (a fila parada nao some do relatorio)
+        nxt = slot_next(st)
+        if nxt:
+            busy = foreign_processes()
+            notes.append(env_busy_note(nxt, busy) if busy else f"slot livre e ambiente livre: seria concedido a {nxt}")
+    else:
+        blocked = dispatch_slot(st)
+        if blocked:
+            notes.append(blocked)
         next_wave(st)
         # quem retoma o que ficou parado por cota e o vigia: abre se nao houver um vivo (ele confere o rodizio)
         if watch or any(str(e.get("why", "")).startswith((WHY_QUOTA, WHY_NOCRED, WHY_FILE))
                         for e in st.get("pending_spawns", [])):
             schedule_quota_watch("tick")
+        # sem rodizio, quem acorda depois do reset e o vigia de reset: tem de existir ANTES do hit, porque a
+        # sessao pode bater o limite depois da ultima transicao (o caso do bug). Ele confere o rodizio.
+        schedule_reset_watch(st, "tick")
     for n in notes:
         print("tick: " + n)
     return notes
 
 
+def e2e_dir(d: str) -> str:
+    """Pasta do `e2e` normalizada para comparar caminho de processo: %VAR% expandido, relativa a ROOT,
+    sem diferenciar maiusculas nem barra."""
+    d = os.path.expandvars(d)
+    return os.path.normcase(os.path.normpath(d if os.path.isabs(d) else str(ROOT / d)))
+
+
+def under(path: str | None, dirs: list[str]) -> bool:
+    """`path` dentro de uma das `dirs` (de `e2e_dir`): prefixo + separador (`...\\PS2Companion2\\x.exe`
+    nao e de `...\\PS2Companion`). Caminho nulo nao esta em nenhuma."""
+    if not path:
+        return False
+    p = os.path.normcase(os.path.normpath(path))
+    return any(p == d or p.startswith(d.rstrip("\\/") + os.sep) for d in dirs)
+
+
 def foreign_processes() -> list[dict]:
     """O que tira o E2E do ar (`e2e` do projeto.json): os `processos` em QUALQUER lugar (no RetroBat,
     SendInput e foco sao da maquina toda) e qualquer processo rodando de dentro das `pastas`. Projeto sem
-    nenhum dos dois: o ambiente esta sempre livre."""
+    nenhum dos dois: o ambiente esta sempre livre.
+
+    `ignorar_pastas` (opcional) e lista NEGATIVA: tira o processo casado pelo nome que roda de dentro de
+    uma delas (outro produto com o mesmo executavel). `Path` ilegivel (processo elevado) continua contando,
+    e dentro das `pastas` conta sempre. Ausente: o de antes.
+    [[pipeline-e2e-casa-processo-so-pelo-nome-e-slot-concedido-sem-conferir-ambiente_2026-10-11]]"""
     names, dirs = E2E.get("processos") or [], [str(ROOT / d) for d in E2E.get("pastas") or []]
     if not names and not dirs:
         return []
@@ -2150,7 +2271,12 @@ def foreign_processes() -> list[dict]:
         data = json.loads(p.stdout or "[]")
     except json.JSONDecodeError:
         return []
-    return data if isinstance(data, list) else [data]
+    data = data if isinstance(data, list) else [data]
+    ignored = [e2e_dir(d) for d in E2E.get("ignorar_pastas") or []]
+    if not ignored:
+        return data
+    mine = [e2e_dir(d) for d in E2E.get("pastas") or []]
+    return [x for x in data if not under(x.get("Path"), ignored) or under(x.get("Path"), mine)]
 
 
 # --------------------------------------------------------------------------- publicacao
@@ -2165,7 +2291,7 @@ def publish_head(st: dict, path: Path, synced_base: str | None = None, code_chec
             head_base = git("rev-parse", st["base"], cwd=path)
             if code_check and synced_base and head_base != synced_base:
                 changed = git("diff", "--name-only", synced_base, st["base"], cwd=path).splitlines()
-                code = [f for f in changed if not f.startswith("docs/")]
+                code = [f for f in changed if not f.startswith("docs/") and not free(f)]
                 if code:
                     die("o fluxo principal andou com CODIGO depois do seu sync:\n  " + "\n  ".join(code[:20]) +
                         "\nRode sync + deploy de novo e refaca a T2 antes de publicar.", 3)
@@ -2476,6 +2602,67 @@ def preflight_project(check):
         check(good, item.get("msg") or str(item), item.get("fix", ""))
 
 
+def free_without_union(cwd: Path | None = None, base: str | None = None) -> list[str]:
+    """Arquivos da `reserva_livre` cujo atributo `merge` no fluxo principal nao e `union`. Sem ele, dois fixes que
+    acrescentam no mesmo ponto conflitam no rebase do publish (saida 4) e a isencao da reserva sai pior que a fila."""
+    bad = []
+    for f in RESERVA_LIVRE:
+        p = run(["git", "check-attr", "--source", base or BASE, "merge", "--", f], cwd=cwd or SRC, check=False)
+        if p.returncode or not p.stdout.strip().endswith(": union"):
+            bad.append(f)
+    return bad
+
+
+def preflight_lane() -> tuple[Path, bool, str | None]:
+    """Lane onde a sonda de spawn do preflight roda: (lane, criada_agora, erro). Tem de ser WORKTREE git, como a
+    do `start` (`ensure_wt`): o trust de worktree e o do repo, o de pasta comum vem das ancestrais (DESIGN 15).
+    Numa pasta comum a sonda dava VERMELHO falso (pipe dir fora de pasta confiavel) ou VERDE falso (debaixo da
+    raiz confiavel) [[pipeline-preflight-sonda-de-spawn-em-pasta-comum-exige-trust-de-pasta-exata_2026-10-11]].
+    Worktree da execucao aberta: usa como esta. Sem `provision_wt`: a sonda nao compila."""
+    lane = WTS / "wt-planning"
+    if (lane / ".git").exists():
+        return lane, False, None
+    existed = lane.exists()
+    if existed and not hollow_out(lane):
+        return lane, False, f"{lane} existe, nao e worktree e tem arquivo dentro: a sonda nao roda em pasta comum"
+    WTS.mkdir(parents=True, exist_ok=True)
+    p = run(["git", "worktree", "add", "--detach", str(lane), BASE], cwd=SRC, check=False)
+    if p.returncode or not (lane / ".git").is_file():
+        if not existed:
+            with contextlib.suppress(OSError):
+                lane.rmdir()
+        return lane, False, f"git worktree add --detach {lane} {BASE} saiu {p.returncode}: " \
+                            f"{' '.join((p.stderr or p.stdout).split())[:200]}"
+    return lane, True, None
+
+
+def drop_preflight_lane(lane: Path) -> bool:
+    """Remove a worktree que `preflight_lane` criou (so ela: o chamador passa so `criada_agora`). A sessao
+    parada leva alguns segundos para soltar a pasta: ate 5 tentativas de 2 s. Pasta presa pelo cwd de um
+    processo: o git apaga o conteudo, desregistra e sai 255 (como no `cmd_cleanup`); a pasta vazia que fica e
+    reaproveitada pelo `ensure_wt`. True = a pasta sumiu."""
+    import shutil
+    lane = guard_wt(lane)
+    for _ in range(5):
+        p = run(["git", "worktree", "remove", "--force", str(lane)], cwd=SRC, check=False)
+        if p.returncode == 0 or not (lane / ".git").exists():
+            break
+        time.sleep(2)
+    run(["git", "worktree", "prune"], cwd=SRC, check=False)
+    if (lane / ".git").exists():
+        print(f"[AVISO] {lane}: git worktree remove saiu {p.returncode} "
+              f"({' '.join((p.stderr or p.stdout).split())[:160]}); o `cleanup` remove a worktree da sonda")
+        return False
+    for _ in range(5):                         # sem .git: e a pasta que esta chamada criou, o resto pode sair
+        shutil.rmtree(lane, ignore_errors=True)
+        if not lane.exists():
+            return True
+        time.sleep(2)
+    print(f"[AVISO] {lane} ficou (presa: algum processo tem cwd nela); ja nao e worktree, a proxima "
+          "worktree reaproveita a pasta vazia e o `cleanup` a apaga")
+    return False
+
+
 def cmd_preflight(a):
     ok = True
 
@@ -2493,6 +2680,12 @@ def cmd_preflight(a):
     preflight_project(check)
     branch = git("branch", "--show-current")
     git("fetch", REMOTO, check=False)
+    if RESERVA_LIVRE:
+        bad = free_without_union()
+        check(not bad, f"reserva_livre com merge=union em {BASE}: {', '.join(RESERVA_LIVRE)}"
+              + (f" (SEM o atributo: {', '.join(bad)})" if bad else ""),
+              "acrescente `<arquivo> merge=union` no .gitattributes e publique; sem ele, dois fixes no mesmo ponto "
+              "conflitam no publish (saida 4)")
     # A arvore principal e compartilhada e raramente esta limpa: nao e VERMELHO, mas o dono tem que ver
     # ANTES de iniciar (decisao de 2026-10-03). A linha antiga era `check(True, ...)`: nao podia falhar.
     base = f"{REMOTO}/{branch}"
@@ -2517,12 +2710,14 @@ def cmd_preflight(a):
     check(worktrees_trusted(), f"trust aceito no repositorio {SRC} (vale para toda worktree dele)",
           f"o dono roda o claude.exe acima num terminal em {SRC}, aceita e sai")
     preflight_accounts(check)                    # rodizio de contas (secao 6.8 do backlog do rodizio, F8)
-    if not a.skip_spawn:
+    lane, created, err = preflight_lane() if not a.skip_spawn else (None, False, None)
+    if not a.skip_spawn:                         # onde o planning nasce; so a worktree que ESTA chamada criou sai no fim
+        check(not err, f"lane da sonda {lane}: " + (f"worktree de {BASE}" if err else "worktree descartavel de "
+              f"{BASE} (removida no fim)" if created else "worktree da execucao aberta"),
+              f"a sonda NAO roda (nunca numa pasta comum): {err}")
+    if not a.skip_spawn and not err:
         name = f"pipeline-preflight-{int(time.time())}"
         t0 = int(time.time() * 1000) - 2000
-        lane = WTS / "wt-planning"                 # onde o planning nasce
-        created = not lane.exists()                # so a pasta que ESTA chamada criou e removida no fim
-        lane.mkdir(parents=True, exist_ok=True)
         opened = []                                # id curto de cada sessao que a sonda abriu (bg_id)
         try:
             # Mesmos modelo/effort que o pipeline usa: prova que o CLI aceita os dois. O helper roda
@@ -2532,7 +2727,9 @@ def cmd_preflight(a):
             opened.append(bg_id(p.stdout))
             trusted = "not trusted" not in (p.stderr + p.stdout).lower()
             check(trusted and p.returncode == 0, f"spawn de sessao --bg em {lane}",
-                  f"rode `claude` uma vez em {lane} (trust e por pasta exata) e aceite. Saida: {(p.stderr or p.stdout).strip()[:200]}")
+                  ("a lane e worktree: o trust e o do repo — o dono roda o claude.exe acima num terminal em "
+                   f"{SRC}, aceita e sai. " if not trusted else "")
+                  + f"Saida: {(p.stderr or p.stdout).strip()[:200]}")
             s = None
             for _ in range(30):
                 hits = [x for x in agents() if x.get("name") == name and x.get("startedAt", 0) >= t0]
@@ -2610,14 +2807,8 @@ def cmd_preflight(a):
             stopped = stop_live(name, opened)
             print(f"        sessao de preflight encerrada ({', '.join(stopped) or 'nenhuma viva'}; "
                   f"conversa fica no gerenciador: claude logs / claude rm)")
-            for _ in range(5 if created else 0):   # a sessao parada leva alguns segundos para soltar a pasta
-                try:
-                    lane.rmdir()                   # so apaga VAZIA
-                    break
-                except OSError:
-                    time.sleep(2)
-            if created and lane.exists():
-                print(f"[AVISO] {lane} ficou (presa ou nao vazia); o `cleanup` e a proxima worktree lidam com ela")
+            if created:
+                drop_preflight_lane(lane)
     print("\nPREFLIGHT " + ("VERDE" if ok else "VERMELHO"))
     sys.exit(0 if ok else 1)
 
@@ -2682,6 +2873,7 @@ def cmd_start(a):
         start_plannings(st)
         save(st)
     schedule_quota_watch("start")                # DEPOIS do save: um vigia saindo rele o state.json (R12)
+    schedule_reset_watch(st, "start")            # sem rodizio: o par do vigia de cota (so um dos dois abre)
 
 
 def cmd_plan_done(a):
@@ -2709,6 +2901,9 @@ def cmd_claim(a):
         st = load()
         b = bug_of(st, a.bug)
         files = [norm(f) for f in a.file]
+        for f in [f for f in files if free(f)]:
+            print(f"livre: {f} (reserva_livre do projeto.json) nao precisa de claim")
+        files = [f for f in files if not free(f)]
         taken = {f: owner_of(st, f, a.bug) for f in files}
         busy = {f: o for f, o in taken.items() if o}
         if busy:
@@ -2764,8 +2959,9 @@ def cmd_enqueue_test(a):
         if dirty:
             die("ha mudanca nao commitada (fora dos gerados do CMake), inclusive arquivo novo:\n  "
                 + "\n  ".join(dirty), 2)
+        # arquivo livre (CHANGELOG.md) nao pede claim, e sozinho nao e fix: so ele -> "nenhum commit de codigo"
         touched = [f for f in git("diff", "--name-only", f"{st['base']}...HEAD", cwd=path).splitlines()
-                   if not f.startswith("docs/")]
+                   if not f.startswith("docs/") and not free(f)]
         if not touched:
             die("nenhum commit de codigo no branch: commite a correcao antes", 2)
         allowed = {fk(f) for f in b["plan"]["files"] + b["claims"]}
@@ -3106,6 +3302,67 @@ def cmd_env_wait(a):
         time.sleep(30)
 
 
+ENV_WATCH_MIN = 120                              # a mesma janela do Passo 3 do teste (`env-wait` por ate ~2 h)
+
+
+def env_watch_alive() -> bool:
+    """Ha `env-watch` vivo? Pelo lock, como o `watch_alive` do vigia de cota."""
+    h = try_lock("env-watch")
+    if h is None:
+        return True
+    unlock(h)
+    return False
+
+
+def schedule_env_watch() -> bool:
+    """Abre o `env-watch` destacado se nao ha um vivo. Nunca `die`: roda dentro do `dispatch_slot`, no
+    meio de transicao. Dois chamadores juntos podem abrir dois: o segundo nao pega o lock e sai."""
+    if env_watch_alive():
+        return False
+    try:
+        launch_detached(["env-watch"])
+    except OSError as e:
+        print(f"AVISO: env-watch nao abriu ({e}); a fila espera o proximo tick ou `reconcile --fix`")
+        return False
+    return True
+
+
+def cmd_env_watch(a):
+    """(interno) Aberto pelo `dispatch_slot` que nao concedeu o slot por ambiente ocupado: o `env-wait` da
+    sessao de teste, sem acordar sessao. A cada 30 s le o ledger (sem lock) e o ambiente; livre, concede
+    pelo proprio `dispatch_slot`, com o lock, e grava. Sai quando concede, quando nao ha mais `env_busy`
+    nem quem acordar (outro tick concedeu, ou a fila andou), ou em --minutes.
+    [[pipeline-e2e-casa-processo-so-pelo-nome-e-slot-concedido-sem-conferir-ambiente_2026-10-11]]"""
+    h = try_lock("env-watch")
+    if h is None:
+        print("ja ha um env-watch rodando")
+        return
+    try:
+        deadline = time.time() + a.minutes * 60
+        while True:
+            try:
+                cur = peek_state()
+            except (OSError, ValueError):        # o replace de quem grava: a proxima passada le de novo
+                cur = {}
+            if cur is None or (cur and not (cur.get("env_busy") and slot_next(cur))):
+                print("nada a conceder: o slot ja andou")
+                return
+            if cur and not foreign_processes():
+                with file_lock("state"):
+                    st = load()
+                    note = dispatch_slot(st)     # confere de novo, com o lock; ocupado outra vez: segue esperando
+                    save(st)
+                if not note:
+                    print("AMBIENTE LIVRE: slot despachado")
+                    return
+            if time.time() >= deadline:
+                print(f"ambiente ocupado ha {a.minutes:.0f} min: a fila espera o proximo tick ou `reconcile --fix`")
+                return
+            time.sleep(30)
+    finally:
+        unlock(h)
+
+
 def cmd_register_external(a):
     """Doc aberto no digitalstoregamesproject por qualquer etapa: registrar para ser commitado."""
     f = str(Path(a.file).resolve())
@@ -3139,12 +3396,20 @@ def cmd_elencar(a):
 
 
 def cmd_final_prepare(a):
-    """Finalizacao: a wt-planning volta ao fluxo principal atual para receber as correcoes de docs."""
-    st = load()
-    if st["final"]["state"] != "rodando":
-        die("so na finalizacao", 2)
-    path = planning_wt(st)
+    """Finalizacao: a wt-planning volta ao fluxo principal atual para receber as correcoes de docs.
+    Depois do `cleanup` ela nao existe mais: e recriada (doc achado depois do passo 5 ainda entra pelo
+    roteiro; antes era a TRAVA da saida 13), e o `final-done` exige `cleanup` de novo
+    ([[pipeline-portao-c4-link-morto-mecanico-com-arvore-principal-atras-por-pendencia-do-dono_2026-10-10]])."""
+    with file_lock("state"):
+        st = load()
+        if st["final"]["state"] != "rodando":
+            die("so na finalizacao", 2)
+        existed = (WTS / "wt-planning" / ".git").exists()
+        path = ensure_wt(st, "wt-planning")
+        save(st)
     checkout_fresh(path, st["base"], None)
+    if not existed:
+        print("AVISO: wt-planning recriada depois do cleanup: rode `cleanup` de novo antes do `final-done`")
     print(f"edite os docs em: {path}")
 
 
@@ -3489,8 +3754,19 @@ def final_report(st: dict) -> list[tuple[str, str, str]]:
             add("C4", "mecanico", f"o briefing nao cita o bug {slug}")
     if not text:
         add("C4", "mecanico", f"briefing nao encontrado: {brief}")
+    # Link para dentro da arvore principal cujo alvo o origin ja tem: so falta a principal alcancar o origin,
+    # e isso tem o mesmo dono do C2 (`main_kind`), como a linha do doc acima. Antes saia `mecanico` fixo, um
+    # [FALTA] que nenhum comando resolve enquanto o sync estiver bloqueado
+    # ([[pipeline-portao-c4-link-morto-mecanico-com-arvore-principal-atras-por-pendencia-do-dono_2026-10-10]]).
+    main_root = SRC.resolve()
     for link in re.findall(r"\]\(<?([^)>#\s]+)", text):
-        if not re.match(r"[a-z][a-z0-9+.-]*:", link, re.I) and not (brief.parent / link).exists():
+        if re.match(r"[a-z][a-z0-9+.-]*:", link, re.I) or (brief.parent / link).exists():
+            continue
+        target = (brief.parent / link).resolve()
+        rel = target.relative_to(main_root).as_posix() if main_root in target.parents else None
+        if rel and exists(rel):
+            add("C4", main_kind, f"link do briefing so resolve quando a arvore principal alcancar {base}: {link}")
+        else:
             add("C4", "mecanico", f"link morto no briefing: {link}")
     if all(k == "ok" for _, k, _ in out[n:]):   # a nota de doc movido e `ok`: nao suprime o ok geral
         add("C4", "ok", "docs na pasta do estado; links do briefing resolvem na arvore principal")
@@ -4021,6 +4297,109 @@ def cmd_quota_watch(a):
             unlock(w["h"])
 
 
+# --------------------------------------------------------------------------- vigia de reset (sem rodizio)
+# Sem rodizio, o `tick` so roda quando uma sessao chama transicao: a sessao que bate o limite DEPOIS da ultima
+# transicao ficava parada ate o dono rodar `reconcile --fix` (~5 h no Downloader, 2026-10-11). Este vigia e o
+# par do vigia de cota para esse caso: so LE a guarda de contas (gate_now), nunca grava nela nem no arquivo de
+# credenciais (DESIGN 22.6), e a retomada e a do `tick` (resume_after_limit), sem segunda copia dela.
+# [[pipeline-sessao-parada-no-limite-de-uso-sem-rodizio-so-volta-com-reconcile-fix_2026-10-11]]
+
+RESET_WATCH_INTERVAL = 300                       # s entre passadas; o sono acaba antes no proximo reset + RESET_SLACK
+
+
+def reset_watch_alive() -> bool:
+    """Ha `reset-watch` vivo nesta pasta do pipeline? Pelo lock, como o `watch_alive` do vigia de cota."""
+    h = try_lock("reset-watch")
+    if h is None:
+        return True
+    unlock(h)
+    return False
+
+
+def schedule_reset_watch(st: dict, origin: str) -> bool:
+    """Abre o `reset-watch` destacado: so SEM rodizio (com ele, quem retoma e o vigia de cota), com a execucao
+    de `st` aberta e sem vigia vivo. `st` e o ledger de quem chama (no `tick`, ainda antes do `save`). Dois
+    chamadores juntos podem abrir dois: o segundo nao pega o lock e sai. Nunca `die`: roda no meio de
+    transicao. Devolve se abriu."""
+    if gate_now()[0] or not run_open(st) or reset_watch_alive():
+        return False
+    try:
+        launch_detached(["reset-watch", "--origem", origin])
+    except OSError as e:
+        print(f"AVISO: reset-watch nao abriu ({e}); sessao parada por limite espera a proxima transicao ou `reconcile --fix`")
+        return False
+    return True
+
+
+def reset_pass(w: dict) -> bool:
+    """UMA passada do vigia de reset. `w`: estado entre passadas (`run_id`, `log`, `origin`, `next`, `shown`).
+    Devolve False quando o vigia deve sair: sem execucao aberta ou rodizio ligado. Sessao parada por limite
+    cujo `limit_due` passou -> o `tick` inteiro, com o lock do ledger (ele revalida e retoma). `next` = o
+    proximo `limit_due` ainda futuro: o sono acaba nele."""
+    t = time.time()
+    st = peek_state()
+    if st is not None and st.get("run_id") != w.get("run_id"):   # log da execucao CORRENTE, como o vigia de cota
+        w["new"] = (f"execucao nova: {w['run_id']} -> {st.get('run_id')}" if w.get("run_id") else
+                    f"vigia de reset subiu (origem={w['origin']}, pid {os.getpid()}) na execucao {st.get('run_id')}")
+        w["run_id"] = st.get("run_id")
+        w["log"].path = quota_log_path(st.get("run_id"))
+    if st is None or not run_open(st) or gate_now()[0]:
+        why = ("sem execucao" if st is None else "fim da execucao" if not run_open(st)
+               else "rodizio ligado: a retomada e do vigia de cota")
+        print(f"vigia de reset saindo ({why})")
+        return False
+    if w.get("new"):
+        print(w.pop("new"))
+    hits = [h for h in limited_sessions(st) if h["hit"]["kind"] == "limit"]
+    due = [h for h in hits if t >= limit_due(h["rec"], h["hit"])]
+    if due:
+        print("reset passou: " + ", ".join(f"{h['slug'] or 'finalizacao'}/{h['stage']}" for h in due) + "; rodando o tick")
+        with file_lock("state"):
+            cur = load()
+            tick(cur)
+            save(cur)
+    later = [d for d in (limit_due(h["rec"], h["hit"]) for h in hits) if d > t]
+    w["next"] = min(later) if later else None
+    if w["next"] and w["next"] != w.get("shown"):  # uma vez por horario, nao a cada passada
+        print(f"sessao parada por limite de uso: retomada as {when(w['next'])}")
+    w["shown"] = w["next"]
+    return True
+
+
+def cmd_reset_watch(a):
+    """(interno) O vigia de reset SEM rodizio, aberto destacado por schedule_reset_watch (`start`, `tick`, e o
+    `reconcile --fix` pelo `tick`). Uma passada a cada --interval s, ou no proximo reset + RESET_SLACK se vier
+    antes, ate a execucao fechar ou o rodizio ligar. Um por pasta do pipeline (lock `reset-watch`). Log no de
+    cota da execucao. Erro numa passada vai ao log e o laco segue (como o vigia de cota, N2)."""
+    h = try_lock("reset-watch")
+    if h is None:
+        print("ja ha um vigia de reset rodando")
+        return
+    log = QuotaLog(quota_log_path(None), sys.stdout)
+    w = {"run_id": None, "log": log, "origin": a.origem, "next": None, "shown": None}
+    try:
+        while True:
+            try:
+                with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+                    go = reset_pass(w)
+            except KeyboardInterrupt:
+                raise
+            except BaseException as e:
+                go = True
+                log.flush()
+                log.line(f"ERRO na passada do vigia de reset: {mask(f'{type(e).__name__}: {e}')}")
+            log.flush()
+            if not go or a.once:
+                return
+            end = time.time() + a.interval
+            if w.get("next") and w["next"] > time.time():
+                end = min(end, w["next"])
+            while time.time() < end:             # passos de ate 60 s pelo relogio de parede (PC suspenso)
+                time.sleep(min(60.0, max(0.0, end - time.time())))
+    finally:
+        unlock(h)
+
+
 def cmd_final_done(a):
     """PORTAO do fim da execucao: so fecha com C1-C5 medidos. Falta mecanica -> recusa (saida 2)."""
     with file_lock("state"):
@@ -4059,6 +4438,10 @@ def cmd_status(a):
     live = agents()
     print(f"execucao {st['run_id']}  fluxo principal {st['base']}  ondas: {len(st['waves'])}  "
           f"slot de teste: {st['test_slot'] or 'livre'}  fila: {st['test_queue'] or '-'}")
+    eb = st.get("env_busy")
+    if eb and not st["test_slot"] and st["test_queue"]:   # o dispatch_slot nao concedeu por isso
+        print(f"AMBIENTE OCUPADO desde {eb['since']} (conferido {eb['checked']}; {eb['next']} espera o slot; "
+              f"env-watch {'vivo' if env_watch_alive() else 'parado'}): {procs_line(eb['procs'])}")
     for s, b in sorted(st["bugs"].items(), key=lambda kv: kv[1]["order"]):
         stage = STAGE_OF.get(b["state"])
         rec = b["sessions"].get(stage) if stage else None
@@ -4079,13 +4462,17 @@ def cmd_status(a):
         print(f"fora desta execucao: {len(st['excluded'])} (ver plano do maestro)")
     for line in quota_status(st):
         print(line)
+    if run_open(st) and not gate_now()[0]:       # sem rodizio: quem acorda a sessao parada por limite
+        print(f"vigia de reset: {'vivo' if reset_watch_alive() else 'parado'} (sem rodizio, retoma a sessao parada "
+              "por limite 2 min depois do reset; parado, volta na proxima transicao ou com `reconcile --fix`)")
 
 
 def quota_status(st: dict | None) -> list[str]:
     """Linhas do rodizio no `status` (secao 6.3). Sem contas cadastradas: nenhuma (compat). Leitura sem lock.
     `st` None: nao ha state.json (antes do primeiro `init`)."""
     if not rotation_owner():
-        return ["contas: rodizio desligado neste projeto (projeto.json); no limite de uso a execucao espera o reset"]
+        return ["contas: rodizio desligado neste projeto (projeto.json); no limite de uso a execucao espera o reset "
+                "(o vigia de reset retoma a sessao)"]
     try:
         acc = accounts_load()
     except SystemExit:
@@ -4136,8 +4523,9 @@ def quota_status(st: dict | None) -> list[str]:
 
 
 def cmd_reconcile(a):
-    """A pedido do dono: o mesmo vigia do `tick`, com tolerancia propria. Sem --fix so relata. Com --fix,
-    tambem abre o vigia de cota se o rodizio esta ligado e nao ha um vivo."""
+    """A pedido do dono: o mesmo vigia do `tick`, com tolerancia propria. Sem --fix so relata (e diz isso
+    antes das notas). Com --fix, tambem abre o vigia de cota se o rodizio esta ligado e nao ha um vivo; sem
+    rodizio, o `tick` com efeito abre o vigia de reset."""
     cur = peek_state()
     if rotation_owner() and (cur is None or not run_open(cur)):
         try:
@@ -4150,6 +4538,8 @@ def cmd_reconcile(a):
         st = load()
         if a.fix and st.get("elencar_erro"):
             elencar(st)
+        if not a.fix:
+            print("reconcile sem --fix: so relata, nada abaixo foi enviado")
         notes = tick(st, grace_min=a.grace, force=a.fix, report=not a.fix)
         if a.fix:
             save(st)
@@ -4483,11 +4873,21 @@ def main():
     p.add_argument("--interval", type=float, default=20)
     p.set_defaults(fn=cmd_stop_final)
 
+    p = sub.add_parser("env-watch", help="(interno) concede o slot quando o ambiente E2E libera; aberto pelo dispatch_slot")
+    p.add_argument("--minutes", type=float, default=ENV_WATCH_MIN)
+    p.set_defaults(fn=cmd_env_watch)
+
     p = sub.add_parser("quota-watch", help="(interno) vigia de cota do rodizio de contas; aberto pelo proprio helper")
     p.add_argument("--interval", type=float, default=300, help="segundos entre passadas")
     p.add_argument("--once", action="store_true", help="uma passada so")
     p.add_argument("--origem", default="manual", help="quem abriu: tick, start, reconcile, agendador, manual (R17)")
     p.set_defaults(fn=cmd_quota_watch)
+
+    p = sub.add_parser("reset-watch", help="(interno) sem rodizio, retoma a sessao parada por limite de uso depois do reset; aberto pelo proprio helper")
+    p.add_argument("--interval", type=float, default=RESET_WATCH_INTERVAL, help="segundos entre passadas")
+    p.add_argument("--once", action="store_true", help="uma passada so")
+    p.add_argument("--origem", default="manual", help="quem abriu: tick, start, manual")
+    p.set_defaults(fn=cmd_reset_watch)
 
     sub.add_parser("status").set_defaults(fn=cmd_status)
 

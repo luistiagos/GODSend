@@ -710,8 +710,16 @@ Aqui so o que muda o entendimento do pipeline; nao duplicar regra do backlog.
   `reconcile --fix`.
 - **Preflight** confere o rodizio (validacao barata de cada conta, `CLAUDE_CONFIG_DIR`, arquivo de
   credenciais) e mostra o aviso da maquina inteira.
-- **Sem contas, com 1 conta ou pausado, o pipeline roda como antes**, exceto que a cutucada de
-  sessao parada por limite espera o reset + 2 min.
+- **Sem contas, com 1 conta ou pausado, o pipeline roda como antes**, exceto no limite de uso: a
+  sessao parada por limite nao e cutucada antes do reset, e 2 min depois dele e RETOMADA com
+  `RETOMADA APOS LIMITE DE USO`, sem gastar cutucada (`resume_after_limit` no `tick`). Quem roda esse
+  `tick` quando nenhuma sessao chama transicao e o **vigia de reset** (`reset-watch`): destacado, um
+  por pasta do pipeline (lock `reset-watch`), aberto pelo `start` e por todo `tick` com efeito, so LE
+  a guarda de contas e sai com a execucao fechada ou o rodizio ligado. Existe porque o `tick` so roda
+  em transicao, e a sessao pode bater o limite DEPOIS da ultima: no Downloader (2026-10-11) uma
+  planning ficou ~5 h parada ate o `reconcile --fix` do dono. Recusa de uma entrega feita depois do
+  reset espera `LATE_WAIT` (30 min) desde a recusa, como o R8 do rodizio
+  [[pipeline-sessao-parada-no-limite-de-uso-sem-rodizio-so-volta-com-reconcile-fix_2026-10-11]].
 - **Falta:** a tarefa avulsa (F7), as provas reais com contas do dono (F2, F3, S46, preflight com 4
   contas) e o E2E real (F9).
 
@@ -765,7 +773,7 @@ Decisoes do dono (2026-10-09): **motor generico + config por projeto** (as 5 eta
 | `DIST_ES`, `DEPLOYED`, `md5_of` no C3 do `final_report` | MD5 de `emulationstation.exe`/`emulatorLauncher.exe` no dist x saida do build da lane |
 | `GENERATED` | regex dos gerados do CMake/MSBuild; usado em `dirty_split`, `discard_generated`, `preserve_leftovers`, `publish_head` (saida 5), `sync_main` |
 | `WT_IGNORED_INPUTS` / `provision_wt` | copia `emulationstation-source/win32-libs` para cada worktree |
-| `foreign_processes` (`env-wait`, `final-deploy`) | processos `emulationstation/emulatorLauncher/retroarch` + qualquer um dentro de `dist` |
+| `foreign_processes` (`env-wait`, `final-deploy`, `dispatch_slot` desde 22.13) | processos `emulationstation/emulatorLauncher/retroarch` + qualquer um dentro de `dist` |
 | `cmd_preflight` | confere `deploy.ps1`, `dist/retrosystem`, `retrobat-tests` no PATH e a sessao Windows interativa (requisito do E2E por SendInput) |
 | `stage_prompt` | texto "RetroBatNew", `C:\projects\retrobatnew\source`, "deploy.ps1 nem MSBuild" |
 | `cmd_init --base` | padrao `origin/versao3`; `st["branch"] = base.split("/",1)[1]`; todo `fetch`/`push` usa o remoto literal `origin` |
@@ -827,8 +835,8 @@ rodizio de contas, `cleanup`, portao C1-C5 (menos C3), `sync_main` (menos o buil
   de credenciais sem lock comum, e o vigia de um projeto que termina devolve o `/login` (passo 1 do
   `watch_pass`) com a execucao do outro ainda rodando. Ate existir coordenacao da maquina (lock e
   registro em `~/.claude-accounts`), o rodizio fica **so no retrobatnew** (`"rodizio_contas": true`).
-  Nos outros, `rotation_on` e falso: no limite de uso, a execucao espera o reset (o comportamento
-  sem rodizio, ja testado). **Decisao do dono pendente** se quiser rodizio nos outros.
+  Nos outros, `rotation_on` e falso: no limite de uso, a execucao espera o reset e o vigia de reset a
+  retoma (o comportamento sem rodizio, ja testado). **Decisao do dono pendente** se quiser rodizio nos outros.
 - **E2E generico:** nao existe. O que e comum e o SLOT (recurso exclusivo) e o roteiro de prova
   (controle positivo na base, fix, regressao, logs). O "como" (app do `dist`, aparelho Android via
   adb, Playwright) e do projeto e vai para o `projeto.md`.
@@ -843,7 +851,7 @@ rodizio de contas, `cleanup`, portao C1-C5 (menos C3), `sync_main` (menos o buil
  "build": {"cmd": ["..."], "lock": "es-build", "flags": {"--skip-es": ["..."]}},
  "deploy": {"cmd": ["..."], "artefatos": {"<instalado, relativo a root>": "<saida do build, relativa a wt>"}},
  "gerados": ["<regex>"], "entradas_ignoradas": ["<relativo ao repo>"], "provisionar": [["..."]],
- "e2e": {"processos": ["..."], "pastas": ["..."], "desktop": true},
+ "e2e": {"processos": ["..."], "pastas": ["..."], "ignorar_pastas": ["..."], "desktop": true},
  "preflight": [{"cmd": ["..."], "msg": "..."}], "proibido_na_sessao": "deploy.ps1 nem MSBuild"}
 ```
 
@@ -1735,3 +1743,55 @@ origin/version9`, PIPE padrao; 19 s, 27.972 arquivos):
 
 **Proxima:** T5 com o dono nos projetos com trust aceito (22.5 item 5; nenhuma execucao real sem ele). A T4 dos quatro repos
 esta feita.
+
+### 22.12 `reserva_livre`: arquivo que todo fix toca (2026-10-23)
+
+Origem: `docs/bugs/.../pipeline-changelog-obrigatorio-na-reserva-serializa-a-onda-inteira_2026-10-11.md`. Na execucao
+`20261010-2242` do Downloader, o manual mandava todo fix acrescentar entrada no `CHANGELOG.md` (raiz) e dizia que ele "NAO
+entra na reserva" (`merge=union` no `.gitattributes`). O motor nao tinha como honrar: o `enqueue-test` exigia `claim` de todo
+arquivo do diff fora de `docs/` (saida 9), o `owner_of` tornava o arquivo exclusivo ate o fim do E2E do dono, e 3 dos 4 devs
+da onda 1 estacionaram no mesmo bug em ~1 min. A onda paralela virou fila unica.
+
+- `projeto.json`: `"reserva_livre": ["CHANGELOG.md"]` (relativo ao repo, como o `plan.files`; comparado por `fk`). Ausente =
+  lista vazia = comportamento anterior.
+- Onde o livre e ignorado: `owner_of` (ninguem e dono), `cmd_claim` (nao vira `claims`; imprime "livre"), `cmd_enqueue_test`
+  (fora do `touched`: nao pede claim; diff SO com o livre continua "nenhum commit de codigo", saida 2), `compute_wave` (nao
+  separa ondas se o planner o listar) e o `code_check` do `publish_head` (base que andou so com o livre nao obriga a refazer a
+  T2: nao e entrada de build).
+- Fica como esta: o C3 do `final-gate` e o `final-sync-main` (nao serializam; no maximo um `final-deploy` a mais).
+- Exigencia: o `merge=union` no fluxo principal. Sem ele, dois fixes no mesmo ponto conflitam no rebase do publish (saida 4) e
+  o bug termina em open, pior que a fila. O `preflight` confere (`free_without_union`: `git check-attr --source <base> merge`)
+  e da `[FALHA]` quando falta.
+- Provas: `sim_pipeline.py` `[reserva_livre]` (claim/enqueue/onda, com controle sem a chave) e `git_pipeline.py`
+  `[reserva_livre]` (dois publishes no mesmo ponto do `CHANGELOG.md` contra origin bare; controles: sem a chave -> saida 3,
+  livre sem o atributo -> saida 4 e apontado pelo preflight).
+- Ativar num projeto e acao do dono: a chave mora no `projeto.json` dele, que a sincronizacao nunca toca.
+
+### 22.13 `e2e.ignorar_pastas` e slot concedido so com o ambiente livre (2026-10-23)
+
+Origem: `docs/bugs/.../pipeline-e2e-casa-processo-so-pelo-nome-e-slot-concedido-sem-conferir-ambiente_2026-10-11.md`. Na
+execucao `20261010-2242` do Downloader, o `env-wait` acusou OCUPADO por ~8 h o `godsend-backend` do **PS2Companion**
+(`D:\projects\PS2Companion\dist\`, app dev aberto pelo dono): os dois produtos usam o mesmo executavel e o
+`foreign_processes` casava `e2e.processos` pelo nome em qualquer lugar. Com a onda esperando esse bug, a execucao parou, o
+`reconcile` dizia "nada parado" e um `reconcile --fix` acordaria a sessao de teste no mesmo ambiente ocupado.
+
+- `projeto.json`: `"e2e": {"ignorar_pastas": ["D:\\projects\\PS2Companion", ...]}` (opcional; `%VAR%` expandido,
+  relativo a `raiz`). Lista NEGATIVA: o processo casado pelo nome que roda de dentro de uma delas nao ocupa o ambiente
+  (prefixo + separador, sem diferenciar maiusculas). `Path` ilegivel (processo elevado) continua ocupando; dentro das
+  `pastas` ocupa sempre. Ausente = o de antes (o RetroBat nao usa: ES de qualquer clone rouba foco/SendInput).
+  Descartada a lista POSITIVA de caminhos por processo: instalado em outro lugar deixaria de ser visto e o E2E rodaria com o
+  app aberto; a negativa erra para o lado de esperar a mais, visivel no `env-wait`.
+- `dispatch_slot` (quem ACORDA sessao adormecida: `finish_bug`, `tick`, `test-done` `ambiente`/`fail`) confere
+  `foreign_processes()` antes de conceder. Ocupado: nao concede, o bug fica na fila pronto e sem backoff novo, `env_busy`
+  (`since`/`checked`/`next`/`procs`) vai para o ledger, a nota vai para o `tick` e o `env-watch` e aberto. O `slot-request`
+  nao confere: a sessao ja esta acordada e o Passo 3 (`env-wait`) e isso.
+- `env-watch` (interno, destacado, instancia unica pelo lock `env-watch` na pasta do pipeline): a janela de ~2 h que o
+  `env-wait` da sessao acordada cobria, sem sessao. Le o ledger sem lock a cada 30 s; ambiente livre -> `dispatch_slot` com o
+  lock `state`. Sai ao conceder, quando nao ha mais `env_busy`/quem acordar, ou em 120 min (depois: o proximo `tick` ou
+  `reconcile --fix`, como o `retry_after` de hoje).
+- Relatorio: `reconcile` sem `--fix` diz "fila parada por ambiente (<bug> espera o slot): <processo> pid=<id> <caminho>" ou
+  "seria concedido a <bug>"; `status` mostra `AMBIENTE OCUPADO desde ...` e se o `env-watch` esta vivo.
+- Provas: `sim_pipeline.py` `[ambiente]` (filtro com `run` falso; fila parada no `reconcile` com e sem `--fix`, `status`,
+  `test-done ambiente`, `env-watch`; controle: os mesmos casos contra o `pipeline.py` da base falham) e processo REAL (copia do
+  `PING.EXE` como `godsend-backend.exe` em duas pastas: so a fora da ignorada aparece; na base, as duas).
+- Ativar no Downloader/PS2Companion e acao do dono (o `projeto.json` deles nunca e sincronizado).

@@ -39,6 +39,9 @@ nao o valida; so quem edita sabe quando terminou), pasta de origem desconhecida.
      duplicatas num doc so com links, e rode
      `python <helper> final-docs --message "docs(bugs): ..."` (commit + integracao; o prefixo e o
      do manual, se ele der outro).
+   - Doc achado **depois do `cleanup`** (passo 5) entra pelo mesmo caminho: o `final-prepare` recria a
+     `wt-planning` (imprime `AVISO: wt-planning recriada`). Depois do `final-docs`, rode `cleanup` de
+     novo antes do `final-done`, que recusa enquanto houver worktree.
    - Docs de outro projeto: `python <helper> commit-external` (commit com pathspec, sem push).
 3. **Arvore principal igual ao remoto:** `python <helper> final-sync-main` (em BACKGROUND: pode
    compilar). Ele:
@@ -97,7 +100,10 @@ nao o valida; so quem edita sabe quando terminou), pasta de origem desconhecida.
      `[FALTA]` que nenhum comando do helper resolve (estado ou caminho errado no ledger) e bug do
      helper: **NAO edite o `state.json`** (SKILL.md, Limites). Pare, registre no briefing e abra (ou
      atualize) o doc do bug do pipeline; sem `final-done` ate o helper ser corrigido;
-   - `[DONO ]` = decisao do dono: fecha como `concluido-com-pendencias`;
+   - `[DONO ]` = decisao do dono: fecha como `concluido-com-pendencias`. Inclui o link do briefing
+     para um doc que o origin ja tem mas a arvore principal nao, quando ela esta atras por pendencia
+     do dono no C2 (`link do briefing so resolve quando a arvore principal alcancar ...`): o link fica
+     como o manual manda;
    - tudo `[OK   ]` = `concluido`.
 
    Depois dele, termine o turno: o helper encerra esta sessao sozinho quando ela ficar ociosa.

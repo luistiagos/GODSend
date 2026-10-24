@@ -20,7 +20,9 @@ outra: isso nao muda o seu roteiro.
 - **Nao faca deploy nem rode o app**: o ambiente de teste e do slot de teste. Testes offline
   (scripts, validacao de JSON/XML, leitura de log) sao permitidos.
 - **Edite so arquivos reservados** (o prompt lista). Precisa de outro: `python <helper> claim --bug
-  <slug> --file <caminho, como o manual manda>` ANTES de editar. Saida 8 = o arquivo e de outro bug
+  <slug> --file <caminho, como o manual manda>` ANTES de editar. Arquivo da `reserva_livre` do
+  `projeto.json` (que todo fix toca e funde sozinho, ex.: um `CHANGELOG.md`; o manual diz qual) dispensa
+  `claim`: edite e commite. Saida 8 = o arquivo e de outro bug
   da onda: **commite o que ja fez** (mesmo incompleto) e rode `python <helper> park --bug <slug> --on
   <dono> --file <arquivo>`; termine o turno. O pipeline te retoma quando o dono terminar (ai rode
   `sync --bug <slug>` antes de editar o arquivo). Saida 12 = os dois bugs esperavam um ao outro:

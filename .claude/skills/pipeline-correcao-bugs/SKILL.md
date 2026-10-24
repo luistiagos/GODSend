@@ -87,9 +87,16 @@ sessao: a retomada vai sem flags (com flag o CLI abre uma copia — DESIGN secao
 `H preflight`: CLI, o manual do projeto, os itens `preflight` do `projeto.json` (build, runtime,
 ferramentas do projeto), e spawn + listagem + stop/resume de uma sessao de teste em
 `<pasta do pipeline>\lanes\wt-planning`, e o trust do repositorio (o de uma worktree git e o do repo
-principal; a raiz confiavel NAO basta — DESIGN secao 15). VERMELHO -> pare e diga ao dono o que
-fazer. Caso conhecido: **"Workspace not trusted"** -> o dono roda o `claude.exe` num terminal na
-arvore principal (o `projeto.md` da o caminho), aceita e sai. Aceite unico. Nunca contorne editando `~/.claude.json`.
+principal; a raiz confiavel NAO basta — DESIGN secao 15). A sessao de teste nasce numa **worktree
+git** como a do `start`: a da execucao aberta, se houver, ou uma descartavel (`git worktree add
+--detach` na base, removida no fim). Nunca numa pasta comum: o trust dela vem das pastas-ancestrais, e
+a sonda dava VERMELHO falso (pipe dir fora de pasta confiavel) ou VERDE falso (bug
+`pipeline-preflight-sonda-de-spawn-em-pasta-comum-exige-trust-de-pasta-exata_2026-10-11`); se a lane
+nao vira worktree, a sonda nao roda e o item sai `[FALHA]`. VERMELHO -> pare e diga ao dono o que
+fazer. Caso conhecido: **"Workspace not trusted"** (no item do trust ou na sonda) = o REPO sem trust
+-> o dono roda o `claude.exe` num terminal na arvore principal (o `projeto.md` da o caminho), aceita e
+sai. Aceite unico; nunca em `lanes\wt-planning` (trust NAO e por pasta exata). Nunca contorne editando
+`~/.claude.json`.
 
 O preflight tambem confere o **rodizio de contas** (linhas `contas:`; secao "Rodizio de contas"
 abaixo). Com o rodizio ligado, valida cada conta com um `claude -p` barato (~5 s cada, pelo token no
@@ -121,8 +128,8 @@ gerenciador (`claude logs`). Pasta de lane presa: a linha de comando de processo
    - arquivos nao commitados: a finalizacao commita os de `docs/` (um commit por arquivo) e so
      publica codigo se compilar (o da pasta da propria skill nunca: o build nao o valida); o que
      sobrar fecha a execucao como `concluido-com-pendencias`.
-   - `[AVISO] contas: ...`: diga o que muda (sem rodizio, a execucao para no limite de uso e espera
-     o dono; com rodizio, o aviso fixo da maquina inteira na conta do pipeline). Conta invalida ou
+   - `[AVISO] contas: ...`: diga o que muda (sem rodizio, a execucao para no limite de uso e volta
+     sozinha 2 min depois do reset, pelo vigia de reset; com rodizio, o aviso fixo da maquina inteira na conta do pipeline). Conta invalida ou
      token vencendo: o dono troca o token **no PowerShell dele** antes de iniciar, se quiser.
 3. **Lista de bugs** (so exclusoes mecanicas; diagnostico e do planning). Para cada
    `docs/bugs/open/*.md` da arvore principal exceto `README.md` (ignore `.txt`/`.json`; nas subpastas
@@ -165,8 +172,15 @@ Ele nunca mexe na sessao de quem chamou. Enquanto alguma sessao do pipeline trab
 destrava sozinho; so quando TUDO para e que precisa do dono (`status`/`reconcile`).
 
 Sessao parada por **limite de uso** da conta nao e "ociosa": o `tick` le o transcript antes de
-cutucar. Com o rodizio ligado, ele nao a cutuca (quem retoma e o vigia de cota); sem rodizio, adia
-a cutucada ate 2 min depois do reset (o `reconcile --fix` cutuca na hora).
+cutucar. Com o rodizio ligado, ele nao a cutuca (quem retoma e o vigia de cota). Sem rodizio, nada
+sai antes do reset (o `reconcile --fix` cutuca na hora, para quem trocou de conta a mao) e, 2 min
+depois dele, a sessao e retomada com a mensagem `RETOMADA APOS LIMITE DE USO`, **sem gastar
+cutucada**. Como a sessao pode bater o limite depois da ultima transicao (e ai nenhum `tick` roda),
+quem faz essa retomada e o **vigia de reset** (`reset-watch`): processo interno destacado, um por
+pasta do pipeline, aberto pelo `start` e por todo `tick` com efeito (inclusive o do `reconcile
+--fix`), com log em `<pasta do pipeline>\runs\<execucao>-cota.log`. Ele so le a guarda de contas e
+sai quando a execucao fecha ou o rodizio liga; o `status` mostra se esta vivo. O `reconcile` sem
+`--fix` diz `cutucaria`/`retomaria`: nada e enviado.
 
 ## Rodizio de contas (limite de uso)
 
@@ -174,13 +188,14 @@ Desenho: DESIGN secao 20 (e o documento que o `projeto.md` cita). Aqui so o que 
 precisam saber.
 
 - **So no projeto com `"rodizio_contas": true` no `projeto.json`** (DESIGN 22.6). Desligado, o
-  helper nunca escreve na guarda de contas nem no arquivo de credenciais: a execucao para no limite
-  de uso e espera o reset, os `accounts add/remove/activate/validate/restore` recusam, e o
-  `preflight`/`status`/`reconcile` dizem "rodizio desligado neste projeto". O resto desta secao vale
-  so com ele ligado.
+  helper nunca escreve na guarda de contas nem no arquivo de credenciais: a sessao que bate o limite
+  de uso espera o reset e o vigia de reset a retoma (secao acima), os
+  `accounts add/remove/activate/validate/restore` recusam, e o `preflight`/`status`/`reconcile`
+  dizem "rodizio desligado neste projeto". O resto desta secao vale so com ele ligado.
 
 - **Ligado** = 2 ou mais contas cadastradas e sem `accounts restore`. Com 0 ou 1 conta, ou pausado,
-  o pipeline roda sem rodizio: uma execucao que bate o limite para e espera o reset.
+  o pipeline roda sem rodizio: uma execucao que bate o limite para, espera o reset e o vigia de
+  reset a retoma.
 - **Cadastro: so o dono, num PowerShell comum, fora de sessao do Claude.** `H accounts add --label X
   [--email Y]` le o token do `claude setup-token` sem eco, pelo stdin (nunca por argumento).
   `add`, `remove`, `activate`, `restore` e `validate` recusam rodar dentro de uma sessao; aqui so
@@ -206,7 +221,8 @@ precisam saber.
 - **Todas invalidas:** o `/login` volta sozinho. O dono gera token novo (`claude setup-token`) e roda
   `accounts add --label X`; a passada seguinte grava a conta e retoma.
 - **Vigia morto** (reboot, kill): volta numa transicao de qualquer sessao ou com `reconcile --fix`.
-  Com todas as sessoes paradas, so o `reconcile --fix` o religa (nao ha tarefa no Agendador).
+  Com todas as sessoes paradas, so o `reconcile --fix` o religa (nao ha tarefa no Agendador). O
+  mesmo vale para o vigia de reset sem rodizio (`status`: `vigia de reset: parado`).
   Conta do rodizio no arquivo, sem execucao aberta e sem vigia: `reconcile` e `preflight` avisam.
   Se o aviso diz "desde o `accounts activate` de HH:MM", **nao e vigia morto**: o dono armou o
   rodizio para a execucao que vai abrir (o vigia so sobe no `start`); siga com `init` + `start`, e o
