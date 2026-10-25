@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve()
@@ -117,9 +118,6 @@ def load_config(skill: Path = SKILL) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise SystemExit(f"ERRO: {path} ausente ou invalido ({e}); e a config do projeto (DESIGN secao 22)")
-
-
-configure(load_config())
 
 
 # --------------------------------------------------------------------------- copias (DESIGN 22.4 / 22.8 A2)
@@ -344,6 +342,12 @@ def free(path: str) -> bool:
     return fk(path) in {fk(f) for f in RESERVA_LIVRE}
 
 
+# Depois do `norm`: o `configure` normaliza a `reserva_livre` com ele. Antes dele, todo comando morria com NameError
+# no import assim que um projeto preenchia a chave.
+# [[pipeline-configure-chama-norm-antes-de-definido-e-reserva-livre-derruba-o-helper_2026-10-24]]
+configure(load_config())
+
+
 # --------------------------------------------------------------------------- itens: bug ou task (DESIGN 22.9)
 # O item do ledger (`st["bugs"][slug]`) e um bug (padrao; ledger antigo sem `tipo`) ou uma task do projeto
 # (`tarefas` no projeto.json). O doc de bug muda de PASTA com o estado (open -> retest -> done); a task nao:
@@ -511,12 +515,27 @@ def claude_exe() -> str:
     return max(hits, key=os.path.getmtime)
 
 
-def agents() -> list[dict]:
-    p = run([claude_exe(), "agents", "--json", "--all"], cwd=ROOT, check=False)
-    try:
-        return json.loads(p.stdout or "[]")
-    except json.JSONDecodeError:
-        return []
+AGENTS_TIMEOUT = 60                              # s; medido 0.4 s com 343 linhas (2026-10-23)
+
+
+def agents() -> list[dict] | None:
+    """As sessoes do `claude agents --json --all`, ou None se o CLI FALHOU: rc != 0 (medido: rc 1 com stdout
+    vazio), stdout vazio, JSON invalido ou que nao e lista, timeout. Falha NAO e "nenhuma sessao": como
+    lista vazia, ela fazia o `tick` cutucar sessao viva (resume de sessao viva = COPIA), o `cleanup` remover
+    lane com sessao trabalhando e o `status` dizer `encerrada` para todas. Cada chamador decide o que faz
+    com None (pular, enfileirar, recusar, repetir). Uma nova tentativa 2 s depois antes do None (falha
+    transitoria: CLI se atualizando). [[pipeline-falha-do-claude-agents-vira-lista-vazia-e-tick-trata-sessao-viva-como-parada_2026-10-16]]"""
+    for i in range(2):
+        if i:
+            time.sleep(2)
+        try:
+            p = run([claude_exe(), "agents", "--json", "--all"], cwd=ROOT, check=False, timeout=AGENTS_TIMEOUT)
+            out = json.loads(p.stdout) if p.returncode == 0 and (p.stdout or "").strip() else None
+        except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
+            out = None
+        if isinstance(out, list):
+            return out
+    return None
 
 
 class Busy(Exception):
@@ -531,8 +550,9 @@ RESUMABLE = {"idle", "done", "exited", "stopped", "completed", "finished"}
 
 def job_id(session_id: str, live: list[dict] | None = None) -> str:
     """`claude stop` so casa pelo id CURTO do job (`id` no `claude agents --json`); com o sessionId
-    inteiro responde "No job matching" e nao para nada (DESIGN secao 16)."""
-    for x in agents() if live is None else live:
+    inteiro responde "No job matching" e nao para nada (DESIGN secao 16). Sem a listagem (`agents` None):
+    os 8 primeiros, que sao o id curto em 342 de 343 linhas medidas."""
+    for x in (agents() if live is None else live) or []:
         if x.get("sessionId") == session_id and x.get("id"):
             return x["id"]
     return session_id[:8]
@@ -544,15 +564,22 @@ def resume_cmd(exe: str, session_id: str, prompt: str) -> list[str]:
     --allowedTools, --disallowedTools, --permission-mode, --effort, --model). Qualquer flag, mesmo igual
     a salva, ou sessao ainda viva -> o CLI abre uma COPIA com outro id (medido em 2026-10-03, CLI
     2.1.288; bug pipeline-resume-com-flags-abre-copia-e-ledger-perde-a-sessao_2026-10-02).
-    Status None = ja parada/concluida: resume direto (`claude stop --help`: "resume it later")."""
-    live = [x for x in agents() if x.get("sessionId") == session_id]
+    Status None = ja parada/concluida: resume direto (`claude stop --help`: "resume it later").
+    Sem a listagem (`agents` None) nao da para saber se ela parou: Busy, e o `spawn` enfileira."""
+    all_ = agents()
+    if all_ is None:
+        raise Busy("claude agents --json indisponivel")
+    live = [x for x in all_ if x.get("sessionId") == session_id]
     st_ = live[0].get("status") if live else None
     if st_ is not None and st_ not in RESUMABLE:
         raise Busy(f"{session_id} status={st_}")
     if st_ is not None:
         run([exe, "stop", job_id(session_id, live)], cwd=ROOT, check=False)
         for _ in range(15):                      # viva ainda = copia, e a copia nasce SEM as flags
-            if not any(x.get("sessionId") == session_id and x.get("status") is not None for x in agents()):
+            all_ = agents()
+            if all_ is None:
+                raise Busy(f"claude agents --json indisponivel esperando o `claude stop` de {session_id}")
+            if not any(x.get("sessionId") == session_id and x.get("status") is not None for x in all_):
                 break
             time.sleep(2)
         else:
@@ -564,7 +591,7 @@ def stop_sessions(b: dict, except_stage: str | None = None):
     """Fim do bug: encerra planning/dev/teste. `stop` mantem a conversa no gerenciador.
     NUNCA a sessao que esta chamando o helper (`except_stage`): parar o chamador mata este
     processo antes do save. Ela termina o proprio turno, e o `tick` a encerra depois."""
-    exe, live = claude_exe(), agents()
+    exe, live = claude_exe(), agents() or []     # sem a listagem: o job_id cai nos 8 primeiros
     for stage, rec in b["sessions"].items():
         if stage == except_stage or not rec or not rec.get("id") or rec.get("stopped"):
             continue
@@ -583,8 +610,15 @@ def bg_id(out: str) -> str | None:
 def stop_live(name: str, ids) -> list[str]:
     """Para toda sessao VIVA (`status` presente) com este nome ou com um destes ids curtos (`bg_id`).
     Sessao viva com cwd numa lane trava a pasta no Windows (bug
-    pipeline-daemon-claude-bg-orfao-trava-pasta-da-lane_2026-10-02). Devolve os ids parados."""
+    pipeline-daemon-claude-bg-orfao-trava-pasta-da-lane_2026-10-02). Devolve os ids parados.
+    Sem a listagem (`agents` None): `stop` em cada id de `ids` (nunca "nenhuma viva", que deixava a sonda
+    prendendo a lane); quem so casaria pelo nome nao e achado."""
     exe, live, ids = claude_exe(), agents(), {i for i in ids if i}
+    if live is None:
+        print(f"AVISO: claude agents --json indisponivel: `claude stop` direto nos ids {sorted(ids) or '-'}")
+        for i in sorted(ids):
+            run([exe, "stop", i], cwd=ROOT, check=False)
+        return sorted(ids)
     hit = [job_id(x["sessionId"], live) for x in live if x.get("status") is not None and x.get("sessionId")
            and (x.get("name") == name or x["sessionId"][:8] in ids)]
     for i in hit:
@@ -644,6 +678,23 @@ def transcript_tail(session_id: str | None, enough) -> list[dict]:
         return []
 
 
+def transcript_has(session_id: str | None, needle: str, tail: int = 4 * TAIL_BYTES) -> bool:
+    """`needle` esta nos ultimos `tail` bytes do transcript, em QUALQUER tipo de entrada (a mensagem entre
+    sessoes chega como `queue-operation` e depois `user`). Sem transcript ou erro de leitura: False."""
+    if not session_id:
+        return False
+    hits = glob.glob(str(CLAUDE_PROJECTS / "*" / (glob.escape(session_id) + ".jsonl")))
+    if not hits:
+        return False
+    try:
+        with open(max(hits, key=os.path.getmtime), "rb") as f:
+            size = os.fstat(f.fileno()).st_size
+            f.seek(max(0, size - tail))
+            return needle.encode("utf-8") in f.read()
+    except OSError:
+        return False
+
+
 def entry_text(e: dict) -> str:
     c = (e.get("message") or {}).get("content")
     if isinstance(c, list):
@@ -676,6 +727,36 @@ def quota_state(session_id: str | None) -> dict:
             or (e.get("isApiErrorMessage") and AUTH_TEXT.search(text))):
         return {"kind": "auth", "ts": ts, "text": text[:200]}
     return {"kind": None}
+
+
+API_ERROR_TEXT = re.compile(r"API Error: (5\d\d)\b|overloaded", re.I)
+
+
+def api_error_hit(rec: dict) -> dict | None:
+    """A sessao do `rec` parou por erro do SERVIDOR da API? A ULTIMA entrada user/assistant decide, como no
+    `quota_state`, e so se POSTERIOR a ultima entrega (`sent_ts`). Forma medida no bbf95a96 (indice 88):
+    `assistant`, model <synthetic>, `isApiErrorMessage`, `apiErrorStatus` 500, `error` "server_error", texto
+    "API Error: 500 Internal server error". Vale 5xx (529 = overloaded), `server_error`/`overloaded_error` ou o
+    texto. Limite (quotaLimits/texto) e 401/429 ficam com o `quota_state`: este ramo nao toca o rodizio.
+    Devolve {"ts", "status", "text"} ou None.
+    [[pipeline-teste-e2e-sem-teto-de-tempo-segura-o-slot-horas-em-download-de-rom_2026-10-23]]"""
+    tail = transcript_tail(rec.get("id"), bool)
+    if not tail or tail[0].get("type") != "assistant":
+        return None
+    e = tail[0]
+    if (e.get("message") or {}).get("model") != SYNTHETIC or not e.get("isApiErrorMessage"):
+        return None
+    status, err, text, q = e.get("apiErrorStatus"), str(e.get("error") or ""), entry_text(e), e.get("quotaLimits")
+    if (status in (401, 429) or (isinstance(q, dict) and q.get("status") == "rejected")
+            or LIMIT_TEXT.search(text) or AUTH_TEXT.search(text)):
+        return None
+    if not ((isinstance(status, int) and 500 <= status <= 599) or err in ("server_error", "overloaded_error")
+            or API_ERROR_TEXT.search(text)):
+        return None
+    ts = transcript_ts(e)
+    if ts <= (rec.get("sent_ts") or 0):
+        return None
+    return {"ts": ts, "status": status or err or "5xx", "text": text[:200]}
 
 
 def answered_since(session_id: str | None, ts: float) -> bool:
@@ -1513,7 +1594,7 @@ def spawn(st: dict, slug: str | None, stage: str, message: str = "") -> dict | N
     # original parada continua no `agents --all`. Nome/id anterior: so se a saida nao trouxer o id.
     short, sess = bg_id(p.stdout), None
     for _ in range(30):                          # a sessao demora alguns segundos para registrar
-        live = agents()
+        live = agents() or []                    # falha do CLI = "ainda nao registrou": cai no id anterior/None
         if short:
             hits = [x for x in live if (x.get("sessionId") or "")[:8] == short]
         elif prev:
@@ -2103,6 +2184,207 @@ def deliver_pending(st: dict, caller, report: bool, only=None) -> list[str]:
     return notes
 
 
+# --------------------------------------------------------------------------- teto do slot e erro de API
+# O `tick` nunca avaliava sessao `busy`: o slot E2E ficou ~3 h com um T3 baixando um ISO de 9 GB, e o status dizia
+# "nada parado". E sessao parada por erro 5xx da API esperava a tolerancia inteira (16 min, ate o maestro). Nos dois
+# casos ninguem chama transicao: os vigias (cota com rodizio, reset sem) rodam o `tick` quando um deles vence
+# (`stall_tick`). [[pipeline-teste-e2e-sem-teto-de-tempo-segura-o-slot-horas-em-download-de-rom_2026-10-23]]
+
+DELIVER_TIMEOUT = 180                            # s do mensageiro `-p`; medido 10,6 s (4 turnos de haiku, 2026-10-24)
+DELIVER_WAIT = 10                                # s esperando o marcador chegar ao transcript do alvo
+API_RETRY_S = 120                                # erro 5xx da API: retomada 2 min depois do erro
+API_RETRY_MAX = 3                                # retomadas SEGUIDAS sem resposta real; depois, precisa do dono
+API_MSG = ("O pipeline retomou esta sessao: o ultimo turno terminou com erro do servidor da API ({status}), nao por "
+           "falha sua. Continue exatamente de onde parou.")
+SLOT_MSG = ("MENSAGEM DO PIPELINE: voce ({slug}) segura o slot de teste E2E ha {held} min (teto do projeto: {teto} min). "
+            "Se esta esperando download/ambiente, encerre so os SEUS processos e feche com `test-done --bug {slug} "
+            "--result ambiente --note \"<motivo>\"` (Passo 5 do etapas/teste.md); se o teste esta andando, siga. "
+            "Com {teto2} min no slot o status mostra PARADO (slot) para o dono.")
+
+
+def held_min(ts: str) -> float:
+    return (dt.datetime.now() - dt.datetime.fromisoformat(ts)).total_seconds() / 60
+
+
+def slot_since(b: dict) -> str | None:
+    """Desde quando o bug segura o slot: a ultima entrada `-> teste-e2e` vinda de OUTRO estado (`slot-request`,
+    `dispatch_slot`). Cutucada, retomada e aviso gravam `from == to` e nao zeram a posse."""
+    for h in reversed(b.get("history") or []):
+        if h.get("to") == "teste-e2e" and h.get("from") != "teste-e2e":
+            return h["ts"]
+    return None
+
+
+def deliver_busy(rec: dict, message: str) -> tuple[bool, str]:
+    """Entrega `message` a sessao do `rec` MESMO `busy`, que o `resume_cmd` recusa (Busy). Canal: uma sessao
+    `claude -p` de haiku que acha o alvo com ListAgents (por PREFIXO do nome: a lista mostra `nome [id]`) e manda
+    com SendMessage, a ferramenta suportada (medido: a mensagem entre sessoes acorda a sessao busy). Prova de
+    entrega = o marcador `[pipeline <nonce>]` no transcript do ALVO, nunca a resposta do haiku. Portao do rodizio
+    fechado: nem chama o CLI. Nunca `die` (roda no meio do `tick`): erro vira (False, motivo)."""
+    _, _, why = gate_now()
+    if why:
+        return False, f"portao fechado ({why})"
+    name = (rec.get("name") or "")[:50]
+    if not (name and rec.get("id")):
+        return False, "sessao sem nome/id no ledger"
+    marker = f"[pipeline {uuid.uuid4().hex[:12]}]"
+    instr = (f"Voce e um mensageiro do pipeline de correcao de bugs. Use a ferramenta ListAgents uma vez. Depois, com "
+             f"a ferramenta SendMessage, mande a mensagem abaixo, sem mudar nada, a UNICA sessao cujo nome comeca com "
+             f"`{name}`. Se nao houver exatamente uma, nao mande nada e responda NAO_ENVIADO. Nao use outra "
+             f"ferramenta. Responda ENVIADO se mandou.\n\nMENSAGEM:\n{marker} {message}")
+    try:
+        p = run([claude_exe(), "-p", instr, "--model", "haiku", "--allowedTools", "ListAgents", "SendMessage",
+                 "--output-format", "json"], cwd=ROOT, check=False, timeout=DELIVER_TIMEOUT)
+    except (subprocess.TimeoutExpired, OSError, SystemExit) as e:
+        return False, f"mensageiro falhou ({type(e).__name__})"
+    for i in range(DELIVER_WAIT // 2 + 1):
+        if transcript_has(rec["id"], marker):
+            return True, "entregue"
+        if i < DELIVER_WAIT // 2:
+            time.sleep(2)
+    try:
+        said = str(json.loads(p.stdout).get("result") or "")
+    except (ValueError, AttributeError):
+        said = p.stdout or p.stderr or ""
+    return False, f"marcador ausente no transcript do alvo (mensageiro rc {p.returncode}: {said.strip()[:100]})"
+
+
+def slot_hold(st: dict, slug: str, b: dict, rec: dict, sst: str, report: bool) -> str | None:
+    """Ramo `busy` do `tick` para quem segura o slot E2E, com o teto `e2e.teto_slot_min` do projeto.json (ausente
+    ou 0: desligado). Passado o teto: UM aviso por posse (chave `slot_warn.since`), entregue pelo `deliver_busy`;
+    falha de entrega fica registrada e nao repete a cada tick. Com 2x o teto: `PARADO (slot)`, sem acao (parar a
+    sessao derrubaria o trabalho em voo e deixaria processo orfao no ambiente: e do dono). report=True: so a nota."""
+    teto = float(E2E.get("teto_slot_min") or 0)
+    if not teto or st.get("test_slot") != slug or b["state"] != "teste-e2e":
+        return None
+    since = slot_since(b)
+    held = held_min(since) if since else 0
+    if held < teto:
+        return None
+    who = f"{slug} segura o slot ha {held:.0f} min (sessao {rec.get('name')} {sst})"
+    head = (f"PARADO (slot): {who}; precisa do dono (`claude attach`), o pipeline nao para a sessao"
+            if held >= 2 * teto else f"SLOT PRESO: {who}")
+    w = b.get("slot_warn") or {}
+    if w.get("since") == since:
+        return f"{head}; aviso " + (f"entregue as {w['ts'][11:16]}" if w.get("ok") else f"nao entregue ({w.get('why')})")
+    if report:
+        return f"{head}; avisaria a sessao: so reconcile --fix envia"
+    ok, why = deliver_busy(rec, SLOT_MSG.format(slug=slug, held=f"{held:.0f}", teto=f"{teto:g}", teto2=f"{2 * teto:g}"))
+    b["slot_warn"] = {"since": since, "ts": now(), "ok": ok, "why": why}
+    b["history"].append({"ts": now(), "from": b["state"], "to": b["state"],
+                         "note": "aviso de teto do slot: " + ("entregue" if ok else f"nao entregue ({why})")})
+    return f"{head}; " + ("aviso entregue a sessao" if ok else f"aviso NAO entregue ({why})")
+
+
+def api_retries(st: dict, slug: str | None, stage: str, rec: dict) -> int:
+    """Retomadas SEGUIDAS apos erro de API da etapa: uma resposta real depois da ultima entrega quebra a sequencia
+    (vale 0, como os hits do R21). So leitura."""
+    box = bug_of(st, slug) if slug else st["final"]
+    n = box.get("api_retries", {}).get(stage, 0)
+    return 0 if n and answered_since(rec.get("id"), rec.get("sent_ts") or 0) else n
+
+
+def api_retry(st: dict, slug: str | None, stage: str, rec: dict, report: bool, force: bool = False) -> str | None:
+    """Ramo do `tick` ANTES da tolerancia, para a sessao PARADA da etapa (quem chama ja tirou busy e status
+    desconhecido): ultimo turno = erro 5xx da API (`api_error_hit`) -> retoma API_RETRY_S depois do erro com a
+    API_MSG, sem gastar `nudges` (o erro nao e falha da sessao); API_RETRY_MAX retomadas seguidas sem resposta ->
+    `PARADO (erro de API)`, sem spawn; `force` (`reconcile --fix`: o dono viu a API voltar) retoma mesmo assim, como
+    faz com o teto de cutucadas. Antes do vencimento, so a nota (e nada de cutucada generica). Devolve a nota, ou None
+    quando o caso nao e este (o `tick` segue). report=True: so a nota."""
+    hit = api_error_hit(rec)
+    if not hit:
+        return None
+    box = bug_of(st, slug) if slug else st["final"]
+    n = api_retries(st, slug, stage, rec)
+    who = f"{slug or 'finalizacao'}: sessao {rec.get('name')} parada por erro da API ({hit['status']})"
+    if n >= API_RETRY_MAX and not force:
+        return f"PARADO (erro de API): {who}, {n} retomadas seguidas sem resposta; precisa do dono (`claude attach`; `reconcile --fix` retoma quando a API voltar)"
+    wait = hit["ts"] + API_RETRY_S - time.time()
+    if wait > 0:
+        return f"{who}; retomada automatica em {wait:.0f} s, sem cutucada"
+    if any(e["slug"] == slug and e["stage"] == stage for e in st.get("pending_spawns", [])):
+        return f"{who}; a mensagem pendente da etapa sai antes (sem retomada dupla)"
+    if report:
+        return f"{who}; retomaria ja ({n + 1} de {API_RETRY_MAX}), sem gastar cutucada: so reconcile --fix envia"
+    box.setdefault("api_retries", {})[stage] = n + 1
+    if slug:
+        box["history"].append({"ts": now(), "from": box["state"], "to": box["state"],
+                               "note": f"retomada apos erro da API {hit['status']} ({n + 1} de {API_RETRY_MAX})"})
+    else:
+        box["since"] = now()
+    spawn(st, slug, stage, API_MSG.format(status=hit["status"]))
+    return f"{who}; retomando ({n + 1} de {API_RETRY_MAX}), sem gastar cutucada"
+
+
+def stall_due(st: dict) -> tuple[list[str], float | None]:
+    """So leitura, sem lock (os vigias): o que pede um `tick` AGORA que nenhuma transicao o rodaria -- teto do slot
+    vencido sem aviso nesta posse (sessao busy) ou erro de API vencido com retomada sobrando (sessao parada). E o
+    proximo vencimento de erro de API ainda futuro (o sono do vigia acaba nele). O `agents` so e chamado se ha
+    candidato; sem a listagem, nada vence nesta passada."""
+    t, cands, nxt = time.time(), [], None
+    teto, slug = float(E2E.get("teto_slot_min") or 0), st.get("test_slot")
+    b = st["bugs"].get(slug) if slug else None
+    if teto and b and b["state"] == "teste-e2e":
+        since, rec = slot_since(b), b["sessions"].get("teste") or {}
+        if since and rec.get("id") and held_min(since) >= teto and (b.get("slot_warn") or {}).get("since") != since:
+            cands.append(("slot", slug, "teste", rec))
+    for s_, stage, rec in current_recs(st):
+        hit = api_error_hit(rec)
+        if not hit or api_retries(st, s_, stage, rec) >= API_RETRY_MAX:
+            continue
+        if hit["ts"] + API_RETRY_S > t:
+            nxt = min(nxt or hit["ts"] + API_RETRY_S, hit["ts"] + API_RETRY_S)
+            continue
+        cands.append(("api", s_, stage, rec))
+    live = agents() if cands else None
+    if live is None:
+        return [], nxt
+    status = {x.get("sessionId"): x.get("status") for x in live}
+    out = []
+    for kind, s_, stage, rec in cands:
+        sst = status.get(rec["id"])
+        if kind == "slot" and sst == "busy":
+            out.append(f"{s_}/teste: teto do slot vencido (sessao busy, sem aviso nesta posse)")
+        elif kind == "api" and (sst is None or sst in RESUMABLE):
+            out.append(f"{s_ or 'finalizacao'}/{stage}: parada por erro da API ha mais de {API_RETRY_S} s")
+    return out, nxt
+
+
+def stall_tick(st: dict | None) -> float | None:
+    """Passada dos vigias de cota e de reset: `stall_due` acusou algo -> o `tick` inteiro, com o lock do ledger
+    (ele revalida tudo). Devolve o proximo vencimento de erro de API (o sono do vigia acaba nele)."""
+    if st is None or not run_open(st):
+        return None
+    due, nxt = stall_due(st)
+    if due:
+        print("vencido sem transicao: " + "; ".join(due) + "; rodando o tick")
+        with file_lock("state"):
+            cur = load()
+            tick(cur)
+            save(cur)
+    return nxt
+
+
+def stall_status(st: dict, live: list[dict] | None) -> list[str]:
+    """Linhas do `status` para o dono: `SLOT PRESO` (e `PARADO (slot)` com 2x o teto) e `PARADO (erro de API)`."""
+    out, teto, slug = [], float(E2E.get("teto_slot_min") or 0), st.get("test_slot")
+    b = st["bugs"].get(slug) if slug else None
+    since = slot_since(b) if teto and b and b["state"] == "teste-e2e" else None
+    if since and held_min(since) >= teto:
+        held, w = held_min(since), b.get("slot_warn") or {}
+        aviso = ("ainda nao" if w.get("since") != since else f"entregue {w['ts'][11:16]}" if w.get("ok")
+                 else f"nao entregue: {w.get('why')}")
+        out.append(("PARADO (slot), precisa do dono (`claude attach`): " if held >= 2 * teto else "")
+                   + f"SLOT PRESO desde {since} ({held:.0f} min, {slug}, sessao "
+                   f"{session_status(b['sessions'].get('teste'), live)}; aviso {aviso})")
+    for s_, stage, rec in current_recs(st):
+        n = api_retries(st, s_, stage, rec)
+        if n >= API_RETRY_MAX and api_error_hit(rec):
+            out.append(f"PARADO (erro de API): {s_ or 'finalizacao'}/{stage} ({n} retomadas seguidas sem resposta); "
+                       "precisa do dono (`claude attach`; `reconcile --fix` retoma quando a API voltar)")
+    return out
+
+
 def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
          report: bool = False) -> list[str]:
     """Vigia SEM agendamento: roda no fim de toda transicao chamada por qualquer sessao (e no
@@ -2111,11 +2393,26 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
     despacha o slot (so com o ambiente E2E livre) e abre a proxima onda. Nunca mexe na sessao do
     proprio chamador. Sessao parada por cota nao e cutucada (`nudge_hold`); sem rodizio, passado o
     reset ela e retomada (`resume_after_limit`), e quem roda o `tick` quando nenhuma sessao chama
-    transicao e o vigia de reset, que o fim do `tick` abre (`schedule_reset_watch`).
+    transicao e o vigia de reset, que o fim do `tick` abre (`schedule_reset_watch`). Sessao `busy` so e
+    avaliada quando segura o slot E2E (teto, `slot_hold`); sessao parada por erro 5xx da API e retomada
+    sem tolerancia nem cutucada (`api_retry`). Os vigias rodam o `tick` para os dois (`stall_tick`).
 
     report=True e LEITURA PURA (revisao, achado 3): nenhum spawn, nenhum stop, nenhuma mudanca em
-    `st`. Tudo que seria feito vira so nota."""
+    `st`. Tudo que seria feito vira so nota.
+
+    Sem a listagem (`agents` None) toda sessao pareceria parada: a passada inteira e pulada ANTES da
+    reentrega, das cutucadas, da finalizacao, do slot e da onda (todos abrem/param sessao); so os vigias
+    sao agendados. A proxima transicao repete.
+    [[pipeline-falha-do-claude-agents-vira-lista-vazia-e-tick-trata-sessao-viva-como-parada_2026-10-16]]"""
     live = agents()
+    if live is None:
+        notes = ["claude agents --json indisponivel: passada de sessoes pulada (nenhuma reentrega, cutucada, "
+                 "slot ou onda); a proxima transicao repete"]
+        if not report:
+            schedule_watches(st, False)
+        for n in notes:
+            print("tick: " + n)
+        return notes
     status = {x.get("sessionId"): x.get("status") for x in live}
     notes = deliver_pending(st, caller, report)
     gate, watch = gate_now(), False              # watch: abrir o vigia de cota no fim (rodizio ligado, F6)
@@ -2153,13 +2450,17 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
             continue
         sst = status.get(rec.get("id"))
         if sst == "busy":
+            held = slot_hold(st, slug, b, rec, sst, report)   # so quem segura o slot E2E tem teto
+            if held:
+                notes.append(held)
             continue
         if sst is not None and sst not in RESUMABLE:
             notes.append(f"{slug}: sessao {rec.get('name')} com status '{sst}' (talvez esperando permissao): "
                          "precisa do dono, `claude attach`; o pipeline nao mexe nela")
             continue
-        back = resume_after_limit(st, slug, stage, rec, gate, report)
-        if back:                                 # sem rodizio e reset passado: o hit ja prova que parou (sem tolerancia)
+        # sem rodizio e reset passado, ou erro 5xx da API: o transcript ja prova que parou (sem tolerancia)
+        back = resume_after_limit(st, slug, stage, rec, gate, report) or api_retry(st, slug, stage, rec, report, force)
+        if back:
             notes.append(back)
             continue
         last = b["history"][-1]["ts"] if b["history"] else st["created"]
@@ -2198,8 +2499,9 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
                 if not report:
                     spawn(st, None, "finalizacao", "Todas as ondas terminaram. Comece pelo Passo 1 do etapas/finalizacao.md.")
         elif status.get(rec["id"]) not in ("busy",) and (status.get(rec["id"]) is None or status.get(rec["id"]) in RESUMABLE):
-            back = resume_after_limit(st, None, "finalizacao", rec, gate, report)
-            idle = (dt.datetime.now() - dt.datetime.fromisoformat(fin.get("since", st["created"]))).total_seconds() / 60
+            back = (resume_after_limit(st, None, "finalizacao", rec, gate, report)
+                    or api_retry(st, None, "finalizacao", rec, report, force))
+            idle =(dt.datetime.now() - dt.datetime.fromisoformat(fin.get("since", st["created"]))).total_seconds() / 60
             hold = nudge_hold(st, None, "finalizacao", rec, gate, force) if idle >= grace_min and not back else None
             if back:
                 notes.append(back)
@@ -2222,16 +2524,21 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
         if blocked:
             notes.append(blocked)
         next_wave(st)
-        # quem retoma o que ficou parado por cota e o vigia: abre se nao houver um vivo (ele confere o rodizio)
-        if watch or any(str(e.get("why", "")).startswith((WHY_QUOTA, WHY_NOCRED, WHY_FILE))
-                        for e in st.get("pending_spawns", [])):
-            schedule_quota_watch("tick")
-        # sem rodizio, quem acorda depois do reset e o vigia de reset: tem de existir ANTES do hit, porque a
-        # sessao pode bater o limite depois da ultima transicao (o caso do bug). Ele confere o rodizio.
-        schedule_reset_watch(st, "tick")
+        schedule_watches(st, watch)
     for n in notes:
         print("tick: " + n)
     return notes
+
+
+def schedule_watches(st: dict, watch: bool):
+    """Fim do `tick` com efeito (inclusive a passada pulada por falta do `claude agents`)."""
+    # quem retoma o que ficou parado por cota e o vigia: abre se nao houver um vivo (ele confere o rodizio)
+    if watch or any(str(e.get("why", "")).startswith((WHY_QUOTA, WHY_NOCRED, WHY_FILE))
+                    for e in st.get("pending_spawns", [])):
+        schedule_quota_watch("tick")
+    # sem rodizio, quem acorda depois do reset e o vigia de reset: tem de existir ANTES do hit, porque a
+    # sessao pode bater o limite depois da ultima transicao (o caso do bug). Ele confere o rodizio.
+    schedule_reset_watch(st, "tick")
 
 
 def e2e_dir(d: str) -> str:
@@ -2706,7 +3013,8 @@ def cmd_preflight(a):
         print("[AVISO] arvore principal: " + w)
     if not warn:
         print(f"[OK]   arvore principal igual a {base} ({s['generated']} gerado(s) de build modificado(s))")
-    check(isinstance(agents(), list), "claude agents --json responde")
+    # a falha do CLI tambem era lista (`[]`): o check nao podia falhar
+    check(agents() is not None, "claude agents --json responde")
     check(worktrees_trusted(), f"trust aceito no repositorio {SRC} (vale para toda worktree dele)",
           f"o dono roda o claude.exe acima num terminal em {SRC}, aceita e sai")
     preflight_accounts(check)                    # rodizio de contas (secao 6.8 do backlog do rodizio, F8)
@@ -2732,7 +3040,7 @@ def cmd_preflight(a):
                   + f"Saida: {(p.stderr or p.stdout).strip()[:200]}")
             s = None
             for _ in range(30):
-                hits = [x for x in agents() if x.get("name") == name and x.get("startedAt", 0) >= t0]
+                hits = [x for x in (agents() or []) if x.get("name") == name and x.get("startedAt", 0) >= t0]
                 s = hits[0] if hits else None
                 if s:
                     break
@@ -2763,7 +3071,7 @@ def cmd_preflight(a):
                       f"o CLI abriu uma copia. Saida: {' '.join((r.stdout or '').split())[-240:]}")
                 seen, q = set(), {"kind": None}
                 for _ in range(60):                   # ate 2 min para a sessao rodar o comando
-                    seen |= {x.get("status") for x in agents() if x.get("sessionId") == s["sessionId"]}
+                    seen |= {x.get("status") for x in (agents() or []) if x.get("sessionId") == s["sessionId"]}
                     if probe.exists():
                         break
                     # Conta no limite (ou token invalido) tambem "nao roda o comando": sem ler o transcript
@@ -3181,6 +3489,9 @@ def cmd_cleanup(a):
     """Finalizacao: remove as worktrees da execucao. Recusa se algo ainda nao esta integrado."""
     st = load()
     live = agents()
+    if live is None:                             # sem a listagem, "nenhuma sessao na lane" seria chute
+        die("cleanup recusado (nada foi apagado): claude agents --json indisponivel; sem ele nao da para saber "
+            "se ha sessao viva com cwd numa lane. Rode de novo.", 2)
     to_stop, foreign = [], []                    # sessoes ociosas com cwd numa lane: background / interativa
     problems = [f"{s} ainda em '{b['state']}'" for s, b in st["bugs"].items() if b["state"] not in TERMINAL]
     git("fetch", REMOTO)
@@ -3278,7 +3589,7 @@ def cmd_cleanup(a):
                 print(f"AVISO: {path} nao e worktree e nao esta vazia ({n} item(ns)); nada apagado nela.")
                 continue
             held_by = [f"{x.get('name')} ({x['sessionId'][:8]}, {x.get('status')})"
-                       for x in lane_sessions(path, agents())]
+                       for x in lane_sessions(path, agents() or [])]
             print(f"AVISO: {path} ficou vazia e presa: algum processo tem cwd nela. Sessoes claude com cwd "
                   f"ali: {held_by or 'nenhuma'}. A linha de comando NAO mostra cwd — nao culpe o `daemon run` "
                   "que cita a lane no --spawned-by. Nada se perde: a proxima worktree reaproveita a pasta vazia.")
@@ -3779,14 +4090,18 @@ def final_report(st: dict) -> list[tuple[str, str, str]]:
         if l.startswith("worktree ") and key(l[9:]).startswith(wts + os.sep):
             add("C5", "mecanico", f"worktree {l[9:]} ainda registrada (rode `cleanup`)")
     live = agents()
+    if live is None:                             # sem a listagem, "nenhuma sessao sobrando" nao foi medido
+        add("C5", "mecanico", "claude agents --json indisponivel: sessoes vivas nao conferidas (rode de novo)")
     for d in sorted(WTS.iterdir()) if WTS.exists() else []:
         if not (d / ".git").exists():
-            held = [f"{x.get('name')} ({x['sessionId'][:8]}, {x.get('kind', '?')})" for x in lane_sessions(d, live)]
+            held = None if live is None else \
+                [f"{x.get('name')} ({x['sessionId'][:8]}, {x.get('kind', '?')})" for x in lane_sessions(d, live)]
             n_items = sum(1 for _ in d.iterdir()) if d.is_dir() else 1
             add("C5", "dono", f"{d} ficou ({n_items} item(ns)): " + (f"presa pela(s) sessao(oes) {held}" if held else
+                "sessoes claude com cwd nela nao conferidas (claude agents --json indisponivel)" if held is None else
                 "conteudo que o pipeline nao criou nesta execucao, ou pasta presa por processo que nao e sessao claude"))
     mine = (fin.get("session") or {}).get("id")
-    alive = {x.get("sessionId"): x for x in live if x.get("status") is not None}
+    alive = {x.get("sessionId"): x for x in (live or []) if x.get("status") is not None}
     for slug, b in st["bugs"].items():
         for stage, rec in b["sessions"].items():
             if rec and rec.get("id") in alive and rec["id"] != mine:
@@ -3853,7 +4168,8 @@ def schedule_stop_final():
 
 def cmd_stop_final(a):
     """Encerra a sessao da finalizacao (e copias abertas por resume: mesmo nome ou id impresso) quando
-    ela fica ociosa. Nunca para sessao trabalhando nem interativa."""
+    ela fica ociosa. Nunca para sessao trabalhando nem interativa. Sem a listagem (`agents` None) a passada
+    nao conta como "nenhuma viva" (`all([])` saia na 1a): espera e repete ate o --wait."""
     st = load()
     rec = st["final"].get("session") or {}
     name = f"pipeline-finalizacao-{st['run_id']}"
@@ -3861,6 +4177,13 @@ def cmd_stop_final(a):
     deadline, stopped = time.time() + a.wait * 60, []
     while True:
         live = agents()
+        if live is None:
+            if time.time() > deadline:
+                print("AVISO: claude agents --json indisponivel ate o fim do --wait: sessao(oes) da finalizacao "
+                      "NAO conferida(s); confira com `claude agents` e `claude stop`")
+                break
+            time.sleep(a.interval)
+            continue
         mine = [x for x in live if x.get("status") is not None and x.get("sessionId")
                 and x["sessionId"][:8] not in stopped      # ja parada aqui: o gerenciador demora a refletir
                 and x.get("kind") != "interactive" and (x.get("name") == name or x["sessionId"][:8] in ids)]
@@ -3876,7 +4199,7 @@ def cmd_stop_final(a):
             if st["final"].get("session"):
                 st["final"]["session"]["stopped"] = now()
                 save(st)
-    print(f"sessao(oes) da finalizacao encerrada(s): {stopped or 'nenhuma viva'}")
+    print(f"sessao(oes) da finalizacao encerrada(s): {stopped or ('nenhuma' if live is None else 'nenhuma viva')}")
 
 
 # --------------------------------------------------------------------------- vigia de cota (rodizio)
@@ -3940,11 +4263,16 @@ def current_recs(st: dict) -> list[tuple]:
 def limited_sessions(st: dict) -> list[dict]:
     """Passo 2 do vigia: sessoes das etapas atuais PARADAS (status None ou RESUMABLE, como no `tick`) com
     hit de cota posterior a ultima entrega (`session_hit`, R13/R23). Busy ou status desconhecido (talvez
-    esperando permissao) nao entra. [{"slug", "stage", "rec", "hit"}], na ordem do ledger."""
+    esperando permissao) nao entra. [{"slug", "stage", "rec", "hit"}], na ordem do ledger. Sem a listagem
+    (`agents` None) toda sessao pareceria parada: [] e a passada seguinte do vigia repete."""
     recs = current_recs(st)
     if not recs:
         return []
-    status = {x.get("sessionId"): x.get("status") for x in agents()}
+    live = agents()
+    if live is None:
+        print("AVISO: claude agents --json indisponivel: sessoes paradas por cota nao conferidas nesta passada")
+        return []
+    status = {x.get("sessionId"): x.get("status") for x in live}
     out = []
     for slug, stage, rec in recs:
         sst = status.get(rec["id"])
@@ -4249,6 +4577,11 @@ def watch_pass(w: dict) -> bool:
     # depois a retomada e a entrega das pendencias (portao aberto)
     clear_answered(st)
     watch_resume(w, t)
+    # 6. teto do slot E2E e sessao parada por erro de API: o tick, que nenhuma transicao rodaria (o vigia de reset
+    # faz o mesmo sem rodizio). [[pipeline-teste-e2e-sem-teto-de-tempo-segura-o-slot-horas-em-download-de-rom_2026-10-23]]
+    api = stall_tick(peek_state())
+    if api:
+        w["wake"] = min(w["wake"], api) if w.get("wake") else api
     return True
 
 
@@ -4359,10 +4692,13 @@ def reset_pass(w: dict) -> bool:
             tick(cur)
             save(cur)
     later = [d for d in (limit_due(h["rec"], h["hit"]) for h in hits) if d > t]
-    w["next"] = min(later) if later else None
-    if w["next"] and w["next"] != w.get("shown"):  # uma vez por horario, nao a cada passada
-        print(f"sessao parada por limite de uso: retomada as {when(w['next'])}")
-    w["shown"] = w["next"]
+    nxt = min(later) if later else None
+    if nxt and nxt != w.get("shown"):              # uma vez por horario, nao a cada passada
+        print(f"sessao parada por limite de uso: retomada as {when(nxt)}")
+    w["shown"] = nxt
+    # teto do slot e erro de API: ninguem chama transicao nesses casos (o tick acima ja pode ter cuidado deles)
+    api = stall_tick(peek_state() if due else st)
+    w["next"] = min([x for x in (nxt, api) if x], default=None)
     return True
 
 
@@ -4421,9 +4757,12 @@ def cmd_final_done(a):
     schedule_stop_final()
 
 
-def session_status(rec: dict | None, live: list[dict]) -> str:
+def session_status(rec: dict | None, live: list[dict] | None) -> str:
+    """`agents?` sem a listagem (`agents` None): `encerrada` ali seria chute."""
     if not rec or not rec.get("id"):
         return "-"
+    if live is None:
+        return "agents?"
     hits = [x for x in live if x.get("sessionId") == rec["id"]]
     return hits[0].get("status", "?") if hits else "encerrada"
 
@@ -4436,6 +4775,8 @@ def cmd_status(a):
         return
     st = load()
     live = agents()
+    if live is None:
+        print("AVISO: claude agents --json indisponivel: status das sessoes desconhecido (`agents?`)")
     print(f"execucao {st['run_id']}  fluxo principal {st['base']}  ondas: {len(st['waves'])}  "
           f"slot de teste: {st['test_slot'] or 'livre'}  fila: {st['test_queue'] or '-'}")
     eb = st.get("env_busy")
@@ -4448,6 +4789,8 @@ def cmd_status(a):
         p = b["plan"] or {}
         print(f"  {b['order']:>2} {b['state']:<18} onda {b['wave'] or '-'} dev<-{b['returns']} "
               f"{p.get('complexity', '?'):<6} {s[:58]:<58} {(rec or {}).get('name', '')} {session_status(rec, live) if rec else ''}")
+    for line in stall_status(st, live):
+        print(line)
     print(f"\nfinalizacao: {st['final']['state']}")
     for x in st["final"].get("pendencias", []):
         print("PENDENCIA DO DONO: " + x)

@@ -17,7 +17,7 @@ Testes nao rodam em paralelo: fila, um por vez, porque cada um sobe o app E2E.
 | Fato | Como foi provado |
 |---|---|
 | Sessao em background visivel no gerenciador existe no CLI | `claude --help`: `--bg` ("`claude agents` lists them"), `-n/--name` ("shown in ... /resume picker"), `--resume <id>` com `--bg` "continues that session in the background under the same ID, or starts a copy ... when the session is already running". **O help omite:** qualquer flag no resume tambem abre copia (secao 19) |
-| Listagem programatica das sessoes | `claude agents --json --all` -> array com `pid, cwd, kind, startedAt, sessionId, name, status` (`status` visto: `idle`, `busy`) |
+| Listagem programatica das sessoes | `claude agents --json --all` -> array com `pid, cwd, kind, startedAt, sessionId, name, status` (`status` visto: `idle`, `busy`). **Falha do CLI** = rc != 0 com stdout vazio (medido em 2026-10-23 com `--bogus`: rc 1, stderr `error: unknown option`); `json.loads('' or '[]')` a tornava `[]`, igual a "nenhuma sessao". O helper (`agents()`) a representa como `None` (rc != 0, stdout vazio, JSON que nao e lista, timeout de 60 s; uma nova tentativa 2 s depois) e cada chamador decide: o `tick` pula a passada, o `resume_cmd` da `Busy`, o `cleanup` recusa, o `stop-final` repete, o `status` mostra `agents?` ([[pipeline-falha-do-claude-agents-vira-lista-vazia-e-tick-trata-sessao-viva-como-parada_2026-10-16]]) |
 | `claude` NAO esta no PATH | `Get-Command claude` vazio; binario real em `%USERPROFILE%\.vscode\extensions\anthropic.claude-code-<versao>-win32-x64\resources\native-binary\claude.exe` (versao muda a cada update -> resolver por glob, nunca cravar) |
 | CLI recusa `C:\projects\retrobatnew` | `claude --bg ...` -> `Workspace not trusted. Run claude in C:\projects\retrobatnew once and accept the trust prompt`. `~/.claude.json` nao tem entrada para o projeto. **Acao do dono, uma vez.** Nao contornar editando `~/.claude.json` |
 | Arvore principal e compartilhada e suja | `git -C source status --short | wc -l` = 98; outras sessoes `interactive` no mesmo cwd em `claude agents --json` |
@@ -1795,3 +1795,61 @@ execucao `20261010-2242` do Downloader, o `env-wait` acusou OCUPADO por ~8 h o `
   `test-done ambiente`, `env-watch`; controle: os mesmos casos contra o `pipeline.py` da base falham) e processo REAL (copia do
   `PING.EXE` como `godsend-backend.exe` em duas pastas: so a fora da ignorada aparece; na base, as duas).
 - Ativar no Downloader/PS2Companion e acao do dono (o `projeto.json` deles nunca e sincronizado).
+
+### 22.14 Teto do slot E2E, aviso a sessao `busy` e retomada apos erro 5xx da API (2026-10-24)
+
+Origem: `docs/bugs/.../pipeline-teste-e2e-sem-teto-de-tempo-segura-o-slot-horas-em-download-de-rom_2026-10-23.md`. Na
+execucao `20261016-1156`, o T3 do bug 6 sorteou para `ps3` um placeholder de 9,4 GB e o launcher o baixou a ~0,3 MB/s:
+o slot ficou ~3 h com o bug 6, a onda 3 esperou, e `status`/`reconcile` diziam "nada parado". O `tick` fazia
+`if sst == "busy": continue`, e o watchdog do runner nunca para download (o `.partial` crescendo zera o relogio do
+`max_log_stall_seconds`). No mesmo dia, uma sessao que terminou o turno com `API Error: 500` esperou a tolerancia inteira
+(16 min, ate o maestro).
+
+**Fatos medidos (comando -> resultado):**
+- Transcript `8aa46d07` (teste do bug 6): a mensagem do maestro chegou como `queue-operation enqueue` e virou `user`
+  `origin.kind == "peer"` 57 ms depois, com a sessao `busy`, e ela agiu em 3 min. Mensagem entre sessoes acorda sessao busy.
+- Medicao do dev (2026-10-24, CLI 2.1.310): alvo `claude --bg` haiku rodando um `sleep 300` em background (`busy`/`working`);
+  `claude -p "<ListAgents; SendMessage a UNICA sessao com o prefixo>" --model haiku --allowedTools ListAgents SendMessage
+  --output-format json` -> rc 0, 10,6 s, 4 turnos, US$ 0,0064; no transcript do alvo, `queue-operation` com o corpo intacto e
+  `user` peer 38 ms depois. `--bg` exige pasta com trust (no tmp do job: "Workspace not trusted"); o `-p` nao exige.
+- O ListAgents mostra `nome [id]`: casar por prefixo. O nome do alvo pode conter o que se procura, entao a prova e o marcador
+  `[pipeline <nonce>]` do corpo.
+- Transcript `bbf95a96`, indice 88: `assistant` `<synthetic>`, `isApiErrorMessage`, `apiErrorStatus` 500, `error`
+  "server_error", texto `API Error: 500 Internal server error...`. O `quota_state` o tratava como `{"kind": None}`.
+- Catalogo sem tamanho (`catalog_manifest.txt`); `roms/ps3` sem nenhum ISO real (4258 entradas): o proximo T3 de `ps3` cai
+  num placeholder de novo.
+
+**Desenho:**
+- `projeto.json` `e2e.teto_slot_min` (60 no RetroBat; ausente/0 = desligado, o default das copias). `tick`, ramo `busy`:
+  so quem segura o slot (`slot_hold`). Posse = ultima entrada `-> teste-e2e` com `from != teste-e2e` (`slot_since`):
+  cutucada, retomada e aviso gravam `from == to` e nao a zeram. Passado o teto, UM aviso por posse (`slot_warn.since`) pelo
+  `deliver_busy`; o resultado (entregue ou motivo) fica no ledger e no `status`, e falha nao repete. Com 2x o teto,
+  `PARADO (slot)`, sem acao.
+- `deliver_busy`: portao do rodizio fechado -> nem chama o CLI; `claude -p` de haiku (cwd ROOT, timeout 180 s) com o
+  prefixo do nome (50 caracteres) e a mensagem com `[pipeline <nonce>]`; entregue = marcador nos ultimos 256 KB do transcript
+  do alvo em ate 10 s. Nunca `die`.
+- `api_error_hit` (separado do `quota_state`, para nao tocar o rodizio) + `api_retry` no `tick`, depois do
+  `resume_after_limit` e antes da tolerancia: retomada 120 s depois do erro com a `API_MSG`, sem gastar `nudges`;
+  `api_retries[etapa]` conta retomadas SEGUIDAS (resposta real depois da ultima entrega zera); 3 -> `PARADO (erro de API)`,
+  e o `reconcile --fix` (force) retoma mesmo assim. Vale para a finalizacao.
+- `stall_due`/`stall_tick`: o vigia de reset (`reset_pass`) e o de cota (`watch_pass`, passo 6) rodam o `tick` quando o
+  teto venceu sem aviso nesta posse (sessao busy) ou um erro de API venceu; o sono acaba no proximo vencimento de erro de
+  API. Nenhum vigia novo: um dos dois ja vive a execucao inteira.
+- Runner (`tests/retrobat_tests`): `--download-timeout N` (default 0 = nunca matar, a suite noturna) -> watchdog
+  `max_pre_detection_seconds`: sem `[Running]` depois de N s, corta e marca `budget_exceeded`, e o `classify` da
+  `skip-download-timeout` (antes das linhas `[Error]` da cadeia de fontes, depois de crashdump/access violation).
+  `--replay <report.json>` relanca a MESMA lista de (sistema, ROM) e nao relanca a linha cortada pelo teto na referencia.
+  Receita do T3 no `projeto.md`: `--download-timeout 900` e A/B na base com `--replay`.
+
+**Hipoteses descartadas:** ROM pelo tamanho remoto (catalogo sem tamanho; a URL so sai da cadeia de fontes do C#). Teto de
+download ligado por padrao (a suite noturna mede downloads de horas). T3 so com ROM ja baixada (fix de download precisa de
+placeholder; `ps3` viraria `skip-norom` sempre). Falar direto no pipe `cc-msg-*` (protocolo interno, autenticado por
+`peerToken`; fragil a cada versao). `claude stop` + `--resume` passado o teto (derruba o trabalho em voo e deixa processo
+orfao no `dist`). Aviso por `queue_pending` (bate no mesmo `Busy` e chega velho). Teto contado so no `tick` de transicao
+(no caso real ninguem fazia transicao). `quota_state` com `kind: "api"` (o `nudge_hold` com rodizio e o vigia de cota
+contariam erro de servidor como hit de conta).
+
+**Provas:** `sim_pipeline.py` `[slot-teto]` (a-j, status, `reset_pass`, `watch_pass`) e `[erro-api]` (a-f, finalizacao,
+report, force); controle: os casos `[slot-teto]` contra o `pipeline.py` da base falham (o `tick` nem anota nada).
+`tests/tests/test_download_timeout.py` (watchdog real com `.partial` crescendo sem parar, classify, runner com
+watchdog/enumeracao falsos, CLI). Ativar nas copias e acao do dono (`teto_slot_min` no `projeto.json` de cada uma).

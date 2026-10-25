@@ -182,6 +182,20 @@ pasta do pipeline, aberto pelo `start` e por todo `tick` com efeito (inclusive o
 sai quando a execucao fecha ou o rodizio liga; o `status` mostra se esta vivo. O `reconcile` sem
 `--fix` diz `cutucaria`/`retomaria`: nada e enviado.
 
+Sessao **ocupada** (`busy`) nunca e cutucada, mas quem segura o **slot E2E** tem teto
+(`e2e.teto_slot_min` no `projeto.json`; ausente ou 0 = desligado). Passado o teto, o `tick` manda
+UMA mensagem por posse do slot a sessao, mesmo ocupada: uma sessao `claude -p` de haiku acha o alvo
+com `ListAgents` e manda com `SendMessage`. A entrega so conta se o marcador `[pipeline <nonce>]`
+aparece no transcript do alvo. Falha de entrega fica registrada e nao se repete. Com 2x o teto, o
+`status` mostra `PARADO (slot)`, e o pipeline nao para a sessao (derrubaria o trabalho em voo e
+deixaria processo orfao no ambiente).
+
+Sessao parada por **erro do servidor da API** (ultimo turno `API Error: 5xx`/`overloaded`) tambem nao
+e "ociosa". Ela e retomada 2 min depois do erro, sem esperar a tolerancia e sem gastar cutucada, ate
+3 vezes seguidas sem resposta. Depois disso vira `PARADO (erro de API)`. Nos dois casos ninguem chama
+transicao, entao quem roda o `tick` e o vigia que ja vive a execucao inteira: o de cota (com rodizio)
+ou o de reset (sem rodizio).
+
 ## Rodizio de contas (limite de uso)
 
 Desenho: DESIGN secao 20 (e o documento que o `projeto.md` cita). Aqui so o que o maestro e o dono
@@ -248,6 +262,12 @@ precisam saber.
 - quem espera arquivo de quem;
 - mensagens pendentes e Etapa 2 travada, se houver;
 - o que parou e ja esgotou as cutucadas;
+- `SLOT PRESO desde ... (aviso entregue HH:MM | nao entregue: motivo | ainda nao)`: o teste segura o
+  slot alem do teto. Com `PARADO (slot)` (2x o teto), `claude attach` na sessao de teste e veja o que
+  ela espera. Se for download/ambiente, mande-a encerrar so os processos dela e fechar com
+  `test-done --result ambiente`;
+- `PARADO (erro de API)`: 3 retomadas seguidas terminaram no mesmo erro do servidor. Veja
+  status.claude.com e retome com `reconcile --fix` quando a API voltar;
 - terminados, por desfecho.
 
 ## Modo `reconcile`

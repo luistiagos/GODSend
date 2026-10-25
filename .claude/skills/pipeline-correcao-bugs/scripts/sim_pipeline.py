@@ -38,7 +38,7 @@ P.stop_sessions = lambda b, except_stage=None: stops.append((b["title"], except_
 P.publish_head = fake_publish
 P.guard_wt = lambda p: Path(p)
 P.publish_docs_only = lambda st, slug: (docs_only.append(slug), "sha-docs")[1]
-P.agents = lambda: []
+REAL_AGENTS, P.agents = P.agents, lambda: []         # o real: o [agents-indisponivel] o liga a copias com CLI falso
 # o `dispatch_slot` confere o ambiente E2E (`foreign_processes`: PowerShell REAL com o `e2e` do projeto) e, ocupado, abre o
 # `env-watch` destacado: nenhum caso depende do que esta aberto na maquina nem abre processo. O real vai para `[ambiente]`.
 # [[pipeline-e2e-casa-processo-so-pelo-nome-e-slot-concedido-sem-conferir-ambiente_2026-10-11]]
@@ -332,6 +332,21 @@ check(s["bugs"]["x"]["state"] == s["bugs"]["y"]["state"] == "teste" and not any(
 expect_exit(2, lambda: call("enqueue-test", bug="z"), "[reserva_livre] diff SO com o livre: 'nenhum commit de codigo' (nao e fix)")
 check(P.compute_wave(wave_st) == ["p", "q"], "[reserva_livre] planos [P, CHANGELOG.md] e [Q, CHANGELOG.md] na mesma onda")
 P.RESERVA_LIVRE = []                             # os casos seguintes nao herdam
+# [config-carga] os casos acima atribuem P.RESERVA_LIVRE direto; aqui o `configure` do IMPORT le a chave do projeto.json
+# (repo git temporario, `raiz ".."`: o norm tira o prefixo 'repo/')
+# [[pipeline-configure-chama-norm-antes-de-definido-e-reserva-livre-derruba-o-helper_2026-10-24]]
+import shutil, subprocess as sp_cl
+repo_cl = tmp / "carga" / "repo"; (repo_cl / "skill" / "scripts").mkdir(parents=True)
+sp_cl.run(["git", "init", "-q", str(repo_cl)], check=True)
+shutil.copy(Path(__file__).with_name("pipeline.py"), repo_cl / "skill" / "scripts" / "pipeline.py")
+(repo_cl / "skill" / "projeto.json").write_text(json.dumps({"nome": "carga", "raiz": "..", "base": "origin/main", "build": [],
+                                                            "reserva_livre": ["repo/CHANGELOG.md"]}), encoding="utf-8")
+spec_cl = importlib.util.spec_from_file_location("pipeline_cl", repo_cl / "skill" / "scripts" / "pipeline.py")
+try:
+    M_cl = importlib.util.module_from_spec(spec_cl); spec_cl.loader.exec_module(M_cl); carga = M_cl.RESERVA_LIVRE
+except Exception as e:                           # o sintoma: NameError no import
+    carga = repr(e)
+check(carga == ["CHANGELOG.md"], f"[config-carga] projeto.json com reserva_livre: o modulo carrega e normaliza ({carga})")
 P.run = real_run
 
 # [ambiente] processo HOMONIMO de outro projeto parou a fila ~8 h (Downloader: o godsend-backend do PS2Companion) e o
@@ -572,7 +587,8 @@ fake_cj = tmp / "claude.json"
 P.CLAUDE_JSON = fake_cj
 def cj(projects): fake_cj.write_text(json.dumps({"projects": projects}), encoding="utf-8")
 yes = {"hasTrustDialogAccepted": True}
-cj({P.ROOT.as_posix(): yes, P.WTS.as_posix(): yes, (P.WTS / "wt-planning").as_posix(): yes})
+# ancestral = SRC.parent, nao ROOT: com raiz "." o ROOT e o proprio SRC [[pipeline-sim-piloto-trust-falha-com-raiz-ponto-root-igual-src_2026-10-16]]
+cj({P.SRC.parent.as_posix(): yes, P.WTS.as_posix(): yes, (P.WTS / "wt-planning").as_posix(): yes})
 check(not P.worktrees_trusted(), "[piloto trust] raiz + lanes + wt-planning confiaveis, source nao -> falha")
 cj({str(P.SRC).upper() + "\\": yes})
 check(P.worktrees_trusted(), "[piloto trust] source confiavel (caixa/barra diferentes) -> ok")
@@ -726,6 +742,22 @@ check(R.bg_id("backgrounded \ufffd \x1b[36md2426956\x1b[39m \ufffd pipeline-fina
       "[piloto sonda] bg_id: le o id com ANSI e separador corrompido (cli_output real do state.json); sem id -> None")
 probe_calls.clear(); boom[0] = False
 expect_exit(1, lambda: R.cmd_preflight(types.SimpleNamespace(skip_spawn=True)), "[piloto sonda] --skip-spawn")
+# [agents-indisponivel] a checagem `claude agents --json responde` era isinstance(agents(), list): a falha tambem era
+# lista (`[]`), entao nunca falhava [[pipeline-falha-do-claude-agents-vira-lista-vazia-e-tick-trata-sessao-viva-como-parada_2026-10-16]]
+def pf_agents(rc, stdout):
+    """O preflight com o agents() REAL da copia R e o `claude agents` falso devolvendo (rc, stdout)."""
+    R.agents, buf, sl = types.FunctionType(REAL_AGENTS.__code__, R.__dict__, "agents"), io.StringIO(), time.sleep
+    R.run, time.sleep = (lambda cmd, cwd=None, check=True, timeout=None: types.SimpleNamespace(
+        returncode=rc, stdout=stdout, stderr="error: unknown option '--bogus'" if rc else "")
+        if list(map(str, cmd))[1:2] == ["agents"] else probe_run(cmd, cwd, check, timeout)), (lambda s: None)
+    with contextlib.redirect_stdout(buf):
+        try: R.cmd_preflight(types.SimpleNamespace(skip_spawn=True))
+        except SystemExit: pass
+    R.agents, R.run, time.sleep = probe_agents, probe_run, sl
+    return buf.getvalue()
+check("[FALHA] claude agents --json responde" in pf_agents(1, ""),
+      "[agents-indisponivel] preflight com o CLI caido (rc 1, stdout vazio): [FALHA] (antes: sempre [OK])")
+check("[OK]   claude agents --json responde" in pf_agents(0, "[]"), "[agents-indisponivel] preflight com lista: [OK] (controle)")
 # [finalizacao] o preflight MEDE a arvore principal (a linha antiga era check(True, ...): nao podia falhar)
 import contextlib, io
 def preflight_out():
@@ -2344,6 +2376,413 @@ ds = json.loads(D.STATE.read_text(encoding="utf-8"))
 check(ds["bugs"]["d"]["state"] == ds["bugs"]["e"]["state"] == "open-falhou" and "ciclo em depende_de" in ds["bugs"]["d"]["history"][-1]["note"]
       and ds["final"]["state"] == "rodando" and not [s for s, b in ds["bugs"].items() if b["state"] not in D.TERMINAL],
       "[tasks] ciclo (d <-> e) -> open-falhou, e so depois a finalizacao abre, sem item planejado no ledger")
+
+# ---- [agents-indisponivel] falha do `claude agents --json` (rc 1 e stdout vazio, medido com `--bogus`) virava `[]`,
+# igual a "nenhuma sessao": o tick cutucava sessao viva, o resume abria COPIA, o cleanup removia lane com sessao, o
+# stop-final e o status achavam tudo encerrado. Agora e None, e cada chamador decide. Copia nova do modulo com o
+# agents() REAL e o CLI falso caido (como o real falha): contra o pipeline.py antigo, estes casos reprovam pelo
+# comportamento do bug, nao por TypeError. O `P.agents = lambda: []` do resto do sim continua "nenhuma sessao".
+# [[pipeline-falha-do-claude-agents-vira-lista-vazia-e-tick-trata-sessao-viva-como-parada_2026-10-16]]
+A = importlib.util.module_from_spec(spec); spec.loader.exec_module(A)
+atmp = Path(tempfile.mkdtemp())
+A.PIPE = atmp; A.STATE = atmp / "state.json"; A.WTS = atmp / "lanes"; A.DSG = atmp / "nao-existe"
+A.ACCOUNTS_DIR = atmp / "contas-a"; A.CRED_FILE = atmp / "cred-a.json"; A.CLAUDE_PROJECTS = atmp / "projects"
+alaunch, acalls, agit, aslot, awave = [], [], [], [], []
+A.launch_detached = lambda args: alaunch.append(list(args))
+A.claude_exe = lambda: "claude"
+A.git = lambda *a, **k: (agit.append(a), "")[1]
+A.dispatch_slot = lambda st: (aslot.append(1), None)[1]
+A.next_wave = lambda st: awave.append(1)
+real_sleep_a = time.sleep
+time.sleep = lambda s: None                          # a nova tentativa do agents() e o laco do stop-final dormem
+ag_out, down = [], [False]
+def a_run(cmd, cwd=None, check=True, timeout=None):
+    cmd = list(map(str, cmd)); acalls.append((cmd, timeout))
+    r = (ag_out.pop(0) if ag_out else (1, "") if down[0] else (0, "[]")) if cmd[1:2] == ["agents"] else (0, "")
+    if isinstance(r, BaseException):
+        raise r
+    return types.SimpleNamespace(returncode=r[0], stdout=r[1], stderr="error: unknown option '--bogus'" if r[0] else "")
+A.run = a_run
+def cli(*outs, fail=False):
+    """O `claude agents` falso: `outs` primeiro, depois rc 1 com stdout vazio (fail=True) ou `[]`."""
+    ag_out[:], down[0] = list(outs), fail
+    acalls.clear()
+def others(): return [c for c, _ in acalls if c[1:2] != ["agents"]]
+def ag_timeouts(): return [t for c, t in acalls if c[1:2] == ["agents"]]
+def a_out(fn):
+    """(retorno, codigo de saida ou None, stdout+stderr): o `die` escreve no stderr."""
+    buf, r, code = io.StringIO(), None, None
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        try: r = fn()
+        except SystemExit as e: code = e.code
+    return r, code, buf.getvalue()
+def ag(*outs):
+    cli(*outs)
+    return A.agents()
+one = [{"sessionId": "x1", "status": "busy"}]
+check(ag((1, ""), (1, "")) is None and ag_timeouts() == [getattr(A, "AGENTS_TIMEOUT", "?")] * 2,
+      f"[agents-indisponivel] rc 1 com stdout vazio (a falha medida) -> None, depois de UMA nova tentativa, com timeout "
+      f"({ag_timeouts()})")
+check(ag((0, "[]")) == [] and len(ag_timeouts()) == 1, "[agents-indisponivel] rc 0 com `[]` -> [] (nenhuma sessao, sem nova tentativa)")
+check(ag((0, json.dumps(one))) == one, "[agents-indisponivel] rc 0 com lista -> a lista")
+check(ag((0, "{}"), (0, "{}")) is None and ag((0, ""), (0, "  \n")) is None
+      and ag((0, "aviso: atualizando\n[]"), (0, "nao json")) is None,
+      "[agents-indisponivel] JSON que nao e lista, stdout vazio com rc 0, e saida com aviso antes do JSON -> None")
+try:
+    tmo = (ag(subprocess.TimeoutExpired("claude", 60), subprocess.TimeoutExpired("claude", 60)) is None
+           and ag(OSError("exe trocado pelo update"), (0, json.dumps(one))) == one)
+except (subprocess.TimeoutExpired, OSError):
+    tmo = False
+check(tmo and ag((1, ""), (0, json.dumps(one))) == one,
+      "[agents-indisponivel] timeout -> None; falha so na 1a tentativa (rc 1 ou exe sumido) -> a lista da 2a")
+
+def a_state():
+    old, new = "2000-01-01T00:00:00", A.now()
+    return {"run_id": "a", "base": "origin/versao3", "model": "claude-opus-5-5", "effort": "medium",
+            "permission_mode": "auto", "created": old, "test_slot": None, "test_queue": [], "waves": [["v", "o", "p"]],
+            "elencado": old, "worktrees": {"wt-planning": {"path": str(atmp / "wt-planning"), "bug": None}},
+            "final": {"state": "pendente", "session": None},
+            "pending_spawns": [{"slug": "p", "stage": "dev", "message": "pendente para p", "why": "busy", "ts": old}],
+            "bugs": {"v": {"order": 1, "state": "dev", "wave": 1, "returns": 0, "plan": None, "doc": "v.md",
+                           "sessions": {"dev": {"id": "vvvv0000-1111", "name": "bug01-dev-v"}},
+                           "history": [{"ts": old, "from": "planejado", "to": "dev"}]},
+                     "o": {"order": 2, "state": "dev", "wave": 1, "returns": 0, "plan": None, "doc": "o.md",
+                           "sessions": {}, "history": [{"ts": old, "from": "planejado", "to": "dev"}]},
+                     "p": {"order": 3, "state": "dev", "wave": 1, "returns": 0, "plan": None, "doc": "p.md",
+                           "sessions": {"dev": {"id": "pppp0000-1111", "name": "bug03-dev-p"}},
+                           "history": [{"ts": new, "from": "planejado", "to": "dev"}]}}}
+aspawn, real_spawn_a = [], A.spawn
+A.spawn = lambda st, slug, stage, message="": aspawn.append((slug, stage, message[:40]))
+idle_a = json.dumps([{"sessionId": "vvvv0000-1111", "id": "vvvv0000", "status": "idle"},
+                     {"sessionId": "pppp0000-1111", "id": "pppp0000", "status": "idle"}])
+# controle: com a listagem, a mesma passada reentrega (p), cutuca v (ociosa ha muito) e abre a etapa sem sessao de o
+cli((0, idle_a)); sa = a_state(); A.tick(sa)
+check(sorted(x[0] for x in aspawn) == ["o", "p", "v"] and sa["bugs"]["v"].get("nudges", {}).get("dev") == 1 and aslot and awave,
+      f"[agents-indisponivel] controle: com a listagem o tick reentrega (p), cutuca (v) e abre (o) ({aspawn})")
+aspawn.clear(); aslot.clear(); awave.clear(); alaunch.clear()
+cli(fail=True); sa = a_state(); snap_a = json.dumps(sa, sort_keys=True)
+notes = A.tick(sa)
+check(not aspawn and json.dumps(sa, sort_keys=True) == snap_a and not aslot and not awave and not others(),
+      "[agents-indisponivel] tick com o CLI caido: nenhuma reentrega, cutucada (v ociosa ha muito) nem sessao nova "
+      f"para a etapa sem id (o), sem slot nem onda; o ledger nao muda (pendencia e nudges intactos) ({aspawn})")
+check(len(notes) == 1 and "indisponivel" in notes[0] and ["reset-watch", "--origem", "tick"] in alaunch,
+      f"[agents-indisponivel] tick diz que pulou a passada, e o vigia de reset continua agendado ({notes}, {alaunch})")
+aspawn.clear(); alaunch.clear()
+notes = A.tick(sa, report=True)
+check(len(notes) == 1 and "indisponivel" in notes[0] and not alaunch and json.dumps(sa, sort_keys=True) == snap_a,
+      f"[agents-indisponivel] reconcile sem --fix (report) com o CLI caido: so a nota, nada agendado ({notes})")
+sa = a_state(); sa["bugs"], sa["pending_spawns"] = {}, []
+sa["final"] = {"state": "rodando", "session": {"id": "ffff0000-1111", "name": "pipeline-finalizacao-a"}, "since": "2000-01-01T00:00:00"}
+aspawn.clear(); A.tick(sa)
+check(not aspawn and "nudges" not in sa["final"],
+      f"[agents-indisponivel] finalizacao ociosa ha muito com o CLI caido: nao cutucada ({aspawn})")
+A.spawn = real_spawn_a
+
+# resume_cmd e spawn REAL: sem a listagem nao ha como saber se a sessao parou -> Busy -> mensagem pendente
+def resume_busy():
+    try: return A.resume_cmd("claude", "vvvv0000-1111", "msg")
+    except A.Busy as e: return e
+cli(fail=True); r = resume_busy()
+check(isinstance(r, A.Busy) and "indisponivel" in str(r) and not others(),
+      f"[agents-indisponivel] resume_cmd com o CLI caido: Busy, sem stop nem resume (antes: {r})")
+cli((0, idle_a), fail=True); r = resume_busy()           # responde, e cai logo depois do `stop`
+check(isinstance(r, A.Busy) and others() == [["claude", "stop", "vvvv0000"]],
+      f"[agents-indisponivel] CLI cai no laco de espera do `stop`: Busy, nunca o resume as cegas ({r})")
+(atmp / "wt-planning").mkdir(exist_ok=True)
+cli(fail=True); sp = sp_state({"planning": {"id": "aaaa1111-2222", "name": "bug01-planning-x"}})
+rec = A.spawn(sp, "x", "planning", "de novo")
+check(rec is None and [e["stage"] for e in sp["pending_spawns"]] == ["planning"]
+      and "indisponivel" in sp["pending_spawns"][0]["why"] and not [c for c in others() if "--bg" in c],
+      "[agents-indisponivel] spawn de retomada com o CLI caido: mensagem em pending_spawns, nenhum --bg --resume executado")
+cli(fail=True); sp = sp_state({})
+rec = A.spawn(sp, "x", "planning", "oi")
+check(rec is not None and rec["id"] is None and [c for c in others() if "--bg" in c],
+      "[agents-indisponivel] spawn novo com o CLI caido: abre, e o laco de registro trata a falha como 'ainda nao registrou'")
+
+# stop_live (fim do preflight), job_id, limited_sessions
+cli(fail=True)
+got = A.stop_live("pipeline-preflight-1", {"abcd1234", None})
+check(got == ["abcd1234"] and others() == [["claude", "stop", "abcd1234"]],
+      f"[agents-indisponivel] stop_live com o CLI caido: `claude stop` no id que a sonda abriu (antes: 'nenhuma viva') ({got})")
+cli(fail=True)
+check(A.job_id("abcdef12-3456") == "abcdef12", "[agents-indisponivel] job_id com o CLI caido: os 8 primeiros")
+A.CLAUDE_PROJECTS.joinpath("C--lane").mkdir(parents=True, exist_ok=True)
+A.CLAUDE_PROJECTS.joinpath("C--lane", "vvvv0000-1111.jsonl").write_text(json.dumps(
+    {"type": "assistant", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "isApiErrorMessage": True,
+     "quotaLimits": {"status": "rejected", "resetsAt": 1792147800, "rateLimitType": "five_hour"},
+     "message": {"model": "<synthetic>", "content": [{"type": "text", "text": "You've hit your session limit"}]}}) + "\n",
+    encoding="utf-8")
+sa = a_state()
+cli((0, json.dumps([{"sessionId": "vvvv0000-1111", "id": "vvvv0000", "status": "busy"}])))
+check(A.limited_sessions(sa) == [], "[agents-indisponivel] limited_sessions: controle, sessao busy com hit nao entra")
+cli((0, "[]"))
+check([h["slug"] for h in A.limited_sessions(sa)] == ["v"], "[agents-indisponivel] limited_sessions: controle, parada com hit entra")
+cli(fail=True)
+r, _, out = a_out(lambda: A.limited_sessions(sa))
+check(r == [] and "indisponivel" in out,
+      f"[agents-indisponivel] limited_sessions com o CLI caido: [] com aviso no log do vigia (a busy com hit nao vira parada) "
+      f"({[h['slug'] for h in r or []]})")
+
+# status, cleanup, stop-final: pelo ledger em disco
+sa = a_state(); A.save(sa)
+cli((0, "[]"))
+_, _, out = a_out(lambda: A.cmd_status(types.SimpleNamespace()))
+check("encerrada" in out, "[agents-indisponivel] status: controle, lista vazia -> `encerrada`")
+cli(fail=True)
+_, _, out = a_out(lambda: A.cmd_status(types.SimpleNamespace()))
+check("encerrada" not in out and "agents?" in out and "AVISO: claude agents --json indisponivel" in out,
+      "[agents-indisponivel] status com o CLI caido: AVISO e `agents?`, nunca `encerrada`")
+agit.clear(); cli(fail=True)
+_, code, out = a_out(lambda: A.cmd_cleanup(types.SimpleNamespace()))
+check(code == 2 and "cleanup recusado (nada foi apagado)" in out and "indisponivel" in out and not agit
+      and not [c for c in others() if "worktree" in c],
+      f"[agents-indisponivel] cleanup com o CLI caido: sai 2 antes de qualquer git/`worktree remove` (git: {agit[:2]})")
+sa["final"] = {"state": "concluido", "session": {"id": "ffff0000-1111", "name": "pipeline-finalizacao-a",
+                                                 "cli_output": "backgrounded · ffff0000 · x"}}
+A.save(sa)
+cli((1, ""), (1, ""), (1, ""), (1, ""), (0, json.dumps([{"name": "pipeline-finalizacao-a", "sessionId": "ffff0000-1111",
+                                                         "id": "ffff0000", "kind": "background", "status": "idle"}])))
+_, _, out = a_out(lambda: A.cmd_stop_final(types.SimpleNamespace(wait=15, interval=20)))
+check(len(ag_timeouts()) == 5 and others() == [["claude", "stop", "ffff0000"]]
+      and json.loads(A.STATE.read_text(encoding="utf-8"))["final"]["session"].get("stopped"),
+      f"[agents-indisponivel] stop-final: 2 passadas com o CLI caido nao contam como 'nenhuma viva'; para na 3a ({out.strip()})")
+cli(fail=True)
+_, _, out = a_out(lambda: A.cmd_stop_final(types.SimpleNamespace(wait=0, interval=20)))
+check(not others() and "NAO conferida" in out and "nenhuma viva" not in out,
+      f"[agents-indisponivel] stop-final com o CLI caido ate o --wait: diz que NAO conferiu ({out.strip()})")
+time.sleep = real_sleep_a
+
+# ---- [slot-teto] / [erro-api] o `tick` pulava sessao `busy` (o slot E2E ficou ~3 h num download de 9 GB, com o status
+# dizendo "nada parado") e a sessao parada por erro 5xx da API esperava a tolerancia inteira. Copia nova do modulo: CLI
+# falso (o mensageiro `claude -p` escreve o marcador no transcript do alvo, ou nao), spawn falso que move o sent_ts como
+# o real, transcripts em tmp/projects. Contra o pipeline.py antigo: nenhuma chamada ao mensageiro, nenhuma retomada
+# antes da tolerancia. [[pipeline-teste-e2e-sem-teto-de-tempo-segura-o-slot-horas-em-download-de-rom_2026-10-23]]
+import re
+S = importlib.util.module_from_spec(spec); spec.loader.exec_module(S)
+stmp = Path(tempfile.mkdtemp())
+S.PIPE = stmp; S.STATE = stmp / "state.json"; S.WTS = stmp / "lanes"; S.DSG = stmp / "nao-existe"
+S.ACCOUNTS_DIR = stmp / "contas-s"; S.CRED_FILE = stmp / "cred-s.json"; S.CLAUDE_PROJECTS = tmp / "projects"
+S.E2E = {**S.E2E, "teto_slot_min": 60}
+S.launch_detached = lambda args: None
+S.claude_exe = lambda: "claude"
+S.git = lambda *a_, **k_: ""
+S.dispatch_slot = lambda st: None
+S.next_wave = lambda st: None
+S.time = types.SimpleNamespace(time=time.time, sleep=lambda s_: None)   # o deliver_busy espera o marcador: sem dormir
+sagents, sspawn, smsgr, smode, starget = {}, [], [], ["ok"], [None]
+S.agents = lambda: [{"sessionId": k, "id": k[:8], "name": f"n-{k}", "status": v} for k, v in sagents.items()]
+def s_spawn(st, slug, stage, message=""):
+    rec = S.bug_of(st, slug)["sessions"][stage] if slug else st["final"]["session"]
+    rec["sent_ts"] = time.time()                    # como o spawn real: a entrega move o sent_ts
+    sspawn.append((slug, stage, message))
+S.spawn = s_spawn
+def s_run(cmd, cwd=None, check=True, timeout=None, token=None):
+    cmd = list(map(str, cmd))
+    if cmd[1:2] != ["-p"]:
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    smsgr.append((cmd, cwd, timeout))
+    if smode[0] == "timeout":
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    m = re.search(r"\[pipeline [0-9a-f]{12}\]", cmd[2])
+    if smode[0] == "ok" and m:                      # a mensagem entre sessoes chega como queue-operation (medido)
+        with open(tmp / "projects" / "C--pasta" / f"{starget[0]}.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "queue-operation", "operation": "enqueue",
+                                "content": f"<cross-session-message from=\"uds:x\">{m.group(0)} oi"}) + "\n")
+    return types.SimpleNamespace(returncode=0, stdout=json.dumps({"result": "ENVIADO"}), stderr="")
+S.run = s_run
+def ago(mins): return (S.dt.datetime.now() - S.dt.timedelta(minutes=mins)).isoformat(timespec="seconds")
+def zt(secs_ago): return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() - secs_ago))
+SID = "slot0000-1111"
+def s_state(held=61, warn=None, extra=(), state="teste-e2e", sid=SID, sent_ago=7200):
+    b = {"order": 6, "state": state, "title": "s6", "doc": "s6.md", "branch": "fix/s6", "wave": 2, "returns": 0,
+         "test_round": 1, "wt": "wt-1", "claims": [], "retry_after": None,
+         "plan": {"files": ["x.py"], "complexity": "media", "severity": "alto", "effort": {}, "ultrathink": {}},
+         "sessions": {S.STAGE_OF[state]: {"id": sid, "name": f"bug06-{S.STAGE_OF[state]}-s6", "sent_ts": time.time() - sent_ago}},
+         "history": [{"ts": ago(held + 30), "from": "dev", "to": "teste"},
+                     {"ts": ago(held), "from": "teste", "to": state}, *extra]}
+    if warn:
+        b["slot_warn"] = warn
+    return {"run_id": "s", "base": "origin/versao3", "model": "m", "effort": "medium", "permission_mode": "auto",
+            "created": ago(900), "test_slot": "s6" if state == "teste-e2e" else None, "test_queue": [], "waves": [["s6"]],
+            "elencado": None, "max_returns": 3, "pending_spawns": [], "final": {"state": "pendente", "session": None},
+            "worktrees": {"wt-planning": {"path": str(stmp / "wt-planning"), "bug": None},
+                          "wt-1": {"path": str(stmp / "wt-1"), "bug": "s6"}}, "bugs": {"s6": b}}
+def s_tick(st, **kw):
+    smsgr.clear(); sspawn.clear()
+    notes, _, out = a_out(lambda: S.tick(st, **kw))
+    return notes or []
+jl(SID, u(zt(4000)))
+sagents.clear(); sagents[SID] = "busy"; starget[0] = SID
+# (a) o caso real: segura o slot ha 61 min, sessao busy, teto 60 -> UMA chamada ao mensageiro, prova pelo marcador
+st9 = s_state(); since9 = st9["bugs"]["s6"]["history"][-1]["ts"]
+n9 = s_tick(st9); w9 = st9["bugs"]["s6"].get("slot_warn") or {}
+pc = smsgr[0][0] if smsgr else []
+check(len(smsgr) == 1 and w9.get("since") == since9 and w9.get("ok") is True and not sspawn
+      and pc[3:] == ["--model", "haiku", "--allowedTools", "ListAgents", "SendMessage", "--output-format", "json"]
+      and "`bug06-teste-s6`" in pc[2] and "test-done --bug s6 --result ambiente" in pc[2] and smsgr[0][1] == S.ROOT
+      and any(n.startswith("SLOT PRESO: s6 segura o slot ha 61 min") and "aviso entregue" in n for n in n9)
+      and st9["bugs"]["s6"]["history"][-1]["note"] == "aviso de teto do slot: entregue",
+      f"[slot-teto] (a) slot ha 61 min com a sessao busy: 1 `claude -p` de haiku (ListAgents+SendMessage, cwd ROOT) com o "
+      f"prefixo do nome e o test-done, slot_warn com o since da posse, nota SLOT PRESO, sem spawn ({n9})")
+# (b) 5 min depois (mesma posse): nenhuma chamada
+n9b = s_tick(st9)
+check(not smsgr and any("aviso entregue as" in n for n in n9b), f"[slot-teto] (b) tick seguinte na mesma posse: nenhum aviso novo ({n9b})")
+# (c) 2x o teto, aviso ja dado: PARADO (slot), nenhuma chamada, nenhum stop
+st9c = s_state(held=121, warn={"since": ago(121), "ts": ago(60), "ok": True, "why": "entregue"})
+n9c = s_tick(st9c)
+check(not smsgr and not sspawn and any(n.startswith("PARADO (slot): s6 segura o slot ha 121 min") for n in n9c),
+      f"[slot-teto] (c) 121 min com aviso dado: PARADO (slot) para o dono, sem chamada nem acao ({n9c})")
+# (d) cutucada no meio (teste-e2e -> teste-e2e) nao zera a posse
+st9d = s_state(extra=[{"ts": ago(5), "from": "teste-e2e", "to": "teste-e2e", "note": "cutucada"}])
+s_tick(st9d)
+check(len(smsgr) == 1 and st9d["bugs"]["s6"]["slot_warn"]["since"] == st9d["bugs"]["s6"]["history"][1]["ts"],
+      "[slot-teto] (d) cutucada no meio da posse (from == to) nao zera o since: o aviso conta desde o -> teste-e2e")
+# (e) posse nova (aviso de uma posse anterior): avisa de novo
+st9e = s_state(warn={"since": ago(300), "ts": ago(200), "ok": True, "why": "entregue"})
+s_tick(st9e)
+check(len(smsgr) == 1 and st9e["bugs"]["s6"]["slot_warn"]["since"] != ago(300), "[slot-teto] (e) posse nova (ambiente -> fila -> slot): avisa de novo")
+# (f) report=True (reconcile sem --fix): nenhuma chamada, nada gravado
+st9f = s_state(); snap9 = json.dumps(st9f, sort_keys=True)
+n9f = s_tick(st9f, report=True)
+check(not smsgr and json.dumps(st9f, sort_keys=True) == snap9 and any("avisaria a sessao" in n for n in n9f),
+      f"[slot-teto] (f) report=True: so 'avisaria', nenhuma chamada, ledger igual ({n9f})")
+# (g) sem teto no projeto.json (ou 0), menos de 60 min, ou sessao busy que nao segura o slot: nada
+S.E2E = {k: v for k, v in S.E2E.items() if k != "teto_slot_min"}
+n9g = s_tick(s_state())
+S.E2E = {**S.E2E, "teto_slot_min": 60}
+n9g2 = s_tick(s_state(held=59)) + s_tick(s_state(state="dev"))
+check(not smsgr and not n9g and not n9g2, f"[slot-teto] (g) sem teto_slot_min, 59 min, ou busy fora do slot: nada ({n9g}, {n9g2})")
+# (h) o mensageiro falha (timeout): ok False com o motivo, sem repetir; o status mostra "nao entregue"
+smode[0] = "timeout"; st9h = s_state(); n9h = s_tick(st9h); w9h = st9h["bugs"]["s6"]["slot_warn"]
+n9h2 = s_tick(st9h); smode[0] = "ok"
+S.save(st9h); _, _, out9h = a_out(lambda: S.cmd_status(types.SimpleNamespace()))
+check(w9h["ok"] is False and "TimeoutExpired" in w9h["why"] and not smsgr and any("aviso NAO entregue" in n for n in n9h)
+      and "SLOT PRESO desde" in out9h and "nao entregue: mensageiro falhou (TimeoutExpired)" in out9h,
+      f"[slot-teto] (h) mensageiro com timeout: ok False + motivo, nada repetido no tick seguinte, status 'nao entregue' ({out9h.strip()[-200:]})")
+# (i) o haiku diz ENVIADO mas o marcador nao chegou ao transcript do alvo: NAO entregue
+smode[0] = "mente"; st9i = s_state(); s_tick(st9i); smode[0] = "ok"
+w9i = st9i["bugs"]["s6"]["slot_warn"]
+check(w9i["ok"] is False and "marcador ausente" in w9i["why"] and "ENVIADO" in w9i["why"],
+      f"[slot-teto] (i) resposta 'ENVIADO' sem o marcador no transcript do alvo: ok False ({w9i['why']})")
+# (j) portao do rodizio fechado: nem chama o CLI
+real_gate9 = S.gate_now; S.gate_now = lambda: (True, None, "aguardando cota")
+st9j = s_state(); s_tick(st9j); S.gate_now = real_gate9
+check(not smsgr and st9j["bugs"]["s6"]["slot_warn"]["why"] == "portao fechado (aguardando cota)",
+      "[slot-teto] (j) portao fechado: nenhum `claude -p`, motivo gravado")
+# status: SLOT PRESO com o aviso entregue; PARADO (slot) com 2x
+S.save(st9); _, _, out9 = a_out(lambda: S.cmd_status(types.SimpleNamespace()))
+S.save(st9c); _, _, out9c = a_out(lambda: S.cmd_status(types.SimpleNamespace()))
+check("SLOT PRESO desde" in out9 and "aviso entregue" in out9 and "PARADO (slot)" not in out9
+      and "PARADO (slot), precisa do dono" in out9c,
+      f"[slot-teto] status: 'SLOT PRESO desde ... aviso entregue HH:MM'; com 2x o teto, 'PARADO (slot)' ({out9c.strip()[-160:]})")
+
+# [erro-api] a forma medida no bbf95a96, indice 88
+API500 = ("API Error: 500 Internal server error. This is a server-side issue, usually temporary — try again in a "
+          "moment. If it persists, check https://status.claude.com.")
+def e500(t, status=500, error="server_error", text=API500):
+    return dict(a(t, "<synthetic>", text), error=error, isApiErrorMessage=True, apiErrorStatus=status)
+AID = "apie0000-2222"
+def api_state(sent_ago=600, retries=None, final=False):
+    st_ = s_state(state="dev", sid=AID, sent_ago=sent_ago, held=600)     # transicao ha 10 h: tolerancia vencida
+    if retries:
+        st_["bugs"]["s6"]["api_retries"] = {"dev": retries}
+    if final:
+        st_["bugs"] = {}
+        st_["final"] = {"state": "rodando", "since": ago(600), "session": {"id": AID, "name": "pipeline-finalizacao-s",
+                                                                          "sent_ts": time.time() - sent_ago}}
+    return st_
+sagents.clear(); sagents[AID] = "idle"
+jl(AID, u(zt(400)), e500(zt(60)))
+sa9 = api_state(); na = s_tick(sa9)
+check(not sspawn and not sa9["bugs"]["s6"].get("nudges") and any("retomada automatica em" in n for n in na),
+      f"[erro-api] (a) erro 500 ha 1 min, sessao idle, tolerancia vencida: nada ainda, e SEM cutucada generica ({na})")
+jl(AID, u(zt(400)), e500(zt(180)))
+na = s_tick(sa9)
+check(len(sspawn) == 1 and "erro do servidor da API (500)" in sspawn[0][2] and not sa9["bugs"]["s6"].get("nudges")
+      and sa9["bugs"]["s6"]["api_retries"] == {"dev": 1} and "retomada apos erro da API 500 (1 de 3)" in sa9["bugs"]["s6"]["history"][-1]["note"],
+      f"[erro-api] (a) 3 min depois: 1 retomada com a API_MSG, nudges intacto, api_retries 1 ({na})")
+# (b) erro de novo depois de cada retomada, sem resposta: a 4a vez e PARADO (erro de API)
+for k in (2, 3):
+    sa9["bugs"]["s6"]["sessions"]["dev"]["sent_ts"] = time.time() - 300      # retomada ha 5 min, erro ha 3, sem resposta
+    s_tick(sa9)
+n_retry = sa9["bugs"]["s6"]["api_retries"]["dev"]
+sa9["bugs"]["s6"]["sessions"]["dev"]["sent_ts"] = time.time() - 300
+nb = s_tick(sa9)
+S.save(sa9); _, _, outb = a_out(lambda: S.cmd_status(types.SimpleNamespace()))
+check(n_retry == 3 and not sspawn and any(n.startswith("PARADO (erro de API): s6") for n in nb)
+      and "PARADO (erro de API): s6/dev (3 retomadas seguidas sem resposta)" in outb,
+      f"[erro-api] (b) 3 retomadas seguidas sem resposta: a 4a vira PARADO (erro de API), sem spawn, e o status mostra ({nb})")
+nf = s_tick(sa9, force=True)
+check(len(sspawn) == 1 and sa9["bugs"]["s6"]["api_retries"] == {"dev": 4} and any("retomando (4 de 3)" in n for n in nf),
+      f"[erro-api] (b) reconcile --fix (force) no PARADO (erro de API): retoma mesmo assim, como o teto de cutucadas ({nf})")
+# (c) resposta real entre os erros: o contador zera
+jl(AID, u(zt(500)), a(zt(400)), e500(zt(180)))
+sc9 = api_state(sent_ago=450, retries=3); s_tick(sc9)
+check(len(sspawn) == 1 and sc9["bugs"]["s6"]["api_retries"] == {"dev": 1},
+      "[erro-api] (c) resposta real depois da ultima entrega: a sequencia quebra, retoma e o contador volta a 1")
+# (d) 401 e limite continuam com o quota_state; 529/overloaded e texto contam; erro anterior a entrega nao conta
+jl("apiauth", u(zt(400)), auth(zt(180)))
+jl("apilim", u(zt(400)), hit(zt(180), reset=int(time.time()) + 3600))
+jl("api529", u(zt(400)), e500(zt(180), status=529, error="overloaded_error", text="API Error: 529 Overloaded"))
+jl("apitxt", u(zt(400)), dict(a(zt(180), "<synthetic>", "API Error: 503 Service Unavailable"), isApiErrorMessage=True))
+check(S.api_error_hit({"id": "apiauth"}) is None and S.api_error_hit({"id": "apilim"}) is None
+      and S.api_error_hit({"id": "api529"})["status"] == 529 and S.api_error_hit({"id": "apitxt"})["status"] == "5xx"
+      and S.api_error_hit({"id": "api529", "sent_ts": time.time()}) is None
+      and S.quota_state("apiauth")["kind"] == "auth",
+      "[erro-api] (d) 401 e limite: fora (quota_state cuida); 529/overloaded e o texto 'API Error: 5xx' contam; erro anterior a entrega nao")
+# (e) rodizio ligado com o portao aberto: o nudge_hold nao segura a retomada
+jl(AID, u(zt(400)), e500(zt(180)))
+real_gate9 = S.gate_now; S.gate_now = lambda: (True, "a", None)
+se9 = api_state(); s_tick(se9); S.gate_now = real_gate9
+check(len(sspawn) == 1, "[erro-api] (e) rodizio ligado e portao aberto: a retomada sai (o erro de API nao e cota)")
+# finalizacao: o mesmo ramo, com `since` andando e `nudges` parado
+sf9 = api_state(final=True); s_tick(sf9)
+check(sspawn and sspawn[0][0] is None and sspawn[0][1] == "finalizacao" and not sf9["final"].get("nudges")
+      and sf9["final"]["api_retries"] == {"finalizacao": 1},
+      f"[erro-api] finalizacao parada por erro 500: retomada sem cutucada ({sspawn})")
+# report=True: so 'retomaria'
+sr9 = api_state(); snap_r9 = json.dumps(sr9, sort_keys=True); nr = s_tick(sr9, report=True)
+check(not sspawn and json.dumps(sr9, sort_keys=True) == snap_r9 and any("retomaria ja (1 de 3)" in n for n in nr),
+      f"[erro-api] report=True: so 'retomaria', nada enviado nem gravado ({nr})")
+
+# (f) os vigias rodam o tick quando ninguem chama transicao: reset_pass (sem rodizio) e watch_pass (com rodizio)
+def rpass():
+    w_ = {"run_id": "s", "log": types.SimpleNamespace(path=None), "origin": "teste", "next": None, "shown": None}
+    smsgr.clear(); sspawn.clear()
+    r_, _, out_ = a_out(lambda: S.reset_pass(w_))
+    return w_, out_
+jl(AID, u(zt(400)), e500(zt(60)))
+S.save(api_state()); wr, outr = rpass()
+check(not sspawn and wr["next"] and abs(wr["next"] - (time.time() + 60)) < 5,
+      f"[erro-api] (f) reset_pass com o erro ainda nao vencido: nada, e o sono acaba no vencimento ({wr['next']})")
+jl(AID, u(zt(400)), e500(zt(180)))
+S.save(api_state()); wr, outr = rpass(); s_after = json.loads(S.STATE.read_text(encoding="utf-8"))
+check(len(sspawn) == 1 and "vencido sem transicao: s6/dev" in outr and s_after["bugs"]["s6"]["api_retries"] == {"dev": 1},
+      f"[erro-api] (f) reset_pass: erro vencido sem transicao -> o tick roda, retoma e grava o ledger ({outr.strip()[-200:]})")
+sagents.clear(); sagents[SID] = "busy"
+S.save(s_state()); wr, outr = rpass(); s_after = json.loads(S.STATE.read_text(encoding="utf-8"))
+check(len(smsgr) == 1 and s_after["bugs"]["s6"]["slot_warn"]["ok"] is True and "teto do slot vencido" in outr,
+      f"[slot-teto] reset_pass: teto vencido sem transicao (o caso das 19:45) -> o tick avisa a sessao busy ({outr.strip()[-200:]})")
+wr, outr = rpass()
+check(not smsgr and "vencido sem transicao" not in outr, "[slot-teto] reset_pass seguinte: aviso ja dado nesta posse, nada")
+sagents[SID] = "idle"; S.save(s_state()); wr, outr = rpass()
+check(not smsgr and "vencido" not in outr, "[slot-teto] reset_pass com a sessao do slot ociosa: o teto e so de busy (a cutucada cuida)")
+# watch_pass com o rodizio ligado (guarda falsa: 2 contas, a ativa disponivel)
+FAKE_ACC = {**S.accounts_default(), "order": ["a", "b"], "active": "a",
+            "accounts": {"a": {"email": "a@x"}, "b": {"email": "b@x"}}}   # entrada vazia = falsy = portao fechado
+saved9 = (S.accounts_load, S.accounts_save, S.ensure_active)
+S.accounts_load = lambda: json.loads(json.dumps(FAKE_ACC)); S.accounts_save = lambda acc: None
+S.ensure_active = lambda acc, t: "ok"
+sagents[SID] = "busy"; S.save(s_state())
+ww = {"h": None, "run_id": "s", "log": types.SimpleNamespace(path=None), "origin": "teste", "note": None, "hits": [], "wake": None}
+smsgr.clear(); sspawn.clear(); gw, _, outw = a_out(lambda: S.watch_pass(ww))
+w_after = json.loads(S.STATE.read_text(encoding="utf-8"))["bugs"]["s6"].get("slot_warn") or {}
+sagents.clear(); sagents[AID] = "idle"; jl(AID, u(zt(400)), e500(zt(60))); S.save(api_state())
+ww["wake"] = None; a_out(lambda: S.watch_pass(ww))
+S.accounts_load, S.accounts_save, S.ensure_active = saved9
+check(gw is True and len(smsgr) == 1 and w_after.get("ok") is True and "teto do slot vencido" in outw
+      and ww["wake"] and abs(ww["wake"] - (time.time() + 60)) < 5,
+      f"[slot-teto] watch_pass (rodizio ligado): teto vencido -> tick e aviso; erro de API futuro encurta o sono ({outw.strip()[-200:]})")
 
 C.subprocess = types.SimpleNamespace(run=fake_sp_run, TimeoutExpired=subprocess.TimeoutExpired)
 if sess_env is not None:

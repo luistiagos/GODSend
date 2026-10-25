@@ -83,6 +83,13 @@ As ferramentas e os logs de cada nivel estao na tabela do manual. Ambiente compa
 evidencia contaminada por uso alheio (filtre pela hora e pelo PID do SEU launch), mate so os PIDs
 que voce abriu, e em config compartilhada insira/remova SO as suas linhas.
 
+**Voce segura o slot, e a fila espera por voce.** Todo comando que roda em background dentro do slot
+(bateria, download, launch) tem teto proprio (o do manual; ex.: o teto de download da bateria). Nunca
+termine o turno esperando um comando sem teto. Se chegar a mensagem `[pipeline <nonce>] MENSAGEM DO
+PIPELINE: voce segura o slot ha N min...`, decida pelo roteiro. Se esta esperando download ou ambiente,
+encerre so os SEUS processos (pelos PIDs que voce abriu) e feche com `test-done --result ambiente`. Se o
+teste esta andando, siga. Com 2x o teto, o dono ve `PARADO (slot)` no `status`.
+
 ## Passo 6 — Classificar
 
 Falha **pertinente**: sintoma persiste, regressao num caminho que o fix tocou, build quebrado,
