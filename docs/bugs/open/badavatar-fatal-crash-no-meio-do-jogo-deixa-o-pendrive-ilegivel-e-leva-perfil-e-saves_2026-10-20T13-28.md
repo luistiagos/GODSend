@@ -201,3 +201,38 @@ requisitos marcados → "Preparar pendrive/HD". Evidência: `C:\projects\.bugfix
   serve de dano simulado, porque o Node já usa `\\?\` em caminho absoluto e o `lstat` abre o arquivo. Simular dano real
   pede escrita raw (admin). Achado lateral: o `chkdsk E:` só leitura **roda sem admin** e confere a FAT de verdade (~15 s
   aqui). Seria um sinal melhor que a varredura, se a varredura não pegar o dano do Xbox.
+
+## Ocorrência candidata — 2026-10-26, chamado #261 (NÃO confirmada)
+
+Sessão `168654842908762@lid` (telefone `5547991025596`), console travado, **HD** Toshiba de 931 GB preparado em
+23/10 com "Formatar antes" (rótulo `BADAVATAR (E:)`, raiz com `BadUpdatePayload` e `apps` em [155527]). Horários UTC
+de `Wpp_proccess`, lidos pela skill `sessao-whatsapp`.
+
+| id | hora | o que aconteceu |
+|---|---|---|
+| 155541 | 14:55:40 | a Aurora abre pelo exploit (*"Scanning for new Title Updates..."*) |
+| 155566 | 15:27:12 | Aurora baixando capas (*"Downloading 25"*, Street Fighter II' HF) |
+| 155568 | 15:28:38 | ao abrir LEGO Marvel: *"Erro no Jogo. Impossível ler o disco."* |
+| 155575 | 15:32:33 | (áudio) *"tentei fechar ele aqui, só ficou uma tela preta e não voltou mais"* |
+| 155576 | 15:32:33 | (áudio) *"Agora apareceu a tela da Aurora"* |
+| 155578 | 15:34:29 | Aurora: *"No Titles Found 0 of 0"* |
+| 155586 | 15:41:39 | HD no PC: `games` tem `GTA 4 (6.49) - 545407F2`, `Lego Marvels Avengers (6.05) - 5752084F`, `Street Fighter II' HF` |
+| 155588 | 15:46:29 | de volta ao console: *"agora o aurora nem início"* |
+| 155600 | 15:55:20 | *"o avatar abadavatar n aparece"* |
+| 155614 | 16:04:35 | Armazenamento só lista o "Disco Rígido" interno (16,2 GB livres) e a nuvem: **o HD não aparece** |
+| 155616 | 16:06:56 | depois de trocar de porta USB: *"n apareceu ND"*; [155618] *"o HD está ligado pq posso ouvir ele"* |
+
+**Por que é só candidata:**
+- Parecido com este bug: erro/tela preta com jogo aberto e, logo depois, o dispositivo some para o console.
+- Diferente deste bug: o HD tinha ~30 min de uso, não semanas. Não houve mensagem de "fatal". O HD passou pelo PC
+  entre a falha e o sumiço ([155586]), e não se sabe se foi ejetado com segurança. Ele não aparece **nem** como
+  dispositivo não formatado. Isso também cabe na hipótese de energia/enumeração USB de um HD externo alimentado pela porta do Xbox 360, que
+  é outra causa.
+- Nada foi medido: nem `chkdsk`, nem `crashlog.txt`, nem telemetria da máquina.
+
+**Para confirmar ou descartar, nesta ordem:**
+1. Print da raiz do HD no PC procurando `crashlog.txt` (o `launch.ini` grava `Dumpfile = Usb:\crashlog.txt`).
+   Se existir, pedir o arquivo antes de qualquer reparo ou preparo.
+2. O Windows pede para "verificar e reparar" o volume? `chkdsk E:` só leitura (roda sem admin, ver acima).
+3. Se o FAT32 estiver limpo e o HD seguir invisível ao console, a hipótese passa a ser energia/porta, e o caso sai
+   deste doc.
