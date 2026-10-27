@@ -1,8 +1,8 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, shell } from "electron";
 import path from "path";
 
 import { getFirstValidIconPath } from "../infrastructure/fileSystem";
-import { isAllowedApplicationNavigation } from "../infrastructure/navigationPolicy";
+import { isAllowedApplicationNavigation, isAllowedExternalLink } from "../infrastructure/navigationPolicy";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { reportError } from "../infrastructure/telemetry";
 import { setMainWindowRef } from "../services/backendClient";
@@ -162,7 +162,10 @@ export function createMainWindow(): void {
   mainWindow.maximize();
   mainWindow.show();
 
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalLink(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
   mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
     if (!isAllowedApplicationNavigation(
       targetUrl,

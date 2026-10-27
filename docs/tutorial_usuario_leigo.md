@@ -79,7 +79,7 @@ Se você não quiser usar a rede para passar os jogos (o que pode ser lento no W
 ## ❓ Resolução de Problemas Comuns (FAQ)
 
 * **Os perfis ou avatares do meu console travado estão cinzas (silhuetas). O que fazer?**
-  * O BadAvatar precisa que a atualização de avatares esteja instalada no console para funcionar. Siga o tutorial de atualização offline no aplicativo (aba de informações de Avatares) usando uma pasta renomeada para `$$SystemUpdate` num pendrive em FAT32.
+  * O BadAvatar precisa que a atualização de avatares esteja instalada no console para funcionar. Siga o tutorial de atualização offline no aplicativo (*Preparar dispositivo > Como corrigir os avatares cinzas*): ele tem o link oficial da Microsoft. Extraia o ZIP na raiz de um pendrive em FAT32 e deixe a pasta `$SystemUpdate` com o nome oficial, sem renomear.
 * **O formatador diz que não pode formatar o pendrive.**
   * Certifique-se de fechar qualquer pasta ou programa (como o Explorer ou antivírus) que esteja lendo arquivos do pendrive no momento e tente novamente.
 * **A transferência por rede está caindo ou muito lenta.**

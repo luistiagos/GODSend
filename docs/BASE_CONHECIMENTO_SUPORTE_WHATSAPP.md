@@ -172,8 +172,8 @@ Utilize as respostas prontas abaixo para enviar diretamente ao cliente quando el
 > *"Olá! Para o desbloqueio BadAvatar funcionar no Xbox travado, os avatares do videogame precisam estar atualizados. Quando eles estão cinzas, significa que falta a atualização de sistema.*
 > 
 > **Como resolver:**
-> 1. Baixe a atualização offline oficial da versão **17559**.
-> 2. Coloque a pasta com o nome **`$$SystemUpdate`** na raiz de um pendrive formatado em FAT32.
+> 1. Baixe a atualização offline oficial da versão **17559** neste link da Microsoft: https://www.xbox.com/system-update-usb (arquivo `SystemUpdate_17559_USB.zip`, cerca de 110 MB). O Xbox Companion também abre esse link em *Preparar dispositivo > Como corrigir os avatares cinzas*.
+> 2. Extraia o ZIP **direto na raiz** de um pendrive formatado em FAT32. A pasta **`$SystemUpdate`** (com um cifrão, sem renomear) precisa ficar na raiz, e não dentro de outra pasta como `SystemUpdate_17559_USB`.
 > 3. Desconecte a internet do Xbox, insira o pendrive e ligue o console. Ele pedirá para atualizar os avatares. Aceite a atualização.
 > 4. Assim que os avatares ficarem coloridos, execute o preparador do Xbox Companion novamente no pendrive!"*
 

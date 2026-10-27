@@ -19,6 +19,7 @@ import {
   DEVICE_STATE_BADGE,
   SKIP_SCREEN_TEXT,
 } from "../../services/preparedDeviceCopy.ts";
+import { XBOX360_SYSTEM_UPDATE_USB_URL } from "../../infrastructure/navigationPolicy.ts";
 
 interface UsbDrive {
   rootPath: string;
@@ -673,19 +674,25 @@ export default function BadAvatarUsbPage({
                 Como corrigir os avatares cinzas (instalar dados de avatar/Kinect)?
               </summary>
               <div className="mt-2.5 space-y-2 text-muted-foreground">
-                <p>Se os avatares dos perfis estiverem cinzas (silhuetas sem corpo) no menu oficial do Xbox 360, siga este procedimento de instalação offline (via pendrive) para não perder o destrave RGH:</p>
+                <p>Se os avatares dos perfis estiverem cinzas (silhuetas sem corpo) no menu oficial do Xbox 360, instale a atualização oficial da Microsoft pelo pendrive, sem conectar o console à internet:</p>
                 <ol className="list-decimal pl-4 space-y-1.5 mb-3">
                   <li>
                     <strong>Identifique a versão do seu painel:</strong> Vá em <em>Configurações &gt; Sistema &gt; Configurações do Console &gt; Informações do Sistema</em> e anote o número da Dashboard (exemplo: se terminar em 17559, sua versão é a 17559).
                   </li>
                   <li>
-                    <strong>Baixe a atualização oficial:</strong> Baixe no PC a atualização oficial de sistema da Microsoft correspondente à sua versão exata (ex: <em>Xbox 360 System Update 17559</em>).
+                    <strong>Baixe a atualização oficial:</strong>{" "}
+                    <a
+                      href={XBOX360_SYSTEM_UPDATE_USB_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-green-500 underline underline-offset-2 hover:text-green-400"
+                    >
+                      clique aqui para baixar a atualização 17559 do site da Microsoft
+                    </a>{" "}
+                    (abre no navegador). O arquivo se chama <code>SystemUpdate_17559_USB.zip</code> e tem cerca de 110 MB; se o seu tiver bem menos, o download parou no meio — baixe de novo.
                   </li>
                   <li>
-                    <strong>Prepare o pendrive:</strong> Formate um pendrive em <strong>FAT32</strong> no computador e extraia o arquivo ZIP baixado. Você obterá uma pasta chamada <code>$SystemUpdate</code>.
-                  </li>
-                  <li>
-                    <strong>Renomeie a pasta (Importante para RGH):</strong> Para contornar o bloqueio de segurança do destrave, renomeie a pasta de <code>$SystemUpdate</code> para <code>$$SystemUpdate</code> (com dois cifrões).
+                    <strong>Prepare o pendrive:</strong> Formate um pendrive em <strong>FAT32</strong> e extraia o ZIP <strong>direto na raiz</strong> dele. A pasta <code>$SystemUpdate</code> precisa ficar na raiz (ex.: <code>E:\$SystemUpdate</code>), e não dentro de outra pasta como <code>SystemUpdate_17559_USB</code>. Mantenha o nome <code>$SystemUpdate</code>, com um cifrão — não renomeie.
                   </li>
                   <li>
                     <strong>Instale no console:</strong> Com o Xbox 360 desligado, conecte o pendrive na entrada USB. Ligue o console e selecione <strong>Sim</strong> na mensagem que aparecerá na tela inicial pedindo para aplicar a atualização de recursos de avatar/Kinect.

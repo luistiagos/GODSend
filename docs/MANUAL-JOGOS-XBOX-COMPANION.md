@@ -98,7 +98,7 @@ Para que os jogos instalados apareçam na sua biblioteca do Aurora com capas e i
 ## 5. Resolução de Problemas (FAQ)
 
 * **Os perfis/avatares no console travado estão cinzas (silhuetas):**
-  * O exploit BadAvatar exige a atualização de avatares no console. Instale a atualização oficial offline na versão 17559 usando a pasta renomeada para `$$SystemUpdate` em um pendrive FAT32.
+  * O exploit BadAvatar exige a atualização de avatares no console. Instale a atualização oficial offline na versão 17559 (https://www.xbox.com/system-update-usb, link também na tela *Preparar dispositivo*), extraindo o ZIP na raiz de um pendrive FAT32: a pasta `$SystemUpdate` fica na raiz, com o nome oficial, sem renomear.
 * **O formatador avisa que não consegue formatar o pendrive:**
   * Feche o Windows Explorer ou qualquer programa que esteja acessando arquivos da unidade USB e tente novamente.
 * **Transferência via rede lenta ou desconectando:**

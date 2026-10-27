@@ -2,8 +2,28 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  XBOX360_SYSTEM_UPDATE_USB_URL,
   isAllowedApplicationNavigation,
+  isAllowedExternalLink,
 } = require("../../infrastructure/navigationPolicy.js");
+
+test("link externo: só a atualização 17559 oficial, pela URL exata", () => {
+  assert.equal(XBOX360_SYSTEM_UPDATE_USB_URL, "https://www.xbox.com/system-update-usb");
+  assert.equal(isAllowedExternalLink(XBOX360_SYSTEM_UPDATE_USB_URL), true);
+  for (const target of [
+    "http://www.xbox.com/system-update-usb",
+    "https://www.xbox.com/system-update-cd",
+    "https://www.xbox.com/system-update-usb/../evil",
+    "https://www.xbox.com/",
+    "https://www.xbox.com.evil.test/system-update-usb",
+    "https://example.test/",
+    "javascript:alert(1)",
+    "file:///C:/Windows/System32/cmd.exe",
+    "",
+  ]) {
+    assert.equal(isAllowedExternalLink(target), false, target);
+  }
+});
 
 test("produção aceita somente o mesmo arquivo local", () => {
   const current = "file:///C:/Program%20Files/App/renderer-dist/index.html?nocache=1";
