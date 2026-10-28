@@ -131,7 +131,10 @@ T2 (guia do agente no `digitalstoregamesproject`) **não** foi feita: moratória
   `["https://www.xbox.com/system-update-usb"]`; nenhuma janela nova; a página continuou em `file:///…`.
 - `curl -sIL https://www.xbox.com/system-update-usb` → `200`, `Content-Length: 115992188` (2026-10-27).
 
-**Falta para fechar:** publicar a 2.12.118 e um cliente com avatares cinzas baixar pelo link do app. Não verificado:
+**Publicada em 2026-10-28:** `version.json` público anuncia 2.12.118; `xboxcompanion.exe` (589.166.279 bytes,
+sha256 `7320a877…`) e `xboxcompanion32.exe` (572.178.886, `fc0c0323…`) respondem 200 e batem com `dist/`.
+
+**Falta para fechar:** um cliente com avatares cinzas baixar pelo link do app. Não verificado:
 se o `$SystemUpdate` instala só o dado de avatar num console que já está na 17559 (o caso do doc
 `badavatar-hd-preparado-nao-dispara-...` diz que não oferece nada); isso é daquele bug, não deste.
 
@@ -151,7 +154,7 @@ correção (`.godsend.lock` e `src/android-app/.gradle/...` modificados não sã
    (conversa do chamado #261, sessão `168654842908762@lid`, mensagens [153041]–[153106]: o agente adivinha o layout
    da página da Microsoft quatro vezes) e pedir **aprovação explícita do dono**. Não editar com a base rodando
    evals (lê o prompt do disco). Commit no `digitalstoregamesproject`, citando o doc de lá, não este.
-2. **Publicar a 2.12.118** — é o `build-and-upload.ps1` (HF + R2 + version.json), feito pelo dono.
+2. ~~**Publicar a 2.12.118**~~ — feito pelo dono em 2026-10-28 (ver "Testes executados").
 3. **Fechar este doc** (`git mv` para `docs/bugs/closed/`) quando um cliente com avatares cinzas baixar a 17559
    pelo link do app (ou o dono clicar no link na versão publicada e o navegador baixar o zip de 115.992.188 bytes).
    Prova a gravar aqui: versão publicada + chamado/print.
