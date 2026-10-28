@@ -103,7 +103,7 @@ A pasta dentro de outra pasta (sintoma 6) vem do "Extrair tudo"/WinRAR, que por 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
 | T1 | app abre o link oficial da 17559 e o texto do bloqueado/LT manda `$SystemUpdate` na raiz | `56848bc` | retest (não publicada) | claude-opus-5-5 | -- |
-| T2 | guia do agente (digitalstoregamesproject) com o link — moratória, pendente do dono | -- | backlog | -- | -- |
+| T2 | guia do agente (digitalstoregamesproject) com o link, aprovado pelo dono em 2026-10-28; eval do chamado #261 antes 0/3, depois 3/3. Doc de lá: `digitalstoregamesproject/docs/modules/chatbot-whatsapp/areas/prompt-kb/bugs/2026-10-27-guia-badavatar-avatares-cinzas-sem-link-da-17559-agente-adivinha-a-pagina-da-microsoft.md` | `30ab508` (backend dsg) | commitada, deploy do backend pendente | claude-opus-5-5 | -- |
 
 ## Correção aplicada (2.12.118)
 
