@@ -102,7 +102,7 @@ A pasta dentro de outra pasta (sintoma 6) vem do "Extrair tudo"/WinRAR, que por 
 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
-| T1 | app abre o link oficial da 17559 e o texto do bloqueado/LT manda `$SystemUpdate` na raiz | -- | -- | -- | -- |
+| T1 | app abre o link oficial da 17559 e o texto do bloqueado/LT manda `$SystemUpdate` na raiz | `56848bc` | retest (não publicada) | claude-opus-5-5 | -- |
 | T2 | guia do agente (digitalstoregamesproject) com o link — moratória, pendente do dono | -- | backlog | -- | -- |
 
 ## Correção aplicada (2.12.118)
@@ -134,3 +134,27 @@ T2 (guia do agente no `digitalstoregamesproject`) **não** foi feita: moratória
 **Falta para fechar:** publicar a 2.12.118 e um cliente com avatares cinzas baixar pelo link do app. Não verificado:
 se o `$SystemUpdate` instala só o dado de avatar num console que já está na 17559 (o caso do doc
 `badavatar-hd-preparado-nao-dispara-...` diz que não oferece nada); isso é daquele bug, não deste.
+
+## Passagem de bastão (2026-10-27)
+
+**Feito:** T1 inteira, commit `56848bc` (2.12.118, ainda **não publicada**). Nada pendente na árvore desta
+correção (`.godsend.lock` e `src/android-app/.gradle/...` modificados não são dela; não commitar junto).
+
+**Próximos passos, em ordem:**
+
+1. **T2: guia do agente** (`digitalstoregamesproject/digitalstoregamesbackend/mysite/templates/prompts/fragments/guias/xbox360_badavatar.md`,
+   seção `## Problema: "os avatares estão cinzas"`, passo 1, linha 81). Trocar *"No PC, baixar a atualização oficial
+   de sistema da Microsoft da versão **17559**"* por um texto com o link `https://www.xbox.com/system-update-usb`
+   (arquivo `SystemUpdate_17559_USB.zip`, ~110 MB) e, no passo 2, "extrair direto na raiz; `$SystemUpdate` não pode
+   ficar dentro de `SystemUpdate_17559_USB`". O passo 3 (`$SystemUpdate`, não `$$`) já está certo.
+   **Moratória de prompts:** antes de editar, abrir no `digitalstoregamesproject` o doc de bug do guia + caso de eval
+   (conversa do chamado #261, sessão `168654842908762@lid`, mensagens [153041]–[153106]: o agente adivinha o layout
+   da página da Microsoft quatro vezes) e pedir **aprovação explícita do dono**. Não editar com a base rodando
+   evals (lê o prompt do disco). Commit no `digitalstoregamesproject`, citando o doc de lá, não este.
+2. **Publicar a 2.12.118** — é o `build-and-upload.ps1` (HF + R2 + version.json), feito pelo dono.
+3. **Fechar este doc** (`git mv` para `docs/bugs/closed/`) quando um cliente com avatares cinzas baixar a 17559
+   pelo link do app (ou o dono clicar no link na versão publicada e o navegador baixar o zip de 115.992.188 bytes).
+   Prova a gravar aqui: versão publicada + chamado/print.
+
+**Não fazer nesta linha:** a hipótese de a 17559 não reinstalar o dado de avatar num console que já está na 17559 é
+do bug `badavatar-hd-preparado-nao-dispara-com-avatares-cinzas-...` (open), não deste.
