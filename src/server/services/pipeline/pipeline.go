@@ -241,6 +241,9 @@ func (s *Service) ProcessGameWithErr(gameName, platform string) error {
 		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
 			return err
 		}
+		if err := s.installSiblingDiscs(gameName, extDir, xexFolder, xboxConn); err != nil {
+			return err
+		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"godsend/utils"
 )
 
 // writeDiscXEX writes a default.xex whose execution-info header names titleID and disc.
@@ -70,6 +72,58 @@ func TestFindXEXFolderKeepsTheFirstFolderWhenNothingIsAnInstallDisc(t *testing.T
 
 	if got := FindXEXFolder(extDir); got != first {
 		t.Fatalf("sem disco de instalação conhecido, a escolha continua sendo a primeira; veio %s", got)
+	}
+}
+
+// TestSiblingDiscFoldersFindsTheOtherPlayableDisc mirrors "Mass Effect 2 + PT-BR + DLC": both
+// playable discs side by side in one archive, and only the first was ever installed.
+func TestSiblingDiscFoldersFindsTheOtherPlayableDisc(t *testing.T) {
+	extDir := t.TempDir()
+	release := filepath.Join(extDir, "Mass Effect 2 + PT-BR + DLC", "MASS EFFECT 2")
+	writeDiscXEX(t, filepath.Join(release, "DISCO 1"), 0x454108CE, 1)
+	disc2 := filepath.Join(release, "DISCO 2")
+	writeDiscXEX(t, disc2, 0x454108CE, 2)
+
+	game := FindXEXFolder(extDir)
+	if game != filepath.Join(release, "DISCO 1") {
+		t.Fatalf("o jogo escolhido continua sendo o DISCO 1; veio %s", game)
+	}
+	if got := SiblingDiscFolders(extDir, game); len(got) != 1 || got[0] != disc2 {
+		t.Fatalf("esperava só %s, veio %v", disc2, got)
+	}
+}
+
+// TestSiblingDiscFoldersIgnoresWhatIsNotAnotherDisc: another title, a second copy of the game's
+// own disc, and a second folder for a disc already found are not discs to install.
+func TestSiblingDiscFoldersIgnoresWhatIsNotAnotherDisc(t *testing.T) {
+	extDir := t.TempDir()
+	game := filepath.Join(extDir, "A", "Disc 1")
+	writeDiscXEX(t, game, 0x454108CE, 1)
+	writeDiscXEX(t, filepath.Join(extDir, "A", "Bonus"), 0x4D530919, 2)    // another title
+	writeDiscXEX(t, filepath.Join(extDir, "A", "Launcher"), 0x454108CE, 1) // same disc
+	disc2 := filepath.Join(extDir, "B", "Disc 2")
+	writeDiscXEX(t, disc2, 0x454108CE, 2)
+	writeDiscXEX(t, filepath.Join(extDir, "C", "Disc 2"), 0x454108CE, 2) // disc 2 again
+
+	if got := SiblingDiscFolders(extDir, game); len(got) != 1 || got[0] != disc2 {
+		t.Fatalf("esperava só %s, veio %v", disc2, got)
+	}
+	if got := SiblingDiscFolders(extDir, filepath.Join(extDir, "sem-xex")); len(got) != 0 {
+		t.Fatalf("pasta sem default.xex: %v", got)
+	}
+}
+
+// TestSiblingDiscFoldersLeavesTheNestedInstallDiscToContent: the ZTM install disc of GTA V is
+// not a game folder of its own, and stays out of the copy of the game as before.
+func TestSiblingDiscFoldersLeavesTheNestedInstallDiscToContent(t *testing.T) {
+	extDir := t.TempDir()
+	game, installDisc := writeZTMStyleGTAV(t, extDir)
+
+	if got := SiblingDiscFolders(extDir, game); len(got) != 0 {
+		t.Fatalf("o disco de instalação vira Content, não pasta de jogo: %v", got)
+	}
+	if got := utils.CompanionDiscFolders(game); len(got) != 1 || got[0] != installDisc {
+		t.Fatalf("o disco aninhado deveria continuar fora da cópia do jogo: %v", got)
 	}
 }
 

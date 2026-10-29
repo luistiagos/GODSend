@@ -279,6 +279,33 @@ func isInstallDiscFolder(folder string) bool {
 	return models.DiscCompat(info.TitleID, info.DiscNumber).InstallType == "content"
 }
 
+// SiblingDiscFolders returns the folders anywhere under extDir that hold another playable disc
+// of gameDir's title: a default.xex with the same Title ID and a different disc number, one
+// folder per disc. Some rips ship the whole release in one archive — "Mass Effect 2 + PT-BR +
+// DLC" carries "DISCO 1" and "DISCO 2" side by side — and FindXEXFolder hands over only the
+// first. An install disc is left out: its payload already goes in as Content.
+func SiblingDiscFolders(extDir, gameDir string) []string {
+	game, err := utils.FolderXEXExecInfo(gameDir)
+	if err != nil {
+		return nil
+	}
+	seen := map[byte]bool{game.DiscNumber: true}
+	var found []string
+	filepath.Walk(extDir, func(p string, i os.FileInfo, e error) error {
+		if e != nil || i.IsDir() || !strings.EqualFold(i.Name(), "default.xex") {
+			return nil
+		}
+		other, err := utils.ReadXEXExecInfo(p)
+		if err != nil || other.TitleID != game.TitleID || seen[other.DiscNumber] || isInstallDiscFolder(filepath.Dir(p)) {
+			return nil
+		}
+		seen[other.DiscNumber] = true
+		found = append(found, filepath.Dir(p))
+		return nil
+	})
+	return found
+}
+
 // SystemTitleID is the dashboard/system title that every Kinect and speech package bundled
 // inside an ordinary game is signed under. It identifies system data, never a game.
 const SystemTitleID = "FFFE07DF"
@@ -326,6 +353,19 @@ func XEXFolderName(xexFolder, folderName string) string {
 		return titleID
 	}
 	return folderName + suffix
+}
+
+// XEXDiscFolderName names the folder of another playable disc of the same release:
+// folderName, " - Disco N" and the Title ID. XEXFolderName fits a long name to FATX by cutting
+// its end, which would cut the disc number off and send two discs to the same folder, so the
+// room for the disc tag is taken from folderName first.
+func XEXDiscFolderName(xexFolder, folderName string, disc byte) string {
+	tag := fmt.Sprintf(" - Disco %d", disc)
+	room := fatxMaxNameLen - len(tag) - len(" - XXXXXXXX")
+	if name := []rune(folderName); len(name) > room {
+		folderName = strings.TrimRight(string(name[:room]), " -_.")
+	}
+	return XEXFolderName(xexFolder, folderName+tag)
 }
 
 // FindTitleIDInDir attempts to detect the 8-character hex TitleID of a game in dir (GOD, XEX, or STFS).

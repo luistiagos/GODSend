@@ -27,6 +27,11 @@ import (
 // An empty archiveFolder means the rip has no folder of its own (default.xex sits at the root
 // of the archive, see ripFolderName) and is named after the release the same way.
 func xexDestinationName(xexFolder, archiveFolder, gameName string) string {
+	return helpers.XEXFolderName(xexFolder, xexReleaseName(archiveFolder, gameName))
+}
+
+// xexReleaseName is the name part of xexDestinationName, before the Title ID.
+func xexReleaseName(archiveFolder, gameName string) string {
 	name := archiveFolder
 	if name == "" || helpers.IsGenericDiscFolderName(name) {
 		if release := helpers.SanitizeFilename(models.ExtractReleaseTitle(gameName)); release != "" {
@@ -35,7 +40,44 @@ func xexDestinationName(xexFolder, archiveFolder, gameName string) string {
 			name = helpers.SanitizeFilename(gameName)
 		}
 	}
-	return helpers.XEXFolderName(xexFolder, name)
+	return name
+}
+
+// installSiblingDiscs writes the other playable discs that shipped in the same archive as
+// xexFolder, each to a folder of its own. "Mass Effect 2 + PT-BR + DLC" carries "DISCO 1" and
+// "DISCO 2" side by side; only the first reached the console, which then asked for a disc 2
+// the user did not have.
+//
+// Like installCompanionDiscContent it runs before the main disc and a failure stops the job,
+// with no pending-FTP retry: the source lives in the extraction scratch, removed on return.
+// A manual package carries one folder (the XEX manifest has a single foldername), so without
+// a destination the other discs are only reported as missing.
+func (s *Service) installSiblingDiscs(gameName, extDir, xexFolder string, xboxConn *models.XboxConnection) error {
+	for _, sibling := range helpers.SiblingDiscFolders(extDir, xexFolder) {
+		info, err := utils.FolderXEXExecInfo(sibling)
+		if err != nil {
+			return fmt.Errorf("ler o disco em %s: %w", sibling, err)
+		}
+		folderName := helpers.XEXDiscFolderName(sibling, xexReleaseName(ripFolderName(sibling, extDir), gameName), info.DiscNumber)
+		s.App.Logf("MULTI-DISC [%s]: Disco %d jogável no mesmo arquivo: %s -> %s", gameName, info.DiscNumber, sibling, folderName)
+		switch {
+		case xboxConn != nil && xboxConn.Mode == "ftp":
+			s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Transferindo o Disco %d...", info.DiscNumber))
+			if err := s.FTP.TransferXEX(sibling, folderName, xboxConn, gameName); err != nil {
+				return fmt.Errorf("transferir o Disco %d: %w", info.DiscNumber, err)
+			}
+		case xboxConn != nil && xboxConn.Mode == "local":
+			s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Gravando o Disco %d...", info.DiscNumber))
+			if err := s.InstallXEXLocal(sibling, folderName, xboxConn.LocalRoot, gameName); err != nil {
+				return fmt.Errorf("Gravação local do Disco %d: %w", info.DiscNumber, err)
+			}
+		default:
+			warning := fmt.Sprintf("ATENCAO: o arquivo traz tambem o Disco %d, que o pacote manual nao inclui; instale com destino FTP ou dispositivo local para receber os dois discos.", info.DiscNumber)
+			s.App.Logf("MULTI-DISC [%s]: %s", gameName, warning)
+			s.App.IncompleteRelease.Store(gameName, warning)
+		}
+	}
+	return nil
 }
 
 // ripFolderName is the archive's own name for the folder holding default.xex, or "" when

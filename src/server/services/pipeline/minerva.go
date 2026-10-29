@@ -90,6 +90,9 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
 			return err
 		}
+		if err := s.installSiblingDiscs(gameName, extDir, xexFolder, xboxConn); err != nil {
+			return err
+		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
 			if err := s.FTP.TransferXEX(xexFolder, folderName, xboxConn, gameName); err != nil {
 				s.App.Logf("FTP: initial XEX transfer failed for %s: %v — scheduling for retry", gameName, err)
@@ -220,6 +223,9 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 	}
 	folderName := xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), gameName)
 	if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
+		return err
+	}
+	if err := s.installSiblingDiscs(gameName, extDir, xexFolder, xboxConn); err != nil {
 		return err
 	}
 	if xboxConn != nil && xboxConn.Mode == "ftp" {

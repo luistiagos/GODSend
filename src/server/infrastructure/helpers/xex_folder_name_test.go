@@ -176,3 +176,21 @@ func TestXEXFolderNameFitsFATXNameLimitWhenTitleIDAlreadyPresent(t *testing.T) {
 	}
 }
 
+// TestXEXDiscFolderNameKeepsTheDiscNumberWhenTheNameIsLong: XEXFolderName alone would cut
+// " - Disco 2" off a long release name and send both discs to the same folder.
+func TestXEXDiscFolderNameKeepsTheDiscNumberWhenTheNameIsLong(t *testing.T) {
+	disc2 := filepath.Join(t.TempDir(), "DISCO 2")
+	writeDiscXEX(t, disc2, 0x454108CE, 2)
+	for _, name := range []string{"Mass Effect 2 + PT-BR + DLC", "Mass Effect 2 Edicao Definitiva Dublada em Portugues"} {
+		got := XEXDiscFolderName(disc2, name, 2)
+		if !strings.HasSuffix(got, " - Disco 2 - 454108CE") || len([]rune(got)) > fatxMaxNameLen {
+			t.Errorf("XEXDiscFolderName(%q) = %q; quer \"... - Disco 2 - 454108CE\" em até %d", name, got, fatxMaxNameLen)
+		}
+		if got == XEXFolderName(disc2, name) {
+			t.Errorf("Disco 2 com o mesmo nome do disco principal: %q", got)
+		}
+	}
+	if got := XEXDiscFolderName(disc2, "ME2", 2); got != "ME2 - Disco 2 - 454108CE" {
+		t.Errorf("nome curto não é cortado: %q", got)
+	}
+}
