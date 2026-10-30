@@ -73,7 +73,7 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
 			return err
 		}
-		if err := s.installSiblingDiscs(gameName, extDir, xexFolder, xboxConn); err != nil {
+		if err := s.installSiblingDiscs(gameName, extDir, xexFolder, folderName, xboxConn); err != nil {
 			return err
 		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {

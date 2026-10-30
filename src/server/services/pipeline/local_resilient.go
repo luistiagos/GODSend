@@ -599,6 +599,34 @@ func rebuildSaturatedFATFolder(folder string, manifestNames map[string]string) (
 	return true, nil
 }
 
+// fat32FileSizeLimit is the first file size FAT32 cannot hold. A variable so tests do not
+// need a 4 GB file.
+var fat32FileSizeLimit int64 = 4294967295
+
+// fat32SizeError names the first entry too large for a FAT32 destination, or is nil.
+func fat32SizeError(entries []localCopyEntry) error {
+	for _, entry := range entries {
+		if entry.size >= fat32FileSizeLimit {
+			return fmt.Errorf("%w: o arquivo '%s' possui %.2f GB e excede o limite maximo de 4 GB do sistema FAT32 do pendrive (jogos com arquivos individuais maiores que 4 GB devem ser instalados no formato GOD)",
+				ErrFAT32FileSizeLimit, filepath.Base(entry.sourcePath), float64(entry.size)/(1024*1024*1024))
+		}
+	}
+	return nil
+}
+
+// localPendingBytes is how much of entries still has to be written under dstDir: a file
+// already there with its size is reused by the copy (resume).
+func localPendingBytes(entries []localCopyEntry, totalSize int64, dstDir string) int64 {
+	remaining := totalSize
+	for i := range entries {
+		dst := filepath.Join(dstDir, entries[i].relativePath)
+		if st, err := os.Stat(dst); err == nil && st.Mode().IsRegular() && st.Size() == entries[i].size {
+			remaining -= entries[i].size
+		}
+	}
+	return remaining
+}
+
 // copyTreeLocal resumes at file granularity. Completed files are hash checked
 // and reused; an interrupted file is copied again from local staging only.
 func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) error {
@@ -634,10 +662,9 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 		return fmt.Errorf("%w: nenhum arquivo para gravar em %s", ErrLocalDelivery, srcDir)
 	}
 	isFAT := localIsFATVolume(root)
-	for _, entry := range entries {
-		if entry.size >= 4294967295 && isFAT {
-			return fmt.Errorf("%w: o arquivo '%s' possui %.2f GB e excede o limite maximo de 4 GB do sistema FAT32 do pendrive (jogos com arquivos individuais maiores que 4 GB devem ser instalados no formato GOD)",
-				ErrFAT32FileSizeLimit, filepath.Base(entry.sourcePath), float64(entry.size)/(1024*1024*1024))
+	if isFAT {
+		if err := fat32SizeError(entries); err != nil {
+			return err
 		}
 	}
 	var manifestChildren map[string]map[string]string
@@ -647,14 +674,7 @@ func (s *Service) copyTreeLocal(srcDir, dstDir, root, gameName, label string) er
 			return err
 		}
 	}
-	remainingSize := totalSize
-	for i := range entries {
-		dst := filepath.Join(dstDir, entries[i].relativePath)
-		if st, stErr := os.Stat(dst); stErr == nil && st.Mode().IsRegular() && st.Size() == entries[i].size {
-			remainingSize -= entries[i].size
-		}
-	}
-	if err := s.ensureFreeSpace(root, remainingSize); err != nil {
+	if err := s.ensureFreeSpace(root, localPendingBytes(entries, totalSize, dstDir)); err != nil {
 		return fmt.Errorf("%w: %v", ErrLocalDelivery, err)
 	}
 	orderEntryPointsLast(entries)

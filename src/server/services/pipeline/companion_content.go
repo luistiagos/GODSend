@@ -52,30 +52,80 @@ func xexReleaseName(archiveFolder, gameName string) string {
 // with no pending-FTP retry: the source lives in the extraction scratch, removed on return.
 // A manual package carries one folder (the XEX manifest has a single foldername), so without
 // a destination the other discs are only reported as missing.
-func (s *Service) installSiblingDiscs(gameName, extDir, xexFolder string, xboxConn *models.XboxConnection) error {
+//
+// folderName is where the main disc goes afterwards. On a local device every disc is checked
+// before the first is written: a disc that fits alone but not with the main one, or a main
+// disc with a file over the FAT32 limit, would otherwise leave half the release on the device.
+func (s *Service) installSiblingDiscs(gameName, extDir, xexFolder, folderName string, xboxConn *models.XboxConnection) error {
+	type disc struct {
+		dir, folderName string
+		number          byte
+	}
+	var discs []disc
 	for _, sibling := range helpers.SiblingDiscFolders(extDir, xexFolder) {
 		info, err := utils.FolderXEXExecInfo(sibling)
 		if err != nil {
 			return fmt.Errorf("ler o disco em %s: %w", sibling, err)
 		}
-		folderName := helpers.XEXDiscFolderName(sibling, xexReleaseName(ripFolderName(sibling, extDir), gameName), info.DiscNumber)
-		s.App.Logf("MULTI-DISC [%s]: Disco %d jogável no mesmo arquivo: %s -> %s", gameName, info.DiscNumber, sibling, folderName)
+		discs = append(discs, disc{sibling, helpers.XEXDiscFolderName(sibling, xexReleaseName(ripFolderName(sibling, extDir), gameName), info.DiscNumber), info.DiscNumber})
+	}
+	if len(discs) > 0 && xboxConn != nil && xboxConn.Mode == "local" {
+		trees := map[string]string{xexFolder: folderName}
+		for _, d := range discs {
+			trees[d.dir] = d.folderName
+		}
+		if err := s.ensureXEXDiscsFitLocal(xboxConn, trees); err != nil {
+			return err
+		}
+	}
+	for _, d := range discs {
+		s.App.Logf("MULTI-DISC [%s]: Disco %d jogável no mesmo arquivo: %s -> %s", gameName, d.number, d.dir, d.folderName)
 		switch {
 		case xboxConn != nil && xboxConn.Mode == "ftp":
-			s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Transferindo o Disco %d...", info.DiscNumber))
-			if err := s.FTP.TransferXEX(sibling, folderName, xboxConn, gameName); err != nil {
-				return fmt.Errorf("transferir o Disco %d: %w", info.DiscNumber, err)
+			s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Transferindo o Disco %d...", d.number))
+			if err := s.FTP.TransferXEX(d.dir, d.folderName, xboxConn, gameName); err != nil {
+				return fmt.Errorf("transferir o Disco %d: %w", d.number, err)
 			}
 		case xboxConn != nil && xboxConn.Mode == "local":
-			s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Gravando o Disco %d...", info.DiscNumber))
-			if err := s.InstallXEXLocal(sibling, folderName, xboxConn.LocalRoot, gameName); err != nil {
-				return fmt.Errorf("Gravação local do Disco %d: %w", info.DiscNumber, err)
+			s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Gravando o Disco %d...", d.number))
+			if err := s.InstallXEXLocal(d.dir, d.folderName, xboxConn.LocalRoot, gameName); err != nil {
+				return fmt.Errorf("Gravação local do Disco %d: %w", d.number, err)
 			}
 		default:
-			warning := fmt.Sprintf("ATENCAO: o arquivo traz tambem o Disco %d, que o pacote manual nao inclui; instale com destino FTP ou dispositivo local para receber os dois discos.", info.DiscNumber)
+			warning := fmt.Sprintf("ATENCAO: o arquivo traz tambem o Disco %d, que o pacote manual nao inclui; instale com destino FTP ou dispositivo local para receber os dois discos.", d.number)
 			s.App.Logf("MULTI-DISC [%s]: %s", gameName, warning)
 			s.App.IncompleteRelease.Store(gameName, warning)
 		}
+	}
+	return nil
+}
+
+// ensureXEXDiscsFitLocal applies copyTreeLocal's checks — no file over the FAT32 limit, room
+// for what is still to be written — to several XEX trees (source -> folder name) at once.
+// With another drive at the destination's letter it checks nothing: copyTreeLocal waits for
+// the right one and checks each tree then.
+func (s *Service) ensureXEXDiscsFitLocal(xboxConn *models.XboxConnection, trees map[string]string) error {
+	root := xboxConn.LocalRoot
+	if xboxConn.LocalDeviceID != "" && !localDeviceMatches(root, xboxConn.LocalDeviceID) {
+		return nil
+	}
+	isFAT := localIsFATVolume(root)
+	var pending int64
+	for src, folderName := range trees {
+		entries, totalSize, err := buildLocalCopyManifest(src)
+		if err != nil {
+			// copyTreeLocal reports a source it cannot read (ErrLocalSourceLost).
+			return nil
+		}
+		if isFAT {
+			if err := fat32SizeError(entries); err != nil {
+				return err
+			}
+		}
+		pending += localPendingBytes(entries, totalSize, s.localXEXDir(root, folderName))
+	}
+	if err := s.ensureFreeSpace(root, pending); err != nil {
+		return fmt.Errorf("%w: %v", ErrLocalDelivery, err)
 	}
 	return nil
 }

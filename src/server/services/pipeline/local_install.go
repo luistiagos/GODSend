@@ -32,7 +32,7 @@ func (s *Service) ensureFreeSpace(root string, needBytes int64) error {
 	if vol := filepath.VolumeName(root); vol != "" {
 		query = vol + string(filepath.Separator) // e.g. "F:/" → "F:\"
 	}
-	free, err := helpers.FreeSpaceBytes(query)
+	free, err := destinationFreeSpaceBytes(query)
 	if err != nil {
 		s.App.Logf("LOCAL: não foi possível medir espaço livre em %s: %v (seguindo)", query, err)
 		return nil
@@ -46,6 +46,9 @@ func (s *Service) ensureFreeSpace(root string, needBytes int64) error {
 
 // freeSpaceBytes is a variable so tests can fake a full working volume.
 var freeSpaceBytes = helpers.FreeSpaceBytes
+
+// destinationFreeSpaceBytes is a variable so tests can fake a full destination device.
+var destinationFreeSpaceBytes = helpers.FreeSpaceBytes
 
 // scratchSpaceError is the PC's working volume being too small for the
 // extracted game, found before the first byte is written. The text carries
@@ -176,14 +179,18 @@ func (s *Service) InstallContentLocal(contentDir, root, gameName, titleID, typeD
 // InstallXEXLocal writes a XEX folder to <root>/<xexSubPath>/<folderName>/,
 // mirroring FTP TransferXEX.
 func (s *Service) InstallXEXLocal(xexFolder, folderName, root, gameName string) error {
+	return s.copyTreeLocal(xexFolder, s.localXEXDir(root, folderName), root, gameName, "XEX")
+}
+
+// localXEXDir is the folder InstallXEXLocal writes folderName to.
+func (s *Service) localXEXDir(root, folderName string) string {
 	xexSub := "Games"
 	if s.App.CustomXexPath != "" {
 		xexSub = s.App.CustomXexPath
 	} else if detected := detectExistingGamesDir(root); detected != "" {
 		xexSub = detected
 	}
-	base := filepath.Join(joinSub(root, xexSub), folderName)
-	return s.copyTreeLocal(xexFolder, base, root, gameName, "XEX")
+	return filepath.Join(joinSub(root, xexSub), folderName)
 }
 
 // InstallContentFileLocal copies a single digital/DLC content package to

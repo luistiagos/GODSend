@@ -194,9 +194,61 @@ inteiro) verdes. Versão 2.12.119, CHANGELOG, `docs/features.md` e `AGENTS.md` n
 (`local_resilient.go::copyTreeLocal` confere por árvore) e a ordem FAT32 (conferir `findFileExceedingFAT32Limit` de
 todas antes de gravar qualquer uma, em `huggingface.go`). Depois T4 no rip real.
 
+## Registro da T3 (2026-10-29)
+
+**Símbolos abertos:**
+- `local_resilient.go::copyTreeLocal` — por árvore: `buildLocalCopyManifest` (pula disco aninhado), recusa arquivo
+  `>= 4294967295` se `localIsFATVolume(root)` (`ErrFAT32FileSizeLimit`), confere limite de entradas FAT, depois
+  `ensureFreeSpace(root, restante)`, onde `restante` desconta arquivo já no destino com o mesmo tamanho (retomada).
+  Espaço insuficiente volta embrulhado em `ErrLocalDelivery`.
+- `local_install.go::ensureFreeSpace` — chama `helpers.FreeSpaceBytes` direto (sem costura de teste); falha ao medir
+  libera a gravação. `InstallXEXLocal` monta o destino `<root>/<Games|CustomXexPath|detectado>/<folderName>`.
+- `fallback.go` — `isFAT32LimitError` troca de provedor (ISO/GOD); `isLocalStorageHalt` (`ErrLocalDelivery`) para a
+  cadeia. `installSiblingDiscs` embrulha com `%w`, então o erro da própria irmã já classifica certo.
+- `huggingface.go` L99 — `findFileExceedingFAT32Limit(xexFolder)` só do disco principal, **depois** das irmãs. Os outros
+  4 ramos não têm conferência prévia: dependem do `copyTreeLocal` de cada árvore.
+- `ftp/client.go::TransferXEX` — não confere espaço nem tamanho nem para o disco principal. Irmã tem o mesmo tratamento
+  do principal; nada a cobrir no FTP.
+
+**O defeito que sobra:** a conferência é por árvore e a irmã é gravada antes. (a) Principal com arquivo >= 4 GB em FAT:
+o Disco 2 fica no pendrive e a cadeia troca para ISO/GOD, deixando uma pasta XEX órfã. (b) Cabe um disco e não os
+dois: o Disco 2 é gravado, o principal falha por espaço e a cadeia para com meia release no dispositivo.
+
+**Hipótese descartada:** "o erro da irmã perde o sentinel" — não perde (`%w`, já visto na T2).
+
+**Comando que provou algo:** arquivo de 4 GiB por `os.Truncate` no NTFS consome 4096 MB reais de disco (medido com
+`GetDiskFreeSpaceExW` antes/depois, `go run` no scratchpad) — o teste do FAT32 usa costura de limite, não arquivo grande.
+
+**Decisões:**
+- `installSiblingDiscs` recebe o `folderName` do disco principal e, em modo local e com irmã, chama
+  `ensureXEXDiscsFitLocal` antes de gravar a primeira: FAT32 de todas as árvores e espaço **somado** do que falta gravar
+  (descontando a retomada, como o `copyTreeLocal`). Pula a conferência se o dispositivo esperado não está montado
+  (`localDeviceMatches`): o `copyTreeLocal` espera por ele e confere por árvore.
+- Extraídos sem mudar comportamento: `localXEXDir` (de `InstallXEXLocal`), `localPendingBytes` e `fat32SizeError` (de
+  `copyTreeLocal`). Costuras novas: `destinationFreeSpaceBytes` (em `ensureFreeSpace`) e `fat32FileSizeLimit`.
+- Rip de um disco: nada muda (sem irmã não há conferência nova). O check do `huggingface.go` L99 fica.
+- Fora do escopo: o conteúdo de instalação/DLC (`installCompanionDiscContent`) continua gravado antes e fora da soma,
+  como já era.
+
+**Testes** (`sibling_discs_test.go`): cabe um disco e não os dois -> `ErrLocalDelivery` e nada em `Games`; Disco 2 já no
+destino (retomada) -> cabe; principal acima do limite FAT -> `ErrFAT32FileSizeLimit` e o Disco 2 não é gravado.
+
+**Feito:** `companion_content.go::ensureXEXDiscsFitLocal`, chamada por `installSiblingDiscs` (que agora recebe o
+`folderName` do principal; os 5 call-sites passam o mesmo nome que vai para `InstallXEXLocal`/`TransferXEX`). Extraídos
+`local_resilient.go::fat32SizeError`/`localPendingBytes` e `local_install.go::localXEXDir`; costuras
+`destinationFreeSpaceBytes` e `fat32FileSizeLimit`. Os 3 testes passam. Com a chamada desligada, os dois de defeito
+(espaço, FAT32) falham; o de retomada passa nos dois casos, porque ele protege o desconto da retomada na soma. `go vet ./...`
+e `go test ./...` do servidor verdes. Versão 2.12.120, CHANGELOG, `AGENTS.md` e `docs/features.md` no mesmo commit.
+
+**Próximo passo (T4):** build da 2.12.120 e instalar "Mass Effect 2 + PT-BR + DLC" (HuggingFace) num destino local de
+teste. Conferir em `Games/` as duas pastas (`Mass Effect 2 + PT-BR + DLC - 454108CE` para o Disco 1 e
+`Mass Effect 2 + PT-BR - Disco 2 - 454108CE`), cada uma com o próprio `default.xex` (CRC `9984da4e` / `276796d9`), e a
+DLC em `Content/0000000000000000/454108CE/00000002`. São 15 GB de download e o mesmo tanto em disco. Depois, o cliente ou
+o dono troca para o Disco 2 no console.
+
 ## Critérios para fechar
 
 - [x] Reprodução confirmada e compreendida (listagem do RAR + leitura do código)
-- [ ] Causa raiz corrigida (T1, T2)
-- [ ] Teste automatizado com árvore sintética de dois discos irmãos
+- [x] Causa raiz corrigida (T1, T2 em `5e4b242`; T3 conferência de espaço/FAT32)
+- [x] Teste automatizado com árvore sintética de dois discos irmãos (`sibling_discs_test.go`)
 - [ ] Cliente (ou o dono no console) troca para o Disco 2 do rip PT-BR e o jogo segue

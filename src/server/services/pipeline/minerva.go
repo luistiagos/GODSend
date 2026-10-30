@@ -90,7 +90,7 @@ func (s *Service) ProcessMinervaGameWithErr(gameName string, entry models.Minerv
 		if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
 			return err
 		}
-		if err := s.installSiblingDiscs(gameName, extDir, xexFolder, xboxConn); err != nil {
+		if err := s.installSiblingDiscs(gameName, extDir, xexFolder, folderName, xboxConn); err != nil {
 			return err
 		}
 		if xboxConn != nil && xboxConn.Mode == "ftp" {
@@ -225,7 +225,7 @@ func (s *Service) ProcessMinervaGenericGameWithErr(gameName string, entry models
 	if err := s.installCompanionDiscContent(gameName, extDir, xexFolder, xboxConn); err != nil {
 		return err
 	}
-	if err := s.installSiblingDiscs(gameName, extDir, xexFolder, xboxConn); err != nil {
+	if err := s.installSiblingDiscs(gameName, extDir, xexFolder, folderName, xboxConn); err != nil {
 		return err
 	}
 	if xboxConn != nil && xboxConn.Mode == "ftp" {
