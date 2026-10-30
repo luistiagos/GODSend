@@ -246,9 +246,48 @@ teste. Conferir em `Games/` as duas pastas (`Mass Effect 2 + PT-BR + DLC - 45410
 DLC em `Content/0000000000000000/454108CE/00000002`. São 15 GB de download e o mesmo tanto em disco. Depois, o cliente ou
 o dono troca para o Disco 2 no console.
 
+## Registro da T4 (2026-10-29)
+
+**Como rodou:** servidor headless da 2.12.120 (`go build -C src/server` em `9e734ee`, árvore de `src/server` limpa) isolado
+em `C:\godsend-t4` (`GODSEND_HOME=C:\godsend-t4\home`, cache do catálogo copiado de `src/server/cache`, porta 18080,
+`GODSEND_ERROR_REPORTING=0`, bind 127.0.0.1). Nenhuma outra instância do app rodando e sem `godsend-temp` em C:/D:
+antes (o startup limpa scratch velho nesses volumes). Destino local `C:\godsend-t4\dest` (pasta comum do NTFS: o
+`/register` com `mode=local` só carimba a identidade do dispositivo, não exige pendrive).
+
+```
+/register?game=Mass Effect 2 + PT-BR + DLC&mode=local&local_root=C:\godsend-t4\dest&install_type=xex
+/trigger?game=Mass Effect 2 + PT-BR + DLC&platform=xbox360&source=huggingface&install_type=xex
+```
+
+**Linha do tempo (log do servidor):** download 14282.8 MB 21:54:57 → 22:06:58 (~16 MB/s), verificação 1m34s, extração
+até 22:36, gravação 22:36:12 → 22:39:06, `/status` = `Ready` / "Gravado no dispositivo!". Ordem gravada: Content
+(`00000002` 23 arquivos 5.13 GB, `00009000` 16 arquivos), depois `MULTI-DISC ...: Disco 2 jogável no mesmo arquivo:
+...\MASS EFFECT 2\DISCO 2 -> Mass Effect 2 + PT-BR - Disco 2 - 454108CE`, depois o Disco 1. `pending_queue/` vazio no fim;
+`Temp/` só com `torrent-dl` (extraído e RAR apagados).
+
+**Destino conferido** (`find | wc -l`, `du -sb`, CRC32 por `zlib.crc32`):
+
+```
+Games/Mass Effect 2 + PT-BR + DLC - 454108CE/   1879 arquivos  6836563785 bytes  default.xex 7849984 crc 9984da4e
+Games/Mass Effect 2 + PT-BR - Disco 2 - 454108CE/  2176 arquivos  6349066561 bytes  default.xex 7849984 crc 276796d9
+Content/0000000000000000/454108CE/00000002  e  .../00009000
+```
+
+Os dois CRCs são os do RAR medidos na T1 (disco 1/2 e 2/2). Os nomes de pasta são os previstos na T3.
+
+**Não conferido aqui:** contagem de arquivos de cada disco contra a listagem completa do RAR (a do registro inicial foi
+filtrada por extensão; refazer custa ~35 min de Range). O teste no console continua sendo o critério que falta.
+
+**Artefato deixado:** `C:\godsend-t4` (18 GB: binário, home, `dest/` com as duas pastas + Content). Copiar `dest/Games` e
+`dest/Content` para a raiz de um HD/pendrive do console serve para o teste do Disco 2. Apagar depois.
+
+**Próximo passo:** publicar a 2.12.120 (`build-and-upload.ps1`, decisão do dono) e o cliente (ou o dono no console, com
+o `dest/` acima) trocar para o Disco 2 e o jogo seguir. Com isso, marcar o último critério e mover o doc para `closed/`.
+
 ## Critérios para fechar
 
 - [x] Reprodução confirmada e compreendida (listagem do RAR + leitura do código)
 - [x] Causa raiz corrigida (T1, T2 em `5e4b242`; T3 conferência de espaço/FAT32)
 - [x] Teste automatizado com árvore sintética de dois discos irmãos (`sibling_discs_test.go`)
+- [x] Rip real em destino local de teste grava as duas pastas de jogo + DLC (T4, 2.12.120)
 - [ ] Cliente (ou o dono no console) troca para o Disco 2 do rip PT-BR e o jogo segue
