@@ -236,6 +236,22 @@ test("pendrive novo: o boot que cadastra reinicia, a primeira varredura corre e,
   assert.equal(tuScanAtBoot(console), "0");
 });
 
+test("cadastro do scan path acerta na primeira query e nao grava OptionsFlag", async () => {
+  // A coluna da Aurora e OptionsFlag; a query com "optionsflags" falhava sempre e caia na segunda.
+  // O valor gravado era NULL e continua NULL: o bit 1 nao tem significado provado na Aurora.
+  const console = await createConsole();
+  const inserts = [];
+  console.failExecute = (query) => {
+    if (query.startsWith("INSERT INTO scanpaths")) inserts.push(query);
+    return false;
+  };
+
+  boot(console);
+
+  assert.equal(inserts.length, 2, inserts.join("\n"));
+  assert.deepEqual(console.db.exec("SELECT OptionsFlag FROM ScanPaths")[0].values, [[null], [null]]);
+});
+
 test("varredura interrompida: o boot seguinte apaga TUScanAtBoot e reinicia uma vez so", async () => {
   const console = await createConsole();
   boot(console);

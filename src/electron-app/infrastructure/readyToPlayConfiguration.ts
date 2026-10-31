@@ -106,7 +106,6 @@ export function generateAuroraReadyToPlayFilterLua(): string {
     "    local escapedPath = sqlEscape(scanPath)",
     "    local escapedDeviceId = sqlEscape(deviceId)",
     "    local queries = {",
-    '        "INSERT INTO scanpaths (path, deviceid, depth, scriptdata, optionsflags) VALUES (\'" .. escapedPath .. "\', \'" .. escapedDeviceId .. "\', " .. tostring(depth) .. ", \'\', 1);",',
     '        "INSERT INTO scanpaths (path, deviceid, depth, scriptdata) VALUES (\'" .. escapedPath .. "\', \'" .. escapedDeviceId .. "\', " .. tostring(depth) .. ", \'\');",',
     '        "INSERT INTO scanpaths (path, deviceid, depth) VALUES (\'" .. escapedPath .. "\', \'" .. escapedDeviceId .. "\', " .. tostring(depth) .. ");"',
     "    }",

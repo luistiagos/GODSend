@@ -10,6 +10,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **O hook do BadAvatar mandava, a cada scan path cadastrado, uma query que sempre falhava (`src/electron-app/infrastructure/readyToPlayConfiguration.ts`)** (2.12.123)
+  - Causa: a primeira query de `insertScanPath` gravava `optionsflags = 1`, mas a coluna da Aurora é `OptionsFlag`; o cadastro sempre caía na segunda query, sem a opção. O `1` entrou sem motivo registrado, a tela de scan path da Aurora não tem essa opção e o binário não dá significado provado ao bit `1`.
+  - Correção: a query morta saiu. O cadastro acerta na primeira query e grava o mesmo de antes (`OptionsFlag` vazio, lido como `0`).
+  - Testes: `node --test tests/unit/readyToPlayConfiguration.test.cjs`: 13 verdes; o teste novo falha com a query antiga de volta (4 `INSERT` em vez de 2). Suíte `tests/unit/*.test.cjs`: 369 verdes.
 - **`docs/READY-TO-PLAY-AURORA.md` dizia que a sintaxe Lua 5.1 do hook gerado era testada, e nenhum teste fazia isso (`src/electron-app/tests/unit/readyToPlayConfiguration.test.cjs`)** (2.12.122)
   - Causa: a linha entrou no doc em 2026-08-18 sem teste. Desde a 2.12.121 o hook é executado no fengari, que é Lua 5.3 e aceita `//`, operadores de bit e `goto`; a Aurora é 5.1, então um erro desses passaria no teste e deixaria os pendrives preparados sem cadastro de jogos.
   - Correção: teste novo `hook gerado e Lua 5.1 valido` analisa o hook com `luaparse` (nova devDependency, MIT, sem dependências) em modo 5.1, e confere que o mesmo parser recusa `//`, `&`, `~`, `<<` e `goto` em 5.1 e os aceita em 5.3. O doc agora diz que o teste confere só a sintaxe: função de biblioteca que não existe na 5.1 (`table.unpack`, `utf8.*`) não é pega. Nenhuma mudança no app nem no hook.

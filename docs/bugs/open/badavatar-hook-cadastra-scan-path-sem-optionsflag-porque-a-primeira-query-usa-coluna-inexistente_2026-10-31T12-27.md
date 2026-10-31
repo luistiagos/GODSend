@@ -73,7 +73,21 @@ Corrigir o nome da coluna passaria a gravar um valor desconhecido em todo consol
 |---|---|---|---|---|---|
 | T1 | tirar a query de `optionsflags` de `insertScanPath` + teste executado | -- | -- | -- | -- |
 
+## Correção aplicada — T1 (2.12.123, 2026-10-31)
+
+- Como planejado: `insertScanPath` ficou com duas queries, `(path, deviceid, depth, scriptdata)` e `(path, deviceid,
+  depth)`. Sem desvio do plano.
+- Teste novo `cadastro do scan path acerta na primeira query e nao grava OptionsFlag`: registra todo `INSERT INTO
+  scanpaths` que o hook manda num pendrive novo e confere que são 2 (um por caminho) e que `OptionsFlag` fica `NULL`.
+
+## Testes executados
+
+- Antes da correção, o teste novo falhou: 4 `INSERT` (a primeira query de cada caminho era a de `optionsflags`).
+- Depois: `npx tsc -p .` sem erro; `node --test tests/unit/readyToPlayConfiguration.test.cjs` 13 verdes;
+  `node --test tests/unit/*.test.cjs` 369 verdes.
+- Não testado num console: o esquema do teste continua escrito a partir das strings do binário.
+
 ## Critérios para fechar
 
-- [ ] T1: o hook não manda mais a query que sempre falha, e o teste executado prova que o cadastro acerta na primeira
+- [x] T1: o hook não manda mais a query que sempre falha, e o teste executado prova que o cadastro acerta na primeira
   query sem mudar o que é gravado
