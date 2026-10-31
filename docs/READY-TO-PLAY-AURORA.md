@@ -191,7 +191,7 @@ A implementação possui testes para:
 - migração de uma preparação antiga mesmo com o novo diário já concluído, preservando jogos;
 - preservação de logs e bancos alterados, inclusive quando mantêm o tamanho original;
 - retomada da migração após interrupção, quarentenas anteriores e recusa de caminhos com links;
-- sintaxe Lua 5.1 do arquivo gerado;
+- sintaxe Lua 5.1 do arquivo gerado (`luaparse` em modo 5.1, que recusa `//`, operadores de bit e `goto`, aceitos pelo fengari 5.3); só a sintaxe: função de biblioteca que não existe na 5.1 (`table.unpack`, `utf8.*`, `string.pack`) não é pega por esse teste nem pelo fengari;
 - compilação TypeScript, renderer e backend Go.
 
 ## Validação física obrigatória antes da publicação

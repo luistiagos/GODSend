@@ -10,6 +10,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **`docs/READY-TO-PLAY-AURORA.md` dizia que a sintaxe Lua 5.1 do hook gerado era testada, e nenhum teste fazia isso (`src/electron-app/tests/unit/readyToPlayConfiguration.test.cjs`)** (2.12.122)
+  - Causa: a linha entrou no doc em 2026-08-18 sem teste. Desde a 2.12.121 o hook é executado no fengari, que é Lua 5.3 e aceita `//`, operadores de bit e `goto`; a Aurora é 5.1, então um erro desses passaria no teste e deixaria os pendrives preparados sem cadastro de jogos.
+  - Correção: teste novo `hook gerado e Lua 5.1 valido` analisa o hook com `luaparse` (nova devDependency, MIT, sem dependências) em modo 5.1, e confere que o mesmo parser recusa `//`, `&`, `~`, `<<` e `goto` em 5.1 e os aceita em 5.3. O doc agora diz que o teste confere só a sintaxe: função de biblioteca que não existe na 5.1 (`table.unpack`, `utf8.*`) não é pega. Nenhuma mudança no app nem no hook.
+  - Testes: `node --test tests/unit/readyToPlayConfiguration.test.cjs`: 12 verdes. Com `local x = 7 // 2` enxertado no hook, só o teste novo falha; os testes que executam o hook no fengari continuam verdes.
+  - Bug: [docs/bugs/open/ready-to-play-aurora-md-afirma-teste-de-sintaxe-lua-5-1-que-nao-existe_2026-10-31T12-27.md](docs/bugs/open/ready-to-play-aurora-md-afirma-teste-de-sintaxe-lua-5-1-que-nao-existe_2026-10-31T12-27.md)
 - **Primeiro boot da Aurora pelo BadAvatar podia ficar horas varrendo Title Updates do HD interno e recomeçar a cada desligamento (`src/electron-app/infrastructure/readyToPlayConfiguration.ts::generateAuroraReadyToPlayFilterLua`, hook `ready-to-play-v5`)** (2.12.121)
   - Caso: chamado #301. Console usado e cheio; a Aurora abriu pelo exploit e ficou mais de 2 horas em *"Scanning \Xbox360\System\Hdd1\Content\...\000B0000\"* / *"Backing up ... Title Update"*, voltando à mesma tela a cada reinício. Terminou em pedido de reembolso.
   - Causa (lida no `Aurora/default.xex` 0.7b do pacote): toda Aurora nova nasce com `TUScanAtBoot = "1"`; no boot ela copia cada TU do HD interno para o pendrive e só grava `0` quando a varredura termina. Desligar antes do fim faz recomeçar. O hook do Companion roda antes dessa etapa e nunca mexia nela.

@@ -11,6 +11,7 @@ const {
   READY_TO_PLAY_TU_SCAN_ATTEMPT_PATH,
 } = require("../../infrastructure/readyToPlayConfiguration.js");
 const { lua, lauxlib, lualib, to_luastring } = require("fengari");
+const luaparse = require("luaparse");
 const initSqlJs = require("sql.js");
 
 test("configuracao pronta para jogar gera launch.ini canonico", () => {
@@ -71,6 +72,18 @@ test("marcas gravadas pelo console seguem a versao da configuracao", () => {
   assert.match(lua, /local RESTART_GUARD_PATH = "\.xbox-downloader\\\\ready-to-play-v5\.restart"/);
   assert.match(lua, /local TU_SCAN_ATTEMPT_PATH = "\.xbox-downloader\\\\ready-to-play-v5\.tuscan"/);
   assert.doesNotMatch(lua, /TUScanAutoStart/);
+});
+
+test("hook gerado e Lua 5.1 valido", () => {
+  // A Aurora e Lua 5.1 e o fengari abaixo e 5.3: `//`, operadores de bit e `goto` passariam
+  // na execucao e quebrariam no console. So a sintaxe e conferida; funcao de biblioteca
+  // inexistente na 5.1 (table.unpack, utf8.*) nao e pega aqui.
+  assert.doesNotThrow(() => luaparse.parse(generateAuroraReadyToPlayFilterLua(), { luaVersion: "5.1" }));
+
+  for (const only53 of ["local a = 7 // 2", "local a = 1 & 2", "local a = ~1", "local a = 1 << 2", "goto x ::x::"]) {
+    assert.doesNotThrow(() => luaparse.parse(only53, { luaVersion: "5.3" }), only53);
+    assert.throws(() => luaparse.parse(only53, { luaVersion: "5.1" }), SyntaxError, only53);
+  }
 });
 
 // ---------------------------------------------------------------------------
