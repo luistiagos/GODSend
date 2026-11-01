@@ -89,5 +89,10 @@ Corrigir o nome da coluna passaria a gravar um valor desconhecido em todo consol
 
 ## Critérios para fechar
 
+## Fechamento (2026-10-31)
+
+Fechado pelo dono depois da T1. Gravar `OptionsFlag = 1` foi descartado: ninguém sabe de onde veio o `1`, e o
+comportamento fica como em produção desde 2026-08-18. Sem verificação em console: o defeito não tinha sintoma visível.
+
 - [x] T1: o hook não manda mais a query que sempre falha, e o teste executado prova que o cadastro acerta na primeira
   query sem mudar o que é gravado
