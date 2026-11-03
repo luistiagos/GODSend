@@ -16,8 +16,8 @@ USO
 
 SAIDA: <pasta do script>/saida-chamados/  (ou $TRIAGEM_CHAMADOS_OUT)
 
-TOKEN: lido em runtime de $DIAG_API_TOKEN ou, na falta, do `DIAG_TOKEN` de
-`digitalstoregamesbackend/diag_deep.py`. NUNCA e impresso nem gravado em disco.
+TOKEN: `DIAG_API_TOKEN`, pelo leitor do retrobatnew (`source/scripts/env_local.py`): variavel
+de ambiente nao vazia ou a linha do `source/.env`. NUNCA e impresso nem gravado em disco.
 """
 import datetime
 import io
@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 
 BASE = "https://digitalstoregames.pythonanywhere.com"
@@ -34,7 +35,12 @@ BASE = "https://digitalstoregames.pythonanywhere.com"
 # vazia com exit 0 -- que parece sucesso.
 OUT = os.environ.get("TRIAGEM_CHAMADOS_OUT") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "saida-chamados")
-BACKEND = r"C:\projects\digitalstoregamesproject\digitalstoregamesbackend"
+# Onde procurar o env_local.py: ao lado da arvore (script rodado no lugar) e a fonte fixa,
+# porque o normal e rodar uma COPIA no scratchpad ou em outro repo, longe de source/scripts.
+ENV_LOCAL_PASTAS = (
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts"),
+    r"C:\projects\retrobatnew\source\scripts",
+)
 
 TABELA_TICKET = "wpp_support_ticket"
 TABELA_EVENTO = "wpp_support_ticket_event"
@@ -45,22 +51,18 @@ TABELA_MSG = "Wpp_proccess"
 INTERNOS = ("internal_consult_", "silent_handoff_")
 
 
+def _env_local():
+    for pasta in ENV_LOCAL_PASTAS:
+        if os.path.isfile(os.path.join(pasta, "env_local.py")):
+            sys.path.insert(0, os.path.abspath(pasta))
+            import env_local
+            return env_local
+    raise SystemExit("leitor de chaves nao encontrado (env_local.py) em: "
+                     + " ; ".join(os.path.abspath(p) for p in ENV_LOCAL_PASTAS))
+
+
 def _token():
-    tok = os.environ.get("DIAG_API_TOKEN")
-    if tok:
-        return tok.strip()
-    for nome in ("diag_deep.py", "diag_bot_status.py", "diag_agent_state.py"):
-        caminho = os.path.join(BACKEND, nome)
-        if not os.path.exists(caminho):
-            continue
-        texto = io.open(caminho, encoding="utf-8", errors="replace").read()
-        m = re.search(r"DIAG_TOKEN\s*=\s*['\"]([0-9a-fA-F]{32,})['\"]", texto)
-        if m:
-            return m.group(1)
-    raise SystemExit(
-        "token nao encontrado: defina DIAG_API_TOKEN ou garanta acesso a "
-        + os.path.join(BACKEND, "diag_deep.py")
-    )
+    return _env_local().obter("DIAG_API_TOKEN")
 
 
 def q(sql, limit=500):
@@ -74,8 +76,15 @@ def q(sql, limit=500):
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as r:
-        dados = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            dados = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code != 401:
+            raise
+        # uma variavel antiga no ambiente vence o .env e faz a chave nova parecer invalida
+        raise SystemExit("o /diag/query recusou o DIAG_API_TOKEN (401); a chave veio de: "
+                         + str(_env_local().origem("DIAG_API_TOKEN")))
     if "rows" not in dados:
         raise SystemExit("erro do /diag/query: " + json.dumps(dados, ensure_ascii=False))
     return dados["rows"]

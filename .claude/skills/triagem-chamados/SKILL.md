@@ -3,8 +3,8 @@ name: triagem-chamados
 description: >-
   Investiga um ou mais CHAMADOS de suporte (o "#N" do painel admin de chamados) lendo a
   conversa inteira de WhatsApp daquele cliente, decide o que e bug e o que nao e, roteia cada
-  achado para o projeto dono (retrobatnew, ARMSX2-fork, PS2Companion, Downloader-XBOX360,
-  digitalstoregamesproject), deduplica contra os bugs ja registrados e abre bug doc so para o
+  achado para o projeto dono (retrobatnew, Lemuroid, ARMSX2-forkv2, PS2Companion,
+  Downloader-XBOX360, digitalstoregamesproject), deduplica contra os bugs ja registrados e abre bug doc so para o
   que for genuinamente novo. Use quando o usuario disser "veja o chamado 29", "analise os
   chamados 29 e 46", "esse cliente reclamou, e bug?", ou passar um numero de chamado / um lid
   de sessao de WhatsApp. Nao confundir com `triagem-bugs-prod`, que le a telemetria de
@@ -25,9 +25,21 @@ que os originaram. O produto final e:
 
 Assuma que voce comeca **sem contexto previo** — tudo que precisa esta aqui.
 
-> **Esta skill e identica nos 5 projetos.** A copia que voce carregou **nao** restringe onde o
-> bug e gravado: um chamado costuma render achados em mais de um repositorio. Roteie pelo
-> Passo 4, nao pelo diretorio em que a sessao abriu.
+> **Fonte e copias.** A fonte desta skill e `C:\projects\retrobatnew\source\skills\triagem-chamados\`
+> (o `.claude\skills\triagem-chamados` do retrobatnew e *junction* para la). Os outros repos
+> carregam copias, que devem ser byte-identicas a fonte (`SKILL.md` + `scripts/chamado.py`):
+>
+> | Repo | Pasta da copia |
+> |---|---|
+> | `C:\projects\digitalstoregamesproject` | `.claude\skills\triagem-chamados\` |
+> | `C:\projects\Downloader-XBOX360-XEX-HDD-Games` | `.claude\skills\triagem-chamados\` |
+> | `D:\projects\PS2Companion` | `.claude\skills\triagem-chamados\` |
+> | `C:\projects\lemuroid\Lemuroid` | `.claude\skills\triagem-chamados\` |
+> | `D:\projects\play2\ARMSX2-forkv2` | `docs\skill\triagem-chamados\` |
+>
+> A copia que voce carregou pode estar atrasada: em divergencia, **a fonte vale**. E ela **nao**
+> restringe onde o bug e gravado: um chamado costuma render achados em mais de um repositorio.
+> Roteie pelo Passo 4, nao pelo diretorio em que a sessao abriu.
 
 > **Irma, nao a mesma:** `triagem-bugs-prod` parte de **exceptions/telemetria** (`/admin/errors`).
 > Esta parte de **conversa com cliente**. As duas podem apontar para o mesmo defeito — o Passo 5
@@ -46,7 +58,7 @@ Assuma que voce comeca **sem contexto previo** — tudo que precisa esta aqui.
 | O que | Onde |
 |---|---|
 | Chamados e conversa (API) | `POST https://digitalstoregames.pythonanywhere.com/diag/query` — **so `SELECT`**, LIMIT 500, Bearer token |
-| Token (`DIAG_TOKEN`) | env `DIAG_API_TOKEN` ou a constante nos `diag_*.py` da raiz de `C:\projects\digitalstoregamesproject\digitalstoregamesbackend` |
+| Token (`DIAG_API_TOKEN`) | linha `DIAG_API_TOKEN=` de `C:\projects\retrobatnew\source\.env` (nao versionado), lida pelo `source/scripts/env_local.py`; variavel de ambiente nao vazia vence. Ausente, o script aborta dizendo o nome |
 | Painel dos chamados (UI) | `ddigitaladmfrontend/src/pages/SupportTickets.jsx` |
 | Temporarios | o **scratchpad desta sessao** — fora de pasta versionada e **fora de pasta compartilhada** (ver o aviso do atalho) |
 | Interprete | `python` (nao `python3`) |
@@ -57,10 +69,11 @@ Assuma que voce comeca **sem contexto previo** — tudo que precisa esta aqui.
 ## Atalho: o cliente ja esta escrito
 
 `scripts/chamado.py` (ao lado deste arquivo) implementa os Passos 1-3 e a medicao do 3c.
-**Copie-o para o scratchpad DESTA sessao e rode de la** (`$SP` = o scratchpad da sessao):
+**Copie-o para o scratchpad DESTA sessao e rode de la** (`$SP` = o scratchpad da sessao;
+`$SKILL` = a pasta desta skill no repo em que a sessao abriu, pela tabela "Fonte e copias"):
 
 ```bash
-cp .claude/skills/triagem-chamados/scripts/chamado.py "$SP/chamado.py"
+cp "$SKILL/scripts/chamado.py" "$SP/chamado.py"
 python "$SP/chamado.py" abertos
 python "$SP/chamado.py" ticket 29 46
 python "$SP/chamado.py" conversa 29
@@ -80,7 +93,7 @@ Os artefatos saem em `<pasta do script>/saida-chamados/`.
 Ele ja resolve o token em runtime, o join por alias, a paginacao de 500 em 500 e o UTF-8.
 O trabalho que **so voce faz** e o dos Passos 3 a 7.
 
-> **Pre-requisito de permissao.** O script le o token do `.env`/`diag_*.py`. Em *auto mode* o
+> **Pre-requisito de permissao.** O script le o token do `source/.env` do retrobatnew. Em *auto mode* o
 > classificador pode bloquear isso como *Credential Exploration*. Se levar o bloqueio, **pare e
 > avise o usuario** — ele libera em `.claude/settings.json` (ex.:
 > `Bash(python <scratchpad>/chamado.py *)`) ou roda fora do auto mode. Nao tente
@@ -95,7 +108,7 @@ O trabalho que **so voce faz** e o dos Passos 3 a 7.
 | campo | para que serve |
 |---|---|
 | `lid`, `telefone`, `email` | chaves da conversa (Passo 2) |
-| `origem_agente` | **qual produto** o cliente comprou → ponto de partida do roteamento (Passo 4) |
+| `origem_agente` | **qual produto** o cliente comprou → ponto de partida do roteamento (Passo 4). ⚠️ `MULTIGAMES_AGENT` cobre o app de PC **e** o app Android (mesmo nome "Retro Game System", mesmo pacote): quem decide e o aparelho da conversa (regra de desempate do Passo 4) |
 | `pacote_json` | o produto exato (`Sistema Multigames`, `RetroSystem PS2`, ...) |
 | `aberto_em`, `status`, `status_em`, `fechado_em` | janela da investigacao |
 | `ultima_msg_cliente_em` x `ultima_msg_operador_em` | **se o cliente esta sem resposta agora** — isto vai no relatorio final |
@@ -180,15 +193,28 @@ Um chamado produz achados em **mais de um repositorio**. Decida por candidato, n
 | O achado e sobre | Repositorio | Pasta de bugs |
 |---|---|---|
 | App de PC **Retro Game System / RGS** — EmulationStation, `emulatorLauncher`, emuladores, cores, catalogo de ROMs, BIOS, atualizacao do app, empacotamento | `C:\projects\retrobatnew` | `source/docs/bugs/{open,retest,done}/` — ⚠️ **em `source/`, nao na raiz** |
-| App **Android RetroSystem PS2** (fork do ARMSX2) | `D:\projects\play2\ARMSX2-fork` | `docs/bugs/open/armsx2-fork/` (linha antiga: `.../legado-version1/`) |
-| **PS2Companion** — preparar HD/pendrive de PS2, OPL | `D:\projects\PS2Companion` | `docs/bugs/{open,close}/` |
-| **Downloader XBOX360** — `xbox-360-companion`, BadAvatar, Aurora, DashLaunch, preparo de HDD/USB | `C:\projects\Downloader-XBOX360-XEX-HDD-Games` | `docs/bugs/{open,closed}/` |
+| App **Android "Retro Game System"** (Lemuroid, multi-sistema, Libretro) — APK `retro-game-system-arm64.apk`/`armv7.apk`, catalogo, download sob demanda, cores, telemetria do app Android | `C:\projects\lemuroid\Lemuroid` (branch `version9`) | `docs/bugs/{open,retest,done}/` — ⚠️ **`docs/`, nunca `documentacao/`** (removida em 2026-10-09) |
+| App **Android RetroSystem PS2** (fork do ARMSX2) | `D:\projects\play2\ARMSX2-forkv2` (branch `armsx2forkv2`; o antigo `ARMSX2-fork` nao existe mais) | `docs/bugs/open/armsx2-fork/` (linha antiga: `.../legado-version1/`) |
+| **PS2Companion** — preparar HD/pendrive de PS2, OPL | `D:\projects\PS2Companion` | `docs/bugs/{open,retest,close}/` |
+| **Downloader XBOX360** — `xbox-360-companion`, BadAvatar, Aurora, DashLaunch, preparo de HDD/USB | `C:\projects\Downloader-XBOX360-XEX-HDD-Games` | `docs/bugs/{open,retest,closed}/` |
 | **Agente de WhatsApp** — prompts, KB/guias, roteamento, handoff, resumo de chamado, painel, area de membros, pagamentos, remarketing | `C:\projects\digitalstoregamesproject` | `docs/modules/<modulo>/[areas/<area>/]bugs/` |
+
+**PC x Android — o mesmo nome, dois repos.** O app de PC e o app Android se chamam ambos
+**"Retro Game System"**, saem do mesmo pacote Multigames e sao atendidos pelo mesmo
+`MULTIGAMES_AGENT`: `origem_agente`/`pacote_json` **nao** separam os dois. Decide o **aparelho
+citado na conversa**:
+
+- celular, TV Box, Android, APK, Play Store → `Lemuroid`;
+- Windows, PC, notebook, `.exe`, EmulationStation → `retrobatnew`;
+- jogo de PS2 rodando no Android (RetroSystem PS2) → `ARMSX2-forkv2`.
+
+Sem aparelho na conversa, decida pelo que o cliente instalou (link de download entregue, print
+da tela) e **escreva a duvida no doc**. Nao pergunte ao usuario: a regra acima e a resposta.
 
 **Regra que decide os casos de fronteira:** o bug do **produto** mora no repo do produto; so o
 que e do **agente/plataforma** vai para `digitalstoregamesproject`. Motivo mecanico:
 `tools/gen_status.py` (`REPOS`) so varre o repo raiz e os sub-repos listados — `retrobatnew`,
-`PS2Companion` e `ARMSX2-fork` **nao estao la**, entao um doc deles naquele repo ficaria
+`PS2Companion` e `ARMSX2-forkv2` **nao estao la**, entao um doc deles naquele repo ficaria
 `backlog` para sempre, que e como se ensina a ignorar o painel.
 
 **Quando o mesmo episodio rende os dois lados, abra os dois docs e cruze-os por link** — ex.:
@@ -284,7 +310,7 @@ Um arquivo por **causa raiz**, no repositorio roteado no Passo 4, no formato daq
 Em todo doc, sempre: **numero do chamado, `lid` da sessao, ids das mensagens citadas** — e a
 citacao literal do cliente, na lingua dele.
 
-### `retrobatnew` · `ARMSX2-fork` · `PS2Companion` · `Downloader-XBOX360`
+### `retrobatnew` · `ARMSX2-forkv2` · `PS2Companion` · `Downloader-XBOX360`
 
 Nome: `<componente>-<sintoma-curto>_<AAAA-MM-DD>.md` (no XBOX360 e no ARMSX2 o timestamp vai
 ate o minuto: `_2026-09-22T19-14`). Cabecalho em bullets, corpo em secoes:
@@ -307,9 +333,33 @@ ate o minuto: `_2026-09-22T19-14`). Cabecalho em bullets, corpo em secoes:
 ```
 
 - No **XBOX360**, a severidade e a matriz P0-P3 de `docs/agents/skills/bug-triage.md`.
-- No **ARMSX2-fork**, todo commit exige task em `docs/task/TASK-NNNN-*.md` e o doc leva as
+- No **ARMSX2-forkv2**, todo commit exige task em `docs/task/TASK-NNNN-*.md` e o doc leva as
   secoes `Feature:` / `Tasks que o resolvem:`; rode `python scripts/check_traceability.py`.
 - No **retrobatnew**, links entre bugs sao `[[nome-do-arquivo-sem-extensao]]`.
+
+### `Lemuroid` (app Android "Retro Game System")
+
+Formato proprio (`docs/bugs/open/README.md` do repo). Nome: `AAAA-MM-DD-slug-curto.md`, em
+`docs/bugs/open/`. Doc nunca se apaga: muda de pasta com `git mv` (`open` → `retest` → `done`).
+
+```markdown
+# [BUG] <sintoma como o usuario ve>
+
+**Data:** AAAA-MM-DD
+**Status:** aberto
+**Severidade:** <custo medido>
+**Branch:** version9
+**Origem:** triagem do chamado de suporte #N (sessao `<lid>`)
+
+## Sintoma
+## Evidencia            <- ids de Wpp_proccess + citacao literal + aparelho/Android do cliente
+## Causa-raiz           <- so se provada; senao "## Hipoteses — nenhuma verificada"
+## Correcao
+## Validacao
+## Licao
+```
+
+- O criterio de complexidade (baixa/media/alta) e obrigatorio e esta no mesmo README.
 
 ### `digitalstoregamesproject`
 
