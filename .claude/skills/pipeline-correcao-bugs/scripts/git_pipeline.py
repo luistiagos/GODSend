@@ -555,6 +555,92 @@ check(any(SKILL_PY in m for m in falta("C2", "dono")) and not falta("C2"),
       "[finalizacao] skill: portao C2 lista a edicao da skill como decisao do DONO, nao como falta mecanica")
 sh("git", "checkout", "--", SKILL_PY, cwd=src); (src / NOVO_PY).unlink()   # os casos seguintes partem de antes
 
+# [[pipeline-final-sync-main-publica-remocao-de-arquivo-rastreado-de-outra-sessao_2026-11-03]] o estado da
+# principal na finalizacao 20261103-1151: um `.ps1` de teste rastreado apagado sem commit, e o build (que nao
+# o consome) verde. Antes a remocao ia no chore(terceiros) e era publicada (b067a83).
+for rel in ("tests/x.ps1", "tests/y.ps1", "tests/z.ps1", "docs/sera-apagado.md"):
+    anda(rel, f"{rel}\n", f"publica {rel}")
+sh("git", "fetch", "-q", "origin", cwd=src); sh("git", "merge", "-q", "--ff-only", "origin/versao3", cwd=src)
+(src / "tests/x.ps1").unlink()                              # ` D`: apagado no disco
+sh("git", "rm", "-q", "tests/y.ps1", cwd=src)               # `D `: apagado e no indice
+sh("git", "rm", "-q", "--cached", "tests/z.ps1", cwd=src)   # `D ` + `??`: o arquivo segue no disco
+os.utime(src / "tests/z.ps1", (old, old))
+(src / "docs/sera-apagado.md").unlink()                     # remocao em docs/: continua publicada
+(src / SKILL_PY).unlink()                                   # da skill: so a pendencia de `own`
+third("launcher/A.cs", "a fix + edicao de terceiro + remocao\n")
+n0 = len(olog())
+expect_exit(7, sync, "[finalizacao] remocao: final-sync-main com arquivos rastreados apagados e build verde")
+new, rec = olog("%H")[:len(olog()) - n0], P.load()["final"]["sync"]
+check(otree("tests/x.ps1") != "" and otree("tests/y.ps1") != "" and otree("tests/z.ps1") != "",
+      "[finalizacao] remocao: ` D`, `D ` e `git rm --cached` fora de docs/ NAO sao publicados (o origin tem os tres)")
+check(otree("docs/sera-apagado.md") == "" and otree(SKILL_PY) != "",
+      "[finalizacao] remocao: a remocao em docs/ continua publicada; a da skill nao")
+check(sorted(f for h in new for f in files(h)) == ["docs/sera-apagado.md", "launcher/A.cs"],
+      f"[finalizacao] remocao: os commits novos levam so o codigo e o doc ({[files(h) for h in new]})")
+check(porc("tests/x.ps1") == "D tests/x.ps1" and porc("tests/y.ps1") == "D  tests/y.ps1"
+      and not (src / "tests/x.ps1").exists() and not (src / "tests/y.ps1").exists() and porc("tests/z.ps1") == "",
+      "[finalizacao] remocao: as remocoes ficam na principal, intactas e nao commitadas; o `git rm --cached` se desfez")
+gone = [x for x in rec["pending"] if "apagado(s)" in x]
+check(not rec["blocked"] and len(rec["pending"]) == 4 and len(gone) == 1 and "tests/x.ps1" in gone[0]
+      and "tests/y.ps1" in gone[0] and "tests/z.ps1" not in gone[0] and SKILL_PY not in gone[0]
+      and any(SKILL_PY in m and "propria skill" in m for m in rec["pending"]) and "git restore" in gone[0]
+      and header() == "## versao3...origin/versao3",
+      f"[finalizacao] remocao: vira UMA pendencia do dono com os caminhos e o restore; a da skill fica em `own` ({rec['pending']})")
+check(any("tests/x.ps1" in m for m in falta("C2", "dono")) and not falta("C2"),
+      "[finalizacao] remocao: portao C2 lista a remocao como decisao do DONO, nao como falta mecanica")
+sh("git", "add", "-A", "--", "tests/x.ps1", cwd=src); sh("git", "commit", "-qm", "remove x de proposito", "--", "tests/x.ps1", cwd=src)
+expect_exit(7, sync, "[finalizacao] remocao: sync depois do dono commitar a remocao de x")
+check(otree("tests/x.ps1") == "" and otree("tests/y.ps1") != ""
+      and not any("tests/x.ps1" in m for m in P.load()["final"]["sync"]["pending"]),
+      "[finalizacao] remocao: a remocao commitada pelo dono (ato deliberado) e publicada; a de y continua pendente")
+sh("git", "restore", "--source=HEAD", "--staged", "--worktree", "--", "tests/y.ps1", SKILL_PY, cwd=src)
+check(porc("tests/y.ps1") == "" and porc(SKILL_PY) == "", "[finalizacao] remocao: restore da pendencia devolve os arquivos")
+
+# [[pipeline-final-sync-main-rename-staged-de-terceiro-publica-so-o-destino-e-sai-0_2026-11-04]] `git mv` de outra sessao na principal, nao commitado: antes o destino ia no chore(terceiros), a
+# origem ficava no origin (arquivo duplicado) e o `D ` restava sem pendencia, com saida 0. `git mv` preserva o
+# mtime, mas o arquivo veio do merge de agora: sem o os.utime ele cai em `fresh` e o caso nao prova nada. As
+# sobras docs/fresco.md e rascunho-humano.txt dos casos anteriores continuam na arvore.
+REN_OLD, REN_NEW, STAGED = "tests/ren-old.ps1", "tests/ren-new.ps1", "tests/novo-staged.ps1"
+for rel in (REN_OLD, "docs/ren-old.md"):
+    anda(rel, f"conteudo de {rel}\n", f"publica {rel}")
+sh("git", "fetch", "-q", "origin", cwd=src); sh("git", "merge", "-q", "--ff-only", "origin/versao3", cwd=src)
+sh("git", "mv", REN_OLD, REN_NEW, cwd=src); sh("git", "mv", "docs/ren-old.md", "docs/ren-new.md", cwd=src)
+third(STAGED, "novo em staged\n"); sh("git", "add", STAGED, cwd=src)
+for f in (REN_NEW, "docs/ren-new.md", STAGED):
+    os.utime(src / f, (old, old))
+third("launcher/A.cs", "a fix + edicao de terceiro + rename\n")
+lst = P.porcelain_paths(src)
+n0 = len(olog())
+expect_exit(7, sync, "[finalizacao] rename: final-sync-main com rename e arquivo novo em staged")
+new, rec = olog("%H")[:len(olog()) - n0], P.load()["final"]["sync"]
+check(otree(REN_NEW) == "" and otree(REN_OLD) != "" and otree(STAGED) == "",
+      "[finalizacao] rename: destino e `A ` fora de docs/ NAO publicados; a origem segue no origin")
+check(otree("docs/ren-new.md") != "" and otree("docs/ren-old.md") == "",
+      "[finalizacao] rename: rename em docs/ publica os DOIS lados")
+check(sorted(f for h in new for f in files(h)) == ["docs/ren-new.md", "docs/ren-old.md", "launcher/A.cs"],
+      f"[finalizacao] rename: os commits novos levam so o codigo e os dois lados do doc ({[files(h) for h in new]})")
+check(REN_NEW in lst and REN_OLD in lst, f"[finalizacao] rename: porcelain_paths lista destino e origem ({lst})")
+check(porc(REN_NEW) == f"A  {REN_NEW}" and porc(REN_OLD) == f"D  {REN_OLD}" and porc(STAGED) == f"A  {STAGED}"
+      and porc("docs/ren-old.md") == "" and porc("docs/ren-new.md") == "",
+      "[finalizacao] rename: fica na principal, intacto e nao commitado")
+st_ = [x for x in rec["pending"] if "novo(s) fora de docs/" in x]
+rm_ = [x for x in rec["pending"] if "apagado(s)" in x]
+check(not rec["blocked"] and len(st_) == 1 and len(rm_) == 1 and REN_NEW in st_[0] and STAGED in st_[0]
+      and REN_OLD in rm_[0] and header() == "## versao3...origin/versao3",
+      f"[finalizacao] rename: destino e `A ` em `stray`, origem em `removed`, sem ahead/behind ({rec['pending']})")
+check(any(REN_OLD in m for m in falta("C2", "dono")) and not falta("C2"),
+      "[finalizacao] rename: portao C2 lista como decisao do DONO, nao como falta mecanica")
+sh("git", "restore", "--source=HEAD", "--staged", "--worktree", "--", REN_OLD, cwd=src)
+sh("git", "rm", "-qf", "--", REN_NEW, STAGED, cwd=src)
+check(porc(REN_OLD) == "" and porc(REN_NEW) == "" and porc(STAGED) == "", "[finalizacao] rename: restore limpa a arvore")
+(src / REN_OLD).rename(src / REN_NEW); sh("git", "add", "-N", REN_NEW, cwd=src)
+lst = P.porcelain_paths(src)
+check(REN_NEW in lst and REN_OLD in lst and REN_OLD[3:] not in lst,
+      f"[finalizacao] rename: ` R` lista os dois, sem caminho truncado ({lst})")
+sh("git", "rm", "-qf", "--cached", "--", REN_NEW, cwd=src); (src / REN_NEW).unlink()
+sh("git", "restore", "--source=HEAD", "--staged", "--worktree", "--", REN_OLD, cwd=src)
+check(porc(REN_OLD) == "" and porc(REN_NEW) == "", "[finalizacao] rename: arvore limpa depois do ` R`")
+
 P.cmd_final_deploy(None)
 dep = P.load()["final"]["deploy"]
 check(dep["sha"] == head_o() and deploys[-1] == ("wt-planning", "deploy")

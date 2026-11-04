@@ -22,7 +22,8 @@ outra: isso nao muda o seu roteiro.
 trabalho seu, e o portao nao deixa fechar com eles em aberto. Decisao do dono e o que o helper marca
 como `PENDENCIA DO DONO` / `[DONO ]`: conflito, codigo de outra sessao que nao compila, arquivo que
 outra sessao esta editando agora, arquivo modificado da pasta da propria skill (o build do projeto
-nao o valida; so quem edita sabe quando terminou), pasta de origem desconhecida.
+nao o valida; so quem edita sabe quando terminou), arquivo rastreado apagado fora de `docs/` (idem),
+pasta de origem desconhecida.
 
 1. **Estado:** `python <helper> status` e `python <helper> reconcile`. Esperado:
    - todo bug em `retest`, `documentado` ou `open-falhou`;
@@ -48,7 +49,14 @@ nao o valida; so quem edita sabe quando terminou), pasta de origem desconhecida.
    - commita o trabalho que outras sessoes deixaram sem commit: cada arquivo de `docs/` num commit;
      o codigo, num commit so, que **so e publicado se o build do projeto sair 0** numa lane. O que
      esta na pasta da propria skill **nunca** entra nesse commit: vira `PENDENCIA DO DONO` (o build
-     nao testa o helper, e uma edicao pela metade dele ja foi publicada assim);
+     nao testa o helper, e uma edicao pela metade dele ja foi publicada assim). A **remocao** de arquivo
+     rastreado fora de `docs/` (sumiu do disco) tambem nao: vira `PENDENCIA DO DONO`, porque o build nao
+     consome `.ps1`/`.py` de teste e um script apagado por engano ja foi publicado assim (bug
+     `pipeline-final-sync-main-publica-remocao-de-arquivo-rastreado-de-outra-sessao_2026-11-03`).
+     Arquivo **novo** fora de `docs/` tambem nao entra: "novo" e medido contra o HEAD, entao `A ` e o
+     destino de rename em staged viram `PENDENCIA DO DONO`, e a origem do rename cai na regra da
+     remocao; em `docs/` os dois lados do rename sao publicados (bug
+     `pipeline-final-sync-main-rename-staged-de-terceiro-publica-so-o-destino-e-sai-0_2026-11-04`);
    - publica os commits locais (rebase numa lane, nunca na arvore principal) e iguala a arvore ao
      remoto. Os arquivos gerados de build modificados nela ficam como estao.
 

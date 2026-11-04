@@ -196,6 +196,12 @@ e "ociosa". Ela e retomada 2 min depois do erro, sem esperar a tolerancia e sem 
 transicao, entao quem roda o `tick` e o vigia que ja vive a execucao inteira: o de cota (com rodizio)
 ou o de reset (sem rodizio).
 
+O mesmo vale para a sessao parada **sem hit** (nem limite nem erro de API) ha mais de 1 h: o vigia roda
+o `tick`, que a cutuca (ate 2 vezes), sem esperar ninguem chamar transicao. A hora conta da ultima
+transicao **ou** da ultima mensagem entregue a sessao, o que vier depois: a sessao que o vigia acabou
+de retomar nao e cutucada. Sessao `busy` (inclusive esperando comando em background) ou subindo nao
+conta como parada. Esgotadas as 2 cutucadas, o `status` mostra `PARADO (sem cutucadas)`.
+
 ## Rodizio de contas (limite de uso)
 
 Desenho: DESIGN secao 20 (e o documento que o `projeto.md` cita). Aqui so o que o maestro e o dono
@@ -268,6 +274,8 @@ precisam saber.
   `test-done --result ambiente`;
 - `PARADO (erro de API)`: 3 retomadas seguidas terminaram no mesmo erro do servidor. Veja
   status.claude.com e retome com `reconcile --fix` quando a API voltar;
+- `PARADO (sem cutucadas)`: a sessao parou sem hit e as 2 cutucadas nao a fizeram chamar a transicao.
+  `claude attach`, veja onde travou; `reconcile --fix` cutuca de novo;
 - terminados, por desfecho.
 
 ## Modo `reconcile`
@@ -284,7 +292,7 @@ etapa parar de novo depois disso, nao insista: `claude attach`, leia onde travou
   commitado de terceiros. O helper impoe isso em codigo (`guard_wt`, `guard_branch` e
   `refuse_main_tree`, saida 13). **Unica excecao (decisao do dono, 2026-10-03):** o `final-sync-main`
   da finalizacao, que so faz o que nao destroi trabalho — commit por pathspec do que outras sessoes
-  deixaram (fora a pasta da propria skill, que fica para quem a edita), `merge --ff-only` e `reset --keep` (aborta inteiro se um arquivo modificado estiver no
+  deixaram (fora a pasta da propria skill, que fica para quem a edita, a remocao de arquivo rastreado fora de `docs/`, que fica para quem apagou, e o arquivo novo em relacao ao HEAD fora de `docs/`, inclusive `A ` e destino de rename, que fica para quem o criou), `merge --ff-only` e `reset --keep` (aborta inteiro se um arquivo modificado estiver no
   caminho). `reset --hard`, `checkout`, `clean`, `stash` e `rebase` continuam saida 13 ate dentro dele. **Saida 13 nunca se contorna**: rodar o comando na mao, mexer no
   helper para passar, ou editar o ledger e proibido; pare e conte ao dono.
 

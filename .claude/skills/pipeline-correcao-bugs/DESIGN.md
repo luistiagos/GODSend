@@ -315,7 +315,9 @@ Corrigido nesta revisao (o que impediria a execucao autonoma):
 
 Conferido e sem problema: `emulatorlauncher/libs` (HintPath `..\libs\`) e versionado (20 arquivos);
 o `packages.config` do RetroBat nao tem `HintPath` para `packages/`; `scripts/build.properties` e
-ignorado mas so o empacotamento (`montaversao.py`, `publicar_edicao.py`) o usa.
+ignorado mas so o empacotamento (`montaversao.py`, `publicar_edicao.py`) o usa. (Desde 2026-11-03 as chaves
+moram no `source/.env`, tambem ignorado; o `env_local` o acha pelo repositorio principal, entao funciona de
+dentro da worktree.)
 
 **Mudanca de local (pedido do dono):** a skill mora versionada em `source/docs/skills/
 pipeline-correcao-bugs/` (commit `37b87d5`, local, sem push). `.claude/skills/pipeline-correcao-bugs`
@@ -631,6 +633,26 @@ lane, e o roteiro repassava ao dono o que o helper proibia ou nao sabia fazer.
   metade). Quem sabe que terminou e quem edita: ele commita. A pasta e a de `skill_rel()` (`skills/...`
   aqui, `.claude/skills/...` nas copias). Commit LOCAL da skill continua publicado (decisao 1): commitar
   e ato deliberado.
+- **Remocao de arquivo rastreado fora de `docs/` tambem nao e commitada** (vira `PENDENCIA DO DONO`;
+  bug `pipeline-final-sync-main-publica-remocao-de-arquivo-rastreado-de-outra-sessao_2026-11-03`, 2026-11-04).
+  Pelo mesmo motivo: o build nao consome `.ps1`/`.py` de teste, e `tests/test-psxrecomp-maquina-limpa.ps1`
+  apagado por engano saiu publicado com saida 0 (`b067a83`). O `mtime` dava 0 ("nao ha edicao em curso"),
+  e o arquivo rastreado nao cai em `stray`. O criterio e "rastreado e ausente do disco", nao a letra `D`
+  do porcelain: `git rm --cached` da `D ` com o arquivo no disco e o `git add -A` o recoloca. Em `docs/` a
+  remocao segue publicada (doc movido entre pastas chega como ` D` + `??`). A pendencia traz o restore
+  (`git restore --source=HEAD --staged --worktree --`, que serve a ` D` e a `D `). Nao bloqueia o igualar:
+  ` D`/`D ` nao impedem `merge --ff-only` nem `reset --keep`; se o origin alterou o arquivo, ele volta.
+  Commit LOCAL da remocao continua publicado (ato deliberado).
+- **Arquivo "novo" e medido contra o HEAD, nao contra o indice** (bug
+  `pipeline-final-sync-main-rename-staged-de-terceiro-publica-so-o-destino-e-sai-0_2026-11-04`, 2026-11-04). `git mv` nao commitado de outra sessao saia pela metade: o destino, ja no indice,
+  escapava do `stray` e ia no `chore(terceiros)`; a origem, que `porcelain_paths` nao devolvia, ficava no
+  origin e como `D ` na arvore, com saida 0 e o arquivo duplicado. O mesmo furo publicava `A ` sem rename,
+  contra a regra de arquivo novo. Agora `A ` e destino de rename fora de `docs/` vao para `stray`, e a
+  origem cai em `removed`: duas pendencias que ja trazem o caminho e o restore. Commitar o rename inteiro
+  publicaria uma remocao de rastreado com o build como unico portao. Em `docs/` os dois lados sao
+  publicados na mesma rodada, um commit por arquivo. `porcelain_paths` devolve a origem de `R`, nao a de
+  `C`: em copia a origem esta limpa. Resto aceito: destino em `docs/` mexido ha menos de 10 min publica a
+  remocao da origem e fica `fresh` ate a rodada seguinte, como ja ocorre com ` D` + `??`.
 - **C3 e provado por cadeia, nao por inspecao do binario:** commit de cada `retest` e ancestral do SHA
   deployado; entre esse SHA e o origin so mudou `docs/`; MD5 atual do `dist/` = MD5 gravado logo depois
   do deploy (e conferido contra a saida do build da lane).
@@ -683,6 +705,92 @@ ficava viva na lane. Na execucao `20261003-1400`: 4 de 4 retomadas de planning p
 Provas: `sim_pipeline.py [resume]` (9 casos); `spawn` real abrindo e retomando numa pasta de scratch
 (antes: copia renomeada, ledger na original, copia viva depois do `stop_sessions`; depois: mesmo id,
 uma sessao so, nenhuma viva); `preflight` real VERDE.
+
+### 19.1 "Parada" nao e `status` ausente: a sessao que esta SUBINDO tambem nao tem status (2026-11-03)
+
+Bug: `source/docs/bugs/.../pipeline-resume-cmd-le-status-none-de-sessao-em-boot-como-parada-e-abre-copia_2026-11-01.md`
+(o `claude agents --json --all` segundo a segundo e o `daemon.log` da rodada VERMELHA estao la).
+
+**Fato medido (CLI 2.1.316, 2026-11-01):** a sessao que acabou de nascer, no spawn E no resume, fica alguns
+segundos **viva e sem `status`**, com `state: working`; antes do 1o `bg spawned` ainda passa ~12 s em
+`state: failed` (e depois sobe normal). Parada de verdade = `status` ausente com `state` `done` ou `stopped`
+(e os `blocked` antigos, 8 de 384 linhas, sem `pid`). `startedAt` (epoch ms): no registro PARADO (sem `pid`) e o
+do NASCIMENTO; com o processo vivo e o INICIO do processo atual e muda a cada resume (CLI 2.1.317, 4 de 4
+processos).
+
+**Fato medido (CLI 2.1.317, 2026-11-03, rodada 1 do teste):** quando o processo sobe (`pid` aparece) ha ~2,4-3 s
+de `status: idle` com `state: working` ANTES do 1o prompt (as vezes nem aparece: None/working direto para busy).
+Sequencia de um nascimento: None/working -> idle/working -> busy/working -> idle/done. `idle` + `working` tambem
+aparece no FIM de turno (visto depois de turno de resume, +16 s ate o `stop`), no mais cedo ~6 s apos o inicio
+do processo.
+
+**O que quebrava:** o `resume_cmd` decidia so por `status is None` -> "parada" -> pulava o `claude stop` e
+retomava a sessao viva -> o CLI abria COPIA (o preflight VERMELHO de 2026-11-01: a sonda levou 90 s para o OK1 e
+o `sleep(20)` fixo a retomou subindo). Os outros filtros `status is not None` (fim do preflight, `cleanup`,
+`stop-final`, C5 do `final-done`) nao viam a sessao subindo: a pasta da lane ficava presa, o `cleanup` a removeria
+com a sessao subindo, o `stop-final` saia com a copia viva.
+
+**Como ficou:**
+
+- `session_booting(x)` = `status` ausente e (`state == working` ou `failed` nascida ha menos de `BOOT_S` = 180 s);
+  ou o idle de boot: `status` idle + `state` working com o processo iniciado ha menos de `BOOT_IDLE_S` = 30 s;
+  `session_alive(x)` = `status` presente ou subindo; `session_idle(x)` = `status` em RESUMABLE e nao subindo (o
+  que pode levar `claude stop`); `session_label` mostra `subindo` no lugar de `None`.
+- `resume_cmd`: sessao subindo -> `Busy` sem `stop` (o `spawn` enfileira, a reentrega tenta de novo); o laco
+  pos-`stop` espera `session_alive` sumir, nao so o `status`.
+- `stop_live`, `lane_sessions` (`cleanup`), C5 do `final_report`, `cmd_stop_final`: usam `session_alive`; o
+  `cleanup` e o `stop-final` so param `session_idle` (o idle de boot ainda vai ler o prompt). `status` mostra
+  `subindo`.
+- `preflight` (`probe_resume_cmd`): espera a sonda TERMINAR o OK1 (`status` em RESUMABLE, nao subindo, e ja vista
+  `busy` ou `state` != working; teto `PROBE_IDLE_S` = 180 s) em vez do `sleep(20)`; sem isso, [FALHA] e o resume
+  nao e tentado; `Busy` do `resume_cmd` vira [FALHA] (antes: traceback). Na rodada 1 a espera aceitava so
+  `status` em RESUMABLE: pegou o idle de boot e o `resume_cmd` viu `busy` 2 s depois (preflight real VERMELHO).
+- Custo aceito do `BOOT_IDLE_S`: fim de turno `idle/working` com processo de menos de 30 s tambem vira `Busy` ->
+  pendencia (atraso de ate 30 s mais a proxima reentrega); turno de etapa do pipeline dura minutos.
+- Nao mudaram: `tick`, `stall_due`, `limited_sessions` tratam `status None` como parada, mas o efeito deles passa
+  por `spawn` -> `resume_cmd`, que agora da `Busy` -> pendencia. A tolerancia `grace_min` cobre a cutucada.
+  **Corrigido em 2026-11-04** ([[pipeline-vigia-nao-roda-tick-para-sessao-parada-sem-hit-tolerancia-de-1h-nunca-dispara_2026-11-04]]):
+  a frase acima era falsa para a retomada do vigia de cota e para a reentrega de pendencia, porque o `spawn` grava o
+  `sent_ts` e nao o `history`, e a tolerancia contava so do `history`: a sessao recem-retomada, ainda subindo, seria
+  cutucada pelo `tick` da mesma passada. Agora a tolerancia conta do mais recente entre a ultima transicao e a ultima
+  entrega (`stage_idle_min`), e o `stall_due` so acusa sessao `session_stopped` (fora da listagem, morta ou ociosa fora
+  do boot).
+- Risco aceito: sessao `working` sem `status` que nunca muda (registro sujo de daemon morto) fica `Busy`/pendente;
+  nao foi visto em 384 linhas, e o `status` a mostra `subindo`.
+
+Provas: `sim_pipeline.py` `[resume subindo]` (11), `[piloto sonda subindo]` (8) e `[sessao subindo]` (8);
+mutacao de cada ponto (guarda do `resume_cmd`, espera do preflight, `session_alive`, `stop_live`,
+`lane_sessions`, C5, `stop-final`, laco pos-`stop`, `except Busy`; na rodada 2: idle de boot no predicado,
+`busy` visto e `state` na espera da sonda, `session_idle` no `cleanup` e no `stop-final`) reprova o caso dele.
+
+### 19.2 Nascimento sem `EnterWorktree`: o prompt `--bg` manda isolar e ninguem aprova (2026-11-04)
+
+Bug: [[pipeline-sessao-de-etapa-para-em-pedido-de-enterworktree-sem-dono-presente_2026-11-03]] (medicoes la).
+
+**Fato medido (CLI 2.1.318):** o system prompt de toda sessao `--bg` diz "Before making any code changes, use the
+EnterWorktree tool [...] unless your cwd is already under `.claude/worktrees/` [...] This is enforced: file edits in
+the shared checkout are rejected until you isolate" (270 de 272 transcripts das lanes, desde 2.1.292). As lanes ficam em
+`.bugfix-pipeline\lanes\`, fora da excecao. A guarda de edicao real NAO atinge as lanes (worktree vinculada), mas o
+texto nao sabe: uma sessao chamou `EnterWorktree` e o pedido de permissao a deixou `waiting` por 5h54, com a onda parada.
+
+**Decisao: dois cintos no `common` do `spawn`.**
+- `--settings {"worktree":{"bgIsolation":"none"}}` (`BG_SETTINGS`): o prompt passa a dizer "work in place / Skip
+  EnterWorktree". E opcao simples: encerra a lista variadica do `--disallowedTools`.
+- `EnterWorktree` e `ExitWorktree` no `--disallowedTools`: se a config sumir numa CLI futura (ela e interna, nao
+  documentada), a ferramenta continua fora e o travamento nao volta. Um so dos dois nao basta: so a flag deixa o
+  prompt mandando chamar ferramenta inexistente; so a config deixa o modelo livre para chamar por outro motivo.
+- Por que `--settings` e nao outro canal: `CLAUDE_BG_ISOLATION` seria apagada pelo `clean_env`; o
+  `.claude/settings.json` do repo valeria tambem para as sessoes do dono na arvore principal, onde a guarda protege de
+  verdade. Nenhum cwd do pipeline perde protecao: lanes sao worktree vinculada, a raiz (finalizacao) nao e repo git.
+- So no nascimento (secao 19): a retomada vai sem flags e a CLI reaplica as salvas, `--settings` incluido (medido:
+  `saved options (... --disallowedTools, --settings ...)`, `shapeHash` igual). Sessoes de execucao ja aberta nao mudam.
+- O preflight abre sonda `--bg` sem `common` e nao edita: fica como esta.
+
+**Diagnostico:** `job_needs` le o `needs` de `~/.claude/jobs/<id curto>/state.json` (o `claude agents --json` nao o
+traz); `status` mostra `waiting (approve Entering worktree)` e o `tick`/`reconcile` troca "talvez esperando
+permissao" pelo motivo. Arquivo ausente, pela metade ou sem `needs` texto -> o comportamento antigo. Continua sem `stop`.
+
+Provas: `sim_pipeline.py` `[worktree-flags]` (tirar `EnterWorktree` da lista reprova) e `[needs]` (10).
 
 ## 20. Limite de uso da conta: rodizio automatico entre contas (2026-10-04; implementado ate a F8 em 2026-10-06)
 
@@ -773,7 +881,7 @@ Decisoes do dono (2026-10-09): **motor generico + config por projeto** (as 5 eta
 | `DIST_ES`, `DEPLOYED`, `md5_of` no C3 do `final_report` | MD5 de `emulationstation.exe`/`emulatorLauncher.exe` no dist x saida do build da lane |
 | `GENERATED` | regex dos gerados do CMake/MSBuild; usado em `dirty_split`, `discard_generated`, `preserve_leftovers`, `publish_head` (saida 5), `sync_main` |
 | `WT_IGNORED_INPUTS` / `provision_wt` | copia `emulationstation-source/win32-libs` para cada worktree |
-| `foreign_processes` (`env-wait`, `final-deploy`, `dispatch_slot` desde 22.13) | processos `emulationstation/emulatorLauncher/retroarch` + qualquer um dentro de `dist` |
+| `foreign_processes` (`env-wait`, `final-deploy`, `dispatch_slot` desde 22.13; o aviso passa por `describe_procs` desde 22.15) | processos `emulationstation/emulatorLauncher/retroarch` + qualquer um dentro de `dist` |
 | `cmd_preflight` | confere `deploy.ps1`, `dist/retrosystem`, `retrobat-tests` no PATH e a sessao Windows interativa (requisito do E2E por SendInput) |
 | `stage_prompt` | texto "RetroBatNew", `C:\projects\retrobatnew\source`, "deploy.ps1 nem MSBuild" |
 | `cmd_init --base` | padrao `origin/versao3`; `st["branch"] = base.split("/",1)[1]`; todo `fetch`/`push` usa o remoto literal `origin` |
@@ -1835,6 +1943,16 @@ o slot ficou ~3 h com o bug 6, a onda 3 esperou, e `status`/`reconcile` diziam "
 - `stall_due`/`stall_tick`: o vigia de reset (`reset_pass`) e o de cota (`watch_pass`, passo 6) rodam o `tick` quando o
   teto venceu sem aviso nesta posse (sessao busy) ou um erro de API venceu; o sono acaba no proximo vencimento de erro de
   API. Nenhum vigia novo: um dos dois ja vive a execucao inteira.
+- **Terceiro motivo do `stall_due` (2026-11-04,
+  [[pipeline-vigia-nao-roda-tick-para-sessao-parada-sem-hit-tolerancia-de-1h-nunca-dispara_2026-11-04]]):** sessao parada
+  SEM hit (sem limite, auth nem erro de API) com a tolerancia `GRACE_MIN` (60 min) vencida e cutucada sobrando
+  (`idle_stall`: `stage_idle_min` >= GRACE_MIN, sem `api_error_hit`, sem desvio do `nudge_hold`; nudges < MAX_NUDGES) e
+  `session_stopped` na listagem. Antes a cutucada generica so saia se alguem chamasse transicao: a execucao ficava parada
+  ate o `reconcile --fix` com o vigia vivo (execucao 20261103-1151, finalizacao parada ~2 h). A tolerancia conta do mais
+  recente entre a ultima transicao (`history`/`final.since`) e a ultima entrega (`rec.sent_ts`), no `tick` tambem: sem
+  isso o passo 6 do `watch_pass` cutucaria a sessao que o passo 5 acabou de retomar. Com as cutucadas gastas o vigia nao
+  roda o `tick` a cada passada; o `status` mostra `PARADO (sem cutucadas): <quem>/<etapa> ha N min` (so com a listagem e
+  a sessao parada). Sessao esperando comando em background aparece `busy` (medido, 14 amostras): nao e cutucada nem parada.
 - Runner (`tests/retrobat_tests`): `--download-timeout N` (default 0 = nunca matar, a suite noturna) -> watchdog
   `max_pre_detection_seconds`: sem `[Running]` depois de N s, corta e marca `budget_exceeded`, e o `classify` da
   `skip-download-timeout` (antes das linhas `[Error]` da cadeia de fontes, depois de crashdump/access violation).
@@ -1853,3 +1971,44 @@ contariam erro de servidor como hit de conta).
 report, force); controle: os casos `[slot-teto]` contra o `pipeline.py` da base falham (o `tick` nem anota nada).
 `tests/tests/test_download_timeout.py` (watchdog real com `.partial` crescendo sem parar, classify, runner com
 watchdog/enumeracao falsos, CLI). Ativar nas copias e acao do dono (`teto_slot_min` no `projeto.json` de cada uma).
+
+### 22.15 Origem do processo que ocupa o ambiente (2026-11-04)
+
+Origem: bug `pipeline-ferramenta-auxiliar-rodando-de-dentro-do-dist-ocupa-o-slot-e2e_2026-11-03`. Na execucao
+`20261103-1151`, uma sessao interativa baixou um ISO para o proprio scratchpad usando o `aria2c.exe` de
+`dist\retrosystem\emulationstation\rgs-downloader\`: o processo rodava de dentro do `dist`, segurou a fila do teste
+(20:56) e depois o `final-deploy` (23:34). O aviso so dizia `aria2c pid=...`; o dono nao reconheceu o processo e a
+investigacao ficou cara. `foreign_processes` estava certo (download real pelo ES tem de bloquear) e nao muda.
+
+- **Regra escrita** (`AGENTS.md`, `projeto.md` secao Teste): ferramenta auxiliar nunca roda de dentro do `dist/`;
+  copia para o scratchpad. O `scripts/sync_goopie_xbox_assets_hf.py` (o unico versionado que fazia isso, por horas,
+  com `--max-tries=0`) passou a rodar a copia de `%TEMP%\rgs-tools` (`aria2c_fora_do_dist`).
+- **`describe_procs(procs)`**: chamado so com algo ocupado, nunca dentro do `foreign_processes` (caminho quente de 30 s,
+  e a lista dele vai crua para o ledger). Le `process_table()` (um `Get-CimInstance Win32_Process`, ~0,7 s, 450
+  processos; o `Get-Process` nao tem linha de comando) e devolve dicts novos com `Origem`; falha da tabela (timeout,
+  JSON invalido, saida vazia) = a lista como veio, nunca `die` (roda no `dispatch_slot`, sob o lock `state`).
+- **`process_origin`**: `cmd: <resumo> | pai: <resumo> pid=N <- ...`, ate 6 ancestrais (no caso real o `aria2c` estava
+  a 5 niveis do `claude.exe` da sessao); para no 1o ancestral com `sessao=` (o dono). Pai fora da tabela, criado DEPOIS
+  do filho (PID reusado) ou ja visto -> `pai encerrado (pid N)`. Teto de 400 caracteres cortado do MEIO, nunca do fim
+  (o ultimo elo e o que diz de quem e): primeiro somem elos do meio (`... (N omitidos)`, ficam o pai direto e o ultimo),
+  depois o meio do texto vira ` ... `. O corte no fim reprovou o teste da rodada 1: na pasta de evidencia real
+  (`tests\runs\<data>-<slug>`, ~120 caracteres) a cadeia tinha 671 e perdia o `claude.exe sessao=`.
+- **`cmd_summary`, ALLOWLIST**: sai so o nome, `sessao=<8>` (UUID de `--session-id`/`--resume`, ou o nome
+  `<uuid>.jsonl` do caminho que a sessao retomada passa ao `--resume`), caminho absoluto e script, ate 3 itens (caminho
+  com mais de 48 caracteres vira `...\<fim>`, `short_item`), e passa por `mask`. A linha do `aria2c` traz `--header` com cookie: o nome de flag nunca sai
+  (`-pSENHA` tem forma de flag), e `CMD_SECRET_RE` (`header|cookie|pass|token|secret|auth|key`) e a segunda trava, que
+  pula o token e o seguinte (o caso `"--header=C:\SEGREDO"`, que a allowlist sozinha deixava passar).
+- **Onde aparece**: `env_busy.procs` do ledger (portanto `status`), nota do `tick`/`reconcile`, `OCUPADO:` do
+  `env-wait` e do `final-deploy` (`proc_text`: o prefixo `nome pid=N caminho` de antes + ` [<Origem>]`). Ledger antigo
+  sem `Origem` sai como antes.
+
+**Hipoteses descartadas:** ignorar `aria2c` por nome (o launcher o usa em download real); `CommandLine` dentro do
+`foreign_processes` (caminho quente e linha crua no ledger); lista de negacao sozinha (nao pega URL assinada, `-pSENHA`,
+`python -c`); `mask()` (so conhece `sk-ant-`); so o pai direto (seria `python`, a 4 niveis da sessao); confiar no
+`ParentProcessId` sem a data (PID reusado); barrar o processo por codigo (a sessao chama o binario direto).
+
+**Provas:** `sim_pipeline.py` `[origem]` (`process_table` com saida vazia/lixo/timeout/OSError; `cmd_summary` com os casos
+de segredo; cadeia, pai morto, PID reusado, ciclo; `short_item`; cadeia real da T2 com caminhos de ~120; corte do meio
+dos elos e do texto, mantendo a sessao; `describe_procs` vazio/sem tabela; `reconcile` com e sem
+`--fix`, `status`, `env-wait --minutes 0` e `final-deploy` saindo 11 com a origem, e ledger sem segredo); mutacao: sem a
+linha do `CMD_SECRET_RE` o caso `SEGREDO11` falha. `scripts/tests/test_sync_goopie_aria2c_fora_do_dist.py`.

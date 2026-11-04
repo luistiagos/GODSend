@@ -45,6 +45,11 @@ REAL_AGENTS, P.agents = P.agents, lambda: []         # o real: o [agents-indispo
 REAL_FOREIGN, REAL_SCHED_ENV, env_procs, env_watches = P.foreign_processes, P.schedule_env_watch, [], []
 P.foreign_processes = lambda: list(env_procs)
 P.schedule_env_watch = lambda: env_watches.append(1)
+# com o ambiente ocupado, o `describe_procs` le a tabela de processos (`process_table`: PowerShell REAL, e o `P.run` do
+# `[ambiente]` e o real): sem stub, PIDs ficticios (7924) casariam com processos da maquina. O real vai para `[origem]`.
+# [[pipeline-ferramenta-auxiliar-rodando-de-dentro-do-dist-ocupa-o-slot-e2e_2026-11-03]]
+REAL_PROC_TABLE, proc_table, proc_table_calls = P.process_table, {}, []
+P.process_table = lambda: (proc_table_calls.append(1), dict(proc_table))[1]
 GIT = {"status": "", "ls-tree": "x", "rev-parse": "abc", "rev-list": "1"}
 def fake_git(*args, cwd=None, check=True):
     if args[0] == "diff":
@@ -473,6 +478,175 @@ check(not P.env_watch_alive() and REAL_SCHED_ENV() is True and launched == [["en
 P.launch_detached = real_ld
 env_procs.clear()
 
+# [origem] o `aria2c` de uma sessao interativa rodava de dentro do dist e travou a fila e o final-deploy; o aviso so dizia
+# `aria2c pid=...` e ninguem sabia de quem era. Agora o aviso traz a linha de comando RESUMIDA (allowlist: nome, caminho,
+# script, sessao) e a cadeia de pais ate a sessao, sem segredo nenhum, nem no ledger.
+# [[pipeline-ferramenta-auxiliar-rodando-de-dentro-do-dist-ocupa-o-slot-e2e_2026-11-03]]
+state_before_origem = P.STATE.read_text(encoding="utf-8")
+tbl_out, tbl_calls = [""], []
+def fake_tbl_run(cmd, cwd=None, check=True, timeout=None):
+    tbl_calls.append((list(map(str, cmd)), check, timeout))
+    if isinstance(tbl_out[0], BaseException):
+        raise tbl_out[0]
+    return types.SimpleNamespace(returncode=0, stdout=tbl_out[0], stderr="")
+P.run = fake_tbl_run
+row = lambda pid, ppid, name, cmdline, criado=0: {"ProcessId": pid, "ParentProcessId": ppid, "Name": name,
+                                                 "CommandLine": cmdline, "Criado": criado}
+for out_, why in (("", "saida vazia"), ("isto nao e json", "lixo"), ("[1, \"x\", {\"Name\": \"sem pid\"}]", "sem ProcessId"),
+                  (P.subprocess.TimeoutExpired("powershell", 30), "timeout"), (OSError("sem powershell"), "OSError")):
+    tbl_out[0] = out_
+    check(REAL_PROC_TABLE() == {}, f"[origem] process_table com {why}: {{}} (nunca die)")
+check(all(c[0][0] == "powershell" and "Win32_Process" in c[0][-1] and c[1] is False and c[2] == 30 for c in tbl_calls),
+      "[origem] process_table: Win32_Process, check=False e timeout=30")
+tbl_out[0] = json.dumps(row(5, 1, "x.exe", None))
+check(list(REAL_PROC_TABLE()) == [5], "[origem] process_table: 1 processo (objeto, nao lista) tambem entra")
+tbl_out[0] = json.dumps([row(5, 1, "x.exe", None), row(6, 5, "y.exe", "y.exe a")])
+check(sorted(REAL_PROC_TABLE()) == [5, 6], "[origem] process_table: lista vira {pid: linha}")
+P.run = real_run
+
+UUID = "9048b69a-1c2d-4e5f-8a9b-0123456789ab"
+cases = [  # (nome, linha de comando, o que TEM de aparecer)
+    ("aria2c.exe", r'"C:\r\dist\aria2c.exe" "--header=Cookie: sid=SEGREDO1" --max-tries=0 --dir=C:\jobs\abc\tmp '
+                   r'https://x.org/a.iso?token=SEGREDO2', [r"C:\jobs\abc\tmp"]),
+    ("curl.exe", 'curl.exe -H "Authorization: Bearer SEGREDO3" https://x/?token=SEGREDO4', []),
+    ("aria2c.exe", "aria2c.exe --http-passwd SEGREDO5 --http-passwd=SEGREDO6", []),
+    ("python.exe", "python.exe -c \"import os; print('SEGREDO7')\"", []),
+    ("7z.exe", r"7z.exe x -pSEGREDO8 C:\a\b.7z", [r"C:\a\b.7z"]),
+    ("bash.exe", "bash.exe -c \"curl -H 'Cookie: SEGREDO9' https://x\"", []),
+    ("aria2c.exe", r"aria2c.exe C:\a\b?SEGREDO10", []),
+    ("aria2c.exe", r'aria2c.exe "--header=C:\SEGREDO11"', []),
+    ("aria2c.exe", r'aria2c.exe --header "C:\SEGREDO12" --dir="C:\x y\z"', [r"C:\x y\z"]),
+    ("python.exe", r'"C:\Py\python.exe" baixar_uk.py --out C:\jobs\abc\tmp', ["baixar_uk.py", r"C:\jobs\abc\tmp"]),
+    ("claude.exe", rf'"C:\c\claude.exe" --add-dir C:\a --add-dir C:\b --add-dir C:\c --session-id {UUID}',
+     ["sessao=9048b69a"]),
+    ("claude.exe", f"claude.exe --resume={UUID}", ["sessao=9048b69a"]),
+    ("claude.exe", rf'"C:\c\claude.exe" --resume C:\Users\u\.claude\projects\C--x\{UUID}.jsonl --add-dir C:\a',
+     ["sessao=9048b69a", r"C:\a"]),           # sessao retomada: o --resume e o caminho do transcript
+]
+outs = [P.cmd_summary(n, c) for n, c, _ in cases]
+leak = [o for o in outs if "SEGREDO" in o or "--header" in o or "-H" in o.split()]
+miss = [(o, want) for o, (_, _, want) in zip(outs, cases) if not all(w in o.split(" ", 1)[-1] for w in want)]
+check(not leak and not miss and all(o.startswith(n) for o, (n, _, _) in zip(outs, cases)),
+      f"[origem] cmd_summary: allowlist (cookie, Authorization, ?token=, --http-passwd, -c, -pSENHA, -H no bash -c, "
+      f"caminho com ?, \"--header=C:\\...\" e --header \"C:\\...\": nada vaza; --dir, script e sessao ficam) {leak} {miss}")
+check(outs[10].split()[1] == "sessao=9048b69a" and len(outs[10].split()) == 4
+      and outs[12] == r"claude.exe sessao=9048b69a C:\a",
+      f"[origem] cmd_summary: a sessao vem primeiro e o resumo para em 3 itens ({outs[10]})")
+check(P.cmd_summary("x.exe", None) == "x.exe" and P.cmd_summary(None, "") == "?", "[origem] cmd_summary sem linha de comando: so o nome")
+
+aria_cmd = (r'"C:\r\dist\retrosystem\emulationstation\rgs-downloader\aria2c.exe" "--header=Cookie: sid=SEGREDO-T" '
+            r'--max-tries=0 --retry-wait=5 --dir=C:\jobs\abc\tmp http://127.0.0.1:9/x.iso')
+chain_tbl = {r["ProcessId"]: r for r in [
+    row(100, 90, "aria2c.exe", aria_cmd, 1000),
+    row(90, 80, "python.exe", r"python.exe C:\jobs\abc\tmp\baixar_uk.py", 900),
+    row(80, 70, "bash.exe", "bash.exe -c \"python baixar_uk.py 'Cookie: SEGREDO-B'\"", 800),
+    row(70, 60, "bash.exe", "bash.exe", 700), row(60, 50, "bash.exe", "bash.exe", 600),
+    row(50, 40, "claude.exe", rf"claude.exe --session-id {UUID} --print", 500),
+    row(40, 30, "claude.exe", "claude.exe", 400), row(30, 0, "explorer.exe", "explorer.exe", 300)]}
+o = P.process_origin(100, chain_tbl)
+check(o.startswith(r"cmd: aria2c.exe C:\jobs\abc\tmp | pai: python.exe C:\jobs\abc\tmp\baixar_uk.py pid=90 <- bash.exe pid=80")
+      and o.endswith("claude.exe sessao=9048b69a pid=50") and "pid=40" not in o and "SEGREDO" not in o
+      and "pai encerrado" not in o and len(o) <= 400,
+      f"[origem] process_origin: cadeia ate a sessao (para no 1o ancestral com sessao=), sem segredo ({o})")
+nosess = {**chain_tbl, 50: row(50, 40, "claude.exe", "claude.exe --print", 500)}
+o = P.process_origin(100, nosess)
+check(o.endswith("claude.exe pid=50 <- claude.exe pid=40") and "explorer" not in o,
+      f"[origem] process_origin: sem sessao na cadeia, no maximo 6 pais ({o})")
+dead = {**chain_tbl}; del dead[80]
+check(P.process_origin(100, dead).endswith("<- pai encerrado (pid 80)"), "[origem] process_origin: pai fora da tabela -> pai encerrado")
+reuse = {**chain_tbl, 90: {**chain_tbl[90], "Criado": 5000}}
+o = P.process_origin(100, reuse)
+check(o.endswith("| pai: pai encerrado (pid 90)") and "python" not in o,
+      f"[origem] process_origin: pai criado DEPOIS do filho (PID reusado) -> pai encerrado ({o})")
+cyc = {1: row(1, 2, "a.exe", "a.exe"), 2: row(2, 1, "b.exe", "b.exe")}
+check(P.process_origin(1, cyc) == "cmd: a.exe | pai: b.exe pid=2 <- pai encerrado (pid 1)", "[origem] process_origin: ciclo termina")
+check(P.process_origin(12345, chain_tbl) == "", "[origem] process_origin: pid fora da tabela -> ''")
+
+# teste rodada 1: a cadeia REAL da T2 (pasta de evidencia `tests\runs\<data>-<slug>`, ~120 caracteres, em cada nivel) passava
+# de 400 e o corte no FIM jogava fora o `claude.exe sessao=`, que e o que diz de quem e o processo
+EVID = r"C:\projects\retrobatnew\tests\runs\20261104-0929-" + "pipeline-ferramenta-auxiliar-rodando-de-dentro-do-dist-ocupa-o-slot-e2e_2026-11-03"
+ARIA = r"C:\projects\retrobatnew\dist\retrosystem\emulationstation\rgs-downloader\aria2c.exe"
+S2 = "acf4f95d-4f8b-47dc-88af-ad5afa53fd94"
+si = [P.short_item(x) for x in (EVID, EVID.replace("\\", "/") + "/baixar_t2.py", ARIA, r"C:\jobs\abc\tmp")]
+check(all(len(x) <= P.CMD_ITEM_MAX for x in si) and si[0].startswith("...\\") and si[0].endswith("slot-e2e_2026-11-03")
+      and si[1] == "...\\baixar_t2.py" and si[2] == r"...\emulationstation\rgs-downloader\aria2c.exe" and si[3] == r"C:\jobs\abc\tmp",
+      f"[origem] short_item: caminho longo vira ...\\<fim> dentro de {P.CMD_ITEM_MAX}; curto fica ({si})")
+t2_tbl = {r["ProcessId"]: r for r in [
+    row(11812, 35088, "aria2c.exe", rf'"{ARIA}" "--header=Cookie: sid=VALOR-T2-NAO-PODE-APARECER" --max-tries=0 '
+                                    rf'--retry-wait=5 --dir={EVID} http://127.0.0.1:9/x.iso', 1000),
+    row(35088, 7104, "python.exe", rf'python {EVID.replace(chr(92), "/")}/baixar_t2.py {ARIA}', 900),
+    row(7104, 32524, "bash.exe", r'"C:\Program Files\Git\usr\bin\bash.exe" -c "python baixar_t2.py"', 800),
+    row(32524, 26452, "bash.exe", r'"C:\Program Files\Git\usr\bin\bash.exe"', 700),
+    row(26452, 38904, "bash.exe", r'"C:\Program Files\Git\usr\bin\bash.exe" --login', 600),
+    row(38904, 38044, "claude.exe", rf'"C:\Users\luist\.local\bin\claude.exe" --add-dir C:\projects\retrobatnew '
+                                    rf'--add-dir C:\projects\digitalstoregamesproject --session-id {S2}', 500),
+    row(38044, 1, "claude.exe", rf"C:\Users\luist\.local\bin\claude.exe --resume {S2}", 400)]}
+proc_table.clear(); proc_table.update(t2_tbl)
+t2 = P.proc_text(P.describe_procs([{"Id": 11812, "ProcessName": "aria2c", "Path": ARIA}])[0])
+o = P.process_origin(11812, t2_tbl)
+check(len(o) <= 400 and "python.exe" in o and "baixar_t2.py" in o and "slot-e2e_2026-11-03" in o
+      and o.endswith("claude.exe sessao=acf4f95d C:\\projects\\retrobatnew C:\\projects\\digitalstoregamesproject pid=38904")
+      and "sessao=acf4f95d" in t2 and "VALOR-T2" not in t2 and "--header" not in t2,
+      f"[origem] cadeia real da T2 (caminhos de ~120): python, script, --dir e claude.exe sessao= dentro do teto ({len(o)}: {t2})")
+LONG = [rf"C:\{'a' * 30}\{'b' * 30}{i}" for i in range(3)]
+deep = {300 + i: row(300 + i, 301 + i, f"n{i}.exe", f"n{i}.exe " + " ".join(LONG), 1000 - i) for i in range(5)}
+deep[305] = row(305, 0, "claude.exe", f"claude.exe {' '.join(LONG)} --session-id {S2}", 10)
+o = P.process_origin(300, deep)
+check(len(o) <= 400 and o.startswith("cmd: n0.exe") and "pid=301 <- ... (" in o and "omitidos" in o
+      and o.endswith("pid=305") and "claude.exe sessao=acf4f95d" in o,
+      f"[origem] acima do teto corta do MEIO da cadeia: fica o cmd, o pai direto e o elo com a sessao ({len(o)}: {o})")
+huge = {1: row(1, 2, "x" * 500 + ".exe", None), 2: row(2, 0, "claude.exe", f"claude.exe --session-id {S2}")}
+o = P.process_origin(1, huge)
+check(len(o) == 400 and " ... " in o and o.endswith("claude.exe sessao=acf4f95d pid=2"),
+      f"[origem] nem cortando elos cabe: o meio do TEXTO vira ' ... ', o fim (a sessao) fica ({len(o)})")
+proc_table.clear()
+
+aria = {"Id": 100, "ProcessName": "aria2c", "Path": r"C:\r\dist\retrosystem\emulationstation\rgs-downloader\aria2c.exe"}
+nulo = {"Id": 5, "ProcessName": "elevado", "Path": None}
+n_t = len(proc_table_calls)
+check(P.describe_procs([]) == [] and len(proc_table_calls) == n_t, "[origem] describe_procs([]) nem le a tabela")
+check(P.describe_procs([aria, nulo]) == [aria, nulo], "[origem] describe_procs com tabela vazia (falha): a lista como veio")
+proc_table.update(chain_tbl)
+d = P.describe_procs([aria, nulo])
+check(d[0]["Origem"].startswith("cmd: aria2c.exe") and "Origem" not in aria and "Origem" not in d[1]
+      and not any("CommandLine" in x for x in d) and P.proc_text(nulo) == "elevado pid=5",
+      f"[origem] describe_procs: Origem so no pid da tabela, dict novo, sem linha de comando; Path nulo nao quebra ({d})")
+
+env_procs[:] = [aria, nulo]
+P.save(env_state())
+out = out_of(lambda: call("reconcile", fix=False, grace=99999))
+check("fila parada por ambiente (q1 espera o slot): aria2c pid=100" in out and "[cmd: aria2c.exe" in out
+      and "baixar_uk.py" in out and "sessao=9048b69a" in out and "SEGREDO" not in out,
+      f"[origem] reconcile sem --fix: a nota diz de quem e o processo ({out.strip()})")
+out = out_of(lambda: call("reconcile", fix=True, grace=99999))
+raw = P.STATE.read_text(encoding="utf-8")
+s = state()
+check("baixar_uk.py" in s["env_busy"]["procs"][0]["Origem"] and "SEGREDO" not in raw and "--header" not in raw
+      and "CommandLine" not in raw and "sessao=9048b69a" in out,
+      "[origem] reconcile --fix: a origem vai ao ledger (env_busy), sem segredo nem linha de comando crua")
+out = out_of(lambda: call("status"))
+check("AMBIENTE OCUPADO" in out and "pai: python.exe" in out and "sessao=9048b69a" in out and "SEGREDO" not in out,
+      "[origem] status (le o ledger) mostra a origem")
+def exit_out(fn):
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            fn()
+    except SystemExit as e:
+        return e.code, buf.getvalue()
+    return None, buf.getvalue()
+code, out = exit_out(lambda: call("env-wait", minutes=0))
+check(code == 11 and "OCUPADO: aria2c pid=100 C:\\r\\dist" in out and "sessao=9048b69a" in out and "OCUPADO: elevado pid=5\n" in out
+      and "SEGREDO" not in out, f"[origem] env-wait --minutes 0: sai 11 com a origem ({out.strip()})")
+real_deploy_cfg, P.DEPLOY_CFG = P.DEPLOY_CFG, P.DEPLOY_CFG or {"x": 1}
+P.save(env_state(final={"state": "rodando", "session": None}))
+code, out = exit_out(lambda: call("final-deploy"))
+P.DEPLOY_CFG = real_deploy_cfg
+check(code == 11 and "OCUPADO: aria2c pid=100" in out and "pai: python.exe" in out and "SEGREDO" not in out,
+      f"[origem] final-deploy (o caso das 23:34): sai 11 com a origem ({out.strip()})")
+proc_table.clear(); env_procs.clear()
+P.STATE.write_text(state_before_origem, encoding="utf-8")   # o ledger como o [ambiente] deixou
+
 # [piloto sessao perdida] transicao morta entre save e spawn (DESIGN secao 16): bug em 'teste' sem sessao
 def lost(**kw):
     return base_state(bugs={"p": {"state": "teste", "plan": None, "sessions": {"planning": {"id": "pl", "name": "p-pl"},
@@ -543,8 +717,9 @@ def rs_run(cmd, cwd=None, check=True, timeout=None):
             out = f"backgrounded · dddd0000 · {names['dddd0000-1111']}"
     return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
 Q.run = rs_run
-Q.agents = lambda: [{"sessionId": k, "id": k[:8], "name": names.get(k), "startedAt": 5, **({"status": v} if v else {})}
-                    for k, v in world.items()]
+extra = {}                                       # campos a mais por sessao (state, startedAt): [resume subindo]
+Q.agents = lambda: [{"sessionId": k, "id": k[:8], "name": names.get(k), "startedAt": 5, **({"status": v} if v else {}),
+                     **extra.get(k, {})} for k, v in world.items()]
 cmd = Q.resume_cmd("claude", "aaaa1111-2222", "msg")
 check(calls == [["claude", "stop", "aaaa1111"]] and cmd == ["claude", "--bg", "--resume", "aaaa1111-2222", "msg"],
       "[resume] sessao ociosa: stop pelo id curto, resume pelo sessionId e SEM flag nenhuma")
@@ -556,6 +731,60 @@ world["aaaa1111-2222"], stop_works[0] = "idle", False
 try: Q.resume_cmd("claude", "aaaa1111-2222", "msg"); check(False, "[resume] sessao que nao parou devia dar Busy")
 except Q.Busy: check(True, "[resume] `stop` nao parou a sessao -> Busy (retomar viva abriria copia sem as flags)")
 stop_works[0] = True
+# [resume subindo] sessao que acabou de nascer (spawn ou resume) fica VIVA sem `status`, com `state` working (e ~12 s em
+# `failed` antes do 1o spawn): lida como "parada", o resume_cmd pulava o `stop` e o CLI abria COPIA (preflight VERMELHO
+# de 2026-11-01). Medido: `startedAt` (ms) e o do nascimento. Contra o pipeline.py antigo, os casos `working` e `failed`
+# recente devolvem o --resume direto. [[pipeline-resume-cmd-le-status-none-de-sessao-em-boot-como-parada-e-abre-copia_2026-11-01]]
+def rs_try(sid):
+    try: return Q.resume_cmd("claude", sid, "msg")
+    except Q.Busy as e: return e
+now_ms = lambda: int(time.time() * 1000)
+calls.clear(); extra["bbbb3333-4444"] = {"state": "working"}
+r = rs_try("bbbb3333-4444")
+check(isinstance(r, Q.Busy) and "subindo" in str(r) and calls == [],
+      f"[resume subindo] status None + state working: Busy 'subindo', sem `stop` e sem resume ({r}, {calls})")
+extra["bbbb3333-4444"] = {"state": "failed", "startedAt": now_ms() - 12000}
+r = rs_try("bbbb3333-4444")
+check(isinstance(r, Q.Busy) and "subindo" in str(r) and calls == [],
+      f"[resume subindo] status None + state failed nascida ha 12 s (o boot medido): Busy, sem `stop` ({r})")
+for st_x in ({"state": "done"}, {"state": "stopped"}, {"state": "blocked"}, {"state": "failed", "startedAt": 5},
+             {"state": "failed", "startedAt": now_ms() - (Q.BOOT_S + 60) * 1000}):
+    extra["bbbb3333-4444"] = st_x
+    r = rs_try("bbbb3333-4444")
+    check(r == ["claude", "--bg", "--resume", "bbbb3333-4444", "msg"] and calls == [],
+          f"[resume subindo] status None + {st_x}: parada de verdade -> resume direto, sem Busy ({r})")
+# rodada 1 do teste (CLI 2.1.317): logo que o processo sobe ha ~2-3 s de `idle` + `working` ANTES do 1o prompt, com
+# `startedAt` = inicio do processo. O `stop` ali descartaria a mensagem do spawn. Idle+working de FIM de turno com o
+# processo velho continua ociosa: stop + resume.
+world["aaaa1111-2222"], extra["aaaa1111-2222"] = "idle", {"state": "working", "startedAt": now_ms() - 3000}
+r = rs_try("aaaa1111-2222")
+check(isinstance(r, Q.Busy) and "subindo" in str(r) and calls == [],
+      f"[resume subindo] idle + working com o processo de 3 s (idle de boot): Busy, sem `stop` ({r}, {calls})")
+extra["aaaa1111-2222"] = {"state": "working", "startedAt": now_ms() - 600_000}
+rs_ag_plain = Q.agents
+def rs_agents_end_turn():                       # o `stop` falso tira o status; o registro parado e `stopped`
+    if world["aaaa1111-2222"] is None:
+        extra["aaaa1111-2222"] = {"state": "stopped"}
+    return rs_ag_plain()
+Q.agents = rs_agents_end_turn
+r = rs_try("aaaa1111-2222")
+Q.agents = rs_ag_plain
+check(r == ["claude", "--bg", "--resume", "aaaa1111-2222", "msg"] and calls == [["claude", "stop", "aaaa1111"]],
+      f"[resume subindo] idle + working com o processo de 10 min (fim de turno): stop + resume ({r}, {calls})")
+calls.clear(); extra.clear()
+# depois do `stop`: a sessao perde o `status` mas ainda aparece `working` (viva) -> o laco espera ela ficar `done`
+world["aaaa1111-2222"], seen_polls = "idle", []
+def rs_agents_after_stop():
+    seen_polls.append(world["aaaa1111-2222"])
+    if world["aaaa1111-2222"] is None:          # ja parada pelo `stop` falso: 2 passadas `working`, depois `done`
+        extra["aaaa1111-2222"] = {"state": "working" if seen_polls.count(None) <= 2 else "done"}
+    return [{"sessionId": k, "id": k[:8], "name": names.get(k), "startedAt": 5, **({"status": v} if v else {}),
+             **extra.get(k, {})} for k, v in world.items()]
+rs_ag_old, Q.agents = Q.agents, rs_agents_after_stop
+r = rs_try("aaaa1111-2222")
+Q.agents = rs_ag_old; extra.clear()
+check(r == ["claude", "--bg", "--resume", "aaaa1111-2222", "msg"] and seen_polls.count(None) == 3,
+      f"[resume subindo] pos-`stop`: sem status mas `working` ainda e viva; resume so depois do `done` ({seen_polls})")
 # spawn REAL (so o CLI e falso): nasce com as flags, retoma sem elas, e o ledger segue o id impresso
 Q.PIPE = tmp; Q.WTS = tmp / "lanes"; Q.DSG = tmp / "nao-existe"
 def sp_state(sessions):
@@ -568,6 +797,14 @@ rec = Q.spawn(sp, "x", "planning", "oi")
 born = [c for c in calls if "--bg" in c][-1]
 check(rec["id"] == "dddd0000-1111" and "--model" in born and "--permission-mode" in born and "--resume" not in born,
       "[resume] spawn novo: nasce COM as flags e o ledger guarda o id que o CLI imprimiu")
+# nasce sem EnterWorktree/ExitWorktree e com o prompt "work in place" (bgIsolation none): sem dono, o pedido de
+# permissao do EnterWorktree parou a onda por 5h54 [[pipeline-sessao-de-etapa-para-em-pedido-de-enterworktree-sem-dono-presente_2026-11-03]]
+i_dt, i_set = born.index("--disallowedTools"), born.index("--settings")
+dis = born[i_dt + 1:i_set]
+check(dis == ["AskUserQuestion", "EnterPlanMode", "EnterWorktree", "ExitWorktree"]
+      and json.loads(born[i_set + 1]) == {"worktree": {"bgIsolation": "none"}} and born[i_set + 2] == "--permission-mode"
+      and "oi" in born[-1] and not born[-1].startswith("--"),
+      f"[worktree-flags] spawn novo: --disallowedTools com os 4 nomes, --settings bgIsolation none, prompt no fim ({dis})")
 world["aaaa1111-2222"] = "idle"; calls.clear()
 sp = sp_state({"planning": {"id": "aaaa1111-2222", "name": "bug01-dev-x"}})
 rec = Q.spawn(sp, "x", "planning", "de novo")
@@ -581,6 +818,16 @@ rec = Q.spawn(sp, "x", "planning", "de novo")
 check(rec["id"] == "cccc9999-0000" and rec["copy_of"] == "aaaa1111-2222"
       and sp["bugs"]["x"]["sessions"]["planning"]["id"] == "cccc9999-0000",
       "[resume] se o CLI abrir COPIA renomeada, o ledger segue a copia (quem recebeu a mensagem), nao a original parada")
+# [resume subindo] spawn REAL de retomada com a sessao ainda subindo: o `except Busy` que ja existia enfileira
+world["aaaa1111-2222"], extra["aaaa1111-2222"] = None, {"state": "working"}; calls.clear()
+sp = sp_state({"planning": {"id": "aaaa1111-2222", "name": "bug01-dev-x"}})
+rec = Q.spawn(sp, "x", "planning", "de novo")
+check(rec is None and [e["stage"] for e in sp["pending_spawns"]] == ["planning"]
+      and "subindo" in sp["pending_spawns"][0]["why"] and not [c for c in calls if "--bg" in c or "stop" in c]
+      and sp["bugs"]["x"]["sessions"]["planning"]["id"] == "aaaa1111-2222",
+      f"[resume subindo] spawn de retomada com a sessao subindo: mensagem em pending_spawns, nenhum stop nem --bg "
+      f"({[e['why'] for e in sp['pending_spawns']]})")
+extra.clear(); cli_out[0] = None
 
 # [piloto trust] trust de worktree = o do repo principal SRC (DESIGN secao 15); raiz e lanes nao bastam
 fake_cj = tmp / "claude.json"
@@ -606,8 +853,13 @@ R.DEPLOY = tmp / "deploy.ps1"; R.DEPLOY.write_text("$SourceRoot $BuildOnly", enc
 R.claude_exe = lambda: "claude"
 R.git = lambda *a, **k: "0"
 probe_calls, boom, cli_copies, wt_add_fail, untrusted = [], [False], [True], [False], [False]
+# [piloto sonda subindo] a sonda antes do 1o `stop`: `sonda_pre` = um registro por chamada do `agents` (depois, ociosa);
+# `sonda_stuck` = o registro de toda chamada (nunca fica ociosa); `at_resume` = quantos de `sonda_pre` sobravam no resume
+sonda_pre, sonda_stuck, at_resume = [], [None], []
 def probe_run(cmd, cwd=None, check=True, timeout=None):
     probe_calls.append((list(cmd), cwd))
+    if "--resume" in cmd:
+        at_resume.append(len(sonda_pre))
     if boom[0] and "--resume" in cmd:
         raise RuntimeError("simulado: falha no meio do preflight")
     # git worktree falso: o `add` cria a pasta com o `.git` ARQUIVO (worktree vinculada), o `remove` a apaga
@@ -637,8 +889,11 @@ def probe_agents():
     last = lambda pred: max([i for i, c in enumerate(cmds) if pred(c)], default=-1)
     stop_at, resume_at = last(lambda c: c[:3] == ["claude", "stop", "dddd7777"]), last(lambda c: "--resume" in c)
     woke = resume_at > stop_at and not cli_copies[0]       # `stop` para a sonda; so o resume SEM copia a acorda
+    pre = {"status": "idle"}
+    if stop_at < 0:
+        pre = sonda_pre.pop(0) if sonda_pre else sonda_stuck[0] or pre
     return [{"name": names[-1], "sessionId": "dddd7777-8888", "startedAt": 10**15,
-             **({"status": "idle"} if stop_at < 0 or woke else {})},
+             **(pre if stop_at < 0 else {"status": "idle"} if woke else {})},
             *([{"name": "titulo gerado pela ia", "sessionId": "eeee9999-0000", "status": "idle",   # copia do resume:
                 "state": "done", "startedAt": 10**15}] if resume_at >= 0 and cli_copies[0] else []),  # nome novo (real)
             {"name": names[-1], "sessionId": "abab1212-3434", "state": "done", "id": "abab1212"},  # ja encerrada
@@ -683,6 +938,60 @@ check("[OK]   o resume continuou a MESMA sessao (o CLI acordou dddd7777, a sonda
       f"[resume] preflight: CLI que acorda a mesma sessao passa; a sonda e parada antes do resume e no fim ({stops_of()})")
 check("provavelmente esperando permissao" in out and "NAO TESTADO" not in out,
       "[piloto sonda] sem arquivo da sonda e sem limite no transcript: culpa a permissao (controle)")
+# [piloto sonda subindo] o VERMELHO de 2026-11-01: a sonda levou 90 s para o OK1 e o `sleep(20)` fixo a retomou ainda
+# subindo (status ausente) -> o CLI abriu copia. Agora o preflight espera a sonda ficar OCIOSA antes do resume.
+# [[pipeline-resume-cmd-le-status-none-de-sessao-em-boot-como-parada-e-abre-copia_2026-11-01]]
+probe_calls.clear(); at_resume.clear()
+sonda_pre[:] = [{"state": "failed"}, {"state": "working"}, {"state": "working"},
+                {"status": "busy", "state": "working"}, {"status": "idle", "state": "done"}]
+code, out = probe_preflight()
+check(at_resume == [0] and "[OK]   a sonda terminou o OK1 e ficou ociosa antes do resume (status: idle)" in out
+      and "[OK]   o resume continuou a MESMA sessao (o CLI acordou dddd7777, a sonda e dddd7777)" in out
+      and stops_of() == ["dddd7777", "dddd7777"],
+      f"[piloto sonda subindo] sonda failed/working sem status -> busy -> idle: o resume so sai depois do idle e acorda "
+      f"a MESMA sessao (registros de boot sobrando no resume: {at_resume}; stops {stops_of()})")
+# rodada 1 do teste (preflight real VERMELHO, CLI 2.1.317): a sequencia MEDIDA da sonda tem um `idle` de boot (com o
+# processo recem-iniciado, antes do 1o prompt): None/working -> idle/working -> busy/working -> idle/done. Aceito como
+# "terminou o OK1", o resume_cmd via `busy` 2 s depois -> [FALHA] "resume recusado".
+probe_calls.clear(); at_resume.clear()
+sonda_pre[:] = [{"state": "working"}, {"state": "working"}, {"status": "idle", "state": "working"},
+                {"status": "idle", "state": "working"}, {"status": "busy", "state": "working"},
+                {"status": "idle", "state": "done"}]
+code, out = probe_preflight()
+check(at_resume == [0] and "[OK]   a sonda terminou o OK1 e ficou ociosa antes do resume (status: idle)" in out
+      and "resume recusado" not in out
+      and "[OK]   o resume continuou a MESMA sessao (o CLI acordou dddd7777, a sonda e dddd7777)" in out,
+      f"[piloto sonda subindo] sequencia medida com idle de boot (idle/working antes do busy): o resume so sai depois "
+      f"do idle/done (registros sobrando no resume: {at_resume})")
+old_ms = int(time.time() * 1000) - 600_000
+probe_calls.clear(); at_resume.clear()
+sonda_pre[:] = [{"state": "working"}, {"status": "busy", "state": "working"}]
+sonda_stuck[0] = {"status": "idle", "state": "working", "startedAt": old_ms}   # e fica assim (medido: +16 s)
+code, out = probe_preflight()
+sonda_stuck[0] = None
+check(at_resume == [0] and "[OK]   a sonda terminou o OK1 e ficou ociosa antes do resume (status: idle)" in out
+      and "[OK]   o resume continuou a MESMA sessao" in out,
+      f"[piloto sonda subindo] fim de turno idle/working (depois de busy, processo velho) conta como terminou ({at_resume})")
+for stuck, label in (({"state": "working"}, "subindo"), ({"status": "busy", "state": "working"}, "busy"),
+                     ({"status": "idle", "state": "working"}, "subindo"),
+                     ({"status": "idle", "state": "working", "startedAt": old_ms}, "idle")):
+    # a 1a leitura (a busca da sonda, `startedAt >= t0`) e o nascimento; depois ela fica em `stuck`
+    probe_calls.clear(); at_resume.clear(); sonda_pre[:] = [{"state": "working"}]; sonda_stuck[0] = stuck
+    code, out = probe_preflight()
+    check(code == 1 and f"[FALHA] a sonda terminou o OK1 e ficou ociosa antes do resume (status: {label})" in out
+          and "o resume NAO foi tentado" in out and not [c for c, _ in probe_calls if "--resume" in c]
+          and stops_of() == ["dddd7777"] and not lane_s.exists() and "PREFLIGHT VERMELHO" in out,
+          f"[piloto sonda subindo] sonda que nunca fica ociosa ({label}): VERMELHO com o motivo, nenhum --resume, a sonda "
+          f"e parada no fim (subindo tambem e viva para o stop_live) e a lane removida ({stops_of()})")
+sonda_stuck[0] = None
+probe_calls.clear(); at_resume.clear()
+sonda_pre[:] = [{"status": "idle"}, {"status": "idle"}, {"status": "busy", "state": "working"}]   # volta a trabalhar
+code, out = probe_preflight()
+check(code == 1 and "[FALHA] stop + resume --bg da mesma sessao (canal teste -> dev): resume recusado" in out
+      and not [c for c, _ in probe_calls if "--resume" in c] and stops_of() == ["dddd7777"] and "PREFLIGHT VERMELHO" in out,
+      f"[piloto sonda subindo] resume_cmd com Busy no preflight: [FALHA] com o motivo (antes: traceback), nenhum --resume, "
+      f"a sonda parada no fim ({stops_of()})")
+sonda_pre.clear()
 # Bug pipeline-preflight-confunde-limite-de-uso-com-falta-de-permissao_2026-10-16: a sonda que bate o limite
 # (forma medida no 57105df9) nao e "esperando permissao".
 R.CLAUDE_PROJECTS = tmp / "projects-sonda"; (R.CLAUDE_PROJECTS / "C--lane").mkdir(parents=True)
@@ -843,6 +1152,76 @@ check(P.answered_since("lim", t1) is False, "[cota] answered_since: assistant re
 jl("resp-grande", u(T0), hit(T1), u(T2), a(T2), big, *noise)
 check(P.answered_since("resp-grande", t1) is True,
       "[cota] answered_since: a resposta fica antes de uma linha de 200 KB (como as linhas 43-45 do 112b10ea)")
+# [cota] aviso de tolerancia do limite: a sessao obedece e encerra com texto de modelo REAL, sem <synthetic>
+# (bdb9a02c, 00:34:12Z). Forma medida: user isMeta + turnCompanion + usageLimitNote, sem hora de reset.
+# [[pipeline-sessao-encerra-sozinha-no-aviso-de-limite-de-uso-e-vigia-nao-retoma_2026-11-03]]
+GRACE_MSG = ("[Usage limit reached; a short grace allowance remains, then this turn is cut off without warning. Judge "
+             "what's left: if it's genuinely only a few steps, finish it properly, then stop and say so without extra "
+             "polishing.]")
+def grace(t, note="wrap_up", text=GRACE_MSG):
+    e = dict(u(t, text), isMeta=True, turnCompanion=True)
+    if note:
+        e["usageLimitNote"] = note
+    return e
+def release(t):
+    return grace(t, "release", "[Earlier usage-limit notes no longer apply. Continue working normally. Don't mention "
+                               "this to the user.]")
+def prompt(t, text="Voce e a sessao de dev"):
+    return dict(u(t, text), origin={"kind": "human"}, promptSource="typed", turnOrigin="human")
+def tuse(t): return {"type": "assistant", "timestamp": t, "message": {"model": "claude-opus-5-5", "content": [
+    {"type": "tool_use", "id": "tu1", "name": "Bash", "input": {"command": "git status"}}]}}
+def tres(t, text="ok"): return {"type": "user", "timestamp": t, "message": {"role": "user", "content": [
+    {"type": "tool_result", "tool_use_id": "tu1", "content": text}]}}
+def tnote(t): return dict(u(t, "<task-notification><status>completed</status></task-notification>"),
+                          origin={"kind": "task-notification"})
+TG, TG1, TG2, TG3 = "2026-11-04T00:34:12.000Z", "2026-11-04T00:34:21.000Z", "2026-11-04T00:40:00.000Z", "2026-11-04T02:34:26.000Z"
+tg = P.transcript_ts({"timestamp": TG})
+GRACE_HIT = {"kind": "limit", "resets_at": int(tg) + 5 * 3600, "type": None, "ts": tg, "estimated": True}
+jl("gr-a", prompt(T0), a(T0), tuse(T1), tres(T1), grace(TG), a(TG1, text="Seu limite de uso foi atingido, parei aqui"), *noise)
+check(P.quota_state("gr-a") == GRACE_HIT,
+      "[cota] aviso de tolerancia + encerramento com modelo real (bdb9a02c): limit estimado em ts+5h, com o ts do AVISO")
+jl("gr-b", prompt(T0), grace(TG), tuse(TG1), tres(TG1), tuse(TG1), tres(TG1, GRACE_MSG), a(TG1, text="commitei e parei"))
+check(P.quota_state("gr-b") == GRACE_HIT,
+      "[cota] aviso + tool_use/tool_result (um deles citando a frase) + texto: o turno inteiro e pulado ate o aviso")
+jl("gr-c", prompt(T0), grace(TG), a(TG1, text="parei"), tnote(TG2), a(TG2, text="o build terminou"))
+check(P.quota_state("gr-c") == GRACE_HIT,
+      "[cota] aviso + encerramento + task-notification respondida com modelo real (7a3c3b61): continua limit")
+jl("gr-d", prompt(T0), grace(TG), a(TG1, text="parei"), prompt(TG3, "continue"))
+check(P.quota_state("gr-d") == {"kind": None}, "[cota] aviso seguido de prompt novo (retomada): None")
+jl("gr-e", prompt(T0), grace(TG), a(TG1, text="parei"), prompt(TG3, "continue"), release(TG3), a(TG3, text="seguindo"))
+check(P.quota_state("gr-e") == {"kind": None}, "[cota] aviso + prompt + release + resposta: None")
+jl("gr-e2", prompt(T0), grace(TG), a(TG1, text="parei"), release(TG3))
+check(P.quota_state("gr-e2") == {"kind": None}, "[cota] release depois do aviso, mesmo sem prompt: anula o aviso")
+jl("gr-f", prompt(T0), grace(TG), a(TG1, text="parei"), prompt(TG3, "continue"), hit(TG3, reset=1793760000))
+gf = P.quota_state("gr-f")
+check(gf["kind"] == "limit" and gf["resets_at"] == 1793760000 and gf["type"] == "five_hour" and "estimated" not in gf,
+      f"[cota] aviso e depois o <synthetic> rejected da tentativa seguinte: vale o real, sem estimated ({gf})")
+jl("gr-g1", prompt(T0), a(T1, text=GRACE_MSG))
+jl("gr-g2", prompt(T0), tuse(T1), tres(T1, GRACE_MSG), a(T1, text="li o transcript"))
+jl("gr-g3", prompt(T0, GRACE_MSG + " -- colei do outro terminal"), a(T1, text="entendi"))
+jl("gr-g4", u(T0, GRACE_MSG))
+check([P.quota_state(s)["kind"] for s in ("gr-g1", "gr-g2", "gr-g3", "gr-g4")] == [None] * 4,
+      "[cota] o INVERSO: a frase do aviso em texto de assistant, em tool_result e em prompt sem isMeta nao e limite")
+jl("gr-h", prompt(T0), grace(TG, None), a(TG1, text="parei"))
+jl("gr-h1", prompt(T0), dict(grace(TG, None), turnCompanion=False), a(TG1, text="parei"))
+check(P.quota_state("gr-h") == GRACE_HIT and P.quota_state("gr-h1") == GRACE_HIT,
+      "[cota] reserva: isMeta com o texto do aviso, sem usageLimitNote (com e sem turnCompanion) -> limit estimado")
+jl("gr-h2", prompt(T0), grace(TG), a(TG1, text="parei"), grace(TG2, None, "<command-name>/bug</command-name>"),
+   a(TG2, text="ok"))
+check(P.quota_state("gr-h2") == GRACE_HIT,
+      "[cota] companheiro do turno (turnCompanion: skill, imagem) sem usageLimitNote nao abre turno: o aviso vale")
+jl("gr-h3", prompt(T0), grace(TG), a(TG1, text="parei"), dict(u(TG3, "Continue from where you left off."), isMeta=True),
+   a(TG3, text="seguindo"))
+check(P.quota_state("gr-h3") == {"kind": None}, "[cota] isMeta que abre turno (\"Continue from where you left off.\"): anula o aviso")
+jl("gr-i", prompt(T0), grace(TG), tuse(TG1), tres(TG1, "y" * 300_000), a(TG1, text="parei"), big, *noise)
+check(P.quota_state("gr-i") == GRACE_HIT, "[cota] aviso antes de um turno de mais de 64 KB (300 KB + 200 KB): a janela cresce")
+jl("gr-u", prompt(T0), grace(TG), tuse(TG1), tres(TG1))
+check(P.quota_state("gr-u") == GRACE_HIT, "[cota] sessao parada com tool_result por ultimo depois do aviso: limit")
+check(P.session_hit({"id": "gr-a", "sent_ts": tg - 60}) == GRACE_HIT
+      and P.session_hit({"id": "gr-a", "sent_ts": tg + 60}) == {"kind": None},
+      "[cota] session_hit: aviso depois da ultima entrega vale; entrega posterior ao aviso o descarta")
+check(P.api_error_hit({"id": "gr-a"}) is None and P.answered_since("gr-a", tg) is True,
+      "[cota] o aviso nao vira erro de API, e answered_since ve a resposta real depois dele")
 
 # [cota] F2: guarda das contas (DPAPI, accounts.json), run(token=)/mask, validate_account, try_lock e gravacao
 # repetida. Copia C com o `run` REAL e o `subprocess` DELA trocado por um falso (o global nao muda).
@@ -1496,7 +1875,8 @@ sx["bugs"]["x"]["auth_hits"] = {"dev": 3}
 notes = tick5(sx)
 check(ok_auth and any("PRECISA DO DONO" in n and "nao confirma" in n for n in notes) and not sx["bugs"]["x"].get("nudges")
       and not bg_calls(), "[cota] F5: hit auth com o rodizio ligado: sem cutucada; com 3 hits seguidos da etapa (R21), 'precisa do dono'")
-sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0aaaa-lim", sent=T5 - 100))})       # entregue DEPOIS do hit
+# entregue DEPOIS do hit, e ha mais da tolerancia: a tolerancia conta tambem da ultima entrega (stage_idle_min)
+sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0aaaa-lim", sent=T5 - 7100))})
 sp_reply[0] = (0, "backgrounded · f5e0aaaa · bug01-dev-x\n", ""); live5["f5e0aaaa-lim"] = "bug01-dev-x"
 notes = tick5(sx)
 check(sx["bugs"]["x"].get("nudges") == {"dev": 1} and resumes == ["f5e0aaaa-lim"] and len(bg_calls()) == 1
@@ -1545,7 +1925,8 @@ check(len(bg_calls()) == 1 and QMARK in bg_calls()[0][-1] and not sx["bugs"]["x"
 # correcao 1: entrega feita DEPOIS do reset e recusada de novo (o reset nao efetivou): espera LATE_WAIT desde a recusa,
 # senao o vigia de reset a retomaria a cada passada
 limited("f5e0dddd-s13", T5 - 600, int(T5) - 6000)
-sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None, sent=T5 - 700))})
+# entrega ha 66 min (mais que a tolerancia, que conta tambem do sent_ts), recusada ha 10: a nota do desvio aparece
+sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None, sent=T5 - 4000))})
 notes = tick5(sx); late_held = not bg_calls() and not sx["bugs"]["x"].get("nudges") and "sem cutucada antes do reset" in " ".join(notes)
 limited("f5e0dddd-s13", T5 - 4000, int(T5) - 6000)
 sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f5e0dddd-s13", account=None, sent=T5 - 5000))})
@@ -1711,8 +2092,8 @@ hook6[0] = lambda: (other6.append(C.try_lock("quota-watch")), C.save(st5({"x": b
 out = watch(once=False); alive6 = C.watch_alive(); C.unlock(other6[0]); C.unlock = real_unlock6
 check(keep6 and "outro vigia ja a acompanha" in out and other6[0] is not None and alive6 and not C.watch_alive(),
       "[cota] S43: state.json regravado entre soltar o lock e reler: o vigia retoma o lock; se outro vigia o pegou antes, sai. Sobra 1")
-# S25/S26 (B2): integridade numa passada SEM hit
-f4_reset("a", applied=True); st6({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x"))})
+# S25/S26 (B2): integridade numa passada SEM hit (entrega ha 1 min: dentro da tolerancia, o passo 6 nao cutuca)
+f4_reset("a", applied=True); st6({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x", sent=T6[0] - 60))})
 d6 = cred_get(); d6["claudeAiOauth"] = L2; cred_put(d6); out = watch(); a6 = acc_json()
 s25 = cred_tok() == TK["a"] and bak() == L2 and a6["file_repairs"] == 1 and a6["last_repair"]["motivo"] == "bloco de fora" and not sp_calls
 bs = bak_snap(); d6 = cred_get(); d6["claudeAiOauth"]["accessToken"] = TK["b"]; cred_put(d6); out = watch(); a6 = acc_json()
@@ -1730,9 +2111,23 @@ s1_bg, s1_state = bg_calls(), state6()                  # a retomada (passo 5) e
 live5.clear(); st6(bugs6(1, "f6e0s3bb", account="b", reset=RB + 600, sent=T5 - 7300)); out = watch(); a6 = acc_json()
 check(cases6() == ["novo"] and a6["active"] == "c" and a6["accounts"]["b"]["exhausted_until"] == RB + 600 and writes[0] == 1,
       "[cota] S3: sessao em b (a nova ativa) bate o limite: caso novo, b esgotada, giro para c")
+# aviso de tolerancia (bdb9a02c): a sessao encerra com texto de modelo real e NINGUEM chama transicao; o vigia marca a
+# conta, gira e retoma a MESMA sessao na seguinte [[pipeline-sessao-encerra-sozinha-no-aviso-de-limite-de-uso-e-vigia-nao-retoma_2026-11-03]]
+f4_reset("a", applied=True); live5.clear(); gq = T5 - 7200
+jl("f6e0gr00-x", prompt(iso(gq - 100)), grace(iso(gq)), a(iso(gq + 9), text="Seu limite de uso foi atingido, parei aqui"), *noise)
+live5["f6e0gr00-x"] = "bug01-dev-x"
+st6({"x": bug5(1, "dev", "wt-1", dev5("f6e0gr00-x"))})
+out = watch(); a6, gq_bg, gq_st = acc_json(), bg_calls(), state6()
+check(cases6() == ["novo"] and a6["active"] == "b" and cred_tok() == TK["b"]
+      and a6["accounts"]["a"]["exhausted_until"] == int(gq) + 5 * 3600 and writes[0] == 1
+      and [c[3] for c in gq_bg] == ["f6e0gr00-x"] and QMARK in gq_bg[0][-1]
+      and gq_st["bugs"]["x"]["sessions"]["dev"]["account"] == "b" and not gq_st["bugs"]["x"].get("nudges"),
+      f"[cota] aviso de tolerancia + encerramento com modelo real, sem transicao: o vigia esgota a ate ts+5h, gira para b e "
+      f"retoma a MESMA sessao com RETOMADA APOS LIMITE DE USO ({cases6()}, {[c[3] for c in gq_bg]})")
 # S12 e S44: sessao parada sem hit, e hit com ts <= sent_ts -> nada atribuido, nada girado
 f4_reset("a", applied=True); acc_set(wake_at=None); live5.clear(); before = frozen(acc_json())   # wake_at velho: o despertar (F7) o zeraria
-st6({**bugs6(1, "f6e0s44c", reset=RB, sent=T5 - 100), "y": bug5(9, "dev", "wt-9", dev5("f6e0s12d-x"))}); live5["f6e0s12d-x"] = "bug09-dev-x"
+# entregas ha 1 min: dentro da tolerancia, o passo 6 (sessao parada sem hit) nao cutuca e o foco fica na atribuicao
+st6({**bugs6(1, "f6e0s44c", reset=RB, sent=T6[0] - 60), "y": bug5(9, "dev", "wt-9", dev5("f6e0s12d-x", sent=T6[0] - 60))}); live5["f6e0s12d-x"] = "bug09-dev-x"
 out = watch()
 check(not cases6() and frozen(acc_json()) == before and writes[0] == 0 and not sp_calls,
       "[cota] S12/S44: sessao parada sem hit, e hit anterior a ultima entrega: nada atribuido, nenhuma gravacao, nenhum giro")
@@ -1878,6 +2273,23 @@ st6({"x": bug5(1, "planning", None, {"planning": {"id": "rw00plan-x", "name": "b
 rwatch(); n_v = len(bg_calls()); tick5(st5({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x", account=None))}))
 check(n_v == 1 and guard_snap() == gs, "[reset-watch] (v) retomada pelo vigia e tick sem rodizio: accounts.json e arquivo de "
       "credenciais com bytes e mtime iguais (o vigia de reset so le a guarda)")
+# (vi) sem rodizio, o aviso de tolerancia (sem hora de reset): nada antes de ts + 5 h + 2 min, depois 1 retomada, sem nudges
+# [[pipeline-sessao-encerra-sozinha-no-aviso-de-limite-de-uso-e-vigia-nao-retoma_2026-11-03]]
+f4_reset("a"); acc_set(paused=True); live5.clear(); gw = T6[0] - 600
+jl("rw00grace-x", prompt(iso(gw - 60)), grace(iso(gw)), a(iso(gw + 9), text="Seu limite de uso foi atingido, parei aqui"), *noise)
+live5["rw00grace-x"] = "bug01-dev-x"; sp_reply[0] = (0, "backgrounded · rw00grac · bug01-dev-x\n", "")
+st6({"x": bug5(1, "dev", "wt-1", {"dev": {"id": "rw00grace-x", "name": "bug01-dev-x", "account": None, "sent_ts": gw - 60}})})
+due_gw = int(gw) + 5 * 3600 + C.RESET_SLACK
+rwatch(); bg_w0 = bg_calls()
+T6[0] = due_gw - 5; rwatch(); bg_w1 = bg_calls()
+T6[0] = due_gw + 1; out_w2 = rwatch(); bg_w2, s_w2 = bg_calls(), state6()
+check(not bg_w0 and not bg_w1 and [c[3] for c in bg_w2] == ["rw00grace-x"] and QMARK in bg_w2[0][-1]
+      and "reset passou: x/dev" in out_w2 and not s_w2["bugs"]["x"].get("nudges")
+      and s_w2["bugs"]["x"]["sessions"]["dev"]["sent_ts"] == T6[0],
+      f"[reset-watch] (vi) aviso de tolerancia sem rodizio: nenhum CLI antes de ts + 5 h + 2 min; depois 1 --bg --resume da "
+      f"MESMA sessao com RETOMADA APOS LIMITE DE USO, sem gastar nudges ({bg_w0}, {bg_w1}, {[c[3] for c in bg_w2]})")
+out_w3 = rwatch()
+check(not bg_calls() and "reset passou" not in out_w3, "[reset-watch] (vi) passada seguinte: o sent_ts passou do aviso, nada a retomar")
 # T3: reconcile sem --fix fala no condicional e nao envia; com efeito, o texto de antes
 sx = st5({"x": bug5(1, "dev", "wt-1", dev5("f6e0nada-x", account=None))}); before_rep = json.dumps(sx, sort_keys=True)
 notes_r = tick5(sx, report=True); same_r = json.dumps(sx, sort_keys=True) == before_rep and not bg_calls()
@@ -2024,7 +2436,8 @@ st6({"x": bug5(1, "dev", "wt-1", dict(r55), uncertain_hits={"dev": 2})}); out = 
 check(s55a == (True, 1, {"dev": 1}, True) and not bg_calls() and "PRECISA DO DONO (arquivo de credenciais disputado)" in out,
       f"[cota] S55: hit de sessao com conta incerta: so retoma, sem marcar conta; no 3o seguido, 'arquivo de credenciais disputado' ({s55a})")
 # contadores zerados quando a sessao RESPONDE depois da ultima entrega; resposta + hit novo na mesma passada: o hit e o 1o
-f4_reset("a", applied=True); live5.clear(); live5["f6b0zera-x"] = "bug01-dev-x"; S0 = T5 - 7300
+# entregas ha 1 min (S0): dentro da tolerancia, o passo 6 nao cutuca as sessoes paradas sem hit e o foco fica nos contadores
+f4_reset("a", applied=True); live5.clear(); live5["f6b0zera-x"] = "bug01-dev-x"; S0 = T6[0] - 60
 jl("f6b0zera-x", u(iso(S0 + 1)), a(iso(S0 + 2))); jl("f6b0zerb-x", u(iso(S0 + 1))); live5["f6b0zerb-x"] = "bug02-dev-y"
 st6({"x": bug5(1, "dev", "wt-1", dev5("f6b0zera-x", sent=S0), auth_hits={"dev": 2}),
      "y": bug5(2, "dev", "wt-2", dev5("f6b0zerb-x", sent=S0), auth_hits={"dev": 2})}); out = watch()
@@ -2550,6 +2963,74 @@ cli(fail=True)
 _, _, out = a_out(lambda: A.cmd_stop_final(types.SimpleNamespace(wait=0, interval=20)))
 check(not others() and "NAO conferida" in out and "nenhuma viva" not in out,
       f"[agents-indisponivel] stop-final com o CLI caido ate o --wait: diz que NAO conferiu ({out.strip()})")
+
+# ---- [sessao subindo] os filtros de "viva" eram `status is not None`: a sessao que esta subindo (sem status, `state`
+# working; `failed` nos ~12 s antes do 1o spawn) era invisivel para o stop_live, o cleanup, o stop-final e o C5. Mesma
+# copia A (agents() REAL, CLI falso). Sessoes paradas de verdade (done/stopped/blocked, failed antigo) continuam fora.
+# [[pipeline-resume-cmd-le-status-none-de-sessao-em-boot-como-parada-e-abre-copia_2026-11-01]]
+ms_now = int(time.time() * 1000)
+lane_b = A.WTS / "wt-9"; lane_b.mkdir(parents=True, exist_ok=True)
+def sub(sid, name, cwd=None, **kw):
+    return {"sessionId": sid, "id": sid[:8], "name": name, "kind": "background", "startedAt": ms_now - 600_000,
+            **({"cwd": str(cwd)} if cwd else {}), **kw}
+mix = [sub("b0000000-1", "boot-w", lane_b, state="working"),
+       sub("b1111111-1", "boot-f", lane_b, state="failed", startedAt=ms_now - 5000),
+       sub("b2222222-1", "boot-i", lane_b, status="idle", state="working", startedAt=ms_now - 3000),   # idle de boot
+       sub("c0000000-1", "ociosa", lane_b, status="idle", state="done"),
+       sub("c1111111-1", "fim-turno", lane_b, status="idle", state="working"),     # processo de 10 min
+       sub("d0000000-1", "parada", lane_b, state="done"), sub("d1111111-1", "parada-s", lane_b, state="stopped"),
+       sub("d2222222-1", "antiga", lane_b, state="blocked"), sub("d3333333-1", "falhou", lane_b, state="failed")]
+check([x["name"] for x in mix if A.session_alive(x)] == ["boot-w", "boot-f", "boot-i", "ociosa", "fim-turno"]
+      and [x["name"] for x in mix if A.session_booting(x)] == ["boot-w", "boot-f", "boot-i"]
+      and [x["name"] for x in mix if A.session_idle(x)] == ["ociosa", "fim-turno"],
+      "[sessao subindo] predicado: working sem status, failed recente e idle+working com processo de 3 s sao vivas "
+      "e subindo; idle+working com processo de 10 min e ociosa; done/stopped/blocked e failed de 10 min, paradas")
+check([x["name"] for x in A.lane_sessions(lane_b, mix)] == ["boot-w", "boot-f", "boot-i", "ociosa", "fim-turno"],
+      "[sessao subindo] lane_sessions: a sessao subindo com cwd na lane aparece (ela prende a pasta)")
+cli((0, json.dumps(mix)))
+got = A.stop_live("boot-w", set())
+check(got == ["b0000000"] and others() == [["claude", "stop", "b0000000"]],
+      f"[sessao subindo] stop_live (fim do preflight): para a sessao subindo pelo nome (antes: 'nenhuma viva') ({got})")
+sa = a_state(); sa["worktrees"]["wt-9"] = {"path": str(lane_b), "bug": None}; A.save(sa)
+cli((0, json.dumps(mix)))
+_, code, out = a_out(lambda: A.cmd_cleanup(types.SimpleNamespace()))
+check(code == 2 and "wt-9: sessao 'boot-w' (b0000000) esta 'subindo' com cwd na lane" in out
+      and "sessao 'boot-f' (b1111111) esta 'subindo'" in out and "sessao 'boot-i' (b2222222) esta 'subindo'" in out
+      and "'fim-turno'" not in out and "'parada'" not in out and "'antiga'" not in out
+      and not [c for c in others() if "stop" in c or "worktree" in c],
+      "[sessao subindo] cleanup: sessao subindo com cwd na lane recusa o cleanup ('subindo', nao 'None'); nada parado "
+      "nem removido; as paradas de verdade nao aparecem")
+cli((0, json.dumps([sub("vvvv0000-1111", "bug01-dev-v", state="working")])))
+_, _, out = a_out(lambda: A.cmd_status(types.SimpleNamespace()))
+check("bug01-dev-v subindo" in out, "[sessao subindo] status: a sessao da etapa subindo aparece `subindo`")
+sa["final"] = {"state": "concluido", "session": {"id": "ffff0000-1111", "name": "pipeline-finalizacao-a",
+                                                 "cli_output": "backgrounded · ffff0000 · x"}}
+A.save(sa)
+fin_idle = sub("ffff0000-1111", "pipeline-finalizacao-a", status="idle", state="done")
+cli((0, json.dumps([fin_idle, sub("abcd1234-5678", "pipeline-finalizacao-a", state="working")])),
+    (0, json.dumps([fin_idle, sub("abcd1234-5678", "pipeline-finalizacao-a", status="idle", state="done")])))
+_, _, out = a_out(lambda: A.cmd_stop_final(types.SimpleNamespace(wait=15, interval=20)))
+check(others() == [["claude", "stop", "ffff0000"], ["claude", "stop", "abcd1234"]],
+      f"[sessao subindo] stop-final: copia da finalizacao subindo nao deixa o laco sair; parada quando fica ociosa "
+      f"({others()}; {out.strip()})")
+# a copia no idle de boot (idle + working, processo de 3 s) ainda vai ler o prompt: o `stop` so na passada seguinte
+cli((0, json.dumps([fin_idle, sub("abcd1234-5678", "pipeline-finalizacao-a", status="idle", state="working",
+                                  startedAt=int(time.time() * 1000) - 3000)])),
+    (0, json.dumps([fin_idle, sub("abcd1234-5678", "pipeline-finalizacao-a", status="idle", state="done")])))
+_, _, out = a_out(lambda: A.cmd_stop_final(types.SimpleNamespace(wait=15, interval=20)))
+seq_sf = [c[1] if c[1] != "stop" else "stop " + c[2] for c, _ in acalls]
+check(seq_sf == ["agents", "stop ffff0000", "agents", "stop abcd1234"],
+      f"[sessao subindo] stop-final: copia no idle de boot nao e parada na passada em que aparece; so depois ({seq_sf})")
+fr_st = {"run_id": "a", "base": "origin/versao3", "final": {"state": "rodando", "session": None}, "worktrees": {},
+         "bugs": {"v": {"state": "open-falhou", "branch": "bugfix/v", "doc": "v.md", "sessions": {
+             "dev": {"id": "vvvv0000-1111", "name": "bug01-dev-v"}, "teste": {"id": "tttt0000-1111", "name": "bug01-teste-v"}}}}}
+A.main_tree_state = lambda base: {"ahead": 0, "behind": 0, "real": [], "generated": 0}
+shutil.rmtree(lane_b)
+cli((0, json.dumps([sub("vvvv0000-1111", "bug01-dev-v", state="working"),
+                    sub("tttt0000-1111", "bug01-teste-v", state="done")])))
+c5 = [m for c, k, m in A.final_report(fr_st) if c == "C5"]
+check(any("bug01-dev-v (vvvv0000) ainda viva (subindo)" in m for m in c5) and not any("tttt0000" in m for m in c5),
+      f"[sessao subindo] final-done C5: sessao de etapa subindo conta como 'ainda viva'; a parada (done) nao ({c5})")
 time.sleep = real_sleep_a
 
 # ---- [slot-teto] / [erro-api] o `tick` pulava sessao `busy` (o slot E2E ficou ~3 h num download de 9 GB, com o status
@@ -2766,7 +3247,9 @@ check(len(smsgr) == 1 and s_after["bugs"]["s6"]["slot_warn"]["ok"] is True and "
 wr, outr = rpass()
 check(not smsgr and "vencido sem transicao" not in outr, "[slot-teto] reset_pass seguinte: aviso ja dado nesta posse, nada")
 sagents[SID] = "idle"; S.save(s_state()); wr, outr = rpass()
-check(not smsgr and "vencido" not in outr, "[slot-teto] reset_pass com a sessao do slot ociosa: o teto e so de busy (a cutucada cuida)")
+check(not smsgr and "teto do slot vencido" not in outr and "s6/teste: parada sem transicao ha 61 min" in outr
+      and len(sspawn) == 1 and "parou sem chamar a transicao" in sspawn[0][2],
+      f"[slot-teto] reset_pass com a sessao do slot ociosa: o teto e so de busy; a cutucada generica, agora do vigia, cuida ({outr.strip()[-200:]})")
 # watch_pass com o rodizio ligado (guarda falsa: 2 contas, a ativa disponivel)
 FAKE_ACC = {**S.accounts_default(), "order": ["a", "b"], "active": "a",
             "accounts": {"a": {"email": "a@x"}, "b": {"email": "b@x"}}}   # entrada vazia = falsy = portao fechado
@@ -2784,9 +3267,179 @@ check(gw is True and len(smsgr) == 1 and w_after.get("ok") is True and "teto do 
       and ww["wake"] and abs(ww["wake"] - (time.time() + 60)) < 5,
       f"[slot-teto] watch_pass (rodizio ligado): teto vencido -> tick e aviso; erro de API futuro encurta o sono ({outw.strip()[-200:]})")
 
+# ---- [parada-sem-hit] a cutucada generica so saia se alguem chamasse transicao: sessao parada SEM hit (sem limite, sem
+# erro de API) ficava parada ate o `reconcile --fix`. Os vigias agora rodam o `tick` para ela (`stall_due` com o motivo
+# `idle_stall`), e a tolerancia conta tambem da ultima entrega (`stage_idle_min`), senao o `tick` cutucava a sessao que o
+# vigia acabou de retomar. Contra o pipeline.py antigo: (a), (c), (h) e (i) falham.
+# [[pipeline-vigia-nao-roda-tick-para-sessao-parada-sem-hit-tolerancia-de-1h-nunca-dispara_2026-11-04]]
+PID = "idle0000-3333"
+pag, pnone = {}, [False]                            # sessionId -> campos da listagem; pnone: `agents` falha (None)
+S.agents = lambda: None if pnone[0] else [{"sessionId": k, "id": k[:8], "name": f"n-{k}", **v} for k, v in pag.items()]
+STOPPED = {"status": None, "state": "done"}         # parada: sem `status` e fora do boot
+IDLE = {"status": "idle", "state": "done"}
+def booting(): return {"status": None, "state": "working", "startedAt": time.time() * 1000}
+def p_state(held=61, sent_ago=7200, nudges=None, final=False):
+    st_ = s_state(state="dev", sid=PID, held=held, sent_ago=sent_ago)
+    if nudges is not None:
+        st_["bugs"]["s6"]["nudges"] = {"dev": nudges}
+    if final:
+        st_["bugs"] = {}
+        st_["final"] = {"state": "rodando", "since": ago(held), "session": {"id": PID, "name": "pipeline-finalizacao-s",
+                                                                           "sent_ts": time.time() - sent_ago}}
+        if nudges is not None:
+            st_["final"]["nudges"] = nudges
+    return st_
+def p_saved(): return json.loads(S.STATE.read_text(encoding="utf-8"))
+def p_watch():                                       # watch_pass com o rodizio ligado (a mesma guarda falsa do [slot-teto])
+    saved_ = (S.accounts_load, S.accounts_save, S.ensure_active)
+    S.accounts_load = lambda: json.loads(json.dumps(FAKE_ACC)); S.accounts_save = lambda acc: None
+    S.ensure_active = lambda acc, t: "ok"
+    ww_ = {"h": None, "run_id": "s", "log": types.SimpleNamespace(path=None), "origin": "teste", "note": None, "hits": [], "wake": None}
+    smsgr.clear(); sspawn.clear()
+    try:
+        _, _, out_ = a_out(lambda: S.watch_pass(ww_))
+    finally:
+        S.accounts_load, S.accounts_save, S.ensure_active = saved_
+    return out_
+def nudged(): return [m for _, _, m in sspawn if "parou sem chamar a transicao" in m or "parou sem `final-done`" in m]
+jl(PID, u(zt(7300)), a(zt(7200)))                   # o ultimo turno terminou normal: sem limite, sem erro de API
+# (a) 61 min sem transicao, sessao parada (`None`/done e `idle`/done): o vigia de reset cutuca 1x, sem transicao
+for label_, entry_ in (("None/done", STOPPED), ("idle/done", IDLE)):
+    pag.clear(); pag[PID] = dict(entry_); S.save(p_state()); _, outa = rpass(); sa_ = p_saved()["bugs"]["s6"]
+    check(len(nudged()) == 1 and len(sspawn) == 1 and sa_["nudges"] == {"dev": 1} and sa_["state"] == "dev"
+          and sa_["history"][-1]["note"] == "cutucada" and "vencido sem transicao: s6/dev: parada sem transicao ha 61 min" in outa,
+          f"[parada-sem-hit] (a) reset_pass, sessao {label_} ha 61 min sem hit: 1 cutucada, nudges 1, estado igual ({outa.strip()[-200:]})")
+_, outa2 = rpass()
+check(not sspawn and "vencido" not in outa2 and p_saved()["bugs"]["s6"]["nudges"] == {"dev": 1},
+      f"[parada-sem-hit] (a) reset_pass seguinte: a cutucada zerou a conta, nada de novo ({outa2.strip()[-200:]})")
+pag.clear(); pag[PID] = dict(STOPPED); S.save(p_state()); outw_ = p_watch(); sw_ = p_saved()["bugs"]["s6"]
+check(len(nudged()) == 1 and sw_["nudges"] == {"dev": 1} and "parada sem transicao ha 61 min" in outw_,
+      f"[parada-sem-hit] (a) watch_pass (rodizio ligado), passo 6: a mesma cutucada ({outw_.strip()[-200:]})")
+# (b) busy (inclusive esperando comando em background, medido) e (d) esperando alguem: nada
+for label_, entry_ in (("busy", {"status": "busy", "state": "working"}), ("waiting", {"status": "waiting", "state": "blocked"})):
+    pag.clear(); pag[PID] = dict(entry_); S.save(p_state(held=180)); _, outb_ = rpass()
+    check(not sspawn and "vencido" not in outb_ and not p_saved()["bugs"]["s6"].get("nudges") and S.stall_due(p_state(held=180)) == ([], None),
+          f"[parada-sem-hit] ({'b' if label_ == 'busy' else 'd'}) sessao {label_} ha 3 h: nenhum tick, nenhuma cutucada ({outb_.strip()[-160:]})")
+# (c) recem-retomada: `history` de 3 h, `sent_ts` agora, sessao subindo -> nada, nem no `tick` direto (transicao de outro
+# bug) nem no vigia; e a MESMA passada do watch_pass que entrega a pendencia (passo 5) nao gasta cutucada (passo 6)
+pag.clear(); pag[PID] = booting(); sc_ = p_state(held=180, sent_ago=5); nc_ = s_tick(sc_)
+S.save(p_state(held=180, sent_ago=5)); _, outc_ = rpass()
+check(not sspawn and not sc_["bugs"]["s6"].get("nudges") and not any("cutuca" in n for n in nc_)
+      and "vencido" not in outc_ and S.stall_due(p_state(held=180, sent_ago=5)) == ([], None),
+      f"[parada-sem-hit] (c) sessao subindo, entregue ha 5 s, transicao ha 3 h: nem o tick direto nem o vigia cutucam ({nc_})")
+pag[PID] = dict(IDLE); sc2_ = p_state(held=180, sent_ago=5); nc2_ = s_tick(sc2_)
+check(not sspawn and not sc2_["bugs"]["s6"].get("nudges"),
+      f"[parada-sem-hit] (c) idle de fim de turno logo depois da entrega: o tick nao cutuca ({nc2_})")
+pag[PID] = dict(STOPPED); sq_ = p_state(held=180)
+sq_["pending_spawns"] = [{"slug": "s6", "stage": "dev", "message": "msg pendente", "why": "aguardando cota", "ts": ago(30)}]
+S.save(sq_); outq_ = p_watch(); sqa_ = p_saved()
+check([m for _, _, m in sspawn] == ["msg pendente"] and not sqa_["bugs"]["s6"].get("nudges") and not sqa_["pending_spawns"]
+      and "parada sem transicao" not in outq_,
+      f"[parada-sem-hit] (c) watch_pass: o passo 5 entrega a pendencia e o passo 6 da mesma passada nao cutuca ({sspawn}, {outq_.strip()[-200:]})")
+# (e) as MAX_NUDGES cutucadas gastas: o vigia nao roda o tick a cada passada
+pag.clear(); pag[PID] = dict(STOPPED); S.save(p_state(held=180, nudges=2)); _, oute_ = rpass()
+check(not sspawn and "vencido" not in oute_ and S.stall_due(p_state(held=180, nudges=2)) == ([], None),
+      f"[parada-sem-hit] (e) 2 cutucadas gastas: nenhum tick pelo vigia ({oute_.strip()[-160:]})")
+# (f) rodizio ligado com hit de limite posterior a entrega, ou portao fechado: sem tick, nudges intacto
+real_gate_p = S.gate_now
+jl(PID, u(zt(3100)), hit(zt(3000), reset=int(time.time()) + 3600))
+S.gate_now = lambda: (True, "a", None); due_f1 = S.stall_due(p_state())
+jl(PID, u(zt(7300)), a(zt(7200)))
+S.gate_now = lambda: (True, None, "aguardando cota"); due_f2 = S.stall_due(p_state())
+S.save(p_state()); smsgr.clear(); sspawn.clear(); _, _, outf_ = a_out(lambda: S.stall_tick(S.peek_state()))
+S.gate_now = real_gate_p
+check(due_f1 == ([], None) and due_f2 == ([], None) and not sspawn and "vencido" not in outf_
+      and not p_saved()["bugs"]["s6"].get("nudges"),
+      f"[parada-sem-hit] (f) limite com rodizio, ou portao fechado: o vigia de cota retoma pela fila, sem tick nem cutucada ({due_f1}, {due_f2})")
+# (g) erro de API no ultimo turno: so o ramo dele (retomada sem cutucada), nunca o motivo generico
+jl(PID, u(zt(400)), e500(zt(180)))
+due_g = S.stall_due(p_state()); S.save(p_state()); _, outg_ = rpass(); sg_ = p_saved()["bugs"]["s6"]
+check(due_g[0] == [f"s6/dev: parada por erro da API ha mais de {S.API_RETRY_S} s"] and len(sspawn) == 1 and not nudged()
+      and not sg_.get("nudges") and sg_["api_retries"] == {"dev": 1},
+      f"[parada-sem-hit] (g) erro de API: so o motivo dele; a retomada nao gasta cutucada ({due_g}, {sspawn})")
+jl(PID, u(zt(7300)), a(zt(7200)))
+# (h) finalizacao parada sem `final-done`: o vigia cutuca, fin.nudges 1 e o since anda
+S.save(p_state(final=True)); _, outh_ = rpass(); fh_ = p_saved()["final"]
+check(len(nudged()) == 1 and sspawn[0][:2] == (None, "finalizacao") and fh_["nudges"] == 1
+      and "finalizacao/finalizacao: parada sem transicao ha 61 min" in outh_,
+      f"[parada-sem-hit] (h) finalizacao parada ha 61 min: cutucada pelo vigia, nudges 1 ({outh_.strip()[-200:]})")
+S.save(p_state(final=True, nudges=2)); _, outh2_ = rpass()
+check(not sspawn and "vencido" not in outh2_, "[parada-sem-hit] (h) finalizacao com as 2 cutucadas gastas: nenhum tick")
+# (i) `status`: com o teto gasto e a sessao parada, `PARADO (sem cutucadas)`; busy ou sem a listagem, nao. Transicao ha
+# 3 h e entrega ha 2 h: os minutos contam da entrega
+S.save(p_state(held=180, nudges=2)); _, _, outi_ = a_out(lambda: S.cmd_status(types.SimpleNamespace()))
+pag[PID] = {"status": "busy", "state": "working"}; _, _, outi2_ = a_out(lambda: S.cmd_status(types.SimpleNamespace()))
+pag[PID] = dict(STOPPED); pnone[0] = True; _, _, outi3_ = a_out(lambda: S.cmd_status(types.SimpleNamespace())); pnone[0] = False
+S.save(p_state(held=180, nudges=1)); _, _, outi4_ = a_out(lambda: S.cmd_status(types.SimpleNamespace()))
+check("PARADO (sem cutucadas): s6/dev ha 120 min, 2 cutucadas sem transicao; precisa do dono" in outi_
+      and "PARADO (sem cutucadas)" not in outi2_ + outi3_ + outi4_,
+      f"[parada-sem-hit] (i) status: PARADO (sem cutucadas) so com o teto gasto e a sessao parada; nao com busy, sem "
+      f"a listagem nem com cutucada sobrando ({outi_.strip()[-200:]})")
+# (j) 59 min: dentro da tolerancia; (k) `agents` None: nada vence nesta passada
+pag[PID] = dict(STOPPED); S.save(p_state(held=59)); _, outj_ = rpass()
+check(not sspawn and "vencido" not in outj_ and S.stall_due(p_state(held=59)) == ([], None),
+      "[parada-sem-hit] (j) 59 min sem transicao: nada")
+pnone[0] = True; S.save(p_state(held=180)); due_k = S.stall_due(p_state(held=180)); _, outk_ = rpass(); pnone[0] = False
+check(due_k == ([], None) and not sspawn and "vencido" not in outk_ and not p_saved()["bugs"]["s6"].get("nudges"),
+      f"[parada-sem-hit] (k) `claude agents` indisponivel: nada vence, nenhuma cutucada ({outk_.strip()[-160:]})")
+# o helper: tolerancia pelo mais recente entre `history` e `sent_ts`; rec sem sent_ts vale so o history
+check(abs(S.stage_idle_min(ago(180), {"sent_ts": time.time() - 600}) - 10) < 0.2
+      and abs(S.stage_idle_min(ago(30), {"sent_ts": time.time() - 7200}) - 30) < 0.2
+      and abs(S.stage_idle_min(ago(30), {}) - 30) < 0.2 and abs(S.stage_idle_min(ago(30), None) - 30) < 0.2,
+      "[parada-sem-hit] stage_idle_min: o mais recente entre a transicao e a entrega; sem sent_ts, so a transicao")
+check(S.session_stopped(None) and S.session_stopped(STOPPED) and S.session_stopped(IDLE)
+      and not S.session_stopped(booting()) and not S.session_stopped({"status": "busy"})
+      and not S.session_stopped({"status": "waiting"}) and not S.session_stopped({"status": "idle", "state": "working", "startedAt": time.time() * 1000}),
+      "[parada-sem-hit] session_stopped: fora da listagem, morta e ociosa sim; subindo, idle de boot, busy e waiting nao")
+
 C.subprocess = types.SimpleNamespace(run=fake_sp_run, TimeoutExpired=subprocess.TimeoutExpired)
 if sess_env is not None:
     os.environ["CLAUDE_CODE_SESSION_ID"] = sess_env
 check((mtime_ns(REAL_CRED), mtime_ns(REAL_ACC)) == real0,
       "[cota] o ~/.claude/.credentials.json e o accounts.json reais nao foram tocados (mtime igual ao do inicio)")
+# [needs] sessao `waiting`: `status`/`reconcile` mostram o `needs` do job (~/.claude/jobs/<id curto>/state.json) em vez
+# de so "talvez esperando permissao" [[pipeline-sessao-de-etapa-para-em-pedido-de-enterworktree-sem-dono-presente_2026-11-03]]
+P.CLAUDE_PROJECTS = tmp / "projects"
+njobs = P.CLAUDE_PROJECTS.parent / "jobs"
+check(str(njobs).startswith(str(tmp)), f"[needs] o sim le os jobs no tmp, nunca no ~/.claude real ({njobs})")
+nlive = [{"sessionId": "eeee1111-2222", "id": "eeee1111", "status": "waiting"},
+         {"sessionId": "ffff3333-4444", "id": "ffff3333", "status": "busy"}]
+def njob(short, body):
+    (njobs / short).mkdir(parents=True, exist_ok=True); (njobs / short / "state.json").write_text(body, encoding="utf-8")
+nrec = {"id": "eeee1111-2222", "name": "bug01-dev-n"}
+check(P.job_needs("eeee1111-2222", nlive) is None and P.session_status(nrec, nlive) == "waiting",
+      "[needs] sem state.json do job: None e `waiting` puro")
+njob("eeee1111", '{"needs": "approve Entering wo')
+check(P.job_needs("eeee1111-2222", nlive) is None and P.session_status(nrec, nlive) == "waiting",
+      "[needs] state.json pela metade (o CLI regravando): None, sem excecao")
+njob("eeee1111", '{"needs": null, "tempo": "blocked"}')
+check(P.job_needs("eeee1111-2222", nlive) is None, "[needs] needs nulo: None")
+njob("eeee1111", '[1, 2]')
+check(P.job_needs("eeee1111-2222", nlive) is None, "[needs] state.json que nao e objeto: None")
+njob("eeee1111", json.dumps({"needs": "approve Entering worktree", "tempo": "blocked"}))
+check(P.job_needs("eeee1111-2222", nlive) == "approve Entering worktree"
+      and P.session_status(nrec, nlive) == "waiting (approve Entering worktree)",
+      f"[needs] waiting com needs: status mostra o motivo ({P.session_status(nrec, nlive)})")
+njob("ffff3333", json.dumps({"needs": "approve Bash"}))
+check(P.session_status({"id": "ffff3333-4444"}, nlive) == "busy", "[needs] busy com needs residual: nao mostra")
+nst = base_state(bugs={"n": {"state": "dev", "order": 1, "wave": 1, "returns": 0, "plan": None, "title": "n",
+                             "sessions": {"dev": nrec}, "history": [], "retry_after": None}})
+nag, nrun, nruns = P.agents, P.run, []
+P.agents = lambda: nlive
+P.run = lambda cmd, cwd=None, check=True, timeout=None: (nruns.append(list(cmd)), types.SimpleNamespace(returncode=0, stdout="", stderr=""))[1]
+try:
+    nnotes = P.tick(nst, report=True)
+finally:
+    P.agents, P.run = nag, nrun
+check(any("esperando: approve Entering worktree" in n and "talvez" not in n for n in nnotes)
+      and not any("stop" in c for c in nruns),
+      f"[needs] reconcile (tick report) traz o needs no lugar do 'talvez', sem `stop` ({nnotes}, {nruns})")
+(njobs / "eeee1111" / "state.json").unlink()
+P.agents = lambda: nlive
+try:
+    nnotes = P.tick(nst, report=True)
+finally:
+    P.agents = nag
+check(any("talvez esperando permissao" in n for n in nnotes), "[needs] sem state.json: o texto antigo")
+
 print("SIMULACAO VERDE")

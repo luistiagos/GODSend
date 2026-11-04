@@ -260,7 +260,10 @@ def git(*args, cwd=None, check=True) -> str:
 
 def porcelain_paths(path: Path, untracked: bool = True) -> list[str]:
     """Arquivos alterados da worktree. Saida CRUA com -z: o git() faz strip() e comeria o espaco
-    inicial de ' M arquivo', cortando a 1a letra do 1o caminho (bug real achado na revisao)."""
+    inicial de ' M arquivo', cortando a 1a letra do 1o caminho (bug real achado na revisao).
+
+    [[pipeline-final-sync-main-rename-staged-de-terceiro-publica-so-o-destino-e-sai-0_2026-11-04]] rename devolve destino E origem: os dois mudaram. Copia devolve so o destino: a origem esta
+    limpa, e lista-la a faria parecer suja. Sem repeticao, na ordem do status."""
     out = run(["git", "status", "--porcelain=v1", "-z", f"--untracked-files={'all' if untracked else 'no'}"],
               cwd=path).stdout
     entries, paths, i = out.split("\0"), [], 0
@@ -268,10 +271,12 @@ def porcelain_paths(path: Path, untracked: bool = True) -> list[str]:
         e = entries[i]
         if len(e) > 3:
             paths.append(e[3:])
-            if e[0] in "RC":                      # rename/copy: o caminho de origem vem na entrada seguinte
+            if "R" in e[:2] or "C" in e[:2]:      # a origem vem na entrada seguinte; X ou Y (` R` vem de `git add -N`)
                 i += 1
+                if "R" in e[:2] and i < len(entries) and entries[i]:
+                    paths.append(entries[i])
         i += 1
-    return paths
+    return list(dict.fromkeys(paths))             # `RM` + `?? origem` lista a origem duas vezes
 
 
 def dirty_split(path: Path) -> tuple[list[str], list[str]]:
@@ -547,6 +552,56 @@ class Busy(Exception):
 # como "precisa do dono": nunca damos `stop` nele, que descartaria o pedido pendente.
 RESUMABLE = {"idle", "done", "exited", "stopped", "completed", "finished"}
 
+# Sessao que acabou de nascer (spawn OU resume) fica alguns segundos VIVA e SEM `status`, com `state` "working";
+# antes do 1o spawn ainda passa ~12 s em `state` "failed" (medido segundo a segundo em 2026-11-01, CLI 2.1.316).
+# So `status` ausente com `state` done/stopped (ou blocked, ou ausente) e parada de verdade. Ler essa janela como
+# "parada" fazia o `resume_cmd` pular o `claude stop` e o CLI abrir uma COPIA.
+# Quando o processo sobe (`pid` aparece), ha ~2-3 s de `status` idle com `state` working ANTES do 1o prompt (CLI
+# 2.1.317, 4 de 4 processos, 2026-11-03): parar ali descarta a mensagem; o preflight o lia como "terminou o OK1".
+# `startedAt` (epoch ms): sem `pid` (parada) e o do NASCIMENTO; com o processo vivo e o INICIO do processo atual
+# (muda a cada resume). Idle+working tambem aparece no FIM de um turno, mas o mais cedo medido foi ~6 s apos o
+# inicio do processo; BOOT_IDLE_S separa os dois com folga (o de fim de turno so atrasa a mensagem, vira Busy).
+# [[pipeline-resume-cmd-le-status-none-de-sessao-em-boot-como-parada-e-abre-copia_2026-11-01]]
+BOOT_S = 180                                     # s; o boot mais lento medido foi 90 s (daemon saindo do frio)
+BOOT_IDLE_S = 30                                 # s; o idle de boot medido durou 2,4-3 s
+
+
+def session_booting(x: dict) -> bool:
+    """Viva e subindo: `status` ausente e `state` working (ou failed ha menos de BOOT_S do nascimento); ou o idle
+    de boot: `status` idle e `state` working com o processo iniciado ha menos de BOOT_IDLE_S."""
+    t = x.get("startedAt")
+    age_ms = time.time() * 1000 - t if isinstance(t, (int, float)) else None
+    if x.get("status") == "idle" and x.get("state") == "working":
+        return age_ms is not None and age_ms < BOOT_IDLE_S * 1000
+    if x.get("status") is not None:
+        return False
+    if x.get("state") == "working":
+        return True
+    return x.get("state") == "failed" and age_ms is not None and age_ms < BOOT_S * 1000
+
+
+def session_alive(x: dict) -> bool:
+    """Viva = com `status` (trabalhando, ociosa, esperando alguem) ou subindo (`session_booting`)."""
+    return x.get("status") is not None or session_booting(x)
+
+
+def session_idle(x: dict) -> bool:
+    """Ociosa de verdade (pode levar `claude stop`): `status` em RESUMABLE e fora do idle de boot."""
+    return x.get("status") in RESUMABLE and not session_booting(x)
+
+
+def session_stopped(x: dict | None) -> bool:
+    """Parada para a cutucada dos vigias (`stall_due`, `stall_status`): `x` = a entrada da listagem, ou None se a
+    sessao nem aparece nela. Fora da listagem, morta (sem `status` e fora do boot) ou ociosa fora do idle de boot.
+    Busy (inclusive esperando comando em background, medido), esperando alguem e subindo nao.
+    [[pipeline-vigia-nao-roda-tick-para-sessao-parada-sem-hit-tolerancia-de-1h-nunca-dispara_2026-11-04]]"""
+    return x is None or not session_alive(x) or session_idle(x)
+
+
+def session_label(x: dict) -> str:
+    """O `status` para mensagem: `subindo` no lugar do 'None' da sessao viva sem status."""
+    return "subindo" if session_booting(x) else str(x.get("status"))
+
 
 def job_id(session_id: str, live: list[dict] | None = None) -> str:
     """`claude stop` so casa pelo id CURTO do job (`id` no `claude agents --json`); com o sessionId
@@ -564,12 +619,18 @@ def resume_cmd(exe: str, session_id: str, prompt: str) -> list[str]:
     --allowedTools, --disallowedTools, --permission-mode, --effort, --model). Qualquer flag, mesmo igual
     a salva, ou sessao ainda viva -> o CLI abre uma COPIA com outro id (medido em 2026-10-03, CLI
     2.1.288; bug pipeline-resume-com-flags-abre-copia-e-ledger-perde-a-sessao_2026-10-02).
-    Status None = ja parada/concluida: resume direto (`claude stop --help`: "resume it later").
+    Status None NAO basta para "parada": a sessao que esta SUBINDO (spawn ou resume) tambem nao tem status
+    (`session_booting`); resumi-la abre copia. Nem o `idle` de boot (antes do 1o prompt) e ociosa: o `stop`
+    descartaria a mensagem. Subindo -> Busy, sem `stop` (o `spawn` enfileira e a reentrega tenta de novo).
+    Status None com `state` done/stopped/blocked/ausente, ou `failed` antigo = parada: resume direto
+    (`claude stop --help`: "resume it later").
     Sem a listagem (`agents` None) nao da para saber se ela parou: Busy, e o `spawn` enfileira."""
     all_ = agents()
     if all_ is None:
         raise Busy("claude agents --json indisponivel")
     live = [x for x in all_ if x.get("sessionId") == session_id]
+    if any(session_booting(x) for x in live):
+        raise Busy(f"{session_id} subindo (status={live[0].get('status')}, state={live[0].get('state')})")
     st_ = live[0].get("status") if live else None
     if st_ is not None and st_ not in RESUMABLE:
         raise Busy(f"{session_id} status={st_}")
@@ -579,7 +640,7 @@ def resume_cmd(exe: str, session_id: str, prompt: str) -> list[str]:
             all_ = agents()
             if all_ is None:
                 raise Busy(f"claude agents --json indisponivel esperando o `claude stop` de {session_id}")
-            if not any(x.get("sessionId") == session_id and x.get("status") is not None for x in all_):
+            if not any(x.get("sessionId") == session_id and session_alive(x) for x in all_):
                 break
             time.sleep(2)
         else:
@@ -608,7 +669,8 @@ def bg_id(out: str) -> str | None:
 
 
 def stop_live(name: str, ids) -> list[str]:
-    """Para toda sessao VIVA (`status` presente) com este nome ou com um destes ids curtos (`bg_id`).
+    """Para toda sessao VIVA (`session_alive`: com `status` ou subindo) com este nome ou com um destes ids
+    curtos (`bg_id`).
     Sessao viva com cwd numa lane trava a pasta no Windows (bug
     pipeline-daemon-claude-bg-orfao-trava-pasta-da-lane_2026-10-02). Devolve os ids parados.
     Sem a listagem (`agents` None): `stop` em cada id de `ids` (nunca "nenhuma viva", que deixava a sonda
@@ -619,7 +681,7 @@ def stop_live(name: str, ids) -> list[str]:
         for i in sorted(ids):
             run([exe, "stop", i], cwd=ROOT, check=False)
         return sorted(ids)
-    hit = [job_id(x["sessionId"], live) for x in live if x.get("status") is not None and x.get("sessionId")
+    hit = [job_id(x["sessionId"], live) for x in live if session_alive(x) and x.get("sessionId")
            and (x.get("name") == name or x["sessionId"][:8] in ids)]
     for i in hit:
         run([exe, "stop", i], cwd=ROOT, check=False)
@@ -702,6 +764,48 @@ def entry_text(e: dict) -> str:
     return c if isinstance(c, str) else ""
 
 
+GRACE_TEXT = "[Usage limit reached;"              # reserva do aviso de tolerancia, se o CLI mudar o campo
+
+
+def grace_step(e: dict) -> str | None:
+    """Classifica uma entrada para o `grace_note`, andando da ultima para tras: "wrap" = o aviso de
+    tolerancia do limite; "stop" = o que abre turno ou anula o aviso (prompt, `release`, mensagem de
+    sessao, "Continue from where you left off"); None = parte do turno, pula (`assistant`, `user` so de
+    `tool_result`, companheiro do turno sem `usageLimitNote`, `task-notification`, que chega sozinha
+    depois do encerramento e NAO e entrega)."""
+    note = e.get("usageLimitNote")
+    if note == "wrap_up":
+        return "wrap"
+    if note:
+        return "stop"                               # "release" e qualquer nota nova: o aviso deixa de valer
+    if e.get("type") != "user":
+        return None
+    c = (e.get("message") or {}).get("content")
+    if isinstance(c, list) and c and all(isinstance(b, dict) and b.get("type") == "tool_result" for b in c):
+        return None
+    if e.get("isMeta") and entry_text(e).lstrip().startswith(GRACE_TEXT):
+        return "wrap"                               # antes do pulo do companheiro: o aviso real tambem e `turnCompanion`
+    if e.get("turnCompanion") or (e.get("origin") or {}).get("kind") == "task-notification":
+        return None
+    return "stop"
+
+
+def grace_note(session_id: str | None) -> dict | None:
+    """O turno em aberto recebeu o aviso de tolerancia do limite ("Usage limit reached; a short grace
+    allowance remains...")? Forma medida (9 de 9 no acervo): `user`, `isMeta`, `turnCompanion`,
+    `usageLimitNote == "wrap_up"`, sem hora de reset. A sessao obedece e encerra com texto normal de
+    modelo real: nenhum <synthetic> aparece ate a proxima tentativa. Decide o campo estruturado, nunca o
+    texto da sessao (que pode citar a frase); o texto so vale com `isMeta`. Anda ate o inicio do turno
+    (`grace_step`) e cresce a janela do `transcript_tail` ate achar. Devolve a entrada do aviso ou None.
+    [[pipeline-sessao-encerra-sozinha-no-aviso-de-limite-de-uso-e-vigia-nao-retoma_2026-11-03]]"""
+    tail = transcript_tail(session_id, lambda es: any(grace_step(e) for e in es))
+    for e in tail:
+        step = grace_step(e)
+        if step:
+            return e if step == "wrap" else None
+    return None
+
+
 def quota_state(session_id: str | None) -> dict:
     """A sessao parou por limite de cota? A ULTIMA entrada user/assistant decide: depois de uma
     retomada ha `user` novo, e o hit antigo deixa de valer. Forma medida (fato 1 e B3): `assistant`,
@@ -710,16 +814,25 @@ def quota_state(session_id: str | None) -> dict:
     o texto "You've hit your ... limit" -> limit com reset estimado em ts + 5 h (`estimated`).
     Token invalido (C1 da F0-ter, sessao --bg): <synthetic> com `error == "authentication_failed"` e
     `apiErrorStatus == 401`; reserva pelo texto ("Please run /login", "Failed to authenticate").
+    Excecao a "ultima entrada decide": se ela nao e <synthetic> nem quotaLimits (modelo real ou `user`),
+    o aviso de tolerancia no turno em aberto (`grace_note`) conta como limit estimado em ts + 5 h, com o
+    `ts` do AVISO (estavel entre passadas do vigia; `session_hit` o compara com `sent_ts`).
+    [[pipeline-sessao-encerra-sozinha-no-aviso-de-limite-de-uso-e-vigia-nao-retoma_2026-11-03]]
     Devolve {"kind": None}, {"kind": "limit", "resets_at", "type", "ts"} ou {"kind": "auth", "ts", "text"}."""
     tail = transcript_tail(session_id, bool)
-    if not tail or tail[0].get("type") != "assistant":
+    if not tail:
         return {"kind": None}
     e, ts = tail[0], transcript_ts(tail[0])
     q = e.get("quotaLimits")
-    if isinstance(q, dict) and q.get("status") == "rejected" and isinstance(q.get("resetsAt"), (int, float)):
+    if (e.get("type") == "assistant" and isinstance(q, dict) and q.get("status") == "rejected"
+            and isinstance(q.get("resetsAt"), (int, float))):
         return {"kind": "limit", "resets_at": int(q["resetsAt"]), "type": q.get("rateLimitType"), "ts": ts}
-    if (e.get("message") or {}).get("model") != SYNTHETIC:
-        return {"kind": None}
+    if e.get("type") != "assistant" or (e.get("message") or {}).get("model") != SYNTHETIC:
+        g = grace_note(session_id)
+        if g is None:
+            return {"kind": None}
+        gts = transcript_ts(g)
+        return {"kind": "limit", "resets_at": int(gts) + 5 * 3600, "type": None, "ts": gts, "estimated": True}
     text = entry_text(e)
     if LIMIT_TEXT.search(text):
         return {"kind": "limit", "resets_at": int(ts) + 5 * 3600, "type": None, "ts": ts, "estimated": True}
@@ -1541,6 +1654,13 @@ def spawn_account() -> tuple[str | None, str | None]:
     return acc.get("active") if rotation_on(acc) else None, None
 
 
+# `worktree.bgIsolation: none` (CLI 2.1.318): o prompt de sessao `--bg` diz "work in place" em vez de mandar chamar
+# EnterWorktree. Vai por `--settings`, nao por env (`clean_env` apaga toda CLAUDE*) nem pelo settings do repo (valeria
+# para as sessoes do dono na arvore principal). DESIGN secao 19.2.
+# [[pipeline-sessao-de-etapa-para-em-pedido-de-enterworktree-sem-dono-presente_2026-11-03]]
+BG_SETTINGS = json.dumps({"worktree": {"bgIsolation": "none"}})
+
+
 def spawn(st: dict, slug: str | None, stage: str, message: str = "") -> dict | None:
     """Abre (ou retoma) a sessao da etapa em background. Ela aparece em `claude agents`."""
     exe = claude_exe()
@@ -1558,9 +1678,15 @@ def spawn(st: dict, slug: str | None, stage: str, message: str = "") -> dict | N
     # --add-dir e --allowedTools aceitam VARIOS valores: tem que vir antes de uma opcao simples,
     # senao o CLI engole o prompt como mais um diretorio/ferramenta.
     # Sem dono presente: pergunta ou plan mode deixaria a sessao parada para sempre.
+    # EnterWorktree/ExitWorktree tambem: o system prompt de sessao `--bg` manda chamar EnterWorktree antes da 1a
+    # edicao (a lane fica fora de `.claude/worktrees/`) e o pedido de permissao parou a onda por 5h54. Dois cintos:
+    # BG_SETTINGS tira a instrucao do prompt (config interna da CLI, 2.1.318); o --disallowedTools segura se ela
+    # sumir. `--settings` e opcao simples: encerra a lista variadica do --disallowedTools.
+    # [[pipeline-sessao-de-etapa-para-em-pedido-de-enterworktree-sem-dono-presente_2026-11-03]]
     # As flags valem SO no nascimento: a retomada vai sem nenhuma (resume_cmd) e a sessao as mantem.
     common = ["--add-dir", *dirs, "--allowedTools", *helper_rules,
-              "--disallowedTools", "AskUserQuestion", "EnterPlanMode",
+              "--disallowedTools", "AskUserQuestion", "EnterPlanMode", "EnterWorktree", "ExitWorktree",
+              "--settings", BG_SETTINGS,
               "--permission-mode", st["permission_mode"],
               "--model", st["model"], "--effort", stage_tuning(st, slug, stage)[0]]
     # Portao unico (rodizio, F5), ANTES do resume_cmd: fechado, a mensagem vira pendencia e nenhuma sessao
@@ -2088,8 +2214,15 @@ def slot_next(st: dict) -> str | None:
     return ready[0] if ready else None
 
 
+def proc_text(p: dict) -> str:
+    """`nome pid=N caminho` (o prefixo que `etapas/teste.md` e os testes citam) + ` [<Origem>]` quando o
+    `describe_procs` achou de quem e. [[pipeline-ferramenta-auxiliar-rodando-de-dentro-do-dist-ocupa-o-slot-e2e_2026-11-03]]"""
+    text = f"{p.get('ProcessName')} pid={p.get('Id')} {p.get('Path') or ''}".rstrip()
+    return text + (f" [{p['Origem']}]" if p.get("Origem") else "")
+
+
 def procs_line(procs: list[dict]) -> str:
-    return "; ".join(f"{p.get('ProcessName')} pid={p.get('Id')} {p.get('Path') or ''}".rstrip() for p in procs)
+    return "; ".join(proc_text(p) for p in procs)
 
 
 def env_busy_note(slug: str, procs: list[dict]) -> str:
@@ -2109,10 +2242,11 @@ def dispatch_slot(st: dict) -> str | None:
         return None
     busy = foreign_processes()
     if busy:
+        shown = describe_procs(busy[:10])         # com a origem; nunca a linha de comando crua (vai ao ledger)
         st["env_busy"] = {"since": (st.get("env_busy") or {}).get("since") or now(), "checked": now(),
-                          "next": slug, "procs": busy[:10]}
+                          "next": slug, "procs": shown}
         schedule_env_watch()
-        return env_busy_note(slug, busy)
+        return env_busy_note(slug, shown + busy[10:])
     st.pop("env_busy", None)
     st["test_queue"].remove(slug)
     b = bug_of(st, slug)
@@ -2138,6 +2272,19 @@ def start_final(st: dict):
 
 STAGE_OF = {"planning": "planning", "dev": "dev", "teste": "teste", "teste-e2e": "teste"}
 MAX_NUDGES = 2
+GRACE_MIN = 60         # min sem movimento antes da cutucada generica: o `tick` das transicoes e dos vigias (o `reconcile` tem o --grace)
+
+
+def stage_idle_min(ts_iso: str, rec: dict | None) -> float:
+    """Minutos sem movimento da etapa: desde a ultima transicao/cutucada (`ts_iso`: o `history` do bug ou o `since` da
+    finalizacao) OU desde a ultima entrega a sessao (`rec.sent_ts`), o que vier DEPOIS. O `spawn` grava o `sent_ts` e
+    nao o `history`: contando so do `history`, a sessao que o vigia de cota acabou de retomar (ou que recebeu uma
+    pendencia) seria cutucada pelo `tick` da mesma passada. `rec` sem `sent_ts` (adotado, anterior a feature): vale o
+    `ts_iso`. [[pipeline-vigia-nao-roda-tick-para-sessao-parada-sem-hit-tolerancia-de-1h-nunca-dispara_2026-11-04]]"""
+    last = max(dt.datetime.fromisoformat(ts_iso).timestamp(), (rec or {}).get("sent_ts") or 0)
+    return (time.time() - last) / 60
+
+
 # Mensagem de INICIO de cada etapa de bug (as mesmas de start_plannings/next_wave/cmd_enqueue_test).
 START_MSG = {"planning": "Comece pelo Passo 1 do etapas/planning.md.",
              "dev": "Planejamento concluido e publicado. Comece pelo Passo 1 do etapas/dev.md.",
@@ -2316,37 +2463,67 @@ def api_retry(st: dict, slug: str | None, stage: str, rec: dict, report: bool, f
     return f"{who}; retomando ({n + 1} de {API_RETRY_MAX}), sem gastar cutucada"
 
 
+def idle_stall(st: dict, slug: str | None, stage: str, rec: dict, gate: tuple) -> tuple[float, int] | None:
+    """So leitura: a etapa esta no caso da cutucada GENERICA do `tick`? (minutos sem movimento, cutucadas ja gastas) ou
+    None. None: menos de GRACE_MIN desde a ultima transicao/entrega (`stage_idle_min`), erro de API no ultimo turno (o
+    ramo dele, `api_retry`) ou desvio de cota/portao (`nudge_hold` sem `force`). `gate`: o gate_now() da passada. Nao
+    olha a listagem nem o teto de cutucadas: quem chama decide (`stall_due` < MAX_NUDGES, `stall_status` >=).
+    [[pipeline-vigia-nao-roda-tick-para-sessao-parada-sem-hit-tolerancia-de-1h-nunca-dispara_2026-11-04]]"""
+    box = bug_of(st, slug) if slug else st["final"]
+    if slug:
+        last, nudges = (box["history"][-1]["ts"] if box["history"] else st["created"]), box.get("nudges", {}).get(stage, 0)
+    else:
+        last, nudges = box.get("since", st["created"]), box.get("nudges", 0)
+    idle = stage_idle_min(last, rec)
+    if idle < GRACE_MIN or api_error_hit(rec) or nudge_hold(st, slug, stage, rec, gate, False):
+        return None
+    return idle, nudges
+
+
 def stall_due(st: dict) -> tuple[list[str], float | None]:
     """So leitura, sem lock (os vigias): o que pede um `tick` AGORA que nenhuma transicao o rodaria -- teto do slot
-    vencido sem aviso nesta posse (sessao busy) ou erro de API vencido com retomada sobrando (sessao parada). E o
-    proximo vencimento de erro de API ainda futuro (o sono do vigia acaba nele). O `agents` so e chamado se ha
-    candidato; sem a listagem, nada vence nesta passada."""
+    vencido sem aviso nesta posse (sessao busy), erro de API vencido com retomada sobrando (sessao parada) ou sessao
+    parada SEM hit ha GRACE_MIN, com cutucada sobrando (`idle_stall`; parada = `session_stopped`, que poupa a sessao
+    subindo). E o proximo vencimento de erro de API ainda futuro (o sono do vigia acaba nele). O `agents` so e chamado
+    se ha candidato; sem a listagem, nada vence nesta passada. Sem o terceiro motivo a cutucada so saia se alguem
+    chamasse transicao: execucao parada ate o `reconcile --fix`.
+    [[pipeline-vigia-nao-roda-tick-para-sessao-parada-sem-hit-tolerancia-de-1h-nunca-dispara_2026-11-04]]"""
     t, cands, nxt = time.time(), [], None
     teto, slug = float(E2E.get("teto_slot_min") or 0), st.get("test_slot")
     b = st["bugs"].get(slug) if slug else None
     if teto and b and b["state"] == "teste-e2e":
         since, rec = slot_since(b), b["sessions"].get("teste") or {}
         if since and rec.get("id") and held_min(since) >= teto and (b.get("slot_warn") or {}).get("since") != since:
-            cands.append(("slot", slug, "teste", rec))
-    for s_, stage, rec in current_recs(st):
+            cands.append(("slot", slug, "teste", rec, None))
+    recs = current_recs(st)
+    gate = gate_now() if recs else None
+    for s_, stage, rec in recs:
         hit = api_error_hit(rec)
-        if not hit or api_retries(st, s_, stage, rec) >= API_RETRY_MAX:
+        if hit:
+            if api_retries(st, s_, stage, rec) >= API_RETRY_MAX:
+                continue
+            if hit["ts"] + API_RETRY_S > t:
+                nxt = min(nxt or hit["ts"] + API_RETRY_S, hit["ts"] + API_RETRY_S)
+                continue
+            cands.append(("api", s_, stage, rec, None))
             continue
-        if hit["ts"] + API_RETRY_S > t:
-            nxt = min(nxt or hit["ts"] + API_RETRY_S, hit["ts"] + API_RETRY_S)
-            continue
-        cands.append(("api", s_, stage, rec))
+        idle = idle_stall(st, s_, stage, rec, gate)
+        if idle and idle[1] < MAX_NUDGES:
+            cands.append(("idle", s_, stage, rec, idle[0]))
     live = agents() if cands else None
     if live is None:
         return [], nxt
-    status = {x.get("sessionId"): x.get("status") for x in live}
+    by_id = {x.get("sessionId"): x for x in live}
     out = []
-    for kind, s_, stage, rec in cands:
-        sst = status.get(rec["id"])
+    for kind, s_, stage, rec, idle in cands:
+        x = by_id.get(rec["id"])
+        sst = (x or {}).get("status")
         if kind == "slot" and sst == "busy":
             out.append(f"{s_}/teste: teto do slot vencido (sessao busy, sem aviso nesta posse)")
         elif kind == "api" and (sst is None or sst in RESUMABLE):
             out.append(f"{s_ or 'finalizacao'}/{stage}: parada por erro da API ha mais de {API_RETRY_S} s")
+        elif kind == "idle" and session_stopped(x):
+            out.append(f"{s_ or 'finalizacao'}/{stage}: parada sem transicao ha {idle:.0f} min")
     return out, nxt
 
 
@@ -2366,7 +2543,9 @@ def stall_tick(st: dict | None) -> float | None:
 
 
 def stall_status(st: dict, live: list[dict] | None) -> list[str]:
-    """Linhas do `status` para o dono: `SLOT PRESO` (e `PARADO (slot)` com 2x o teto) e `PARADO (erro de API)`."""
+    """Linhas do `status` para o dono: `SLOT PRESO` (e `PARADO (slot)` com 2x o teto), `PARADO (erro de API)` e, com a
+    listagem, `PARADO (sem cutucadas)`: sessao parada sem hit com as MAX_NUDGES cutucadas gastas, que nenhum vigia
+    retoma. [[pipeline-vigia-nao-roda-tick-para-sessao-parada-sem-hit-tolerancia-de-1h-nunca-dispara_2026-11-04]]"""
     out, teto, slug = [], float(E2E.get("teto_slot_min") or 0), st.get("test_slot")
     b = st["bugs"].get(slug) if slug else None
     since = slot_since(b) if teto and b and b["state"] == "teste-e2e" else None
@@ -2377,15 +2556,24 @@ def stall_status(st: dict, live: list[dict] | None) -> list[str]:
         out.append(("PARADO (slot), precisa do dono (`claude attach`): " if held >= 2 * teto else "")
                    + f"SLOT PRESO desde {since} ({held:.0f} min, {slug}, sessao "
                    f"{session_status(b['sessions'].get('teste'), live)}; aviso {aviso})")
-    for s_, stage, rec in current_recs(st):
+    recs = current_recs(st)
+    for s_, stage, rec in recs:
         n = api_retries(st, s_, stage, rec)
         if n >= API_RETRY_MAX and api_error_hit(rec):
             out.append(f"PARADO (erro de API): {s_ or 'finalizacao'}/{stage} ({n} retomadas seguidas sem resposta); "
                        "precisa do dono (`claude attach`; `reconcile --fix` retoma quando a API voltar)")
+    if live is None or not recs:                  # sem a listagem nao ha como saber quem esta parado
+        return out
+    by_id, gate = {x.get("sessionId"): x for x in live}, gate_now()
+    for s_, stage, rec in recs:
+        idle = idle_stall(st, s_, stage, rec, gate)
+        if idle and idle[1] >= MAX_NUDGES and session_stopped(by_id.get(rec["id"])):
+            out.append(f"PARADO (sem cutucadas): {s_ or 'finalizacao'}/{stage} ha {idle[0]:.0f} min, {idle[1]} cutucadas "
+                       "sem transicao; precisa do dono (`claude attach`; `reconcile --fix` cutuca de novo)")
     return out
 
 
-def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
+def tick(st: dict, caller=NOBODY, grace_min: float = GRACE_MIN, force: bool = False,
          report: bool = False) -> list[str]:
     """Vigia SEM agendamento: roda no fim de toda transicao chamada por qualquer sessao (e no
     `reconcile` a pedido do dono). Reentrega mensagens pendentes, encerra sessoes de bugs que
@@ -2395,7 +2583,9 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
     reset ela e retomada (`resume_after_limit`), e quem roda o `tick` quando nenhuma sessao chama
     transicao e o vigia de reset, que o fim do `tick` abre (`schedule_reset_watch`). Sessao `busy` so e
     avaliada quando segura o slot E2E (teto, `slot_hold`); sessao parada por erro 5xx da API e retomada
-    sem tolerancia nem cutucada (`api_retry`). Os vigias rodam o `tick` para os dois (`stall_tick`).
+    sem tolerancia nem cutucada (`api_retry`). Os vigias rodam o `tick` para os dois e para a sessao parada sem hit
+    com a tolerancia vencida (`stall_tick`); a tolerancia conta da ultima transicao OU da ultima entrega
+    (`stage_idle_min`), senao a sessao recem-retomada pelo vigia seria cutucada na mesma passada.
 
     report=True e LEITURA PURA (revisao, achado 3): nenhum spawn, nenhum stop, nenhuma mudanca em
     `st`. Tudo que seria feito vira so nota.
@@ -2455,16 +2645,19 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
                 notes.append(held)
             continue
         if sst is not None and sst not in RESUMABLE:
-            notes.append(f"{slug}: sessao {rec.get('name')} com status '{sst}' (talvez esperando permissao): "
-                         "precisa do dono, `claude attach`; o pipeline nao mexe nela")
+            need = job_needs(rec["id"], live)    # o motivo exato, quando o job o grava
+            notes.append(f"{slug}: sessao {rec.get('name')} com status '{sst}' "
+                         + (f"(esperando: {need})" if need else "(talvez esperando permissao)")
+                         + ": precisa do dono, `claude attach`; o pipeline nao mexe nela")
             continue
         # sem rodizio e reset passado, ou erro 5xx da API: o transcript ja prova que parou (sem tolerancia)
         back = resume_after_limit(st, slug, stage, rec, gate, report) or api_retry(st, slug, stage, rec, report, force)
         if back:
             notes.append(back)
             continue
+        # a tolerancia conta da ultima transicao OU da ultima entrega: a sessao recem-retomada nao e cutucada
         last = b["history"][-1]["ts"] if b["history"] else st["created"]
-        idle = (dt.datetime.now() - dt.datetime.fromisoformat(last)).total_seconds() / 60
+        idle = stage_idle_min(last, rec)
         if idle < grace_min:
             continue
         hold = nudge_hold(st, slug, stage, rec, gate, force)
@@ -2501,7 +2694,7 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
         elif status.get(rec["id"]) not in ("busy",) and (status.get(rec["id"]) is None or status.get(rec["id"]) in RESUMABLE):
             back = (resume_after_limit(st, None, "finalizacao", rec, gate, report)
                     or api_retry(st, None, "finalizacao", rec, report, force))
-            idle =(dt.datetime.now() - dt.datetime.fromisoformat(fin.get("since", st["created"]))).total_seconds() / 60
+            idle = stage_idle_min(fin.get("since", st["created"]), rec)
             hold = nudge_hold(st, None, "finalizacao", rec, gate, force) if idle >= grace_min and not back else None
             if back:
                 notes.append(back)
@@ -2518,7 +2711,8 @@ def tick(st: dict, caller=NOBODY, grace_min: float = 60, force: bool = False,
         nxt = slot_next(st)
         if nxt:
             busy = foreign_processes()
-            notes.append(env_busy_note(nxt, busy) if busy else f"slot livre e ambiente livre: seria concedido a {nxt}")
+            notes.append(env_busy_note(nxt, describe_procs(busy)) if busy
+                         else f"slot livre e ambiente livre: seria concedido a {nxt}")
     else:
         blocked = dispatch_slot(st)
         if blocked:
@@ -2584,6 +2778,147 @@ def foreign_processes() -> list[dict]:
         return data
     mine = [e2e_dir(d) for d in E2E.get("pastas") or []]
     return [x for x in data if not under(x.get("Path"), ignored) or under(x.get("Path"), mine)]
+
+
+# Origem do processo que ocupa o ambiente: de quem ele e, sem investigar (DESIGN 22.15). Fica FORA do
+# `foreign_processes` (caminho quente, 30 s): so roda com algo ocupado. A linha de comando e ALLOWLIST: so sai
+# o nome, caminho absoluto, script e a sessao do claude; tudo o mais (cookie de `--header`, URL assinada,
+# `-pSENHA`, `python -c`) some. CMD_SECRET_RE e a segunda trava, para o caminho que tem cara de segredo.
+# [[pipeline-ferramenta-auxiliar-rodando-de-dentro-do-dist-ocupa-o-slot-e2e_2026-11-03]]
+CMD_TOKEN_RE = re.compile(r'(?:[^\s"]+|"[^"]*")+')
+CMD_PATH_RE = re.compile(r'^[A-Za-z]:[\\/][^"?*<>|=&;%]*$')
+CMD_SCRIPT_RE = re.compile(r'^[\w.\\/-]+\.(?:py|ps1|bat|cmd|js|sh)$', re.I)
+CMD_SECRET_RE = re.compile(r'header|cookie|pass|token|secret|auth|key', re.I)
+CMD_UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+CMD_SESSION_FLAGS = ("--session-id", "--resume")
+ORIGIN_DEPTH, ORIGIN_MAX, CMD_ITEMS, CMD_ITEM_MAX = 6, 400, 3, 48
+
+
+def short_item(val: str) -> str:
+    """Caminho com mais de CMD_ITEM_MAX caracteres vira `...\\<ultimas partes que cabem>` (a ultima parte sozinha
+    longa demais: o FIM dela). A pasta de evidencia do projeto tem ~120 caracteres: tres desses por nivel estouravam
+    o ORIGIN_MAX antes de chegar a sessao (teste rodada 1)."""
+    if len(val) <= CMD_ITEM_MAX:
+        return val
+    parts = [x for x in re.split(r"[\\/]", val) if x]
+    tail = parts[-1] if parts else val
+    for p in reversed(parts[:-1]):
+        if len(p) + 1 + len(tail) + 4 > CMD_ITEM_MAX:
+            break
+        tail = p + "\\" + tail
+    return "...\\" + tail[-(CMD_ITEM_MAX - 4):]
+
+
+def process_table() -> dict[int, dict]:
+    """{pid: {ProcessId, ParentProcessId, Name, CommandLine, Criado}} de todos os processos (`Win32_Process`:
+    o `Get-Process` nao tem linha de comando). `Criado` = FILETIME UTC (0 se ilegivel). Qualquer falha
+    (timeout, PowerShell ausente, JSON invalido, saida vazia) -> {}: a origem some, o aviso continua. Nunca
+    `die`: roda dentro do `dispatch_slot`, no meio de transicao, sob o lock `state`."""
+    ps = ("Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,CommandLine,CreationDate | "
+          "Select-Object ProcessId,ParentProcessId,Name,CommandLine,"
+          "@{n='Criado';e={if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc() } else { 0 }}} | "
+          "ConvertTo-Json -Compress")
+    try:
+        p = run(["powershell", "-NoProfile", "-Command", ps], check=False, timeout=30)
+        data = json.loads(p.stdout or "null")
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return {}
+    data = data if isinstance(data, list) else [data]
+    table = {}
+    for x in data:
+        if isinstance(x, dict) and isinstance(x.get("ProcessId"), int):
+            table[x["ProcessId"]] = x
+    return table
+
+
+def cmd_summary(name, cmdline) -> str:
+    """`nome` + ate CMD_ITEMS itens da linha de comando que dizem de quem e o processo: `sessao=<8>` (o UUID
+    de `--session-id`/`--resume` do claude, primeiro), caminho absoluto e script. Pula o token, e o seguinte,
+    que casam CMD_SECRET_RE. Valor de `--flag=valor` e o depois do 1o `=`. Nunca o nome de flag."""
+    name = str(name or "?")
+    if not cmdline:
+        return name
+    session, items, prev = None, [], ""
+    for tok in CMD_TOKEN_RE.findall(str(cmdline))[1:]:
+        last, prev = prev, tok
+        if CMD_SECRET_RE.search(tok) or CMD_SECRET_RE.search(last):
+            continue
+        flag, eq, val = tok.partition("=")
+        val = (val if eq else tok).replace('"', "")
+        if last in CMD_SESSION_FLAGS or (eq and flag in CMD_SESSION_FLAGS):
+            sid = re.split(r"[\\/]", val)[-1]    # sessao retomada: `--resume <...>\<uuid>.jsonl`
+            sid = sid[:-6] if sid.lower().endswith(".jsonl") else sid
+            if CMD_UUID_RE.match(sid):
+                session = session or f"sessao={sid[:8]}"
+                continue
+        if CMD_PATH_RE.match(val) or CMD_SCRIPT_RE.match(val):
+            val = short_item(val)
+            if val not in items:
+                items.append(val)
+    out = ([session] if session else []) + items
+    return mask(" ".join([name, *out[:CMD_ITEMS]]))
+
+
+def process_origin(pid: int, table: dict) -> str:
+    """`cmd: <resumo> | pai: <resumo> pid=N <- <resumo> pid=M ...`, ate ORIGIN_DEPTH ancestrais (no caso real
+    eram 5 niveis do `aria2c` ate o `claude.exe` da sessao); para no 1o ancestral com `sessao=` (o dono). Pai fora
+    da tabela, criado DEPOIS do filho (o Windows reusa PID) ou ja visto -> `pai encerrado (pid N)`. Sem o pid na
+    tabela: ''. Acima de ORIGIN_MAX corta do MEIO, nunca do fim: o ultimo elo e o que diz de quem e o processo
+    (teste rodada 1: o corte no fim jogava fora o `claude.exe sessao=`). Primeiro some elo do meio da cadeia (fica o
+    pai direto e o ultimo); se ainda nao couber, o meio do texto vira ` ... `."""
+    me = table.get(pid)
+    if not me:
+        return ""
+    chain, cur, seen = [], me, {pid}
+    for _ in range(ORIGIN_DEPTH):
+        ppid = cur.get("ParentProcessId")
+        if not ppid:
+            break
+        par = table.get(ppid)
+        born, pborn = cur.get("Criado") or 0, (par or {}).get("Criado") or 0
+        if par is None or ppid in seen or (born and pborn and pborn > born):
+            chain.append(f"pai encerrado (pid {ppid})")
+            break
+        link = cmd_summary(par.get("Name"), par.get("CommandLine"))
+        chain.append(f"{link} pid={ppid}")
+        if " sessao=" in link:
+            break
+        seen.add(ppid)
+        cur = par
+    head, cut = f"cmd: {cmd_summary(me.get('Name'), me.get('CommandLine'))}", 0
+
+    def render() -> str:
+        links = chain if not cut else [chain[0], f"... ({cut} omitidos)", *chain[1:]]
+        return head + (" | pai: " + " <- ".join(links) if links else "")
+    text = render()
+    while len(text) > ORIGIN_MAX and len(chain) > 2:
+        del chain[1]
+        cut += 1
+        text = render()
+    if len(text) > ORIGIN_MAX:
+        half = (ORIGIN_MAX - 5) // 2
+        text = text[:half] + " ... " + text[-(ORIGIN_MAX - 5 - half):]
+    return text
+
+
+def describe_procs(procs: list[dict]) -> list[dict]:
+    """Os processos de `foreign_processes` com `Origem` (de `process_origin`) quando a tabela tem o PID; dicts
+    NOVOS, sem nunca a linha de comando crua (a lista do `dispatch_slot` vai para o ledger). Lista vazia: nem
+    chama o PowerShell. Tabela vazia (falha): a lista como veio."""
+    if not procs:
+        return []
+    table = process_table()
+    if not table:
+        return list(procs)
+    out = []
+    for p in procs:
+        q = dict(p)
+        pid = p.get("Id")
+        origin = process_origin(pid, table) if isinstance(pid, int) else ""
+        if origin:
+            q["Origem"] = origin
+        out.append(q)
+    return out
 
 
 # --------------------------------------------------------------------------- publicacao
@@ -2970,6 +3305,44 @@ def drop_preflight_lane(lane: Path) -> bool:
     return False
 
 
+PROBE_IDLE_S = 180                               # s; teto para a sonda terminar o OK1 (boot medido ate 90 s)
+
+
+def probe_resume_cmd(check, exe: str, s: dict, prompt: str) -> list[str] | None:
+    """Preflight: espera a sonda TERMINAR o OK1 e devolve o `resume_cmd` dela. Terminou = `status` em RESUMABLE,
+    fora do boot (`session_booting`, a mesma recusa do `resume_cmd`) e depois de um turno: ja visto `busy`, ou
+    `state` != working. O `idle` + `working` de boot vem ANTES do 1o prompt e nao e fim de turno (rodada 1 do teste:
+    aceito como "terminou", o `resume_cmd` viu `busy` 2 s depois). None, com [FALHA], se ela nao terminar no teto
+    ou o `resume_cmd` recusar (Busy): o resume NAO e tentado. Antes era `sleep(20)` fixo e `resume_cmd` sem
+    `except`: sonda ainda subindo (status ausente) -> resume direto -> o CLI abria COPIA (o VERMELHO de
+    2026-11-01); sonda busy -> traceback em vez de VERMELHO.
+    [[pipeline-resume-cmd-le-status-none-de-sessao-em-boot-como-parada-e-abre-copia_2026-11-01]]"""
+    last, ready, seen_busy, deadline = "?", False, False, time.time() + PROBE_IDLE_S
+    for _ in range(PROBE_IDLE_S // 2):           # contado tambem: com o relogio parado (sim) o laco termina
+        cur = [x for x in (agents() or []) if x.get("sessionId") == s["sessionId"]]
+        if cur:
+            x = cur[0]
+            seen_busy |= x.get("status") == "busy"
+            last = "subindo" if session_booting(x) else str(x.get("status") or "parada")
+            ready = (x.get("status") in RESUMABLE and not session_booting(x)
+                     and (seen_busy or x.get("state") != "working"))
+        if ready or time.time() > deadline:
+            break
+        time.sleep(2)
+    check(ready, f"a sonda terminou o OK1 e ficou ociosa antes do resume (status: {last})",
+          f"ela nao terminou o turno em {PROBE_IDLE_S} s: o resume NAO foi tentado (subindo = o CLI abriria copia; "
+          "busy/esperando = Busy; idle sem nenhum busy visto = talvez nem leu o prompt). `claude logs` dela "
+          "(o preflight a encerra no fim)")
+    if not ready:
+        return None
+    try:
+        return resume_cmd(exe, s["sessionId"], prompt)
+    except Busy as e:
+        check(False, f"stop + resume --bg da mesma sessao (canal teste -> dev): resume recusado ({e})",
+              "a sonda nao parou com o `claude stop` ou voltou a trabalhar; o resume NAO foi tentado")
+        return None
+
+
 def cmd_preflight(a):
     ok = True
 
@@ -3046,21 +3419,20 @@ def cmd_preflight(a):
                     break
                 time.sleep(2)
             check(s is not None, f"sessao '{name}' aparece no gerenciador (claude agents)")
-            if s:
-                time.sleep(20)
-                # O E2E precisa da AREA DE TRABALHO do dono (SendInput, janela do ES em foreground): a
-                # sessao em background tem que rodar na mesma sessao interativa do Windows.
-                probe = PIPE / "preflight-desktop.json"
-                probe.unlink(missing_ok=True)
-                ps_cmd = ("powershell -NoProfile -Command \"@{session=(Get-Process -Id $PID).SessionId; "
-                          "interactive=[Environment]::UserInteractive} | ConvertTo-Json | "
-                          f"Out-File -Encoding utf8 '{probe}'\"")
-                # Sem flags, como o `spawn` retoma: o comando abaixo so roda se a sessao acordar com o
-                # --permission-mode com que nasceu.
+            # O E2E precisa da AREA DE TRABALHO do dono (SendInput, janela do ES em foreground): a
+            # sessao em background tem que rodar na mesma sessao interativa do Windows.
+            probe = PIPE / "preflight-desktop.json"
+            probe.unlink(missing_ok=True)
+            ps_cmd = ("powershell -NoProfile -Command \"@{session=(Get-Process -Id $PID).SessionId; "
+                      "interactive=[Environment]::UserInteractive} | ConvertTo-Json | "
+                      f"Out-File -Encoding utf8 '{probe}'\"")
+            # Sem flags, como o `spawn` retoma: o comando abaixo so roda se a sessao acordar com o
+            # --permission-mode com que nasceu. So depois de a sonda ficar ociosa (`probe_resume_cmd`).
+            cmd_r = probe_resume_cmd(check, exe, s, "Rode exatamente este comando no PowerShell e depois "
+                                     f"responda OK2: {ps_cmd}") if s else None
+            if cmd_r:
                 t_resume = time.time()
-                r = run(resume_cmd(exe, s["sessionId"],
-                                   f"Rode exatamente este comando no PowerShell e depois responda OK2: {ps_cmd}"),
-                        cwd=lane, check=False)
+                r = run(cmd_r, cwd=lane, check=False)
                 woke = bg_id(r.stdout)             # copia = outro id, e as vezes outro nome
                 opened.append(woke)
                 check(r.returncode == 0, "stop + resume --bg da mesma sessao (canal teste -> dev)",
@@ -3475,13 +3847,13 @@ def cmd_blocked(a):
 
 
 def lane_sessions(path: Path, live: list[dict]) -> list[dict]:
-    """Sessoes VIVAS (`status` presente) com cwd na lane ou abaixo dela. Viva com cwd na pasta, ela
+    """Sessoes VIVAS (`session_alive`: com `status` ou subindo) com cwd na lane ou abaixo dela. Viva com cwd na pasta, ela
     trava a pasta no Windows: o `worktree remove` apaga o conteudo e deixa a pasta vazia presa. So o
     `claude agents --json` mostra o cwd; a linha de comando do processo nao (o `daemon run
     --spawned-by` que cita a lane e so metadado e NAO trava nada: medido em 2026-10-02)."""
     key = lambda p: os.path.normcase(os.path.normpath(str(p)))
     p = key(path)
-    return [x for x in live if x.get("status") is not None and x.get("cwd") and x.get("sessionId")
+    return [x for x in live if session_alive(x) and x.get("cwd") and x.get("sessionId")
             and (key(x["cwd"]) == p or key(x["cwd"]).startswith(p + os.sep))]
 
 
@@ -3525,8 +3897,8 @@ def cmd_cleanup(a):
         # viva la dentro e o que prende a pasta.
         for x in lane_sessions(path, live):
             who = f"sessao '{x.get('name')}' ({x['sessionId'][:8]})"
-            if x.get("status") not in RESUMABLE:     # trabalhando ou esperando o dono: nunca parar por cima
-                problems.append(f"{name}: {who} esta '{x.get('status')}' com cwd na lane — espere terminar "
+            if not session_idle(x):                  # trabalhando, subindo ou esperando o dono: nunca parar por cima
+                problems.append(f"{name}: {who} esta '{session_label(x)}' com cwd na lane — espere terminar "
                                 "ou `claude stop` nela")
             elif x.get("kind") == "interactive":     # terminal/IDE do dono: `claude stop` so para background
                 foreign.append(f"{name}: {who} e interativa (nao e do pipeline) e tem cwd na lane; `claude stop` "
@@ -3588,7 +3960,7 @@ def cmd_cleanup(a):
             if n and not hollow:
                 print(f"AVISO: {path} nao e worktree e nao esta vazia ({n} item(ns)); nada apagado nela.")
                 continue
-            held_by = [f"{x.get('name')} ({x['sessionId'][:8]}, {x.get('status')})"
+            held_by = [f"{x.get('name')} ({x['sessionId'][:8]}, {session_label(x)})"
                        for x in lane_sessions(path, agents() or [])]
             print(f"AVISO: {path} ficou vazia e presa: algum processo tem cwd nela. Sessoes claude com cwd "
                   f"ali: {held_by or 'nenhuma'}. A linha de comando NAO mostra cwd — nao culpe o `daemon run` "
@@ -3607,8 +3979,8 @@ def cmd_env_wait(a):
             print("AMBIENTE LIVRE")
             return
         if time.time() >= deadline:
-            for p in procs:
-                print(f"OCUPADO: {p.get('ProcessName')} pid={p.get('Id')} {p.get('Path') or ''}")
+            for p in describe_procs(procs):      # de quem e o processo, sem investigar
+                print(f"OCUPADO: {proc_text(p)}")
             sys.exit(11)
         time.sleep(30)
 
@@ -3786,7 +4158,8 @@ def unpublished(base: str) -> list[str]:
 def sync_main(st: dict, fresh_min: float = FRESH_MIN) -> dict:
     """Deixa a arvore principal igual ao origin (decisao do dono, 2026-10-03): commita o trabalho de
     terceiros (um commit por doc; codigo num commit so, publicado SE compilar; o da pasta da propria skill
-    nunca: o build nao o valida), publica os commits locais por uma lane e avanca a arvore com
+    nunca: o build nao o valida; nem a remocao de arquivo rastreado fora de docs/, pelo mesmo motivo; nem o
+    arquivo novo em relacao ao HEAD fora de docs/, inclusive em staged e destino de rename), publica os commits locais por uma lane e avanca a arvore com
     `merge --ff-only`/`reset --keep`. Nunca descarta nem
     reescreve arquivo modificado (unica excecao: gerado de build que o proprio alvo apaga): o que nao da
     para resolver vira item de `pending` (decisao do dono)."""
@@ -3822,7 +4195,11 @@ def sync_main(st: dict, fresh_min: float = FRESH_MIN) -> dict:
         pend.append(f"arquivo(s) mexido(s) ha menos de {fresh_min:g} min (outra sessao editando agora), nao "
                     "commitado(s): " + ", ".join(f"{f} ({stamp(f)})" for f in fresh[:10]))
     is_doc = lambda f: f.replace("\\", "/").startswith("docs/")
-    stray = [f for f in real if f not in fresh and f not in tracked and not is_doc(f)]
+    # [[pipeline-final-sync-main-rename-staged-de-terceiro-publica-so-o-destino-e-sai-0_2026-11-04]] "novo" se mede contra o HEAD, nao contra o indice: destino de rename e `A ` estao em `tracked` e
+    # sairiam no commit de codigo, sem portao que prove a intencao. A origem do rename cai em `removed`. O
+    # `git rm --cached` continua fora daqui: esta no HEAD.
+    in_head = set(run(["git", "ls-tree", "-r", "-z", "--name-only", "HEAD"], cwd=SRC).stdout.split("\0"))
+    stray = [f for f in real if f not in fresh and f not in in_head and not is_doc(f)]
     if stray:
         pend.append("arquivo(s) novo(s) fora de docs/, de origem desconhecida, nao commitado(s): "
                     + ", ".join(f"{f} ({stamp(f)})" for f in stray[:10]))
@@ -3835,7 +4212,19 @@ def sync_main(st: dict, fresh_min: float = FRESH_MIN) -> dict:
     if own:
         pend.append(f"arquivo(s) da propria skill ({skill}) nao commitado(s): o build do projeto nao os valida e o "
                     "helper e replicado nas copias; quem edita commita: " + ", ".join(f"{f} ({stamp(f)})" for f in own[:10]))
-    todo = [f for f in real if f not in fresh and f not in stray and f not in own]
+    # [[pipeline-final-sync-main-publica-remocao-de-arquivo-rastreado-de-outra-sessao_2026-11-03]] arquivo
+    # rastreado que sumiu do disco (` D` ou `D `) fora de docs/: o build nao consome `.ps1`/`.py` de teste e saia
+    # 0, publicando a remocao (b067a83). O criterio e "rastreado e ausente do disco", nao a letra `D`: o
+    # `git rm --cached` tambem da `D ` com o arquivo no disco, e o `git add -A` abaixo o recoloca. Depois de
+    # `own`: arquivo apagado da skill fica so naquela pendencia. Em docs/ a remocao segue publicada (doc
+    # movido de open/ para retest/ chega como ` D` + `??`).
+    removed = [f for f in real if not mtime(f) and not is_doc(f) and f not in stray and f not in own]
+    if removed:
+        pend.append(f"{len(removed)} arquivo(s) rastreado(s) apagado(s) na arvore principal, de origem desconhecida, "
+                    "remocao NAO commitada (o build nao a valida): " + ", ".join(removed[:10])
+                    + ". Quem apagou commita a remocao; senao restaurar com `git restore --source=HEAD --staged "
+                    "--worktree -- <arquivo>`")
+    todo = [f for f in real if f not in fresh and f not in stray and f not in own and f not in removed]
     docs, code = [f for f in todo if is_doc(f)], [f for f in todo if not is_doc(f)]
     why = f"trabalho local de outra sessao publicado pela finalizacao do pipeline {st['run_id']}"
     groups = [([f], f"{COMMIT_DOCS if f.replace(chr(92), '/').startswith('docs/bugs/') else COMMIT_DOCS_OUTROS}: "
@@ -3949,8 +4338,8 @@ def cmd_final_deploy(a):
         return
     busy = foreign_processes()
     if busy:
-        for p in busy:
-            print(f"OCUPADO: {p.get('ProcessName')} pid={p.get('Id')} {p.get('Path') or ''}")
+        for p in describe_procs(busy):           # o caso das 23:34: o aria2c de uma sessao interativa
+            print(f"OCUPADO: {proc_text(p)}")
         sys.exit(11)
     lane = final_lane(st)
     checkout_fresh(lane, st["base"], None)
@@ -4101,12 +4490,12 @@ def final_report(st: dict) -> list[tuple[str, str, str]]:
                 "sessoes claude com cwd nela nao conferidas (claude agents --json indisponivel)" if held is None else
                 "conteudo que o pipeline nao criou nesta execucao, ou pasta presa por processo que nao e sessao claude"))
     mine = (fin.get("session") or {}).get("id")
-    alive = {x.get("sessionId"): x for x in (live or []) if x.get("status") is not None}
+    alive = {x.get("sessionId"): x for x in (live or []) if session_alive(x)}   # subindo tambem e viva
     for slug, b in st["bugs"].items():
         for stage, rec in b["sessions"].items():
             if rec and rec.get("id") in alive and rec["id"] != mine:
                 add("C5", "mecanico", f"sessao {rec.get('name')} ({rec['id'][:8]}) ainda viva "
-                                      f"({alive[rec['id']].get('status')}): rode `cleanup` (ou espere ela terminar o turno)")
+                                      f"({session_label(alive[rec['id']])}): rode `cleanup` (ou espere ela terminar o turno)")
     if len(out) == n:
         add("C5", "ok", "nenhuma lane, worktree ou sessao de etapa da execucao sobrando")
     return out
@@ -4184,13 +4573,14 @@ def cmd_stop_final(a):
                 break
             time.sleep(a.interval)
             continue
-        mine = [x for x in live if x.get("status") is not None and x.get("sessionId")
+        # subindo (sem status) tambem e viva: fora de `mine`, o `all(...)` saia com a copia viva
+        mine = [x for x in live if session_alive(x) and x.get("sessionId")
                 and x["sessionId"][:8] not in stopped      # ja parada aqui: o gerenciador demora a refletir
                 and x.get("kind") != "interactive" and (x.get("name") == name or x["sessionId"][:8] in ids)]
-        for x in [x for x in mine if x.get("status") in RESUMABLE]:
+        for x in [x for x in mine if session_idle(x)]:      # o idle de boot ainda vai ler o prompt: espera
             run([claude_exe(), "stop", job_id(x["sessionId"], live)], cwd=ROOT, check=False)
             stopped.append(x["sessionId"][:8])
-        if all(x.get("status") in RESUMABLE for x in mine) or time.time() > deadline:
+        if all(session_idle(x) for x in mine) or time.time() > deadline:
             break
         time.sleep(a.interval)
     if stopped:
@@ -4757,14 +5147,37 @@ def cmd_final_done(a):
     schedule_stop_final()
 
 
+def job_needs(session_id: str, live: list[dict] | None) -> str | None:
+    """O `needs` do job (`~/.claude/jobs/<id curto>/state.json`, ex.: "approve Entering worktree"): o motivo exato
+    de uma sessao `waiting`, que o `claude agents --json` nao traz. None se nao ha arquivo, se ele esta pela metade
+    (o CLI o regrava; nao pode derrubar `status` nem `tick`) ou se `needs` nao e texto.
+    [[pipeline-sessao-de-etapa-para-em-pedido-de-enterworktree-sem-dono-presente_2026-11-03]]"""
+    try:
+        f = CLAUDE_PROJECTS.parent / "jobs" / job_id(session_id, live) / "state.json"
+        n = json.loads(f.read_text(encoding="utf-8")).get("needs")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return mask(n)[:160] if isinstance(n, str) and n.strip() else None
+
+
 def session_status(rec: dict | None, live: list[dict] | None) -> str:
-    """`agents?` sem a listagem (`agents` None): `encerrada` ali seria chute."""
+    """`agents?` sem a listagem (`agents` None): `encerrada` ali seria chute. Sessao esperando alguem (status fora
+    de RESUMABLE e de `busy`) leva o `needs` do job entre parenteses, quando ha."""
     if not rec or not rec.get("id"):
         return "-"
     if live is None:
         return "agents?"
     hits = [x for x in live if x.get("sessionId") == rec["id"]]
-    return hits[0].get("status", "?") if hits else "encerrada"
+    if hits and session_booting(hits[0]):
+        return "subindo"
+    if not hits:
+        return "encerrada"
+    sst = hits[0].get("status", "?")
+    if sst is not None and sst not in RESUMABLE and sst != "busy":
+        need = job_needs(rec["id"], live)
+        if need:
+            return f"{sst} ({need})"
+    return sst
 
 
 def cmd_status(a):
