@@ -507,3 +507,171 @@ func TestDownloadWithProgressReportsFinalVerification(t *testing.T) {
 		t.Fatalf("ultimo status nao mostra a conferencia final: %+v", status)
 	}
 }
+
+// hangUntilClientGoes holds a response open without data, like a connection
+// that stopped delivering, and returns when the client gives up on it.
+func hangUntilClientGoes(w http.ResponseWriter, r *http.Request) {
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	select {
+	case <-r.Context().Done():
+	case <-time.After(5 * time.Second):
+	}
+}
+
+func shortStallAndResumeWait(t *testing.T) {
+	t.Helper()
+	prevStall, prevWait := app.DownloadStallTimeout, downloadResumeWait
+	app.DownloadStallTimeout = 150 * time.Millisecond
+	downloadResumeWait = 10 * time.Millisecond
+	t.Cleanup(func() { app.DownloadStallTimeout, downloadResumeWait = prevStall, prevWait })
+}
+
+// (a) A single-stream download that stalls more times than IADownloadSingle
+// retries used to end as ErrDownloadStalled, and the fallback deleted the file.
+// It must resume from the partial file while each attempt adds bytes.
+func TestDownloadWithProgressResumesSingleStreamAcrossRepeatedStalls(t *testing.T) {
+	shortStallAndResumeWait(t)
+	payload := []byte("0123456789ABCDE")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := int(requests.Add(1))
+		start := 5 * (n - 1)
+		if start >= len(payload) {
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		if n == 1 {
+			w.Header().Set("Content-Length", fmt.Sprint(len(payload)))
+			w.WriteHeader(http.StatusOK)
+		} else {
+			if r.Header.Get("Range") != fmt.Sprintf("bytes=%d-", start) {
+				t.Errorf("pedido %d sem retomada do offset %d: Range=%q", n, start, r.Header.Get("Range"))
+			}
+			w.Header().Set("Content-Length", fmt.Sprint(len(payload)-start))
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(payload)-1, len(payload)))
+			w.WriteHeader(http.StatusPartialContent)
+		}
+		_, _ = w.Write(payload[start : start+5])
+		if start+5 < len(payload) {
+			hangUntilClientGoes(w, r)
+		}
+	}))
+	defer server.Close()
+
+	service := &Service{App: app.NewApp()}
+	dest := filepath.Join(t.TempDir(), "single-stall.zip")
+	if err := service.DownloadWithProgress(server.URL, dest, "SingleStall", server.URL); err != nil {
+		t.Fatalf("download devia terminar retomando do parcial, veio: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("arquivo final divergente: %q (%v)", got, err)
+	}
+	if requests.Load() != 3 {
+		t.Fatalf("esperava 3 pedidos (2 estagnados + 1 final), houve %d", requests.Load())
+	}
+}
+
+// (b) A chunked download returns ErrDownloadStalled with no retry of its own;
+// the confirmed segments must be kept and the rest fetched by a resume.
+func TestResumeWhileProgressingFinishesChunkedDownloadAfterStall(t *testing.T) {
+	shortStallAndResumeWait(t)
+	payload := []byte("01234567ABCDEFGHijklmnop")
+	var hungOnce atomic.Bool
+	var firstSegmentRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if start == 0 {
+			firstSegmentRequests.Add(1)
+		}
+		w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+		if start == 8 && hungOnce.CompareAndSwap(false, true) {
+			hangUntilClientGoes(w, r)
+			return
+		}
+		_, _ = w.Write(payload[start : end+1])
+	}))
+	defer server.Close()
+
+	previousSegmentSize := iaSegmentSize
+	iaSegmentSize = 8
+	defer func() { iaSegmentSize = previousSegmentSize }()
+	service := newResumeTestService(server)
+	service.App.IADownloadMaxParallel = 1
+	dest := filepath.Join(t.TempDir(), "chunked-stall.zip")
+
+	err := service.resumeWhileProgressing(dest, server.URL, "ChunkedStall", func() error {
+		return service.IADownloadChunkedParallel(server.URL, dest, "ChunkedStall", server.URL, int64(len(payload)))
+	})
+	if err != nil {
+		t.Fatalf("download chunked devia terminar retomando, veio: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("arquivo final divergente: %q (%v)", got, err)
+	}
+	if !hungOnce.Load() {
+		t.Fatal("o segmento 1 nunca estagnou: o teste nao exercitou a retomada")
+	}
+	if firstSegmentRequests.Load() != 1 {
+		t.Fatalf("segmento 0 ja confirmado foi baixado de novo (%d pedidos)", firstSegmentRequests.Load())
+	}
+}
+
+// (c) A source that never delivers a byte is still given up on, so the
+// fallback chain can move to the next provider.
+func TestResumeWhileProgressingGivesUpWithoutProgress(t *testing.T) {
+	shortStallAndResumeWait(t)
+	service := &Service{App: app.NewApp()}
+	dest := filepath.Join(t.TempDir(), "never.zip")
+	var calls int
+	err := service.resumeWhileProgressing(dest, "https://example.invalid/never.zip", "Never", func() error {
+		calls++
+		return fmt.Errorf("interrupted after 0.00 MB nesta tentativa: %w", app.ErrDownloadStalled)
+	})
+	if !errors.Is(err, app.ErrDownloadStalled) {
+		t.Fatalf("esperava ErrDownloadStalled, veio %v", err)
+	}
+	if calls != downloadMaxAttemptsWithoutProgress {
+		t.Fatalf("esperava %d tentativas sem progresso, houve %d", downloadMaxAttemptsWithoutProgress, calls)
+	}
+}
+
+// (d) Too slow, cancellation and deterministic answers are not interruptions:
+// they reach the fallback chain on the first attempt, as before.
+func TestResumeWhileProgressingDoesNotRetryNonTransientErrors(t *testing.T) {
+	shortStallAndResumeWait(t)
+	for _, failure := range []error{
+		fmt.Errorf("interrupted after 3.00 MB nesta tentativa: %w", app.ErrDownloadTooSlow),
+		app.ErrJobCancelled,
+		fmt.Errorf("HTTP 401 — este item do Internet Archive exige conta logada"),
+		fmt.Errorf("HTTP 404 from https://archive.org/download/x/y.zip"),
+	} {
+		service := &Service{App: app.NewApp()}
+		var calls int
+		err := service.resumeWhileProgressing(filepath.Join(t.TempDir(), "x.zip"), "u", "NonTransient", func() error {
+			calls++
+			return failure
+		})
+		if err != failure || calls != 1 {
+			t.Fatalf("%v: esperava 1 tentativa e o mesmo erro, houve %d (%v)", failure, calls, err)
+		}
+	}
+	for _, transient := range []string{
+		"read after 524288 bytes: stream error: stream ID 3; PROTOCOL_ERROR; received from peer",
+		"request: Get \"https://dn720705.ca.archive.org/x\": read tcp 1.2.3.4:5->6.7.8.9:443: wsarecv: An existing connection was forcibly closed by the remote host.",
+		"HTTP 500 (expected 206 Partial Content)",
+	} {
+		if !isResumableDownloadInterruption(errors.New(transient)) {
+			t.Fatalf("interrupcao de producao nao reconhecida como retomavel: %s", transient)
+		}
+	}
+}

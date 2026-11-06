@@ -10,7 +10,7 @@
 - **Severidade:** **P1 — Alto**. Para cada título afetado a entrega fica bloqueada (o cliente tentou o mesmo jogo
   várias vezes, em dias diferentes), e são justamente os jogos que ele quer jogar. A cadeia de fallback não salva
   nenhum deles.
-- **Complexidade:** Alta (pipeline de download/fallback), a confirmar quando a causa for provada
+- **Complexidade:** Alta (pipeline de download/fallback)
 - **Versões:** v2.12.110 (23/10), v2.12.117 (27/10), v2.12.123 (01/11 a 06/11)
 - **Reincidência:** mesma mensagem final de
   [`docs/bugs/closed/2026-08-09-fallback-huggingface-archive-minerva.md`](../closed/2026-08-09-fallback-huggingface-archive-minerva.md),
@@ -175,7 +175,7 @@ Símbolos abertos:
 
 | # | task | commit | estado | modelo | revisao |
 |---|---|---|---|---|---|
-| T1 | laço de retomada por progresso em `DownloadWithProgress` + testes (a)-(d) | -- | -- | -- | -- |
+| T1 | laço de retomada por progresso em `DownloadWithProgress` + testes (a)-(d) | (este commit) | feito | Opus 5.5 | -- |
 
 ## Como reproduzir
 
@@ -183,18 +183,38 @@ Não reproduzido. Ponto de partida: no Companion v2.12.123, enfileirar `Orange B
 `Orange Box` para um HD e comparar o log do fallback (`=== Fallback Pipeline: ...`) das duas variantes; repetir com
 `Operation Flashpoint Dragon Rising` para medir a taxa observada antes do `muito lento`.
 
-## Resolução
+## Resolução (v2.12.124)
 
-Pendente.
+1. **Retomada no lugar (`download/ia.go::DownloadWithProgress` → `resumeWhileProgressing`)**: o corpo antigo virou
+   `downloadWithProgressOnce`; em volta, depois de uma interrupção transitória (`isResumableDownloadInterruption`:
+   `ErrDownloadStalled`, `stream error`, `read after`, `interrupted after`, `request failed`/`request:`,
+   `connection reset`, `forcibly closed`, `unexpected eof`, `http 5`) e sem cancelamento, espera 10 s
+   (`downloadResumeWait`, cancelável) e chama de novo sem apagar nada. Para com 3 tentativas seguidas sem byte durável
+   novo (`durableDownloadBytes`: tamanho do arquivo no marcador `single`, soma dos segmentos `Completed` no `chunked`).
+2. **O que não mudou**: `ErrDownloadTooSlow`, `ErrJobCancelled`, 4xx, espaço e checkpoint saem na primeira vez, então a
+   troca de provedor por lentidão e a retomada irrestrita do `fallback.go` seguem iguais. Minerva (aria2c) não passa
+   por aqui.
 
 ## Testes Automatizados
 
-Pendentes.
+`src/server/infrastructure/download/ia_test.go`:
+
+- `TestDownloadWithProgressResumesSingleStreamAcrossRepeatedStalls` (a) — servidor entrega 5 bytes e trava, duas
+  vezes; o download termina íntegro em 3 pedidos, cada um com `Range` do offset certo.
+- `TestResumeWhileProgressingFinishesChunkedDownloadAfterStall` (b) — segmento 1 trava na 1ª vez; termina íntegro e o
+  segmento 0 confirmado não é pedido de novo.
+- `TestResumeWhileProgressingGivesUpWithoutProgress` (c) — fonte sem byte: 3 tentativas e `ErrDownloadStalled`.
+- `TestResumeWhileProgressingDoesNotRetryNonTransientErrors` (d) — lento, cancelado, 401, 404: 1 tentativa; os três
+  textos de produção (`PROTOCOL_ERROR`, `forcibly closed`, `HTTP 500`) são reconhecidos como retomáveis.
+
+Prova inversa: com `resumeWhileProgressing` reduzido a `return attempt()`, (a) falha com `interrupted after 0.00 MB
+nesta tentativa: download estagnado` e (b) com `download estagnado sem dados`. `go build ./...` e `go test -count=1
+./...` em `src/server`: verdes.
 
 ## Critérios para fechar
 
 - [x] Causa raiz de cada classe de erro (catálogo, estagnado, lento) provada pelo call-site (passada 2)
-- [ ] T1: testes (a)-(d) verdes e prova inversa
+- [x] T1: testes (a)-(d) verdes e prova inversa (2.12.124)
 - [ ] ~~Teste do match do HF com artigo invertido~~ — H1 descartada como causa; vira melhoria à parte
 - [ ] Os títulos do cliente (lista acima) baixam numa versão publicada
 - [ ] A taxa de `Download falhou em todas as fontes` na telemetria cai, medida pela mesma consulta da Evidência 1

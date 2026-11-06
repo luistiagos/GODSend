@@ -165,9 +165,118 @@ func iaHTTPError(status int, urlStr string) error {
 	return fmt.Errorf("HTTP %d from %s", status, urlStr)
 }
 
+// downloadResumeWait is the pause before resuming an interrupted download in place.
+var downloadResumeWait = 10 * time.Second
+
+// downloadMaxAttemptsWithoutProgress bounds the resumes that add no durable byte.
+const downloadMaxAttemptsWithoutProgress = 3
+
 // DownloadWithProgress downloads urlStr to dest. For Internet Archive URLs it uses a
 // Gopeed-style segment queue (fixed-size ranges, worker pool) when Range is supported.
+//
+// A transient interruption (45 s without data, HTTP/2 stream reset, dropped
+// connection) resumes the partial file in place for as long as each attempt adds
+// durable bytes. Without this, the fallback chain switched provider or gave up
+// on the first interruption and the partial download was deleted — 43 of the 56
+// unrestricted retries in the telemetry died that way, one after 6.5 GB
+// ([[pipeline-download-falha-em-todas-as-fontes-por-lentidao-e-estagnacao-cliente-perde-13-titulos_2026-11-06T16-40]]).
 func (s *Service) DownloadWithProgress(urlStr, dest, name, ref string) error {
+	return s.resumeWhileProgressing(dest, urlStr, name, func() error {
+		return s.downloadWithProgressOnce(urlStr, dest, name, ref)
+	})
+}
+
+// resumeWhileProgressing runs attempt again after a resumable interruption,
+// keeping the partial file, until it succeeds, fails for another reason, or
+// downloadMaxAttemptsWithoutProgress attempts in a row add no durable byte.
+func (s *Service) resumeWhileProgressing(dest, urlStr, name string, attempt func() error) error {
+	withoutProgress := 0
+	for resume := 1; ; resume++ {
+		before := durableDownloadBytes(dest, urlStr)
+		err := attempt()
+		if !isResumableDownloadInterruption(err) || s.App.IsGameJobCancelled(name) {
+			return err
+		}
+		after := durableDownloadBytes(dest, urlStr)
+		if after > before {
+			withoutProgress = 0
+		} else {
+			withoutProgress++
+		}
+		if withoutProgress >= downloadMaxAttemptsWithoutProgress {
+			s.App.Logf("WARN [%s]: download interrompido %d vezes seguidas sem progresso — desistindo: %v", name, withoutProgress, err)
+			return err
+		}
+		s.App.Logf("DOWNLOAD RESUME [%s]: interrompido (%v) com %.1f MB duraveis — retomando no lugar (retomada %d) em %s",
+			name, err, float64(after)/1048576, resume, downloadResumeWait)
+		s.App.LogStatus(name, "Processing", fmt.Sprintf("Conexao interrompida; retomando o download de %.0f MB...", float64(after)/1048576))
+		for waited := time.Duration(0); waited < downloadResumeWait; waited += 250 * time.Millisecond {
+			if s.App.IsGameJobCancelled(name) {
+				return app.ErrJobCancelled
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+}
+
+// isResumableDownloadInterruption reports a network interruption that a new
+// attempt resumes from the partial file. Too slow, cancellation and every
+// deterministic answer (4xx, size, local storage) stay out: those must reach the
+// fallback chain unchanged.
+func isResumableDownloadInterruption(err error) bool {
+	if err == nil || errors.Is(err, app.ErrDownloadTooSlow) || errors.Is(err, app.ErrJobCancelled) {
+		return false
+	}
+	if errors.Is(err, app.ErrDownloadStalled) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"stream error", "read after", "interrupted after", "request failed", "request:",
+		"connection reset", "forcibly closed", "unexpected eof", "http 5",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// durableDownloadBytes is how much of dest is already safe to resume from: the
+// file size of a single-stream download, or the confirmed segments of a chunked
+// one. Zero when there is no resume map for urlStr.
+func durableDownloadBytes(dest, urlStr string) int64 {
+	data, err := os.ReadFile(resumeMarkerPath(dest))
+	if err != nil {
+		return 0
+	}
+	var marker downloadResumeMarker
+	if json.Unmarshal(data, &marker) != nil || marker.URL != urlStr {
+		return 0
+	}
+	switch marker.Mode {
+	case "single":
+		if st, err := os.Stat(dest); err == nil {
+			return st.Size()
+		}
+	case "chunked":
+		var total int64
+		for index, done := range marker.Completed {
+			if !done {
+				continue
+			}
+			size := marker.SegmentSize
+			if start := int64(index) * marker.SegmentSize; start+size > marker.TotalSize {
+				size = marker.TotalSize - start
+			}
+			total += size
+		}
+		return total
+	}
+	return 0
+}
+
+func (s *Service) downloadWithProgressOnce(urlStr, dest, name, ref string) error {
 	// Tell the durable queue which partial file this job owns, so a restart
 	// keeps it out of the scratch cleanup and resumes instead of restarting.
 	s.App.SetQueueJobDownload(name, urlStr, dest)
