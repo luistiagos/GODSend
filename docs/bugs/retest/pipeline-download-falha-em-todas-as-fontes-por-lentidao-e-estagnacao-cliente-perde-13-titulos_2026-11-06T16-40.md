@@ -211,6 +211,22 @@ Prova inversa: com `resumeWhileProgressing` reduzido a `return attempt()`, (a) f
 nesta tentativa: download estagnado` e (b) com `download estagnado sem dados`. `go build ./...` e `go test -count=1
 ./...` em `src/server`: verdes.
 
+### E2E (2026-11-06, backend real, sem UI)
+
+Backend compilado (`go build`) antes (`e0333c3`) e depois do fix, cada um com `GODSEND_HOME` próprio no scratchpad,
+telemetria desligada (`GODSEND_ERROR_REPORTING=0`), catálogo `hf_xbox360.json` com um título apontando para uma fonte
+HTTP local. A fonte entrega 1 MB e segura a conexão sem dados (estagnação real de 45 s do app) nos 5 primeiros
+pedidos e entrega o resto no 6º. Fila pelo HTTP: `/register?mode=local&local_root=<pasta>&install_type=xex` +
+`/trigger?priority=huggingface`. Roteiro: `scratchpad/e2e/run_e2e.py` (fora do repo).
+
+| binário | pedidos | resultado |
+|---|---|---|
+| antes do fix | 4 (2 na 1ª passada + 2 na retomada irrestrita) | `Error`: `Download falhou em todas as fontes. Erros: huggingface: ... interrupted after 1.00 MB nesta tentativa: download estagnado ...` — a mensagem dos reportes |
+| com o fix | 6, cada um com `Range` do offset certo; status "Conexao interrompida; retomando o download de N MB..." | `Ready`, `FALLBACK SUCCESS: huggingface`, `Games/E2E Stall Game/default.xex` byte a byte igual ao do arquivo |
+
+Não coberto pelo E2E: a UI do Electron (o caminho muda só no backend), o modo chunked do archive.org (só nos testes
+unitários) e o modo FTP.
+
 ## Critérios para fechar
 
 - [x] Causa raiz de cada classe de erro (catálogo, estagnado, lento) provada pelo call-site (passada 2)
