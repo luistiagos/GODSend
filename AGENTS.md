@@ -229,4 +229,9 @@ Substitua as menções da versão antiga pela nova nos nomes de arquivos do inst
 2. **Inspecione Logs e Stack Traces Antes de Diagnosticar Erros:** Nunca faça suposições sobre falhas de runtime sem ler os logs completos gerados em `%APPDATA%\Xbox 360 Companion\logs\`.
 3. **Sem Correções Superficiais de Sintomas:** Não resolva erros engolindo exceções, retornando dados falsos ou desativando verificações de testes. Identifique e corrija a causa raiz.
 4. **Verificação Obrigatória:** Nunca declare uma tarefa concluída sem executar o comando de build (`npm run build:server` ou `npm run tsc`) para validar que não há erros de compilação.
-5. **Nomes de Arquivo e Links de Código:** Ao mencionar arquivos no chat, crie links markdown clicáveis utilizando o esquema `file://` (ex: `[handlers.go](file:///e:/projects/Downloader-XBOX360-XEX-HDD-Games/src/server/interfaces/http/handlers.go)`).
+5. **Bug fechado que volta: conferir a versão do cliente e reabrir** (decisão do dono, 2026-11-07; vale para qualquer
+   agente). Leia a versão que o usuário roda (`user_agent = ElectronApp vX.Y.Z` na telemetria, ou o que aparece no
+   chamado) e compare com o commit do fix. Versão anterior ao fix: anote a evidência no doc, que fica onde está. Versão
+   que já contém o fix e a **mesma** falha: o doc **volta de `docs/bugs/closed/` para `docs/bugs/open/`, sempre**, com
+   seção "Reaberto <data>" e a prova. Versão com o fix e defeito diferente: bug novo, com link para o antigo.
+6. **Nomes de Arquivo e Links de Código:** Ao mencionar arquivos no chat, crie links markdown clicáveis utilizando o esquema `file://` (ex: `[handlers.go](file:///e:/projects/Downloader-XBOX360-XEX-HDD-Games/src/server/interfaces/http/handlers.go)`).

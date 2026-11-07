@@ -258,9 +258,37 @@ Tres desfechos, e **so um deles cria arquivo**:
 - **Novo** (nada equivalente em nenhuma pasta) → cria (Passo 7).
 - **Ja aberto** (`open/`, ou `backlog`/`implementada` no dsg) → **NAO duplique.** Anexe uma
   secao de evidencia ao doc existente, com data, ids das mensagens e o numero do chamado.
-- **Em `retest/`/`done`/`fechada`** → **NAO duplique.** Anexe como **confirmacao de campo**.
-  Leia antes o que aquele doc diz que **falta** — quase sempre e exatamente o que voce tem em
-  maos ("falta confirmar com o pad fisico do usuario", "falta confirmacao do cliente").
+- **Em `retest/`/`done`/`fechada`** → **NAO crie doc paralelo.** Leia antes o que aquele doc diz
+  que **falta** (quase sempre e exatamente o que voce tem em maos: "falta confirmar com o pad fisico
+  do usuario", "falta confirmacao do cliente") e o que ele **promete**. O destino depende da versao
+  do app do cliente:
+  - versao **anterior** ao fix → anexe como evidencia de cliente desatualizado; o doc fica onde esta;
+  - versao **com o fix** e o problema **resolvido** → anexe como **confirmacao de campo**;
+  - versao **com o fix** e a **mesma falha** → **reabra**: mova para `open/` (regra abaixo);
+  - versao **com o fix** e **outro defeito** → bug novo, com link para o antigo.
+
+  **Versao do app do usuario: conferir SEMPRE antes de classificar** (regra do dono, 2026-11-07).
+
+  1. **Ler a versao que o usuario roda**, nunca supor a ultima:
+     - `retrobatnew`: `[Startup] Retrobat version : 1.0.N` e `EmulatorLauncher.exe version : ... (built/copied <data>)` no
+       log do launcher; `es_built=` no bloco `[env]` (ES). Publicado = `dist/versions/<edicao>/latest.json`.
+     - `xbox-360-companion`: `user_agent = ElectronApp vX.Y.Z`; `backend`/`pipeline` nao mandam versao (use
+       `git log -1 -- <arquivo>`).
+     - Chamado de suporte: a versao em print, log ou telemetria do cliente no periodo da conversa, ou a data do link de
+       download entregue a ele. Sem versao determinavel, escreva **"versao nao determinada"** e nao conclua regressao.
+  2. **Comparar com a data do fix** do doc (`git log -1 --format=%cd <sha>`). Build **anterior** ao fix = cliente
+     desatualizado: anota os IDs no doc e ele **fica onde esta**.
+  3. **Build que ja contem o fix e a MESMA falha que o doc diz ter corrigido → reabrir, sempre.** Vale para `done/`,
+     `retest/` (e `closed/`), em qualquer projeto: `git mv` para `open/` (no dsg o doc nunca muda de pasta: volte o
+     `status` para aberto), linha **REABERTO em <data>** no topo do Status,
+     secao "Reaberto <data>" com IDs, versao do cliente, data do fix e o trecho do log que prova, e tirar o doc dos
+     indices da pasta antiga. Nao basta "anotar recorrencia": doc em `retest/`/`done/` com defeito vivo some do radar.
+  4. **Build com o fix, mas defeito DIFERENTE** (a correcao fez o que prometia e apareceu outro problema) → **bug novo** em
+     `open/` com link para o antigo; o antigo nao reabre. Releia o que o doc promete antes de decidir entre 3 e 4.
+
+  Caso que originou a regra (triagem de 2026-11-07, retrobatnew): o erro 12412, com launcher de 2026-10-29, mostrou
+  `0xC0000135` virando exit 207 sem fallback, exatamente o que o fix de 2026-10-23 prometia evitar. O doc foi so anotado em
+  `retest/` e teve de ser reaberto depois, a pedido do dono. Ja o 12636 (fix presente e cumprido) virou bug novo.
   - **Um resultado negativo nao reprova o fix automaticamente.** Se havia **outra falha ativa**
     durante a medicao, ela contamina o teste: registre como **inconclusiva**, diga qual era a
     outra falha e **deixe o doc onde esta**. Essa regra e explicita no
