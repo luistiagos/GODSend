@@ -293,7 +293,9 @@ etapa parar de novo depois disso, nao insista: `claude attach`, leia onde travou
   `refuse_main_tree`, saida 13). **Unica excecao (decisao do dono, 2026-10-03):** o `final-sync-main`
   da finalizacao, que so faz o que nao destroi trabalho — commit por pathspec do que outras sessoes
   deixaram (fora a pasta da propria skill, que fica para quem a edita, a remocao de arquivo rastreado fora de `docs/`, que fica para quem apagou, e o arquivo novo em relacao ao HEAD fora de `docs/`, inclusive `A ` e destino de rename, que fica para quem o criou), `merge --ff-only` e `reset --keep` (aborta inteiro se um arquivo modificado estiver no
-  caminho). `reset --hard`, `checkout`, `clean`, `stash` e `rebase` continuam saida 13 ate dentro dele. **Saida 13 nunca se contorna**: rodar o comando na mao, mexer no
+  caminho), e, so com a arvore ja igual ao origin, os `pos_sync_main` do `projeto.json` (comando do projeto, nunca
+  git; aqui, regerar os derivados de catalogo gitignored; o que ele sujar vira pendencia, sem desfazer).
+  `reset --hard`, `checkout`, `clean`, `stash` e `rebase` continuam saida 13 ate dentro dele. **Saida 13 nunca se contorna**: rodar o comando na mao, mexer no
   helper para passar, ou editar o ledger e proibido; pare e conte ao dono.
 
 - Fim automatico e `retest/`. `done/` so com prova de cliente/publicacao, decidido pelo dono.

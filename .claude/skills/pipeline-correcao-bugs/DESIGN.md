@@ -2012,3 +2012,32 @@ de segredo; cadeia, pai morto, PID reusado, ciclo; `short_item`; cadeia real da 
 dos elos e do texto, mantendo a sessao; `describe_procs` vazio/sem tabela; `reconcile` com e sem
 `--fix`, `status`, `env-wait --minutes 0` e `final-deploy` saindo 11 com a origem, e ledger sem segredo); mutacao: sem a
 linha do `CMD_SECRET_RE` o caso `SEGREDO11` falha. `scripts/tests/test_sync_goopie_aria2c_fora_do_dist.py`.
+
+### 22.16 `pos_sync_main`: comando do projeto depois de igualar a arvore principal (2026-11-04)
+
+Origem: bug `pipeline-final-sync-main-nao-regera-derivados-de-catalogo-apos-integrar_2026-11-04`. A remocao de
+catalogo feita numa worktree chega a arvore principal por git, mas os derivados gitignored
+(`catalogs/catalog_manifest_{ps2,xbox}.txt`) nao entram em commit e ficavam com as linhas removidas ate um
+`derive_manifest.py --refresh` a mao (dois casos em 2026-11-04).
+
+- **Chave opcional** `pos_sync_main` do `projeto.json`: lista de `{"nome": "<rotulo>", "cmd": [...]}`; `{root}` e
+  trocado como no `antes_do_push`. Ausente = nada roda (os outros repos). O comando e do PROJETO porque o motor e
+  replicado nas copias (`sync_copias.py`).
+- **Quando:** no fim do `sync_main`, so com `HEAD == base` (antes disso o canonico local nao e o integrado), em toda
+  finalizacao (o `--refresh` e idempotente, ~0,6 s; cobre tambem o que chegou por push manual). `cwd` = arvore
+  principal, `timeout` 600 s, `check=False`; `TimeoutExpired`/`OSError` capturados.
+- **Trava:** `refuse_main_tree` so olha comando `git`; um `python` com `cwd=SRC` passa sem janela. O passo nunca roda
+  git que escreve.
+- **Erro:** saida != 0 (ou excecao) -> item em `pending` (logo saida 7 e `PENDENCIA DO DONO` no briefing). Arquivo NAO
+  ignorado que aparece no `porcelain_paths` depois do comando -> pendencia, **sem desfazer**: `checkout`/`restore` na
+  principal e saida 13 e o arquivo pode ser de outra sessao. `blocked` nao muda (a arvore continua igual ao origin).
+- **C2:** nao muda. Com a arvore igual ao origin, o C2 da `ok` mesmo com pendencia do passo; a saida 7 ja leva a
+  linha ao briefing, e o derivado e gitignored (nunca vira `real`).
+
+**Hipoteses descartadas:** comando fixo no motor (replicado nas copias); rodar so quando o HEAD andou (perde a 1a
+finalizacao e o push manual); rodar com a arvore divergente; desfazer o que o comando sujou; fazer a tool de
+remocao alcancar a principal a partir da worktree (a remocao ainda nao foi integrada naquele momento).
+
+**Provas:** `git_pipeline.py` `[pos_sync_main]` (comando e tool REAIS: derivado regerado, ausente fica ausente,
+saida 0; sem a chave nada roda; falha -> saida 7 sem `blocked`; arquivo nao ignorado -> pendencia e intacto; arvore
+divergente -> nao roda). O setup zera `P.POS_SYNC_MAIN`, porque o `configure` do import le o `projeto.json` real.

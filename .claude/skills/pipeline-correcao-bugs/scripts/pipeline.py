@@ -31,7 +31,43 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve()
 SKILL = SCRIPT.parent.parent                    # <repo>/.../pipeline-correcao-bugs (versionada; fora de docs/: e codigo)
 FRESH_MIN = 10                                   # arquivo mexido ha menos que isso: outra sessao editando AGORA
-DSG = Path(r"C:\projects\digitalstoregamesproject")
+
+
+def _achar_env_local():
+    """O scripts/env_local.py do retrobatnew (leitor do mapa da maquina), ou None. Este script roda tambem como COPIA
+    noutro repo, entao nao ha caminho fixo: RETROBAT_ROOT -> ancestrais deste arquivo e do cwd, olhando <a>/scripts,
+    <a>/source/scripts e <a>/retrobatnew/source/scripts (AGENTS.md do retrobatnew, regra 5)."""
+    candidatos = []
+    raiz = os.environ.get("RETROBAT_ROOT", "").strip()
+    if raiz:
+        candidatos.append(Path(raiz) / "source" / "scripts")
+    for inicio in (SCRIPT.parent, Path.cwd().resolve()):
+        for a in (inicio, *inicio.parents):
+            candidatos += [a / "scripts", a / "source" / "scripts", a / "retrobatnew" / "source" / "scripts"]
+    for pasta in candidatos:
+        if (pasta / "env_local.py").is_file() and (pasta / "raiz_projeto.py").is_file():
+            if str(pasta) not in sys.path:
+                sys.path.insert(0, str(pasta))
+            import env_local
+            return env_local
+    return None
+
+
+def _mapa():
+    """(DSG, FONTE, motivo do DSG ausente). DSG: digitalstoregamesproject, para onde vao os docs do agente de WhatsApp
+    (chave REPO_DSG do mapa). FONTE: a skill no retrobatnew, de onde as copias saem. None quando nao acha."""
+    env_local = _achar_env_local()
+    if env_local is None:
+        return None, None, "leitor do mapa (env_local.py do retrobatnew) nao achado: defina RETROBAT_ROOT"
+    try:
+        fonte = env_local.raiz() / "source" / "skills" / "pipeline-correcao-bugs"
+        dsg, motivo = env_local.resolver_repo_irmao("REPO_DSG")
+    except env_local.ErroEnvLocal as e:          # git ausente: o pipeline segue sem os dois, e o preflight diz
+        return None, None, str(e)
+    return dsg, fonte, motivo
+
+
+DSG, FONTE, DSG_MOTIVO = _mapa()
 
 COMPLEXITY_RANK = {"baixa": 0, "media": 1, "alta": 2}
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -110,6 +146,11 @@ def configure(cfg: dict, skill: Path = SKILL):
     COMMIT_DOCS_OUTROS = cfg.get("commit_docs_outros", "docs")
     COMMIT_TERCEIROS = cfg.get("commit_terceiros", "chore(terceiros)")
     ANTES_DO_PUSH = cfg.get("antes_do_push") or None
+    # Comandos do projeto que o `final-sync-main` roda na arvore principal DEPOIS de iguala-la ao origin (DESIGN
+    # 22.16): lista de {"nome", "cmd"}. Ausente = nada roda, como antes.
+    # [[pipeline-final-sync-main-nao-regera-derivados-de-catalogo-apos-integrar_2026-11-04]]
+    global POS_SYNC_MAIN
+    POS_SYNC_MAIN = list(cfg.get("pos_sync_main") or [])
 
 
 def load_config(skill: Path = SKILL) -> dict:
@@ -123,7 +164,6 @@ def load_config(skill: Path = SKILL) -> dict:
 # --------------------------------------------------------------------------- copias (DESIGN 22.4 / 22.8 A2)
 # A fonte da skill e a do retrobatnew; os outros repos tem copia versionada. So os arquivos abaixo sao
 # sincronizados (`scripts/sync_copias.py`, so na fonte); `projeto.json`/`projeto.md` sao de cada repo.
-FONTE = Path(r"C:\projects\retrobatnew\source\skills\pipeline-correcao-bugs")
 SYNCED = ("SKILL.md", "DESIGN.md", "etapas/*.md",
           "scripts/pipeline.py", "scripts/sim_pipeline.py", "scripts/git_pipeline.py")
 
@@ -148,8 +188,11 @@ def copy_diff(src: Path, dst: Path) -> list[tuple[str, str]]:
 
 
 def copy_warning() -> str | None:
-    """Linha do preflight sobre a copia (None na propria fonte, ou com a fonte fora desta maquina)."""
-    if not FONTE.is_dir() or FONTE.resolve() == SKILL:
+    """Linha do preflight sobre a copia (None na propria fonte)."""
+    if FONTE is None or not FONTE.is_dir():
+        return (f"[AVISO] fonte da skill (retrobatnew) nao achada nesta maquina: a copia nao e comparada"
+                f"{'' if FONTE is None else f' ({FONTE} nao existe)'}; defina RETROBAT_ROOT")
+    if FONTE.resolve() == SKILL:
         return None
     diff = copy_diff(FONTE, SKILL)
     if not diff:
@@ -1672,7 +1715,7 @@ def spawn(st: dict, slug: str | None, stage: str, message: str = "") -> dict | N
         prev = b["sessions"].get(stage)
     else:
         cwd, name, prev = ROOT, f"pipeline-{stage}-{st['run_id']}", st["final"].get("session")
-    dirs = [str(ROOT)] + ([str(DSG)] if DSG.exists() else [])   # DSG: bug do agente de WhatsApp vai para la
+    dirs = [str(ROOT)] + ([str(DSG)] if DSG and DSG.exists() else [])   # DSG: bug do agente de WhatsApp vai para la
     helper_rules = [f'Bash(python "{SCRIPT}":*)', f'Bash(python "{SCRIPT.as_posix()}":*)',
                     f'PowerShell(python "{SCRIPT}":*)']
     # --add-dir e --allowedTools aceitam VARIOS valores: tem que vir antes de uma opcao simples,
@@ -1986,7 +2029,7 @@ def commit_external(st: dict) -> list[str]:
     """Docs abertos no digitalstoregamesproject (planning, dev ou teste os registram). Checkout
     compartilhado: commit so com pathspec, sem push/deploy (memoria
     backend-repo-local-commits-go-live-via-other-sessions-deploy). Idempotente."""
-    if not DSG.exists():
+    if not (DSG and DSG.exists()):
         return []
     paths = set(st.get("external_docs", []))
     paths |= {p for b in st["bugs"].values() if b.get("plan") for p in b["plan"]["external_docs"]}
@@ -3357,6 +3400,8 @@ def cmd_preflight(a):
     check(MANUAL.is_file(), f"manual do projeto {MANUAL}", "crie o projeto.md (DESIGN secao 22.4)")
     if w := copy_warning():
         print(w)
+    print(f"[OK]   digitalstoregamesproject (REPO_DSG): {DSG}" if DSG else
+          f"[AVISO] digitalstoregamesproject: {DSG_MOTIVO}; bug do agente de WhatsApp nao vai para la")
     preflight_project(check)
     branch = git("branch", "--show-current")
     git("fetch", REMOTO, check=False)
@@ -4049,6 +4094,8 @@ def cmd_env_watch(a):
 def cmd_register_external(a):
     """Doc aberto no digitalstoregamesproject por qualquer etapa: registrar para ser commitado."""
     f = str(Path(a.file).resolve())
+    if not DSG:
+        die(f"digitalstoregamesproject nao achado: {DSG_MOTIVO}", 2)
     if not (DSG.exists() and Path(f).is_relative_to(DSG.resolve())):
         die(f"{f} nao esta em {DSG}", 2)
     with file_lock("state"):
@@ -4302,6 +4349,28 @@ def sync_main(st: dict, fresh_min: float = FRESH_MIN) -> dict:
                             f"caminho; nada foi sobrescrito): {(p.stderr or p.stdout).strip()[:300]}")
             else:
                 print(f"arvore principal em {git('rev-parse', '--short', 'HEAD')} = {base}")
+    # [[pipeline-final-sync-main-nao-regera-derivados-de-catalogo-apos-integrar_2026-11-04]] o que e derivado e
+    # gitignored na arvore principal nao chega por git: os `pos_sync_main` do projeto o regeram. So com a arvore
+    # IGUAL ao origin (antes disso o arquivo-fonte local nao e o integrado). Falha, ou arquivo NAO ignorado sujo
+    # por ele, vira pendencia sem desfazer (`checkout` aqui e saida 13 e o arquivo pode ser de outra sessao).
+    if POS_SYNC_MAIN and git("rev-parse", "HEAD") == git("rev-parse", base):
+        for item in POS_SYNC_MAIN:
+            nome = item.get("nome") or "?"
+            cmd = [str(x).replace("{root}", str(ROOT)) for x in item["cmd"]]
+            before = set(porcelain_paths(SRC))
+            try:
+                p = run(cmd, cwd=SRC, check=False, timeout=600)
+                rc, why = p.returncode, f"saiu {p.returncode}"
+                tail = (p.stdout + "\n" + p.stderr).strip()[-400:]
+            except (subprocess.TimeoutExpired, OSError) as e:
+                rc, why, tail = -1, f"{type(e).__name__}: {e}"[:200], ""
+            print(f"pos_sync_main {nome}: {why}")
+            if rc != 0:
+                pend.append(f"pos_sync_main {nome} ({' '.join(cmd)}) falhou ({why}) na arvore principal: {tail}")
+            changed = sorted(set(porcelain_paths(SRC)) - before)
+            if changed:
+                pend.append(f"pos_sync_main {nome} mexeu em arquivo(s) nao ignorado(s) na arvore principal (nada "
+                            "desfeito; cabe ao dono): " + ", ".join(changed[:10]))
     # blocked: a arvore NAO pode ser igualada por algo que so o dono decide (conflito, codigo que nao
     # compila, arquivo no caminho). Sem isso, um "behind" visto depois e so o origin que andou: mecanico.
     # head/base: se um dos dois mudou depois, este resultado esta velho e o portao manda rodar de novo.

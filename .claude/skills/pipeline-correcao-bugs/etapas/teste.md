@@ -73,6 +73,11 @@ Falha do ambiente sem relacao com o bug (o manual da os casos) tambem e ambiente
 manda, que o binario em execucao e o recem-construido. Evidencia onde o manual manda (o scratchpad
 e descartavel).
 
+**Nunca capture a tela da maquina** (monitor inteiro, todos os monitores, regiao por coordenada): o
+teste roda na sessao do dono e o print leva o que ele tiver aberto ou por cima da janela. Imagem so
+da janela (ou do aparelho) do processo do teste, pelo meio que o manual da; para o texto de uma
+caixa, leia os controles. Sem meio no manual, nao ha print.
+
 | Nivel | O que | Criterio |
 |---|---|---|
 | T2 | **o usuario de novo**: o mesmo caminho do controle positivo, no app, pela UI, agora com o fix | sinal do sintoma AUSENTE e comportamento correto PRESENTE |

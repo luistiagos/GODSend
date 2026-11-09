@@ -35,6 +35,9 @@ sh("git", "checkout", "-q", "-b", "versao3", cwd=src); sh("git", "add", ".", cwd
 sh("git", "commit", "-q", "-m", "base", cwd=src); sh("git", "push", "-q", "origin", "versao3", cwd=src)
 
 P.SRC = src; P.PIPE = tmp / "pipe"; P.WTS = tmp / "pipe/lanes"
+# o `configure` do import leu o projeto.json REAL: o `pos_sync_main` dele rodaria em todo `sync()` abaixo, com a
+# tool ausente no repo temporario. So o bloco [pos_sync_main] o liga.
+P.POS_SYNC_MAIN = []
 P.STATE = tmp / "pipe/state.json"                   # NUNCA o ledger real (.bugfix-pipeline/state.json)
 P.PIPE.mkdir(parents=True)
 assert str(P.STATE).startswith(str(tmp)) and str(P.SRC).startswith(str(tmp))
@@ -851,6 +854,69 @@ check(d["final"]["state"] == "concluido" and not d["final"]["pendencias"] and te
 check("| C4 | OK | d (documentado): doc movido por fora do pipeline para docs/bugs/retest/d.md |" in text
       and "| C4 | OK | docs na pasta do estado" in text,
       "[finalizacao] C4: final-done fecha com o documentado movido por fora, sem editar o ledger; nota e ok geral no briefing")
+
+# ---- [pos_sync_main] [[pipeline-final-sync-main-nao-regera-derivados-de-catalogo-apos-integrar_2026-11-04]]: a
+# remocao de catalogo chega a principal por git, mas o derivado gitignored ficava velho ate um `--refresh` a mao.
+# Comando e tool REAIS (o do projeto.json e o catalogs/tools/derive_manifest.py do repo).
+def deriv_lines(f):
+    return (src / f).read_text(encoding="utf-8").split()
+d0 = P.load(); d0["final"]["state"] = "rodando"; P.save(d0)
+REAL_TOOL = Path(__file__).resolve().parents[3] / "catalogs/tools/derive_manifest.py"
+XB, PS2D, CANON = "catalogs/catalog_manifest_xbox.txt", "catalogs/catalog_manifest_ps2.txt", "catalogs/catalog_manifest_full.txt"
+sh("git", "pull", "-q", "--ff-only", cwd=outro)        # bytes da tool real (o `anda` grava em cp1252 e ela tem UTF-8)
+(outro / "catalogs/tools").mkdir(parents=True, exist_ok=True); shutil.copyfile(REAL_TOOL, outro / "catalogs/tools/derive_manifest.py")
+sh("git", "add", "catalogs/tools/derive_manifest.py", cwd=outro); sh("git", "commit", "-qm", "tool de derivados (pos_sync_main)", cwd=outro)
+sh("git", "push", "-q", "origin", "versao3", cwd=outro)
+anda(".gitignore", f"{PS2D}\n{XB}\n", "derivados ignorados (pos_sync_main)")
+anda(CANON, "xbox360/A.iso\nxbox360/B.iso\nps2/C.iso\n", "canonico (pos_sync_main)")
+expect_exit(0, sync, "[pos_sync_main] principal recebe tool, canonico e .gitignore")
+(src / XB).write_text("xbox360/A.iso\nxbox360/B.iso\n"); os.utime(src / XB, (old, old))
+check(sh("git", "check-ignore", XB, cwd=src) == XB and header() == "## versao3...origin/versao3",
+      "[pos_sync_main] cenario: derivado xbox ignorado com as duas linhas, principal = origin")
+anda(CANON, "xbox360/A.iso\nps2/C.iso\n", "remove xbox360/B.iso do canonico (pos_sync_main)")
+P.POS_SYNC_MAIN = P.load_config()["pos_sync_main"]
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    expect_exit(0, sync, "[pos_sync_main] final-sync-main com o comando do projeto.json sai 0")
+rec = P.load()["final"]["sync"]
+check(deriv_lines(XB) == ["xbox360/A.iso"] and not (src / PS2D).exists() and rec["pending"] == []
+      and header() == "## versao3...origin/versao3"
+      and sh("git", "status", "--porcelain", "--untracked-files=all", "--", "catalogs", ".gitignore", cwd=src) == ""
+      and "pos_sync_main derivados de catalogo: saiu 0" in out.getvalue(),
+      f"[pos_sync_main] derivado regerado do canonico integrado; ausente fica ausente; sem pendencia ({rec['pending']})")
+# sem a chave (outros repos): nada roda
+P.POS_SYNC_MAIN = []
+(src / XB).write_text("xbox360/A.iso\nxbox360/VELHO.iso\n")
+anda("docs/pos-sync-1.md", "x\n", "origin anda (pos_sync_main sem chave)")
+expect_exit(0, sync, "[pos_sync_main] sem a chave: final-sync-main sai 0")
+check(deriv_lines(XB) == ["xbox360/A.iso", "xbox360/VELHO.iso"],
+      "[pos_sync_main] sem a chave: nada roda, o derivado continua velho")
+# comando que falha: pendencia + saida 7, sem bloquear
+P.POS_SYNC_MAIN = [{"nome": "falha", "cmd": [sys.executable, "-c", "raise SystemExit(3)"]}]
+expect_exit(7, sync, "[pos_sync_main] comando que falha -> saida 7")
+rec = P.load()["final"]["sync"]
+check(len(rec["pending"]) == 1 and "pos_sync_main falha" in rec["pending"][0] and "saiu 3" in rec["pending"][0]
+      and not rec["blocked"], f"[pos_sync_main] falha vira pendencia do dono, blocked False ({rec['pending']})")
+# comando que suja arquivo NAO ignorado: pendencia, sem desfazer
+P.POS_SYNC_MAIN = [{"nome": "sujo", "cmd": [sys.executable, "-c", "open('pos-sujou.txt', 'w').write('x')"]}]
+expect_exit(7, sync, "[pos_sync_main] comando que suja arquivo nao ignorado -> saida 7")
+rec = P.load()["final"]["sync"]
+check(len(rec["pending"]) == 1 and "mexeu em arquivo(s) nao ignorado(s)" in rec["pending"][0]
+      and "pos-sujou.txt" in rec["pending"][0] and (src / "pos-sujou.txt").read_text() == "x" and not rec["blocked"],
+      f"[pos_sync_main] arquivo nao ignorado vira pendencia e fica intacto ({rec['pending']})")
+(src / "pos-sujou.txt").unlink()
+# arvore divergente (codigo local que nao compila fica ahead): o comando NAO roda
+marker = tmp / "pos-sync-marker.txt"
+P.POS_SYNC_MAIN = [{"nome": "marcador", "cmd": [sys.executable, "-c", f"open(r'{marker}', 'w').write('x')"]}]
+(src / "launcher/batocera-ports.sln").write_text("NAO COMPILA\n")
+sh("git", "commit", "-q", "-m", "local que nao compila (pos_sync_main)", "--", "launcher/batocera-ports.sln", cwd=src)
+expect_exit(7, sync, "[pos_sync_main] arvore divergente -> saida 7 (nao compila)")
+rec = P.load()["final"]["sync"]
+check(rec["blocked"] and not marker.exists() and not any("pos_sync_main marcador" in x for x in rec["pending"]),
+      f"[pos_sync_main] arvore divergente: o comando nao roda ({rec['pending']})")
+sh("git", "reset", "-q", "--hard", "origin/versao3", cwd=src)
+P.POS_SYNC_MAIN = []
+d0 = P.load(); d0["final"]["state"] = "concluido"; P.save(d0)
 
 # ---- [outro projeto] DESIGN secao 22 (T1): o motor com a config de OUTRO projeto, numa copia nova do modulo.
 # Cenario do ARMSX2-forkv2: a skill mora num repo que e WORKTREE de outro checkout; remoto `fork`, base

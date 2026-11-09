@@ -58,7 +58,12 @@ pasta de origem desconhecida.
      remocao; em `docs/` os dois lados do rename sao publicados (bug
      `pipeline-final-sync-main-rename-staged-de-terceiro-publica-so-o-destino-e-sai-0_2026-11-04`);
    - publica os commits locais (rebase numa lane, nunca na arvore principal) e iguala a arvore ao
-     remoto. Os arquivos gerados de build modificados nela ficam como estao.
+     remoto. Os arquivos gerados de build modificados nela ficam como estao;
+   - depois de igualar, roda os `pos_sync_main` do `projeto.json` na arvore principal (aqui: regera os
+     derivados de catalogo gitignored com `derive_manifest.py --refresh`). Falha do comando, ou arquivo
+     NAO ignorado sujo por ele, vira `PENDENCIA DO DONO` (nada e desfeito). Com a arvore ainda
+     divergente, nao roda (bug
+     `pipeline-final-sync-main-nao-regera-derivados-de-catalogo-apos-integrar_2026-11-04`).
 
    Saida 0 = igual ao remoto, sem sobra. Saida 7 = ficou `PENDENCIA DO DONO`: copie cada linha para
    o briefing, com o motivo. Nao tente resolver na mao o que ele deixou como pendencia.
