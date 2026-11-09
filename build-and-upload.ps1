@@ -121,6 +121,73 @@ $HF_TOKEN = if ($env:HF_TOKEN) { $env:HF_TOKEN } elseif ($Script:HF_TOKEN) { $Sc
 $R2_CONFIG = Join-Path $PROJECT_ROOT "r2-config.json"
 $DEFAULT_PUBLIC_BASE = "https://versions.digitalstoregames.com"
 
+# Authenticode Code Signing
+$SIGNING_CERT_PATH = if ($env:SIGNING_CERT_PATH) { $env:SIGNING_CERT_PATH } elseif ($Script:SIGNING_CERT_PATH) { $Script:SIGNING_CERT_PATH } else { "" }
+$SIGNING_CERT_PASSWORD = if ($env:SIGNING_CERT_PASSWORD) { $env:SIGNING_CERT_PASSWORD } elseif ($Script:SIGNING_CERT_PASSWORD) { $Script:SIGNING_CERT_PASSWORD } else { "" }
+$SIGNTOOL_PATH = if ($env:SIGNTOOL_PATH) { $env:SIGNTOOL_PATH } elseif ($Script:SIGNTOOL_PATH) { $Script:SIGNTOOL_PATH } else { "" }
+$TIMESTAMP_SERVER = if ($env:TIMESTAMP_SERVER) { $env:TIMESTAMP_SERVER } elseif ($Script:TIMESTAMP_SERVER) { $Script:TIMESTAMP_SERVER } else { "http://timestamp.digicert.com" }
+
+function Find-Signtool {
+    if ($SIGNTOOL_PATH -and (Test-Path -LiteralPath $SIGNTOOL_PATH)) {
+        return $SIGNTOOL_PATH
+    }
+    $cmd = Get-Command "signtool.exe" -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $sdkRoots = @(
+        "${env:ProgramFiles(x86)}\Windows Kits\10\bin",
+        "${env:ProgramFiles}\Windows Kits\10\bin"
+    )
+    foreach ($root in $sdkRoots) {
+        if (Test-Path $root) {
+            $found = Get-ChildItem -Path $root -Filter "signtool.exe" -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match "x64|x86" } |
+                Select-Object -First 1 -ExpandProperty FullName
+            if ($found) { return $found }
+        }
+    }
+    return $null
+}
+
+function Invoke-AuthenticodeSign {
+    param(
+        [Parameter(Mandatory=$true)][string]$FilePath,
+        [string]$Description = "Xbox 360 Companion"
+    )
+    if (-not (Test-Path -LiteralPath $FilePath)) {
+        return
+    }
+
+    if (-not $SIGNING_CERT_PATH) {
+        Write-Host "[SIGN] Aviso: Nenhum certificado Authenticode configurado (SIGNING_CERT_PATH). O arquivo '$([System.IO.Path]::GetFileName($FilePath))' permanece sem assinatura digital." -ForegroundColor DarkYellow
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $SIGNING_CERT_PATH)) {
+        Write-Warning "[SIGN] Certificado configurado em SIGNING_CERT_PATH nao foi encontrado: $SIGNING_CERT_PATH"
+        return
+    }
+
+    $signtool = Find-Signtool
+    if (-not $signtool) {
+        Write-Warning "[SIGN] signtool.exe nao encontrado no sistema. Instale o Windows SDK para assinar binarios."
+        return
+    }
+
+    Write-Host "[SIGN] Assinando $([System.IO.Path]::GetFileName($FilePath)) com signtool..." -ForegroundColor Cyan
+    $args = @("sign", "/f", $SIGNING_CERT_PATH)
+    if ($SIGNING_CERT_PASSWORD) {
+        $args += @("/p", $SIGNING_CERT_PASSWORD)
+    }
+    $args += @("/fd", "SHA256", "/tr", $TIMESTAMP_SERVER, "/td", "SHA256", "/d", $Description, $FilePath)
+
+    $process = Start-Process -FilePath $signtool -ArgumentList $args -NoNewWindow -Wait -PassThru
+    if ($process.ExitCode -eq 0) {
+        Write-Host "[SIGN] OK: Assinatura digital aplicada com sucesso em $([System.IO.Path]::GetFileName($FilePath))" -ForegroundColor Green
+    } else {
+        Write-Warning "[SIGN] Falha ao assinar $FilePath (codigo de saida: $($process.ExitCode))"
+    }
+}
+
 # Uma entrada por arquitetura publicada. O x64 mantem os nomes de sempre: e o que
 # os apps antigos baixam e o link que o suporte manda.
 $ALL_TARGETS = @(
@@ -241,6 +308,10 @@ if (-not $SkipBuild) {
             throw "npm build:server falhou com exit code $LASTEXITCODE"
         }
 
+        Invoke-AuthenticodeSign (Join-Path $DIST_DIR "godsend.exe") "Xbox 360 Companion Backend"
+        Invoke-AuthenticodeSign (Join-Path $DIST_DIR "godsend-windows-x64.exe") "Xbox 360 Companion Backend x64"
+        Invoke-AuthenticodeSign (Join-Path $DIST_DIR "godsend-windows-ia32.exe") "Xbox 360 Companion Backend ia32"
+
         foreach ($t in $TARGETS) {
             Write-Host "Executando npm run $($t.NpmScript)..." -ForegroundColor Yellow
             npm run $t.NpmScript 2>&1
@@ -259,6 +330,7 @@ foreach ($t in $TARGETS) {
     if (-not (Test-Path -LiteralPath $t.PortablePath)) {
         throw "Portable $($t.Label) nao encontrado em: $($t.PortablePath)`nExecute sem -SkipBuild ou especifique -PortablePath"
     }
+    Invoke-AuthenticodeSign $t.PortablePath "Xbox 360 Companion Portable"
     $fileSize = (Get-Item -LiteralPath $t.PortablePath).Length
     Write-Host "Portable $($t.Label): $($t.PortablePath) ($([math]::Round($fileSize / 1MB, 2)) MB)" -ForegroundColor Green
 }

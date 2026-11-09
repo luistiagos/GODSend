@@ -5,11 +5,12 @@ const path = require("node:path");
 const Module = require("node:module");
 
 // [[electron-main-ferramentas-iso-mostram-sucesso-quando-o-backend-responde-erro_2026-10-11T13-55]]
-function createToolsHandlers(backendReply) {
+// [[electron-main-gerenciador-ftp-descarta-o-motivo-do-backend-ao-listar-enviar-e-mover-jogo_2026-10-12T19-00]]
+function createToolsHandlers(backendReply, xboxIp = "192.168.1.100") {
   const handlers = new Map();
   const mocks = {
     electron: { dialog: {}, BrowserWindow: {}, shell: {} },
-    "../services/settingsService": { getConfiguredXboxIP: () => "" },
+    "../services/settingsService": { getConfiguredXboxIP: () => xboxIp },
     "../services/backendClient": { addOutputLine: () => {} },
     "../infrastructure/backendHttp": {
       backendPost: async () => backendReply(),
@@ -33,14 +34,16 @@ const channels = [
   ["tools:probe-iso", "C:\\isos\\Z.iso", { titleId: "4D5307E6", displayName: "Halo 3", discNumber: 1 }, "titleId"],
   ["tools:iso2god", { isoPath: "C:\\isos\\Z.iso", outDir: "C:\\out" }, { ok: true, titleId: "4D5307E6", displayName: "Halo 3", outputDir: "C:\\out\\4D5307E6" }, "outputDir"],
   ["tools:iso2xex", { isoPath: "C:\\isos\\Z.iso", outDir: "C:\\out" }, { ok: true, titleId: "4D5307E6", displayName: "Halo 3", outputDir: "C:\\out\\Halo 3" }, "outputDir"],
+  ["tools:ftp-list", "/", { ok: true, entries: [{ name: "Hdd1", type: "dir" }], cwd: "/" }, "cwd"],
+  ["tools:ftp-upload", { localPaths: ["C:\\test.xex"], remotePath: "/Hdd1" }, { ok: true, jobs: [{ id: 1, name: "test.xex" }] }, "jobs"],
 ];
 
 for (const [channel, arg, success, keptField] of channels) {
   test(`${channel} treats the backend jsonError body as failure with its message`, async () => {
-    const invoke = createToolsHandlers(() => ({ state: "Error", message: "Probe failed: X" }));
+    const invoke = createToolsHandlers(() => ({ state: "Error", message: "Backend operation failed: reason X" }));
     const r = await invoke(channel, arg);
     assert.equal(r.ok, false);
-    assert.match(r.error, /Probe failed: X/);
+    assert.match(r.error, /reason X/);
   });
 
   test(`${channel} treats an empty non-JSON body as failure with a non-empty reason`, async () => {
@@ -54,7 +57,9 @@ for (const [channel, arg, success, keptField] of channels) {
     const invoke = createToolsHandlers(() => success);
     const r = await invoke(channel, arg);
     assert.equal(r.ok, true);
-    assert.equal(r[keptField], success[keptField]);
+    if (keptField) {
+      assert.deepEqual(r[keptField], success[keptField]);
+    }
   });
 
   test(`${channel} reports a network rejection`, async () => {
@@ -64,3 +69,24 @@ for (const [channel, arg, success, keptField] of channels) {
     assert.match(r.error, /ECONNREFUSED/);
   });
 }
+
+test("xbox:move-game normalizes backend jsonError and returns error message", async () => {
+  const invoke = createToolsHandlers(() => ({ state: "Error", message: "source and destination drive are the same" }));
+  const r = await invoke("xbox:move-game", {
+    game: { name: "Halo 3", sourceDrive: "Hdd1", directory: "Content/0000000000000000/4D5307E6" },
+    targetDrive: "Usb0",
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /source and destination drive are the same/);
+});
+
+test("xbox:move-game preserves successful response and jobId", async () => {
+  const invoke = createToolsHandlers(() => ({ ok: true, id: 99, message: "Queued move of Halo 3 to Usb0" }));
+  const r = await invoke("xbox:move-game", {
+    game: { name: "Halo 3", sourceDrive: "Hdd1", directory: "Content/0000000000000000/4D5307E6" },
+    targetDrive: "Usb0",
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.jobId, 99);
+  assert.match(r.message, /Queued move/);
+});

@@ -201,6 +201,12 @@ requisitos marcados → "Preparar pendrive/HD". Evidência: `C:\projects\.bugfix
   serve de dano simulado, porque o Node já usa `\\?\` em caminho absoluto e o `lstat` abre o arquivo. Simular dano real
   pede escrita raw (admin). Achado lateral: o `chkdsk E:` só leitura **roda sem admin** e confere a FAT de verdade (~15 s
   aqui). Seria um sinal melhor que a varredura, se a varredura não pegar o dano do Xbox.
+  **Implementado (3a e 3b):**
+  - `checkChkdskFatErrors` em `driveRepairService.ts` incorporado a `requireCleanFileSystem`: se o dirty bit do NT não foi
+    marcado pelo console e a varredura rápida de entradas não acusar nada, o CHKDSK em modo somente-leitura valida a FAT
+    real sem elevação e barra o preparo caso detecte inconsistências na FAT.
+  - Alerta de segurança preventivo (3b) adicionado na conclusão do preparo BadAvatar em `BadAvatarUsbPage.tsx`, orientando
+    o usuário a manter seu perfil pessoal e saves no Disco Rígido interno / Unidade de Memória do console para blindar seu progresso.
 
 ## Ocorrência candidata — 2026-10-26, chamado #261 (NÃO confirmada)
 

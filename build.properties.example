@@ -8,3 +8,9 @@ R2_SECRET_ACCESS_KEY=YOUR_SECRET_ACCESS_KEY
 R2_ENDPOINT=https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com
 R2_BUCKET=versions
 R2_PUBLIC_URL=https://dl.digitalstoregames.com
+
+# Authenticode Code Signing (Opcional - evita tela de aviso SmartScreen no Windows Defender)
+# SIGNING_CERT_PATH=C:\caminho\para\certificado.pfx
+# SIGNING_CERT_PASSWORD=senha_do_certificado
+# SIGNTOOL_PATH=C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe
+# TIMESTAMP_SERVER=http://timestamp.digicert.com

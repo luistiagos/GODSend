@@ -149,6 +149,20 @@ var knownBadHuggingFaceFiles = map[string]bool{
 	"grand theft auto v™ og online + dlc full ( xbox 360 rgh ).zip": true,
 	// Sleeping Dogs' default.xex sits at the root, so the XEX path installs Sleeping Dogs as GTA V.
 	"gta 5 pt-br + dlc + tu + save 100 % .god ( xbox 360 rgh ).zip": true,
+	// A Sleeping Dogs PT-BR rar nested inside sdfasdasdfas.rar: does not deliver Bomba Patch.
+	"bomba patch 2023 para o pes 17 - att.agosto ( xbox 360 rgh ).zip": true,
+	// A Sleeping Dogs PT-BR rar nested inside sdfasdasdfas.rar: does not deliver PES 2018.
+	"pes 2018™ patch atualização dezembro 2023 ( xbox 360 rgh ).zip": true,
+	// XeLL ELF homebrew (xenon.elf / "Método Shell"): no Xbox 360 dashboard executable (.xex).
+	"emulador nintendo ¨n64 mupen &quot; método shell&quot; ( xbox 360 rgh ).zip": true,
+	"emulador nintendo ¨n64 mupen \" método shell\" ( xbox 360 rgh ).zip":         true,
+	"emulador nintendo ¨n64 mupen &quot; metodo shell&quot; ( xbox 360 rgh ).zip": true,
+	"emulador nintendo ¨n64 mupen \" metodo shell\" ( xbox 360 rgh ).zip":         true,
+}
+
+// IsKnownIncompleteHuggingFaceURL reports whether raw points to a known corrupt or incompatible archive.
+func IsKnownIncompleteHuggingFaceURL(raw string) bool {
+	return isKnownIncompleteHuggingFaceURL(raw)
 }
 
 func isKnownIncompleteHuggingFaceURL(raw string) bool {

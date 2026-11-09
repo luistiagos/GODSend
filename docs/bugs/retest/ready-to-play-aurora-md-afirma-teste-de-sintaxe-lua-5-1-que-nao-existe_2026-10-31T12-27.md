@@ -1,5 +1,14 @@
 # Bug: `docs/READY-TO-PLAY-AURORA.md` afirma que há teste de "sintaxe Lua 5.1 do arquivo gerado", e esse teste não existe
 
+## Status
+
+- **Corrigido e testado:** 2026-10-31 (v2.12.122) e revalidado em 2026-11-09 (v2.12.127).
+- **Onde:** `src/electron-app/package.json` (`luaparse: ^0.3.1`), `src/electron-app/tests/unit/readyToPlayConfiguration.test.cjs` (`hook gerado e Lua 5.1 valido`), `docs/READY-TO-PLAY-AURORA.md` e `AGENTS.md`.
+- **Evidência:**
+  - **T2 / Controle positivo:** `node --test src/electron-app/tests/unit/readyToPlayConfiguration.test.cjs` (12/12 verdes); enxerto de `local x = 7 // 2` no hook reprova o teste `hook gerado e Lua 5.1 valido` enquanto o `fengari` 5.3 aceitaria.
+  - **T3 (regressão):** `npm --prefix src/electron-app run test:safety` 398 pass / 0 fail.
+- **Falta para `closed/`:** publicação da release (`build-and-upload.ps1`, do dono).
+
 - **Detectado em:** 2026-10-31 12:27, ao implementar a T1 do bug [[badavatar-primeiro-boot-da-aurora-fica-mais-de-2-horas-varrendo-title-updates-do-hd-interno_2026-10-30T21-43]]
 - **Origem:** leitura do doc e dos testes; nenhum relato de cliente
 - **Classe:** documentação que afirma uma garantia inexistente (cobertura de teste)

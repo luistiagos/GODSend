@@ -1,5 +1,14 @@
 # Bug: catálogo HuggingFace traz release incompleta de GTA 5 (apenas Disco 2, 7.61 GB) sem Disco 1 de instalação, travando o jogo no carregamento no console
 
+## Status
+
+- **Corrigido e testado:** 2026-09-28 (v2.12.102 / v2.12.105, commits `0ec8342` e `4574121`) e revalidado em 2026-11-09 (v2.12.127).
+- **Onde:** `src/server/services/cache/huggingface.go::isKnownIncompleteHuggingFaceURL` e `::sanitizeHuggingFaceCache`, `src/server/services/cache/ia.go`, `src/server/models/compat.go::mandatoryInstallDiscs`, `src/server/infrastructure/helpers/multi_disc.go::InstallPackageProblem` / `::InstallSetProblem`, `src/server/services/pipeline/companion_content.go::requireInstallContent`.
+- **Evidência:**
+  - **T2:** validação ponta a ponta gravando release completa ZTM com Disco 2 jogável + 4 pacotes STFS do Disco 1 em `Content/0000000000000000/545408A7/00000002/` (seção "Validação de ponta a ponta — 2026-09-28").
+  - **T3 (regressão):** `go test -count=1 ./...` em `src/server` rc 0 (`services/cache`, `services/pipeline`, `infrastructure/helpers`, `models` 100% verdes).
+- **Falta para `closed/`:** remoção da entrada `GTA 5 7z` na API remota `emuladores.pythonanywhere.com` (ação do dono) e prova de boot no console.
+
 - **Detectado em:** 2026-09-26 01:05 (chamado #85 do painel, sessão `232224620290076@lid`)
 - **Origem:** conversa de suporte do chamado #85 + inspeção de acervo (`cache/hf_xbox360.json`, API `emuladores.pythonanywhere.com`) e código Go (`src/server/infrastructure/helpers/multi_disc.go`, `src/server/interfaces/http/handlers.go::recordReleaseCompleteness`)
 - **Classe:** conteudo-acervo / falha funcional

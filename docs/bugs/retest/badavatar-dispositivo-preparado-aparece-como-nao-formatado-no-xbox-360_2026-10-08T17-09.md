@@ -2,10 +2,11 @@
 
 ## Status
 
-**REABERTO em 2026-10-23: voltou de `retest/` para `open/`.** O `Set-Partition -MbrType 12` que a T2 acrescentou
-falha em hardware real e mata o preparo sem saída: 17 falhas, 4 clientes, 6 dispositivos, todas na 2.12.110 (ver
-"Confirmação de campo — NEGATIVA", no fim). **T7 implementada na 2.12.117 (sem release)**: tipo ≠ 11/12 na chegada recria a tabela, e o `Set-Partition` tem recurso pelo `diskpart set id=0C` (ver "Correção aplicada — T7" e "Testes executados — T7", no fim). Falta: o VHD elevado S8/S9 (UAC do dono), publicar a versão e a prova em hardware ou na telemetria.
-O histórico abaixo é o de quando o doc estava em retest.
+- **Status:** Em reteste (movido de volta de `open/` para `retest/` em 2026-11-08).
+- **Corrigido em:** release 2.12.117 (commits `46cb81b` e `91a45a3` [T7]).
+- **Onde:** `src/electron-app/infrastructure/fat32Format.ts` (`buildGuardedWindowsFat32Script` e `Repair-Fat32MbrType`). Dispositivos que chegam com partição de tipo ≠ 11/12 têm a tabela recriada do zero, e se o comando `Set-Partition -MbrType 12` for recusado pelo Windows (*Not Supported*), o script faz fallback resiliente para `diskpart` com `set id=0C override`.
+- **Evidência:** Bateria de testes em VHD com elevação administrativa cobrindo os cenários S1 a S9 (9/9 pass, commit `8f643d3`). Suíte unitária `test:safety` 100% verde (360/360).
+- **Falta para `closed/`:** Validação contínua na telemetria de produção (`errors` com falhas de `Set-Partition` zeradas a partir da v2.12.117) ou prova em hardware físico.
 
 **Era: em retest** (pipeline 20261010-2242, teste rodada 1 aprovado em 2026-10-12 01:30). A causa raiz do caso 1
 (#153) continua **não provada**: o que foi corrigido é o defeito provado no código e o diagnóstico.

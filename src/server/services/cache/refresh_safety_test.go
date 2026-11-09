@@ -267,3 +267,47 @@ func TestSanitizeHuggingFaceCacheRemovesIncompleteGTA5(t *testing.T) {
 		t.Fatalf("expected both rows to stay listed, got %v", cleanGames)
 	}
 }
+
+func TestSanitizeHuggingFaceCacheRemovesCorruptAndIncompatibleReleases(t *testing.T) {
+	bombaURL := "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/BOMBA%20PATCH%202023%20PARA%20O%20PES%2017%20-%20ATT.AGOSTO%20%28%20XBOX%20360%20RGH%20%29.zip"
+	pesURL := "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/PES%202018%E2%84%A2%20Patch%20Atualiza%C3%A7%C3%A3o%20DEZEMBRO%202023%20%28%20XBOX%20360%20RGH%20%29.zip"
+	n64URL := "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/Emulador%20Nintendo%20%C2%A8N64%20MUPEN%20%26quot%3B%20M%C3%A9todo%20Shell%26quot%3B%20%28%20XBOX%20360%20RGH%20%29.zip"
+	snesURL := "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/Emulador%20Super%20Nintendo%20%2B%203247%20ROMS%20%28%20XBOX%20360%20RGH%20%29.zip"
+
+	if !IsKnownIncompleteHuggingFaceURL(bombaURL) {
+		t.Errorf("expected Bomba Patch to be recognized as known bad release")
+	}
+	if !IsKnownIncompleteHuggingFaceURL(pesURL) {
+		t.Errorf("expected PES 2018 Patch to be recognized as known bad release")
+	}
+	if !IsKnownIncompleteHuggingFaceURL(n64URL) {
+		t.Errorf("expected N64 Mupen (XeLL ELF) to be recognized as known bad release")
+	}
+	if IsKnownIncompleteHuggingFaceURL(snesURL) {
+		t.Errorf("SNES emulator should NOT be recognized as bad release")
+	}
+
+	games := []string{
+		"BOMBA PATCH 2023 PARA O PES 17 - ATT.AGOSTO ( XBOX 360 RGH )",
+		"PES 2018™ Patch Atualização DEZEMBRO 2023 ( XBOX 360 RGH )",
+		"Emulador Nintendo ¨N64 MUPEN &quot; Método Shell&quot; ( XBOX 360 RGH )",
+		"Emulador Super Nintendo + 3247 ROMS ( XBOX 360 RGH )",
+	}
+	entries := map[string]models.IAGameEntry{
+		"xbox360\x00bomba patch 2023 para o pes 17 - att.agosto ( xbox 360 rgh )": {CollectionID: "4.98 GiB", FileName: bombaURL},
+		"xbox360\x00pes 2018™ patch atualização dezembro 2023 ( xbox 360 rgh )": {CollectionID: "4.98 GiB", FileName: pesURL},
+		"xbox360\x00emulador nintendo ¨n64 mupen &quot; método shell&quot; ( xbox 360 rgh )": {CollectionID: "929.27 MiB", FileName: n64URL},
+		"xbox360\x00emulador super nintendo + 3247 roms ( xbox 360 rgh )": {CollectionID: "2.81 GiB", FileName: snesURL},
+	}
+
+	cleanGames, cleanEntries, removed := sanitizeHuggingFaceCache("xbox360", games, entries)
+	if removed != 3 {
+		t.Errorf("expected 3 removed, got %d", removed)
+	}
+	if len(cleanGames) != 1 || cleanGames[0] != "Emulador Super Nintendo + 3247 ROMS ( XBOX 360 RGH )" {
+		t.Errorf("expected only SNES to remain in cleanGames, got %v", cleanGames)
+	}
+	if len(cleanEntries) != 1 {
+		t.Errorf("expected only 1 cleanEntry, got %d", len(cleanEntries))
+	}
+}

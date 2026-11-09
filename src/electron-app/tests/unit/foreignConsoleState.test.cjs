@@ -7,8 +7,11 @@ const {
   isForeignConsoleStatePath,
 } = require("../../services/fixedBadAvatarPreparationService.js");
 
+const packageIndex = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "..", "assets", "badavatar-package.json"), "utf8"),
+);
 const manifest = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "..", "..", "assets", "badavatar-1.1.manifest.json"), "utf8"),
+  fs.readFileSync(path.join(__dirname, "..", "..", "assets", packageIndex.manifestFileName), "utf8"),
 );
 
 test("estado do console de origem nao e gravado no pendrive do usuario", () => {

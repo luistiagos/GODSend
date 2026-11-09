@@ -108,7 +108,6 @@
     "BEN 10 VILGAX ATTACKS PTBR ( XBOX 360 RGH )",
     "BIOSHOCK 2 PT BR ( XBOX 360 RGH )",
     "BLUE DRAGON PT BR + DLC (Xbox 360 RGH)",
-    "BOMBA PATCH 2023 PARA O PES 17 - ATT.AGOSTO ( XBOX 360 RGH )",
     "BOMBA PATCH 2025 ( XBOX 360 RGH )",
     "BORDERLANDS 2 + PT BR ( XBOX 360 RGH )",
     "BRASILEIRÃO EFOOTBALL ABRIL 2024 - BRAZUKAS - LUIS ROBERTO ( XBOX 360 RGH )",
@@ -536,7 +535,6 @@
     "Elder Scrolls 4 Oblivion GOTY",
     "Elder Scrolls 5 Skyrim",
     "Emulador FBANext + 5800 Roms - Vários Sistemas de Arcade ( XBOX 360 RGH )",
-    "Emulador Nintendo ¨N64 MUPEN \u0026quot; Método Shell\u0026quot; ( XBOX 360 RGH )",
     "Emulador Super Nintendo + 3247 ROMS ( XBOX 360 RGH )",
     "Enchanted Arms",
     "Enchanted Arms KOR",
@@ -1226,7 +1224,6 @@
     "PES 2016 Dublado ( XBOX 360 RGH )",
     "PES 2018",
     "PES 2018_2023 _ ATUALIZAÇÃO PATCH ONFIRE V4.2 MARÇO 2023",
-    "PES 2018™ Patch Atualização DEZEMBRO 2023 ( XBOX 360 RGH )",
     "PES 2023 _ ATUALIZAÇÃO JANEIRO 2023 _ PATCH ONFIRE V 4.1",
     "PES 2026 - THE JOKER PATCH SETEMBRO 2025 (Xbox 360 RGH)",
     "PES 2026 JANEIRO - SUPER BOMBA PATCH",
@@ -2646,10 +2643,6 @@
       "collection_id": "4.90 GiB",
       "filename": "https://archive.org/download/mx360gcxpt1-x360-ztm/Bolt.USA.X360-ZTM.rar"
     },
-    "hf_xbox360\u0000bomba patch 2023 para o pes 17 - att.agosto ( xbox 360 rgh )": {
-      "collection_id": "4.98 GiB",
-      "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/BOMBA%20PATCH%202023%20PARA%20O%20PES%2017%20-%20ATT.AGOSTO%20%28%20XBOX%20360%20RGH%20%29.zip"
-    },
     "hf_xbox360\u0000bomba patch 2025 ( xbox 360 rgh )": {
       "collection_id": "10.56 GiB",
       "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/BOMBA%20PATCH%202025%20%28%20XBOX%20360%20RGH%20%29.zip"
@@ -3985,10 +3978,6 @@
     "hf_xbox360\u0000emulador mega drive + 1.071 roms ( xbox 360 rgh )": {
       "collection_id": "738.50 MiB",
       "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/EMULADOR%20MEGA%20DRIVE%20%2B%201.071%20ROMS%20%28%20XBOX%20360%20RGH%20%29.zip"
-    },
-    "hf_xbox360\u0000emulador nintendo ¨n64 mupen \u0026quot; método shell\u0026quot; ( xbox 360 rgh )": {
-      "collection_id": "929.27 MiB",
-      "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/Emulador%20Nintendo%20%C2%A8N64%20MUPEN%20%26quot%3B%20M%C3%A9todo%20Shell%26quot%3B%20%28%20XBOX%20360%20RGH%20%29.zip"
     },
     "hf_xbox360\u0000emulador super nintendo + 3247 roms ( xbox 360 rgh )": {
       "collection_id": "2.81 GiB",
@@ -6797,10 +6786,6 @@
     "hf_xbox360\u0000pes 2018_2023 _ atualização patch onfire v4.2 março 2023": {
       "collection_id": "17.50 GiB",
       "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/PES%202018_2023%20_%20ATUALIZA%C3%87%C3%83O%20PATCH%20ONFIRE%20V4.2%20MAR%C3%87O%202023.zip"
-    },
-    "hf_xbox360\u0000pes 2018™ patch atualização dezembro 2023 ( xbox 360 rgh )": {
-      "collection_id": "4.98 GiB",
-      "filename": "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/PES%202018%E2%84%A2%20Patch%20Atualiza%C3%A7%C3%A3o%20DEZEMBRO%202023%20%28%20XBOX%20360%20RGH%20%29.zip"
     },
     "hf_xbox360\u0000pes 2023 _ atualização janeiro 2023 _ patch onfire v 4.1": {
       "collection_id": "23.44 GiB",

@@ -116,6 +116,18 @@ export function register(ipcMain: IpcMain): void {
     }
   });
 
+  // The Go backend returns {state:"ok"} on success, or {state:"Error",
+  // message:"..."} (HTTP 4xx/5xx) on failure. Normalise to {ok, error} so
+  // the renderer can surface the actual reason instead of "Unknown error".
+  function normalizeBackendResp(r: any): { ok: boolean; error?: string; [k: string]: any } {
+    if (r && typeof r === "object") {
+      if (r.ok === true || r.state === "ok") return { ok: true, ...r };
+      const message = r.message || r.error || r.errorMessage;
+      if (message) return { ok: false, error: String(message), ...r };
+    }
+    return { ok: false, error: "Unknown error" };
+  }
+
   // ── FTP Manager: list directory (proxied to Go backend) ────────────────────
   ipcMain.handle("tools:ftp-list", async (_event, remotePath: string) => {
     const xboxIp = getConfiguredXboxIP();
@@ -123,7 +135,7 @@ export function register(ipcMain: IpcMain): void {
 
     try {
       const r = await backendPost("/ftp/list", { ip: xboxIp, path: remotePath || "/" });
-      return r;
+      return normalizeBackendResp(r);
     } catch (err: any) {
       return { ok: false, error: err.message || String(err) };
     }
@@ -157,7 +169,7 @@ export function register(ipcMain: IpcMain): void {
 
     try {
       const r = await backendPost("/ftp/upload", { ip: xboxIp, local_paths: localPaths, remote_path: remotePath });
-      return r;
+      return normalizeBackendResp(r);
     } catch (err: any) {
       return { ok: false, error: err.message || String(err) };
     }
@@ -183,18 +195,6 @@ export function register(ipcMain: IpcMain): void {
       return { ok: true };
     }
   });
-
-  // The Go backend returns {state:"ok"} on success, or {state:"Error",
-  // message:"..."} (HTTP 4xx/5xx) on failure. Normalise to {ok, error} so
-  // the renderer can surface the actual reason instead of "Unknown error".
-  function normalizeBackendResp(r: any): { ok: boolean; error?: string; [k: string]: any } {
-    if (r && typeof r === "object") {
-      if (r.state === "ok") return { ok: true, ...r };
-      const message = r.message || r.error || r.errorMessage;
-      if (message) return { ok: false, error: String(message), ...r };
-    }
-    return { ok: false, error: "Unknown error" };
-  }
 
   // ── FTP Manager: delete remote file/folder (proxied to Go backend) ─────────
   ipcMain.handle("tools:ftp-delete", async (_event, remotePath: string) => {
@@ -263,13 +263,14 @@ export function register(ipcMain: IpcMain): void {
     }
 
     try {
-      const r = await backendPost("/ftp/move-game", {
+      const raw = await backendPost("/ftp/move-game", {
         ip:           xboxIp,
         game_name:    gameName,
         src_drive:    srcDrive,
         directory:    gameDir,
         target_drive: targetDrive,
       });
+      const r = normalizeBackendResp(raw);
       if (!r.ok) return r;
 
       addOutputLine(`[INFO] Move ${gameName}: queued via backend (job ${r.id})`);

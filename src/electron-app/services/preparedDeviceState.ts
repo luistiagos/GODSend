@@ -108,6 +108,26 @@ async function preparedByThisApp(root: string): Promise<boolean> {
 }
 
 /**
+ * Detecta se existe a pasta oculta de sistema "Xbox360" (formato legado de armazenamento
+ * que consoles usavam antes de 2015 ou sem armazenamento interno). Se houver dados dentro
+ * dela, a dashboard do Xbox 360 ativa o formato antigo e ignora totalmente a pasta Content
+ * da raiz FAT32, fazendo com que o perfil ABadAvatar nunca apareça na tela de perfis.
+ */
+export async function hasLegacyXbox360Container(driveRoot: string): Promise<boolean> {
+  const root = deviceRoot(driveRoot);
+  if (!root) return false;
+  try {
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    const match = entries.find((e) => e.isDirectory() && e.name.toLowerCase() === "xbox360");
+    if (!match) return false;
+    const subEntries = await fs.readdir(path.join(root, match.name));
+    return subEntries.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Responde "este dispositivo tem o exploit?" — a pergunta que decide se o `ABadAvatar` vai aparecer
  * na tela de perfis de um console travado ou LT. Ver
  * `docs/bugs/closed/badavatar-usb-service-declara-ja-preparado-sem-conferir-o-perfil-do-exploit_2026-09-23T14-08.md`.
@@ -122,6 +142,13 @@ export async function detectPreparedDeviceState(
 ): Promise<PreparedDeviceState> {
   const root = deviceRoot(driveRoot);
   if (!root) return "sem-preparo";
+
+  // Se o pendrive contiver a pasta oculta legada "Xbox360" com dados (formato pré-2015 ou de console
+  // sem armazenamento interno), a dashboard original do Xbox 360 prioriza essa pasta e ignora
+  // totalmente o Content/ da raiz FAT32. Nesse caso, o exploit ABadAvatar nunca é lido pelo console.
+  if (await hasLegacyXbox360Container(root)) {
+    return "jogos-apenas";
+  }
 
   if (exploitProfile.length > 0) {
     const present = await Promise.all(exploitProfile.map((file) => hasCompleteProfilePackage(root, file)));

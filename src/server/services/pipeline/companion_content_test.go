@@ -125,3 +125,32 @@ func TestRipFolderNameKeepsTheRipsOwnFolder(t *testing.T) {
 		t.Errorf("esperado o nome da pasta do rip, obtido %q", got)
 	}
 }
+
+func TestXexDestinationNameHandlesHomebrewWithCustomXEXName(t *testing.T) {
+	// [[catalogo-homebrew-emuladores-e-patches-xbox360-rgh-nunca-instalam-no-default-xex-no-pacote-hf_2026-11-06T16-40]]
+	const game = "Emulador Super Nintendo + 3247 ROMS ( XBOX 360 RGH )"
+	extDir := filepath.Join(t.TempDir(), game+"_hf_ext")
+	if err := os.MkdirAll(extDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extDir, "Snes360.xex"), []byte("XEX2_SNES360"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	xexFolder := helpers.FindXEXFolder(extDir)
+	if xexFolder != extDir {
+		t.Fatalf("esperado %q, obtido %q", extDir, xexFolder)
+	}
+
+	// Verify default.xex was created by FindXEXFolder fallback
+	defPath := filepath.Join(extDir, "default.xex")
+	if _, err := os.Stat(defPath); err != nil {
+		t.Fatalf("default.xex não foi criado pelo fallback: %v", err)
+	}
+
+	got := xexDestinationName(xexFolder, ripFolderName(xexFolder, extDir), game)
+	expected := "Emulador Super Nintendo + 3247 ROMS ( XBOX"
+	if got != expected {
+		t.Errorf("esperado %q, obtido %q", expected, got)
+	}
+}

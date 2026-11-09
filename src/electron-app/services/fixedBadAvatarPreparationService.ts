@@ -7,7 +7,8 @@ import {
   describeConsoleCrashArtifacts,
 } from "../infrastructure/consoleCrashArtifacts";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
-import { findBrokenEntries, isVolumeDirty } from "./driveRepairService";
+import { checkChkdskFatErrors, findBrokenEntries, isVolumeDirty } from "./driveRepairService";
+import { hasLegacyXbox360Container } from "./preparedDeviceState";
 import { isExploitProfilePath } from "../infrastructure/exploitProfile";
 import { getBundledResourcesRoot, getRepoRoot } from "../infrastructure/fileSystem";
 import { isForeignConsoleStatePath, quarantineForeignConsoleState } from "../infrastructure/foreignConsoleState";
@@ -301,14 +302,58 @@ async function reportConsoleCrashArtifacts(
  * corrompe o pendrive no meio do jogo leva junto o perfil e os saves gravados nele. Uma verificação
  * que não chegou a uma resposta não bloqueia: só fica no log.
  */
-export async function requireCleanFileSystem(driveRoot: string): Promise<void> {
-  const dirty = await isVolumeDirty(driveRoot);
-  const broken = await findBrokenEntries(driveRoot);
-  if (dirty !== true && broken.length === 0) return;
+export async function requireNoLegacyXbox360Container(
+  driveRoot: string,
+  deps: {
+    hasLegacyXbox360Container?: (rootPath: string) => Promise<boolean>;
+  } = {},
+): Promise<void> {
+  const checkLegacy = deps.hasLegacyXbox360Container ?? hasLegacyXbox360Container;
+  if (!(await checkLegacy(driveRoot))) return;
+  appendAppEvent(
+    "BADAVATAR",
+    `pasta legada Xbox360 detectada em ${driveRoot}; preparo sem formatacao recusado`,
+  );
+  throw new Error(
+    "O dispositivo contém a pasta oculta de sistema “Xbox360” (formato antigo de armazenamento do console). " +
+    "Nessa estrutura, o Xbox 360 ignora o perfil do exploit na pasta Content. " +
+    "Se houver perfis ou saves dentro dela, faça backup antes; depois marque “Formatar antes” (apaga tudo no pendrive) ou use “Remover Armazenamento do Xbox” nas Opções do Dispositivo no console e prepare novamente.",
+  );
+}
+
+export async function requireCleanFileSystem(
+  driveRoot: string,
+  deps: {
+    isVolumeDirty?: (rootPath: string) => Promise<boolean | null>;
+    findBrokenEntries?: (rootPath: string) => Promise<string[]>;
+    checkChkdskFatErrors?: (rootPath: string) => Promise<{ hasErrors: boolean; summary?: string } | null>;
+  } = {},
+): Promise<void> {
+  const isDirty = deps.isVolumeDirty ?? isVolumeDirty;
+  const findBroken = deps.findBrokenEntries ?? findBrokenEntries;
+  const checkChkdsk = deps.checkChkdskFatErrors ?? checkChkdskFatErrors;
+
+  const dirty = await isDirty(driveRoot);
+  const broken = await findBroken(driveRoot);
+  let chkdskErrors = false;
+
+  // Se o bit NT ou a varredura não acusaram nada, confere a FAT real via CHKDSK somente-leitura
+  // para pegar corrupções deixadas pelo console (onde o kernel do Xbox 360 não seta o bit NT do Windows).
+  if (dirty !== true && broken.length === 0) {
+    const chkdsk = await checkChkdsk(driveRoot);
+    if (chkdsk?.hasErrors) {
+      chkdskErrors = true;
+    }
+  }
+
+  if (dirty !== true && broken.length === 0 && !chkdskErrors) return;
+
   const reason = [
     dirty === true ? "o Windows marcou o volume como sujo" : "",
     broken.length > 0 ? `entradas ilegíveis: ${broken.join("; ")}` : "",
+    chkdskErrors ? "o CHKDSK detectou erros na estrutura da FAT" : "",
   ].filter(Boolean).join("; ");
+
   appendAppEvent("BADAVATAR", `sistema de arquivos danificado em ${driveRoot}: ${reason}`);
   throw new Error(
     "O sistema de arquivos do pendrive está danificado e gravar por cima pode falhar ou piorar o dano. " +
@@ -562,6 +607,7 @@ export async function prepareFixedBadAvatarDevice(
 
   if (!request.formatDrive) {
     onProgress({ status: "Conferindo o sistema de arquivos do pendrive…", percent: 3 });
+    await requireNoLegacyXbox360Container(request.driveRoot);
     await requireCleanFileSystem(request.driveRoot);
   }
 

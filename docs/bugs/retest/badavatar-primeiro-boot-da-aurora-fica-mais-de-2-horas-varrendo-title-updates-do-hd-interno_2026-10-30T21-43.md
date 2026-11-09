@@ -1,5 +1,13 @@
 # Bug: no primeiro boot pelo BadAvatar, a Aurora fica mais de 2 horas varrendo e copiando Title Updates do HD interno do console e nunca chega à lista de jogos
 
+## Status
+
+- **Status:** Em reteste (movido de `open/` para `retest/` em 2026-11-08).
+- **Corrigido em:** release 2.12.121 (commit `a35dae7` [T1]).
+- **Onde:** `src/electron-app/infrastructure/readyToPlayConfiguration.ts` (hook Lua da Aurora v5, função `skipInterruptedTitleUpdateScan`). O hook identifica uma varredura anterior interrompida e zera a flag `TUScanAtBoot` no banco de dados SQLite (`settings.db`) antes da carga dos módulos, prevenindo loops de 2+ horas em consoles com muitas Title Updates no HD interno (`Hdd1`).
+- **Evidência:** `node --test tests/unit/readyToPlayConfiguration.test.cjs` (6 cenários de hook Lua com SQLite em fengari aprovados).
+- **Falta para `closed/`:** Evidência em log real de campo (`Aurora/Data/Logs/debug.log`) e atualização dos manuais na base de suporte do WhatsApp.
+
 - **Detectado em:** 2026-10-30 21:43 (chamado #301 do painel, sessão `24816857956591@lid`, telefone `5512988862575`)
 - **Origem:** conversa de suporte + leitura de `src/electron-app/infrastructure/readyToPlayConfiguration.ts::generateAuroraReadyToPlayFilterLua` e de `docs/READY-TO-PLAY-AURORA.md` ("Arquivos do pacote que não são gravados")
 - **Classe:** falha funcional (primeiro boot da Aurora não termina em tempo útil)

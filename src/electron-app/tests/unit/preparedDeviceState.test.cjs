@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { detectPreparedDeviceState } = require("../../services/preparedDeviceState.js");
+const { detectPreparedDeviceState, hasLegacyXbox360Container } = require("../../services/preparedDeviceState.js");
 const { isExploitProfilePath } = require("../../infrastructure/exploitProfile.js");
 
 // Um perfil do exploit sintetico, com a mesma forma do que o manifesto ativo descreve:
@@ -157,4 +157,29 @@ test("o perfil do exploit sai do manifesto ativo, e o do console nao conta", () 
   assert.equal(isExploitProfilePath("Content"), false);
   assert.equal(isExploitProfilePath("Aurora/default.xex"), false);
   assert.equal(isExploitProfilePath("launch.ini"), false);
+});
+
+test("hasLegacyXbox360Container identifica pasta Xbox360 somente quando ha dados", async (t) => {
+  const root = temp(t);
+  assert.equal(await hasLegacyXbox360Container(root), false);
+
+  write(root, "Xbox360/placeholder.txt", "x");
+  assert.equal(await hasLegacyXbox360Container(root), true);
+
+  fs.rmSync(path.join(root, "Xbox360", "placeholder.txt"));
+  assert.equal(await hasLegacyXbox360Container(root), false);
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "sem-preparo");
+});
+
+test("pasta legada Xbox360 com dados impede que o pendrive seja considerado preparado para Bloqueado/LT", async (t) => {
+  const root = temp(t);
+  write(root, "Aurora/default.xex", "aurora");
+  write(root, "launch.ini", "[Paths]");
+  write(root, ".xbox-downloader/ready-to-play-v4.marker", "marker");
+  write(root, EXPLOIT_PROFILE[0].path, stfsProfile(70));
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-bloqueado-lt");
+
+  // Quando a pasta legada Xbox360 existe com dados, a dashboard original ignora a pasta Content/ da raiz
+  write(root, "Xbox360/Data0000", "legacy-container");
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "jogos-apenas");
 });

@@ -28,6 +28,13 @@ export interface DriveRepairResult {
   error?: string;
 }
 
+export interface ChkdskFatCheckResult {
+  hasErrors: boolean;
+  summary?: string;
+  exitCode?: number | null;
+  output?: string;
+}
+
 /**
  * Normalizes a root path or letter to a single uppercase drive letter (e.g. "E").
  */
@@ -278,6 +285,107 @@ export function summarizeChkdskExit(
     summary = `O CHKDSK concluiu com avisos (código ${code}). Verifique o relatório detalhado.`;
   }
   return { ok: !hasFailure, exitCode: code, repaired, summary };
+}
+
+/**
+ * Executa uma verificação não destrutiva e em modo somente-leitura do CHKDSK na unidade.
+ * Em volumes FAT32 removíveis, roda sem privilégios de administrador no Windows.
+ * Retorna null quando a verificação não puder ser concluída (ex.: não-Windows, acesso negado
+ * ou tempo limite excedido). Retorna hasErrors: true quando inconsistências na FAT forem detectadas.
+ */
+export async function checkChkdskFatErrors(
+  rootPath: string,
+  timeoutMs = 25000,
+): Promise<ChkdskFatCheckResult | null> {
+  if (process.platform !== "win32") return null;
+  const driveLetter = extractDriveLetter(rootPath);
+  if (!/^[A-Z]$/.test(driveLetter)) return null;
+
+  const codePage = await windowsAnsiCodePage();
+
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const stdoutDecoder = createAnsiDecoder(codePage);
+    const stderrDecoder = createAnsiDecoder(codePage);
+
+    const child = spawn(
+      system32Exe("chkdsk.exe", "chkdsk"),
+      [`${driveLetter}:`],
+      { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
+    );
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill(); } catch {}
+      appendAppEvent("usb", `Verificação CHKDSK em ${driveLetter}: excedeu tempo limite de ${timeoutMs}ms (não bloqueante)`);
+      resolve(null);
+    }, timeoutMs);
+
+    // Se o CHKDSK encontrar cadeias perdidas em modo leitura, ele pergunta "Converter cadeias
+    // perdidas em arquivos (S/N)?". Enviar "N" garante que ele não fique esperando no prompt
+    // e imprima o resumo final de erro imediatamente.
+    try {
+      child.stdin.end("N\r\nN\r\n");
+    } catch {}
+
+    child.stdout.on("data", (chunk: Buffer) => { stdout += stdoutDecoder.decode(chunk, { stream: true }); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += stderrDecoder.decode(chunk, { stream: true }); });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+
+      stdout += stdoutDecoder.decode();
+      stderr += stderrDecoder.decode();
+      const combined = `${stdout}\n${stderr}`;
+
+      if (
+        /acesso negado|access denied|privil[eé]gios suficientes|cannot open volume|n[aã]o [eé] poss[ií]vel abrir o volume/i.test(combined) ||
+        !/\bFAT32\b/i.test(combined)
+      ) {
+        appendAppEvent("usb", `CHKDSK somente-leitura em ${driveLetter}: sem acesso direto ou volume não inspecionado (não bloqueante)`);
+        resolve(null);
+        return;
+      }
+
+      const isCleanMessage =
+        /n[aã]o encontrou problemas|no encontrou problemas|nenhum problema|sem problemas|no problems were found|found no problems|found no issues/i.test(combined);
+
+      const hasErrorMessage =
+        /encontrou erros|precisam ser corrigidos|erros no sistema de arquivos|problemas no sistema de arquivos|cadeias perdidas|lost chains|cross-linked|refer[eê]ncia cruzada|aloca[cç][aã]o inv[aá]lida|invalid allocation|inconsist|corrupted|corrup[cç][aã]o/i.test(combined) ||
+        (!isCleanMessage && /encontrou problemas|found problems|found errors/i.test(combined));
+
+      // No CHKDSK sobre um volume FAT32 já aberto, código 3 significa que erros foram encontrados
+      // e não foram corrigidos porque /F não foi especificado. Código 2 isolado (garbage collection)
+      // sem mensagem de erro não é corrupção.
+      const errorsDetected = hasErrorMessage || (code === 3 && !isCleanMessage);
+
+      if (errorsDetected) {
+        appendAppEvent("usb", `CHKDSK somente-leitura detectou inconsistências na FAT de ${driveLetter}: (código ${code})`);
+        resolve({
+          hasErrors: true,
+          summary: "O CHKDSK detectou erros na estrutura da FAT.",
+          exitCode: code,
+          output: combined,
+        });
+      } else {
+        resolve({ hasErrors: false, exitCode: code, output: combined });
+      }
+    });
+
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      appendAppEvent("usb", `Falha ao iniciar CHKDSK somente-leitura em ${driveLetter}: ${err.message}`);
+      resolve(null);
+    });
+  });
 }
 
 function formatElapsed(ms: number): string {

@@ -1,5 +1,13 @@
 # Bug: HD preparado em modo "Xbox Bloqueado ou LT" volta do console e o Companion diz que é RGH, sem o perfil do exploit — o cliente formata e perde os jogos
 
+## Status
+
+- **Status:** Em reteste (movido de `open/` para `retest/` em 2026-11-08).
+- **Corrigido em:** release 2.12.115 (commit `d06e424` [T1]).
+- **Onde:** `src/electron-app/services/preparedDeviceState.ts` (`hasCompleteProfilePackage` / `stfsRequiredBytes`). A detecção agora inspeciona os blocos alocados no cabeçalho STFS em vez de exigir correspondência exata do tamanho em bytes do manifesto, acomodando o crescimento natural do perfil CON quando o console regrava dados e conquistas.
+- **Evidência:** `node --test tests/unit/preparedDeviceState.test.cjs` (12/12 pass) e `foreignConsoleState.test.cjs` (pass).
+- **Falta para `closed/`:** Validação em hardware real (conectar ao PC um HD ou pendrive BadAvatar após uso no console e verificar se permanece reconhecido como `preparado-bloqueado-lt`).
+
 - **Detectado em:** 2026-10-21 17:49 (análise da sessão de WhatsApp `32822140117221@lid`, telefone `5513974048946`)
 - **Origem:** `xbox-360-companion/electron-main` — aviso `preparado-rgh` de `src/electron-app/services/preparedDeviceCopy.ts`,
   decidido em `src/electron-app/services/preparedDeviceState.ts::detectPreparedDeviceState`

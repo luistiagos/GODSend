@@ -53,7 +53,7 @@ test("icon/banner fix demo with live Xbox", async () => {
   let backendReady = false;
   for (let i = 0; i < 60; i++) {
     const text = await getOutputText(page);
-    if (text.includes("GODSend Backend Server")) {
+    if (text.includes("Xbox 360 Companion Backend Server") || text.includes("GODSend Backend Server")) {
       backendReady = true;
       console.log("[test] ✅ Backend started");
       break;

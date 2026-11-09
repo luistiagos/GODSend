@@ -1,5 +1,15 @@
 # Bug: "Verificando os discos deste jogo…" fica girando em todos os jogos e o cliente não consegue adicionar à fila; a falha não chega à telemetria
 
+## Status
+
+- **Corrigido e testado:** 2026-10-22 (v2.12.116, commits `68d7b47` e `b1377ad`) e revalidado E2E em 2026-11-09 (v2.12.127).
+- **Onde:** `src/server/services/local/scanner.go::resolveTitleNames` (resolução paralela com limite de 8 slots e cache em memória `resolvedTitleNames`) e `src/electron-app/ipc/browseHandlers.ts` (handler `browse:get-release-groups` reportando falhas via `reportError`). Testes: `src/server/services/local/scanner_test.go` e `src/electron-app/tests/unit/browseHandlers.test.cjs`.
+- **Evidência:**
+  - **T2 (E2E Playwright `_electron` + backend Go v2.12.127):** chamada real `window.godsendApi.browseGetReleaseGroups({ platform: "xbox360" })` retornou `ok: true` com 286 grupos de lançamentos em ~2,5 s; `subst W:` com 8 TitleIDs caiu de 1,75 s (scan 0) / 1,30 s (scan 1) para 758 ms (scan 0) / 2 ms (scan 1).
+  - **T3 (regressão):** `go test -count=1 ./...` em `src/server` rc 0; `npm --prefix src/electron-app run test:safety` 398 pass / 0 fail (`browseHandlers.test.cjs` 10/10).
+  - **T4 (logs):** sem erros novos.
+- **Falta para `closed/`:** publicação da versão (`build-and-upload.ps1`, do dono) e verificação em produção na telemetria sem ocorrências de `browse:get-release-groups`.
+
 - **Detectado em:** 2026-10-21 17:49 (análise da sessão de WhatsApp `32822140117221@lid`, telefone `5513974048946`)
 - **Origem:** `xbox-360-companion/electron-renderer` + `electron-main` —
   `src/electron-app/renderer/components/BrowsePage.tsx::loadDiscMembership` → IPC `browse:get-release-groups`

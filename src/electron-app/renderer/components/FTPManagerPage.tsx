@@ -187,25 +187,39 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
   async function handleUploadFiles() {
     const r = await window.godsendApi.toolsFtpChooseFiles();
     if (!r.ok) return;
-    await window.godsendApi.toolsFtpUpload({ localPaths: r.files, remotePath: cwd });
+    const res = await window.godsendApi.toolsFtpUpload({ localPaths: r.files, remotePath: cwd });
+    if (res && !res.ok) {
+      setError(res.error || "Falha ao enviar arquivo(s)");
+    }
   }
 
   async function handleUploadFolder() {
     const r = await window.godsendApi.toolsFtpChooseFolder();
     if (!r.ok) return;
-    await window.godsendApi.toolsFtpUpload({ localPaths: [r.folder], remotePath: cwd });
+    const res = await window.godsendApi.toolsFtpUpload({ localPaths: [r.folder], remotePath: cwd });
+    if (res && !res.ok) {
+      setError(res.error || "Falha ao enviar pasta");
+    }
   }
 
   async function handleDelete(entry: FtpEntry) {
     const target = cwd.replace(/\/+$/, "") + "/" + entry.name;
     const r = await window.godsendApi.toolsFtpDelete(target);
-    if (r.ok) fetchDir(cwd);
+    if (r.ok) {
+      fetchDir(cwd);
+    } else {
+      setError(r.error || "Falha ao excluir");
+    }
   }
 
   async function handleDeleteSelected() {
     for (const name of selected) {
       const target = cwd.replace(/\/+$/, "") + "/" + name;
-      await window.godsendApi.toolsFtpDelete(target);
+      const r = await window.godsendApi.toolsFtpDelete(target);
+      if (r && !r.ok) {
+        setError(r.error || "Falha ao excluir");
+        break;
+      }
     }
     setSelected(new Set());
     fetchDir(cwd);
@@ -219,6 +233,8 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
       setMkdirName("");
       setShowMkdir(false);
       fetchDir(cwd);
+    } else {
+      setError(r.error || "Falha ao criar pasta");
     }
   }
 

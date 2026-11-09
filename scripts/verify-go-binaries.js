@@ -59,11 +59,14 @@ const ALL_KEYS = ["windows", "windows-amd64", "windows-ia32", "darwin-amd64", "d
 
 function expand(arg) {
   if (arg === "all") return ALL_KEYS;
-  if (arg === "windows-all" || arg === "windows") {
+  if (arg === "windows-all") {
     const list = ["windows"];
     if (fs.existsSync(path.join(DIST, "godsend-windows-x64.exe"))) list.push("windows-x64");
     if (fs.existsSync(path.join(DIST, "godsend-windows-ia32.exe"))) list.push("windows-ia32");
     return list;
+  }
+  if (arg === "windows") {
+    return ["windows"];
   }
   if (arg === "linux") return ["linux-amd64", "linux-arm64"];
   if (arg === "darwin") return ["darwin-amd64", "darwin-arm64"];
@@ -154,7 +157,7 @@ function smokeTestWindowsExe(timeoutMs = 15000) {
     };
     const onData = (chunk) => {
       buf += chunk.toString();
-      if (!sawBanner && /GODSend Backend Server v/.test(buf)) {
+      if (!sawBanner && /(?:Xbox 360 Companion|GODSend) Backend Server v/.test(buf)) {
         sawBanner = true;
       }
       if (!sawPort && /GODSEND_LISTEN_PORT=\d+/.test(buf)) {
@@ -182,7 +185,7 @@ async function main() {
     console.error(`Targets: ${[...Object.keys(TARGETS).filter((k) => TARGETS[k]), "linux", "darwin", "all"].join(", ")}`);
     process.exit(2);
   }
-  const keys = targets.flatMap((a) => expand(a));
+  const keys = [...new Set(targets.flatMap((a) => expand(a)))];
   const results = keys.map((k) => checkOne(k));
   if (results.some((r) => !r)) process.exit(1);
 
@@ -192,7 +195,13 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { expand, TARGETS, checkOne, ALL_KEYS };
+}
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -757,12 +757,19 @@ export default function BadAvatarUsbPage({
               {error || status}
             </p>
             {done && !error && (
-              <p className="mt-2 text-[11px] leading-relaxed text-gray-200">
-                {isRghOnly
-                  ? "Concluído! Insira o pendrive/HD no seu Xbox 360 RGH e ligue o videogame para carregar a Aurora automaticamente."
-                  : "Ligue o Xbox com o pendrive conectado e fique parado na tela de escolha de perfis, sem entrar em nenhum perfil. Em até 2 minutos a Aurora abrirá sozinha. Não desbloqueia de forma permanente — repita a cada vez que ligar e mantenha o console sem internet."}
-                {!isRghOnly && " O Aurora abrir\u00e1 automaticamente, configurar\u00e1 as pastas de jogos e iniciar\u00e1 a varredura."}
-              </p>
+              <>
+                <p className="mt-2 text-[11px] leading-relaxed text-gray-200">
+                  {isRghOnly
+                    ? "Concluído! Insira o pendrive/HD no seu Xbox 360 RGH e ligue o videogame para carregar a Aurora automaticamente."
+                    : "Ligue o Xbox com o pendrive conectado e fique parado na tela de escolha de perfis, sem entrar em nenhum perfil. Em até 2 minutos a Aurora abrirá sozinha. Não desbloqueia de forma permanente — repita a cada vez que ligar e mantenha o console sem internet."}
+                  {!isRghOnly && " O Aurora abrir\u00e1 automaticamente, configurar\u00e1 as pastas de jogos e iniciar\u00e1 a varredura."}
+                </p>
+                {!isRghOnly && (
+                  <p className="mt-2 rounded bg-amber-500/10 p-2 text-[11px] leading-relaxed text-amber-300 border border-amber-500/20">
+                    <strong>Dica de segurança para saves:</strong> Se o seu Xbox 360 tiver Disco Rígido interno ou Unidade de Memória interna, mantenha seu perfil de jogador pessoal e seus saves de jogos nessa memória interna. Use o pendrive apenas para carregar o exploit e os jogos. Assim, se o jogo travar ou houver desligamento repentino, seu progresso não será perdido.
+                  </p>
+                )}
+              </>
             )}
             {done && onBrowseGames && (
               <Button className="mt-3 h-10 w-full" onClick={onBrowseGames}>

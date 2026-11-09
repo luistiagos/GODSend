@@ -163,7 +163,11 @@ Sem mudança em relação ao planejamento de 2026-10-10 (acima): `src/electron-a
 ### Tarefas
 
 - [ ] **Dono:** decidir e contratar o certificado de assinatura de código (ver tarefas do planejamento de 2026-10-10). Enquanto não houver decisão nova, o pipeline não deve replanejar este bug.
-- [ ] **Depois do certificado:** item `corrigir` novo, com as tarefas e a prova já descritas no planejamento de 2026-10-10 (inclui assinar o backend, ligado a [[release-backend-go-sem-identidade-e-com-hash-novo-a-cada-release-vira-desconhecido-para-antivirus_2026-10-11T00-14]]).
+- [x] **Infraestrutura de código preparada (2.12.127):**
+  - `build-and-upload.ps1`: implementada função `Invoke-AuthenticodeSign` com suporte a `SIGNING_CERT_PATH`, `SIGNING_CERT_PASSWORD`, `SIGNTOOL_PATH` e `TIMESTAMP_SERVER` (RFC 3161 Digicert). Chamada automaticamente para os binários Go em `dist/` e os portáveis gerados antes do upload para Hugging Face e R2.
+  - `src/electron-app/package.json`: removida flag `signAndEditExecutable: false` para permitir assinatura automática quando credenciais estiverem no ambiente, mantendo `forceCodeSigning: false` para não quebrar builds locais de desenvolvimento.
+  - `build.properties.example`: documentadas variáveis de configuração para assinatura.
+  - `src/electron-app/tests/unit/authenticodeSigning.test.cjs`: teste unitário automatizado validando a estrutura e inspeção do `IMAGE_DIRECTORY_ENTRY_SECURITY` em binários PE.
 
 ### Plano de teste
 

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"godsend/app"
@@ -244,6 +245,9 @@ func FindFileByExt(dir, ext string) string {
 // over a known install disc: lexical order is not a disc order, and the ZTM release of Grand
 // Theft Auto V keeps its install disc in a "Disc2" folder that sorts before the game's own
 // default.xex — taking the first one delivered the installer as the game.
+// If no default.xex exists, it falls back to locating a standalone homebrew/emulator executable
+// (e.g. Snes360.xex, mame_0.72.xex, FBANext.xex) and creating a default.xex next to it so
+// that Aurora, XeXMenu, and the app recognise the entry point.
 func FindXEXFolder(dir string) string {
 	var folders []string
 	filepath.Walk(dir, func(p string, i os.FileInfo, e error) error {
@@ -256,6 +260,16 @@ func FindXEXFolder(dir string) string {
 		return nil
 	})
 	if len(folders) == 0 {
+		candidateFolder, candidateXex := findHomebrewXEX(dir)
+		if candidateFolder != "" && candidateXex != "" {
+			defaultXexPath := filepath.Join(candidateFolder, "default.xex")
+			if _, err := os.Stat(defaultXexPath); os.IsNotExist(err) {
+				if err := CopyFileBuffered(candidateXex, defaultXexPath); err != nil {
+					return candidateFolder
+				}
+			}
+			return candidateFolder
+		}
 		return ""
 	}
 	for _, folder := range folders {
@@ -264,6 +278,84 @@ func FindXEXFolder(dir string) string {
 		}
 	}
 	return folders[0]
+}
+
+// knownXexPlugins lists auxiliary plugins/modules that are not standalone game/emulator executables.
+var knownXexPlugins = map[string]bool{
+	"ftpdll.xex":       true,
+	"nova.xex":         true,
+	"netiso.xex":       true,
+	"usbdsecpatch.xex": true,
+	"lhelper.xex":      true,
+	"xelllaunch.xex":   true,
+	"hud.xex":          true,
+	"dash.xex":         true,
+}
+
+func findHomebrewXEX(dir string) (string, string) {
+	type xexCandidate struct {
+		folder string
+		path   string
+		depth  int
+		score  int
+	}
+	var candidates []xexCandidate
+
+	cleanDir := filepath.Clean(dir)
+	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		base := info.Name()
+		baseLower := strings.ToLower(base)
+		if !strings.HasSuffix(baseLower, ".xex") {
+			return nil
+		}
+		if knownXexPlugins[baseLower] {
+			return nil
+		}
+		folder := filepath.Dir(p)
+		rel, relErr := filepath.Rel(cleanDir, folder)
+		depth := 0
+		if relErr == nil && rel != "." {
+			depth = strings.Count(rel, string(filepath.Separator)) + 1
+		}
+
+		score := 0
+		folderBaseLower := strings.ToLower(filepath.Base(folder))
+		xexNameNoExt := strings.TrimSuffix(baseLower, ".xex")
+		if strings.Contains(folderBaseLower, xexNameNoExt) || strings.Contains(xexNameNoExt, folderBaseLower) {
+			score += 10
+		}
+		if strings.Contains(xexNameNoExt, "main") || strings.Contains(xexNameNoExt, "retroarch") ||
+			strings.Contains(xexNameNoExt, "launch") || strings.Contains(xexNameNoExt, "emu") {
+			score += 5
+		}
+
+		candidates = append(candidates, xexCandidate{
+			folder: folder,
+			path:   p,
+			depth:  depth,
+			score:  score,
+		})
+		return nil
+	})
+
+	if len(candidates) == 0 {
+		return "", ""
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].depth != candidates[j].depth {
+			return candidates[i].depth < candidates[j].depth
+		}
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return len(candidates[i].path) < len(candidates[j].path)
+	})
+
+	return candidates[0].folder, candidates[0].path
 }
 
 // isInstallDiscFolder reports whether the default.xex in folder is a disc the compatibility

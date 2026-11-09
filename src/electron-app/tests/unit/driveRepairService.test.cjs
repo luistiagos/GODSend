@@ -13,6 +13,7 @@ require.cache[require.resolve("../../infrastructure/serverLog.js")] = {
 
 const {
   extractDriveLetter,
+  checkChkdskFatErrors,
 } = require("../../services/driveRepairService.js");
 
 test("extractDriveLetter extrai corretamente a letra da unidade em vários formatos", () => {
@@ -156,4 +157,157 @@ test("findBrokenEntries: para no limite", async (t) => {
   t.mock.method(fs.promises, "readdir", async () => ["a", "b", "c"]);
   t.mock.method(fs.promises, "lstat", async () => { throw Object.assign(new Error("x"), { code: "UNKNOWN" }); });
   assert.equal((await findBrokenEntries("E:\\", 2)).length, 2);
+});
+
+test("checkChkdskFatErrors: não-Windows retorna null", async (t) => {
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "darwin" });
+  t.after(() => Object.defineProperty(process, "platform", originalPlatform));
+
+  assert.equal(await checkChkdskFatErrors("E:\\"), null);
+});
+
+test("checkChkdskFatErrors: volume FAT32 limpo (inclusive com bytes CP1252 e código 2 de cleanup) retorna hasErrors: false", async (t) => {
+  const { windowsAnsiCodePage } = require("../../infrastructure/windowsAnsiCodePage.js");
+  await windowsAnsiCodePage();
+
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "win32" });
+  const originalSpawn = childProcess.spawn;
+  let child = null;
+  let stdinData = "";
+  childProcess.spawn = () => {
+    child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { end: (data) => { stdinData = String(data || ""); } };
+    child.kill = () => true;
+    return child;
+  };
+  t.after(() => {
+    childProcess.spawn = originalSpawn;
+    Object.defineProperty(process, "platform", originalPlatform);
+  });
+
+  const flush = () => new Promise((r) => setImmediate(r));
+  const promise = checkChkdskFatErrors("E:\\");
+  while (!child) await flush();
+  assert.match(stdinData, /N/);
+  // 0xe9 = é, 0xe3 = ã em CP1252
+  child.stdout.emit(
+    "data",
+    Buffer.from("O tipo do sistema de arquivos \xe9 FAT32.\r\nO Windows examinou o sistema de arquivos e n\xe3o encontrou problemas.\r\n", "latin1"),
+  );
+  child.emit("close", 2);
+  const result = await promise;
+  assert.equal(result.hasErrors, false);
+});
+
+test("checkChkdskFatErrors: erros detectados no chkdsk de volume FAT32 retorna hasErrors: true", async (t) => {
+  const { windowsAnsiCodePage } = require("../../infrastructure/windowsAnsiCodePage.js");
+  await windowsAnsiCodePage();
+
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "win32" });
+  const originalSpawn = childProcess.spawn;
+  let child = null;
+  childProcess.spawn = () => {
+    child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { end: () => {} };
+    child.kill = () => true;
+    return child;
+  };
+  t.after(() => {
+    childProcess.spawn = originalSpawn;
+    Object.defineProperty(process, "platform", originalPlatform);
+  });
+
+  const flush = () => new Promise((r) => setImmediate(r));
+  const promise = checkChkdskFatErrors("E:\\");
+  while (!child) await flush();
+  child.stdout.emit("data", Buffer.from("O tipo do sistema de arquivos \xe9 FAT32.\r\nO Windows encontrou problemas no sistema de arquivos.\r\n", "latin1"));
+  child.emit("close", 3);
+  const result = await promise;
+  assert.equal(result.hasErrors, true);
+  assert.match(result.summary, /FAT/);
+});
+
+test("checkChkdskFatErrors: acesso negado ou falha antes de inspecionar FAT32 retorna null sem bloquear", async (t) => {
+  const { windowsAnsiCodePage } = require("../../infrastructure/windowsAnsiCodePage.js");
+  await windowsAnsiCodePage();
+
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "win32" });
+  const originalSpawn = childProcess.spawn;
+  let child = null;
+  childProcess.spawn = () => {
+    child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { end: () => {} };
+    child.kill = () => true;
+    return child;
+  };
+  t.after(() => {
+    childProcess.spawn = originalSpawn;
+    Object.defineProperty(process, "platform", originalPlatform);
+  });
+
+  const flush = () => new Promise((r) => setImmediate(r));
+  const promise = checkChkdskFatErrors("E:\\");
+  while (!child) await flush();
+  // Mesmo em outro idioma ou em HD fixo sem mensagem em pt/en, sem inspecionar FAT32 não pode acusar corrupção
+  child.stdout.emit("data", Buffer.from("Acceso denegado.\r\n", "latin1"));
+  child.emit("close", 1);
+  const result = await promise;
+  assert.equal(result, null);
+});
+
+const {
+  requireCleanFileSystem,
+  requireNoLegacyXbox360Container,
+} = require("../../services/fixedBadAvatarPreparationService.js");
+
+test("requireNoLegacyXbox360Container: recusa preparo sem formatação quando há pasta Xbox360 com dados", async () => {
+  await requireNoLegacyXbox360Container("E:\\", {
+    hasLegacyXbox360Container: async () => false,
+  });
+  await assert.rejects(
+    requireNoLegacyXbox360Container("E:\\", {
+      hasLegacyXbox360Container: async () => true,
+    }),
+    /pasta oculta de sistema “Xbox360”[\s\S]*Formatar antes/,
+  );
+});
+
+test("requireCleanFileSystem: volume limpo passa sem erros", async () => {
+  await requireCleanFileSystem("E:\\", {
+    isVolumeDirty: async () => false,
+    findBrokenEntries: async () => [],
+    checkChkdskFatErrors: async () => ({ hasErrors: false }),
+  });
+});
+
+test("requireCleanFileSystem: dirty bit bloqueia o preparo", async () => {
+  await assert.rejects(
+    requireCleanFileSystem("E:\\", {
+      isVolumeDirty: async () => true,
+      findBrokenEntries: async () => [],
+      checkChkdskFatErrors: async () => ({ hasErrors: false }),
+    }),
+    /o Windows marcou o volume como sujo/,
+  );
+});
+
+test("requireCleanFileSystem: CHKDSK acusando erro bloqueia o preparo", async () => {
+  await assert.rejects(
+    requireCleanFileSystem("E:\\", {
+      isVolumeDirty: async () => false,
+      findBrokenEntries: async () => [],
+      checkChkdskFatErrors: async () => ({ hasErrors: true, summary: "erros FAT" }),
+    }),
+    /o CHKDSK detectou erros na estrutura da FAT/,
+  );
 });

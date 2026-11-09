@@ -32,6 +32,9 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 	if safeName == "" {
 		return fmt.Errorf("Invalid game name")
 	}
+	if cacheService.IsKnownIncompleteHuggingFaceURL(downloadURL) {
+		return fmt.Errorf("pacote HuggingFace corrompido ou incompativel com o console (lancamento nao instalavel)")
+	}
 	var xboxConn *models.XboxConnection
 	if c, ok := s.App.XboxConnections.Load(gameName); ok {
 		cc := c.(models.XboxConnection)
@@ -255,6 +258,13 @@ func (s *Service) ProcessHuggingFaceGameWithErr(gameName string, downloadURL str
 		}
 		s.App.Logf("=== Complete (HuggingFace Content): %s ===", gameName)
 		return nil
+	}
+
+	if elf := helpers.FindFileByExt(extDir, ".elf"); elf != "" {
+		return fmt.Errorf("pacote HuggingFace contem apenas binario XeLL ELF (%s) para boot via Eject/XeLL, sem executavel compativel com a dashboard (.xex)", filepath.Base(elf))
+	}
+	if nested := helpers.FindFileByExt(extDir, ".rar"); nested != "" {
+		return fmt.Errorf("pacote HuggingFace corrompido: contem arquivo compactado aninhado (%s) sem executavel extraido", filepath.Base(nested))
 	}
 
 	return fmt.Errorf("No default.xex, .iso, GOD, or Content package found in HuggingFace archive")
