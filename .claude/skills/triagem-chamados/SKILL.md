@@ -25,17 +25,17 @@ que os originaram. O produto final e:
 
 Assuma que voce comeca **sem contexto previo** — tudo que precisa esta aqui.
 
-> **Fonte e copias.** A fonte desta skill e `C:\projects\retrobatnew\source\skills\triagem-chamados\`
+> **Fonte e copias.** A fonte desta skill e `source\skills\triagem-chamados\` no retrobatnew
 > (o `.claude\skills\triagem-chamados` do retrobatnew e *junction* para la). Os outros repos
 > carregam copias, que devem ser byte-identicas a fonte (`SKILL.md` + `scripts/chamado.py`):
 >
-> | Repo | Pasta da copia |
+> | Repo (chave do mapa) | Pasta da copia |
 > |---|---|
-> | `C:\projects\digitalstoregamesproject` | `.claude\skills\triagem-chamados\` |
-> | `C:\projects\Downloader-XBOX360-XEX-HDD-Games` | `.claude\skills\triagem-chamados\` |
-> | `D:\projects\PS2Companion` | `.claude\skills\triagem-chamados\` |
-> | `C:\projects\lemuroid\Lemuroid` | `.claude\skills\triagem-chamados\` |
-> | `D:\projects\play2\ARMSX2-forkv2` | `docs\skill\triagem-chamados\` |
+> | `REPO_DSG` | `.claude\skills\triagem-chamados\` |
+> | `REPO_XBOX360` | `.claude\skills\triagem-chamados\` |
+> | `REPO_PS2COMPANION` | `.claude\skills\triagem-chamados\` |
+> | `REPO_LEMUROID` | `.claude\skills\triagem-chamados\` |
+> | `REPO_ARMSX2` | `docs\skill\triagem-chamados\` |
 >
 > A copia que voce carregou pode estar atrasada: em divergencia, **a fonte vale**. E ela **nao**
 > restringe onde o bug e gravado: um chamado costuma render achados em mais de um repositorio.
@@ -58,7 +58,7 @@ Assuma que voce comeca **sem contexto previo** — tudo que precisa esta aqui.
 | O que | Onde |
 |---|---|
 | Chamados e conversa (API) | `POST https://digitalstoregames.pythonanywhere.com/diag/query` — **so `SELECT`**, LIMIT 500, Bearer token |
-| Token (`DIAG_API_TOKEN`) | linha `DIAG_API_TOKEN=` de `C:\projects\retrobatnew\source\.env` (nao versionado), lida pelo `source/scripts/env_local.py`; variavel de ambiente nao vazia vence. Ausente, o script aborta dizendo o nome |
+| Token (`DIAG_API_TOKEN`) | linha `DIAG_API_TOKEN=` do `source/.env` do retrobatnew (nao versionado), lida pelo `source/scripts/env_local.py`; variavel de ambiente nao vazia vence. Ausente, o script aborta dizendo o nome. O `chamado.py` acha o leitor subindo dele e do diretorio atual; fora do retrobatnew e dos repos irmaos, defina `RETROBAT_ROOT` |
 | Painel dos chamados (UI) | `ddigitaladmfrontend/src/pages/SupportTickets.jsx` |
 | Temporarios | o **scratchpad desta sessao** — fora de pasta versionada e **fora de pasta compartilhada** (ver o aviso do atalho) |
 | Interprete | `python` (nao `python3`) |
@@ -192,12 +192,14 @@ Um chamado produz achados em **mais de um repositorio**. Decida por candidato, n
 
 | O achado e sobre | Repositorio | Pasta de bugs |
 |---|---|---|
-| App de PC **Retro Game System / RGS** — EmulationStation, `emulatorLauncher`, emuladores, cores, catalogo de ROMs, BIOS, atualizacao do app, empacotamento | `C:\projects\retrobatnew` | `source/docs/bugs/{open,retest,done}/` — ⚠️ **em `source/`, nao na raiz** |
-| App **Android "Retro Game System"** (Lemuroid, multi-sistema, Libretro) — APK `retro-game-system-arm64.apk`/`armv7.apk`, catalogo, download sob demanda, cores, telemetria do app Android | `C:\projects\lemuroid\Lemuroid` (branch `version9`) | `docs/bugs/{open,retest,done}/` — ⚠️ **`docs/`, nunca `documentacao/`** (removida em 2026-10-09) |
-| App **Android RetroSystem PS2** (fork do ARMSX2) | `D:\projects\play2\ARMSX2-forkv2` (branch `armsx2forkv2`; o antigo `ARMSX2-fork` nao existe mais) | `docs/bugs/open/armsx2-fork/` (linha antiga: `.../legado-version1/`) |
-| **PS2Companion** — preparar HD/pendrive de PS2, OPL | `D:\projects\PS2Companion` | `docs/bugs/{open,retest,close}/` |
-| **Downloader XBOX360** — `xbox-360-companion`, BadAvatar, Aurora, DashLaunch, preparo de HDD/USB | `C:\projects\Downloader-XBOX360-XEX-HDD-Games` | `docs/bugs/{open,retest,closed}/` |
-| **Agente de WhatsApp** — prompts, KB/guias, roteamento, handoff, resumo de chamado, painel, area de membros, pagamentos, remarketing | `C:\projects\digitalstoregamesproject` | `docs/modules/<modulo>/[areas/<area>/]bugs/` |
+| App de PC **Retro Game System / RGS** — EmulationStation, `emulatorLauncher`, emuladores, cores, catalogo de ROMs, BIOS, atualizacao do app, empacotamento | a raiz do retrobatnew (a pasta acima de `source/`; `RETROBAT_ROOT`) | `source/docs/bugs/{open,retest,done}/` — ⚠️ **em `source/`, nao na raiz** |
+| App **Android "Retro Game System"** (Lemuroid, multi-sistema, Libretro) — APK `retro-game-system-arm64.apk`/`armv7.apk`, catalogo, download sob demanda, cores, telemetria do app Android | `REPO_LEMUROID` (branch `version9`) | `docs/bugs/{open,retest,done}/` — ⚠️ **`docs/`, nunca `documentacao/`** (removida em 2026-10-09) |
+| App **Android RetroSystem PS2** (fork do ARMSX2) | `REPO_ARMSX2` (branch `armsx2forkv2`; o antigo `ARMSX2-fork` nao existe mais) | `docs/bugs/open/armsx2-fork/` (linha antiga: `.../legado-version1/`) |
+| **PS2Companion** — preparar HD/pendrive de PS2, OPL | `REPO_PS2COMPANION` | `docs/bugs/{open,retest,close}/` |
+| **Downloader XBOX360** — `xbox-360-companion`, BadAvatar, Aurora, DashLaunch, preparo de HDD/USB | `REPO_XBOX360` | `docs/bugs/{open,retest,closed}/` |
+| **Agente de WhatsApp** — prompts, KB/guias, roteamento, handoff, resumo de chamado, painel, area de membros, pagamentos, remarketing | `REPO_DSG` | `docs/modules/<modulo>/[areas/<area>/]bugs/` |
+
+A pasta de cada repo sai do **mapa da maquina** (chave `REPO_*` no `source/.env` do retrobatnew; vazia = a pasta irma da raiz do retrobatnew): `python <raiz do retrobatnew>/source/scripts/env_local.py --repo REPO_LEMUROID` imprime a pasta, ou aborta dizendo a chave a preencher.
 
 **PC x Android — o mesmo nome, dois repos.** O app de PC e o app Android se chamam ambos
 **"Retro Game System"**, saem do mesmo pacote Multigames e sao atendidos pelo mesmo

@@ -18,6 +18,8 @@ SAIDA: <pasta do script>/saida-chamados/  (ou $TRIAGEM_CHAMADOS_OUT)
 
 TOKEN: `DIAG_API_TOKEN`, pelo leitor do retrobatnew (`source/scripts/env_local.py`): variavel
 de ambiente nao vazia ou a linha do `source/.env`. NUNCA e impresso nem gravado em disco.
+O leitor e achado subindo do script e do diretorio atual; fora do retrobatnew e dos repos
+irmaos dele, defina RETROBAT_ROOT.
 """
 import datetime
 import io
@@ -27,6 +29,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 BASE = "https://digitalstoregames.pythonanywhere.com"
 # A saida fica AO LADO do proprio script: copie o script para o scratchpad da SESSAO e os
@@ -35,12 +38,6 @@ BASE = "https://digitalstoregames.pythonanywhere.com"
 # vazia com exit 0 -- que parece sucesso.
 OUT = os.environ.get("TRIAGEM_CHAMADOS_OUT") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "saida-chamados")
-# Onde procurar o env_local.py: ao lado da arvore (script rodado no lugar) e a fonte fixa,
-# porque o normal e rodar uma COPIA no scratchpad ou em outro repo, longe de source/scripts.
-ENV_LOCAL_PASTAS = (
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts"),
-    r"C:\projects\retrobatnew\source\scripts",
-)
 
 TABELA_TICKET = "wpp_support_ticket"
 TABELA_EVENTO = "wpp_support_ticket_event"
@@ -51,14 +48,33 @@ TABELA_MSG = "Wpp_proccess"
 INTERNOS = ("internal_consult_", "silent_handoff_")
 
 
-def _env_local():
-    for pasta in ENV_LOCAL_PASTAS:
-        if os.path.isfile(os.path.join(pasta, "env_local.py")):
-            sys.path.insert(0, os.path.abspath(pasta))
+def _achar_env_local():
+    """O scripts/env_local.py do retrobatnew (leitor das chaves e do mapa da maquina), ou None. O normal e rodar uma
+    COPIA deste script (scratchpad, outro repo, ~/.claude/skills), entao nao ha caminho fixo: RETROBAT_ROOT ->
+    ancestrais deste arquivo e do cwd, olhando <a>/scripts, <a>/source/scripts e <a>/retrobatnew/source/scripts
+    (AGENTS.md do retrobatnew, regra 5). O cwd da sessao e o repo onde ela abriu."""
+    candidatos = []
+    raiz = os.environ.get("RETROBAT_ROOT", "").strip()
+    if raiz:
+        candidatos.append(Path(raiz) / "source" / "scripts")
+    for inicio in (Path(__file__).resolve().parent, Path.cwd().resolve()):
+        for a in (inicio, *inicio.parents):
+            candidatos += [a / "scripts", a / "source" / "scripts", a / "retrobatnew" / "source" / "scripts"]
+    for pasta in candidatos:
+        if (pasta / "env_local.py").is_file() and (pasta / "raiz_projeto.py").is_file():
+            if str(pasta) not in sys.path:
+                sys.path.insert(0, str(pasta))
             import env_local
             return env_local
-    raise SystemExit("leitor de chaves nao encontrado (env_local.py) em: "
-                     + " ; ".join(os.path.abspath(p) for p in ENV_LOCAL_PASTAS))
+    return None
+
+
+def _env_local():
+    env_local = _achar_env_local()
+    if env_local is None:
+        raise SystemExit("leitor de chaves do retrobatnew (source/scripts/env_local.py) nao encontrado subindo deste "
+                         "script nem do diretorio atual: defina RETROBAT_ROOT com a raiz do retrobatnew")
+    return env_local
 
 
 def _token():
