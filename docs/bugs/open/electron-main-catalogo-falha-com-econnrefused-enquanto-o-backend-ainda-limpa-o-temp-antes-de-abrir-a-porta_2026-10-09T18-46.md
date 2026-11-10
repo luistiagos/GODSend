@@ -2,12 +2,10 @@
 
 ## Status
 
-- Movido de `open/` para `retest/` em 2026-10-12 a pedido do dono, depois da execucao 20261010-2242 do pipeline (planning: correcao ja em `origin/main`, sem codigo a mudar).
-- **Corrigido em:** 2026-10-09 (2.12.110). **NAO publicado:** o `version.json` publicado esta na 2.12.109 e os dois commits sao posteriores a `d4cce82`.
-- **Commits:** `2a9816d` [T1] fix(electron) (requisicao espera `GODSEND_LISTEN_PORT`), `8f6fd36` [T2] fix(server) (log de inicio/fim da limpeza do Temp).
-- **Onde:** `src/electron-app/infrastructure/backendReadiness.ts` (novo); `backendClient.ts::startGodsend`; `backendHttp.ts::backendGetWithStatus`/`backendPost`; `src/server/app/config.go::cleanupStaleScratchDir`/`scratchDirSize`.
-- **Evidencia:** secao "Testes executados" abaixo — `test:safety` 288/288 e `go test ./...` verdes, com mutacao de T1 e T2; ponta a ponta com o backend Go real e `Temp` de 60 000 arquivos: sem o gate `ECONNREFUSED` aos 1,5 s, com o gate HTTP 200 aos 18,5 s.
-- **Falta para `closed/`:** subir a versao e publicar (`build-and-upload.ps1`, do dono); prova na UI real (reiniciar o app com `Temp` grande e abrir o catalogo durante a limpeza). Fora do escopo: `http.get` direto de `xbox:get-queue` ainda pode receber `ECONNREFUSED` nos primeiros segundos.
+- **Reaberto em:** 2026-11-09 (triagem de telemetria): reincidência confirmada em produção na **v2.12.123** e **v2.12.118** (IDs 12067, 12068, 12529, 12530, 12532, 12533, 12549, 12550, 12553, 12554). O gate de readiness ainda permitiu chamadas concorrentes ao endpoint `/browse` e `/browse/releases` antes do bind HTTP.
+- **Histórico anterior:** movido de `open/` para `retest/` em 2026-10-12 após commit `2a9816d` e `8f6fd36`.
+- **Complexidade:** **Média** — sincronização de ciclo de vida e garantia de bloqueio de requisições IPC até a conclusão da prontidão do backend.
+- **Versões com reincidência:** v2.12.118 e v2.12.123.
 
 - **Detectado em:** 2026-10-09, relato do dono
 - **Origem:** abertura do catálogo logo após (re)iniciar o app — `ipc/browseHandlers.ts::browse:get-games`

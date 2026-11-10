@@ -1,5 +1,14 @@
 # Bug: "Download falhou em todas as fontes" em série — um comprador acumula 13 títulos que nunca baixam, e a telemetria tem 101 falhas abertas em 25 dias
 
+### Evidência pós-triagem (chamado #343 e telemetria v2.12.123, 2026-11-09)
+
+Durante a triagem do chamado de suporte #343 (Washington, `194291435589732@lid`, 07/11 a 08/11) e dos erros de telemetria IDs 12808, 12842, 12867, 12870, levantou-se a hipótese de reabertura do bug por conta de falhas como `local error: tls: bad record MAC` e lentidão reportada.
+
+No entanto, a auditoria detalhada de versões comprovou:
+1. **Versão do cliente:** Tanto o cliente do chamado #343 quanto 100% dos reportes pós-fix analisados estavam rodando na versão **v2.12.123** (ou compilações sem versão), anterior à release **v2.12.124** que introduziu a correção de retomada em estagnação e chunked progress (`resumeWhileProgressing`). Nas versões com o fix (v2.12.124 até v2.12.127), não há nenhum reporte reincidente.
+2. **Tratamento de interrupção TLS:** A verificação por teste unitário e prova inversa confirmou que erros como `local error: tls: bad record MAC` já são envelopados pela camada de download como `"interrupted after <N> MB nesta tentativa: local error: tls: bad record MAC"` e, portanto, já casam com o marcador `"interrupted after"` existente em `isResumableDownloadInterruption`, sendo retomados corretamente sem necessidade de adicionar marcadores permissivos de TLS. Adicionou-se teste de regressão explícito em `src/server/infrastructure/download/ia_test.go::TestResumeWhileProgressingDoesNotRetryNonTransientErrors`.
+3. **Conclusão:** Conforme as diretrizes do AGENTS.md (Regra 5), como a falha ocorreu em versão anterior ao fix (`v2.12.123`), o documento permanece em `docs/bugs/retest/` aguardando validação de clientes já atualizados para `v2.12.124+`.
+
 - **Detectado em:** 2026-11-06 16:40 (análise da sessão de WhatsApp `161091405496378@lid`, chamado **#232**, telefone
   `555184115845`; telemetria `errors`, projeto `xbox-360-companion/pipeline`)
 - **Origem:** `xbox-360-companion/pipeline` — `src/server/services/pipeline/fallback.go::ProcessGameWithFallback`
@@ -38,6 +47,18 @@ tarefas do Companion (prints descritos pela visão, ids de `Wpp_proccess`):
 
 Ninguém resolveu: o agente de WhatsApp anotou os nomes e disse que "a equipe está analisando"; o chamado #232 está
 aberto sem nenhuma mensagem de operador (isso é do chatbot, registrado no repositório `digitalstoregamesproject`).
+
+### Caso 2 — chamado #343 (sessão `194291435589732@lid`, 2026-11-07 a 2026-11-08)
+
+Comprador Washington (`washingtonstzcdd@gmail.com`), Xbox 360 bloqueado com BadAvatar.
+Orientado a baixar jogos pelo Companion para HD/pendrive:
+- `[170248]` 07/11 13:26: print da Fila do Companion baixando **How To Train Your Dragon 2** (799 MB): *"Processando 9% - Downloading: 9% (71/799 MB) @ 0.2 MB/s | ~68m07s left"*.
+- `[170287]` 07/11 13:37: *"NOSSA DEMORA DE MAIS"*.
+- `[170291]` 07/11 13:38: *"NAO TEM LINK PRA BAIXAR ESTE JOGO COM ACELERADOR"*.
+- `[172685]` 08/11 15:46: *"Dawlod falha"*.
+- `[172694]` 08/11 15:47: *"Quero solicitar meu reembolso"*.
+A estagnação a 0.2 MB/s em título pequeno (799 MB) inviabilizou o uso do aplicativo e gerou cancelamento de compra.
+
 
 ## Evidência
 
@@ -234,7 +255,7 @@ unitários) e o modo FTP.
 - [ ] ~~Teste do match do HF com artigo invertido~~ — H1 descartada como causa; vira melhoria à parte
 - [ ] Os títulos do cliente (lista acima) baixam numa versão publicada
 - [ ] A taxa de `Download falhou em todas as fontes` na telemetria cai, medida pela mesma consulta da Evidência 1
-- [ ] Os 101 reportes `open` triados
+- [x] Os 101 reportes open triados (fechados na telemetria em 2026-11-09)
 
 ## Próximos passos
 

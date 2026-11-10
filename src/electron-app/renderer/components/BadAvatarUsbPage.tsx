@@ -8,9 +8,11 @@ import {
   RefreshCw,
   ShieldCheck,
   Usb,
+  Wrench,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
+import DriveRepairModal from "./DriveRepairModal";
 import {
   canSkipPreparation,
   type PreparedDeviceState,
@@ -110,6 +112,7 @@ export default function BadAvatarUsbPage({
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [repairModalOpen, setRepairModalOpen] = useState(false);
 
   // Wizard state: "detect" | "unlock-selection" | "preparation"
   const [step, setStep] = useState<"detect" | "unlock-selection" | "preparation" | null>(null);
@@ -257,7 +260,7 @@ export default function BadAvatarUsbPage({
     if (!canPrepare || !selectedDevice?.fingerprint) return;
     if (formatDrive) {
       const confirmed = window.confirm(
-        `Formatar ${selectedDevice.rootPath} e preparar para o Xbox 360?\n\nTudo neste dispositivo será apagado.`,
+        `Formatar ${selectedDevice.rootPath} e preparar para o Xbox 360?\n\nOs jogos instalados nesta unidade serão apagados.\n\nNota: Perfis pessoais e saves de jogos encontrados no pendrive serão salvos em backup no computador e restaurados automaticamente após a formatação.`,
       );
       if (!confirmed) return;
     }
@@ -552,12 +555,23 @@ export default function BadAvatarUsbPage({
               })()}
 
               {selectedDevice && (selectedDevice.needsRepair || selectedDevice.healthStatus === "Warning" || /Repair|Need|Corrupt/i.test(selectedDevice.operationalStatus || "")) && (
-                <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/20 px-3 py-3 text-[12px] text-amber-200 flex items-center gap-2.5">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
-                  <div>
-                    <span className="font-semibold block text-amber-400">Sistema de arquivos com inconsistências</span>
-                    Recomendamos marcar &quot;Formatar antes de preparar&quot; abaixo para garantir que a partição fique limpa e sem erros.
+                <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/20 px-3 py-3 text-[12px] text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                    <div>
+                      <span className="font-semibold block text-amber-400">Sistema de arquivos com inconsistências</span>
+                      Use &quot;Reparar (CHKDSK)&quot; para corrigir a tabela FAT32 preservando seus jogos, perfil e saves.
+                    </div>
                   </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 border-amber-500/50 hover:bg-amber-500/20 text-amber-200 text-xs font-medium"
+                    onClick={() => setRepairModalOpen(true)}
+                  >
+                    <Wrench className="h-3.5 w-3.5 mr-1.5" />
+                    Reparar (CHKDSK)
+                  </Button>
                 </div>
               )}
 
@@ -756,6 +770,19 @@ export default function BadAvatarUsbPage({
             >
               {error || status}
             </p>
+            {error && (error.includes("Reparar (CHKDSK)") || error.includes("sistema de arquivos danificado")) && (
+              <div className="mt-2.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-500/50 hover:bg-red-500/20 text-red-200 text-xs font-semibold"
+                  onClick={() => setRepairModalOpen(true)}
+                >
+                  <Wrench className="h-3.5 w-3.5 mr-1.5" />
+                  Reparar Pendrive (CHKDSK) Agora
+                </Button>
+              </div>
+            )}
             {done && !error && (
               <>
                 <p className="mt-2 text-[11px] leading-relaxed text-gray-200">
@@ -795,6 +822,16 @@ export default function BadAvatarUsbPage({
         )}
         </div>
       </section>
+
+      <DriveRepairModal
+        open={repairModalOpen}
+        driveRoot={selectedDevice?.rootPath || ""}
+        onClose={() => setRepairModalOpen(false)}
+        onRepairCompleted={async () => {
+          await refreshDrives(true);
+          setError("");
+        }}
+      />
     </main>
   );
 }

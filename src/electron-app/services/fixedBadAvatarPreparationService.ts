@@ -6,6 +6,10 @@ import {
   collectConsoleCrashArtifacts,
   describeConsoleCrashArtifacts,
 } from "../infrastructure/consoleCrashArtifacts";
+import {
+  backupUsbUserProfilesAndSaves,
+  restoreUsbUserProfilesAndSaves,
+} from "../infrastructure/usbUserContentBackup";
 import { formatVolumeFat32 } from "../infrastructure/fat32Format";
 import { checkChkdskFatErrors, findBrokenEntries, isVolumeDirty } from "./driveRepairService";
 import { hasLegacyXbox360Container } from "./preparedDeviceState";
@@ -611,7 +615,33 @@ export async function prepareFixedBadAvatarDevice(
     await requireCleanFileSystem(request.driveRoot);
   }
 
+  let userContentBackupSnapshotDir: string | null = null;
   if (request.formatDrive) {
+    onProgress({ status: "Salvando backup preventivo de perfis e saves…", percent: 3 });
+    try {
+      const backupResult = await backupUsbUserProfilesAndSaves(request.driveRoot, {
+        exploitFiles: manifest.files.filter((f) => isExploitProfilePath(f.path)),
+        onProgress: (status) => onProgress({ status, percent: 3 }),
+      });
+      if (backupResult.totalFiles > 0) {
+        userContentBackupSnapshotDir = backupResult.backupDir;
+        appendAppEvent(
+          "BADAVATAR",
+          `Backup preventivo concluído antes da formatação: ${backupResult.totalFiles} arquivo(s) salvos em ${backupResult.backupDir}`,
+        );
+        onProgress({
+          status: `Backup preventivo: ${backupResult.totalFiles} perfil(is)/save(s) preservado(s).`,
+          percent: 4,
+          detail: `${backupResult.totalFiles} arquivo(s)`,
+        });
+      }
+    } catch (backupErr: any) {
+      appendAppEvent(
+        "BADAVATAR",
+        `Aviso: backup preventivo de perfis/saves falhou: ${backupErr?.message || String(backupErr)}`,
+      );
+    }
+
     const expectedVolumeBytes = device.partitionSizeBytes || device.sizeBytes;
     const formatted = await formatVolumeFat32(request.driveRoot, (progress) => {
       onProgress({ status: progress.status, percent: Math.min(12, progress.percent) });
@@ -727,10 +757,36 @@ export async function prepareFixedBadAvatarDevice(
       revalidateTarget,
       onProgress: (progress) => onProgress({
         status: progress.status,
-        percent: 24 + Math.floor(progress.percent * 0.76),
+        percent: 24 + Math.floor(progress.percent * 0.72),
         detail: `${Math.min(progress.completedFiles + 1, progress.totalFiles)}/${progress.totalFiles}`,
       }),
     });
+
+    if (userContentBackupSnapshotDir) {
+      onProgress({ status: "Restaurando perfis e saves pessoais preservados…", percent: 97 });
+      try {
+        const restoreResult = await restoreUsbUserProfilesAndSaves(
+          userContentBackupSnapshotDir,
+          request.driveRoot,
+        );
+        appendAppEvent(
+          "BADAVATAR",
+          `Restauração de perfis/saves concluída: ${restoreResult.restoredFiles} arquivo(s) restaurados no pendrive.`,
+        );
+        if (restoreResult.restoredFiles > 0) {
+          onProgress({
+            status: `Restaurado(s) ${restoreResult.restoredFiles} perfil(is)/save(s) no pendrive.`,
+            percent: 98,
+            detail: `${restoreResult.restoredFiles} arquivo(s)`,
+          });
+        }
+      } catch (restoreErr: any) {
+        appendAppEvent(
+          "BADAVATAR",
+          `Aviso: falha ao restaurar perfis/saves pós-formatação: ${restoreErr?.message || String(restoreErr)}`,
+        );
+      }
+    }
 
     // Fora da transação, e depois dela: o recibo carrega data e versão, e qualquer byte volátil
     // dentro do plano faria toda retomada interrompida falhar (ver preparationReceipt.ts).

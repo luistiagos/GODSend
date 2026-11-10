@@ -831,6 +831,18 @@ de 13/10 a 23/10**. Todas ainda com `status = open`, ou seja, nenhuma triagem de
 
 Mais o portão (`… marcada com o tipo …`): 9 rejeições entre 13/10 e 20/10, entre elas `10526` e `10532`, que são deste cliente.
 
+### Reincidencia em campo (v2.12.123) — Caso 3: chamado #343 (sessao `194291435589732@lid`, 2026-11-07 a 2026-11-08)
+
+O cliente conectou um HD externo USB que ja continha jogos de Xbox 360 e rodava no console, pretendendo mantê-los.
+Instruído pelo suporte a desmarcar "Formatar antes" para preservar os dados, o preparo foi sumariamente bloqueado pelo portão:
+- `[170536]` 07/11 14:29: print da tela do Companion exibindo o bloqueio do portão: *"O Xbox 360 não vai ler este dispositivo como está. A partição está marcada com o tipo 4, e não como FAT32 (11 ou 12). Marque 'Formatar antes' e tente novamente."*.
+- Telemetria de producao confirmada na tabela `errors` (`project = xbox-360-companion/electron-main`, `method = tools:badavatar-prepare`, `user_agent = ElectronApp v2.12.123`):
+  - ID `12849` (2026-11-07 14:19:55)
+  - ID `12926` (2026-11-08 12:34:24)
+  - ID `12929` (2026-11-08 12:39:21)
+O portao protege contra leitura incorreta no console, mas forcar "Formatar antes" deixa o comprador que possui biblioteca previa sem nenhuma opcao in-place (sem formatacao destrutiva), gerando atrito e pedido de estorno.
+
+
 O log é o mesmo em todas as linhas (exemplo: `10527`):
 
 ```

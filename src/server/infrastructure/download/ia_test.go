@@ -669,6 +669,7 @@ func TestResumeWhileProgressingDoesNotRetryNonTransientErrors(t *testing.T) {
 		"read after 524288 bytes: stream error: stream ID 3; PROTOCOL_ERROR; received from peer",
 		"request: Get \"https://dn720705.ca.archive.org/x\": read tcp 1.2.3.4:5->6.7.8.9:443: wsarecv: An existing connection was forcibly closed by the remote host.",
 		"HTTP 500 (expected 206 Partial Content)",
+		"interrupted after 306.10 MB nesta tentativa: local error: tls: bad record MAC",
 	} {
 		if !isResumableDownloadInterruption(errors.New(transient)) {
 			t.Fatalf("interrupcao de producao nao reconhecida como retomavel: %s", transient)

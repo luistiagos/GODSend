@@ -5,6 +5,7 @@ import { normalizeDriveRoot } from "../infrastructure/deviceSafetyPolicy";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { powerShellExe, system32Exe } from "../infrastructure/windowsSystemExecutables";
 import { createAnsiDecoder, windowsAnsiCodePage } from "../infrastructure/windowsAnsiCodePage";
+import { backupUsbUserProfilesAndSaves } from "../infrastructure/usbUserContentBackup";
 
 
 export interface DriveHealthDiagnostic {
@@ -46,7 +47,13 @@ export function extractDriveLetter(pathOrLetter: string): string {
 /**
  * Diagnoses the filesystem health and status of a drive on Windows.
  */
-export async function diagnoseDrive(rootPath: string): Promise<DriveHealthDiagnostic> {
+export async function diagnoseDrive(
+  rootPath: string,
+  deps: {
+    isVolumeDirty?: (rootPath: string) => Promise<boolean | null>;
+    findBrokenEntries?: (rootPath: string) => Promise<string[]>;
+  } = {},
+): Promise<DriveHealthDiagnostic> {
   const driveLetter = extractDriveLetter(rootPath);
   const normalized = `${driveLetter}:\\`;
 
@@ -88,19 +95,45 @@ if ($vol) {
 
     let stdout = "";
     child.stdout.on("data", (d) => { stdout += d.toString(); });
-    child.on("close", () => {
+    child.on("close", async () => {
       try {
         const data = JSON.parse(stdout.trim() || "{}");
         const health = String(data.HealthStatus || "Unknown");
         const operational = String(data.OperationalStatus || "Unknown");
         const fs = String(data.FileSystem || "FAT32").toUpperCase();
 
-        const isWarning = /Warning|Unhealthy/i.test(health);
+        const checkDirty = deps.isVolumeDirty ?? isVolumeDirty;
+        const checkBroken = deps.findBrokenEntries ?? findBrokenEntries;
+
+        const dirty = await checkDirty(normalized).catch(() => null);
+        const broken = await checkBroken(normalized).catch(() => []);
+
+        const isDirty = dirty === true;
+        const hasBroken = Array.isArray(broken) && broken.length > 0;
+        const isWarning = /Warning|Unhealthy/i.test(health) || isDirty || hasBroken;
         const needsFix = /Repair|Need|Corrupt|Warning/i.test(operational) || isWarning;
+
+        let effectiveOperational = operational;
+        if (isDirty && !/Dirty/i.test(effectiveOperational)) {
+          effectiveOperational = effectiveOperational === "OK" || effectiveOperational === "Unknown" ? "Dirty" : `${effectiveOperational},Dirty`;
+        }
+        if (hasBroken && !/Corrupt/i.test(effectiveOperational)) {
+          effectiveOperational = `${effectiveOperational},CorruptEntries`;
+        }
 
         let summary = "Sistema de arquivos íntegro e pronto para uso.";
         if (needsFix) {
-          summary = `Inconsistências encontradas (${health} / ${operational}). Recomendado reparo com CHKDSK.`;
+          const reasons: string[] = [];
+          if (/Repair|Need|Corrupt|Warning/i.test(operational) || /Warning|Unhealthy/i.test(health)) {
+            reasons.push(`${health} / ${operational}`);
+          }
+          if (isDirty) {
+            reasons.push("Volume com dirty bit ativo");
+          }
+          if (hasBroken) {
+            reasons.push(`entradas ilegíveis (${broken.length})`);
+          }
+          summary = `Inconsistências encontradas (${reasons.join("; ")}). Recomendado reparo com CHKDSK.`;
         }
 
         resolve({
@@ -108,7 +141,7 @@ if ($vol) {
           driveLetter,
           fileSystem: fs,
           healthStatus: isWarning ? "Warning" : (health as any) || "Healthy",
-          operationalStatus: operational,
+          operationalStatus: effectiveOperational,
           needsRepair: needsFix,
           isCorrupted: needsFix,
           summary,
@@ -416,6 +449,15 @@ export async function repairDrive(
   }
 
   appendAppEvent("usb", `Iniciando reparo de volume CHKDSK na unidade ${driveLetter}:`);
+
+  try {
+    const backup = await backupUsbUserProfilesAndSaves(normalized, {});
+    if (backup.totalFiles > 0) {
+      appendAppEvent("usb", `Backup preventivo antes do CHKDSK: ${backup.totalFiles} arquivo(s) salvos em ${backup.backupDir}`);
+    }
+  } catch (err: any) {
+    appendAppEvent("usb", `Backup preventivo antes do CHKDSK ignorado: ${err?.message || err}`);
+  }
 
   // chkdsk writes to a pipe in the ANSI code page, not UTF-8 — see windowsAnsiCodePage.ts.
   const codePage = await windowsAnsiCodePage();

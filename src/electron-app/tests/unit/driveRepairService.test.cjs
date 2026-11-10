@@ -14,6 +14,7 @@ require.cache[require.resolve("../../infrastructure/serverLog.js")] = {
 const {
   extractDriveLetter,
   checkChkdskFatErrors,
+  diagnoseDrive,
 } = require("../../services/driveRepairService.js");
 
 test("extractDriveLetter extrai corretamente a letra da unidade em vários formatos", () => {
@@ -310,4 +311,16 @@ test("requireCleanFileSystem: CHKDSK acusando erro bloqueia o preparo", async ()
     }),
     /o CHKDSK detectou erros na estrutura da FAT/,
   );
+});
+
+test("diagnoseDrive: dirty bit ativo (FSCTL_IS_VOLUME_DIRTY) marca needsRepair e Warning mesmo com volume OK", async () => {
+  const result = await diagnoseDrive("E:\\", {
+    isVolumeDirty: async () => true,
+    findBrokenEntries: async () => [],
+  });
+  assert.equal(result.needsRepair, true);
+  assert.equal(result.isCorrupted, true);
+  assert.equal(result.healthStatus, "Warning");
+  assert.match(result.operationalStatus, /Dirty/);
+  assert.match(result.summary, /dirty bit ativo/);
 });

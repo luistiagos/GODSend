@@ -13,7 +13,7 @@ export function getRepoRoot(): string {
 
 /** Install root: next to the .exe on Windows (extraFiles land here, not under resources). */
 export function getBundledRoot(): string {
-  return app.isPackaged
+  return app?.isPackaged
     ? path.dirname(process.execPath)
     : getRepoRoot();
 }
@@ -25,7 +25,7 @@ export function getBundledRoot(): string {
  * inside `Contents/MacOS/`, so data must live under Resources.
  */
 export function getBundledResourcesRoot(): string {
-  return app.isPackaged ? process.resourcesPath : getRepoRoot();
+  return app?.isPackaged ? process.resourcesPath : getRepoRoot();
 }
 
 /** Go binary: packaged next to the app executable; name varies by OS. */
@@ -33,7 +33,7 @@ export function getGodsendExePath(): string {
   const isWin   = process.platform === "win32";
   const isArm64 = process.arch === "arm64";
   const isIa32  = process.arch === "ia32";
-  if (app.isPackaged) {
+  if (app?.isPackaged) {
     const name = isWin ? "godsend-backend.exe" : "godsend-backend";
     return path.join(path.dirname(process.execPath), name);
   }
@@ -55,7 +55,7 @@ export function getGodsendExePath(): string {
 }
 
 export function getDefaultWritableRuntimeRoot(): string {
-  return app.isPackaged
+  return app?.isPackaged
     ? path.join(app.getPath("userData"), "runtime")
     : getBundledRoot();
 }

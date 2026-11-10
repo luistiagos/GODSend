@@ -386,3 +386,78 @@ test("adota diário legado com planHash diferente quando todas as entradas confe
   assert.equal(result.writtenFiles, 0);
   assert.equal(result.journal.planHash, plan.planHash);
 });
+
+test("repreparo com diário anterior interrompido de plano divergente restaura backup órfão, reseta e conclui", async (t) => {
+  const target = createSimulationRoot(t);
+  const transactionId = crypto.randomUUID();
+
+  // Cria primeiro um plano antigo que tinha um arquivo diferente ("Aurora/old_plugin.xex")
+  const oldPlan = await createPlan(t, [
+    { relativePath: "Aurora/old_plugin.xex", contents: "new-plugin-v1" },
+    { relativePath: "launch.ini", contents: "launch-old" },
+  ], transactionId);
+
+  const divergentContents = {
+    journalVersion: 1,
+    transactionId,
+    planHash: oldPlan.planHash,
+    deviceFingerprint: oldPlan.deviceFingerprint,
+    state: "staging",
+    updatedAt: "2026-10-13T12:00:00.000Z",
+    entries: oldPlan.entries.map((entry, idx) => ({
+      entryId: entry.entryId,
+      relativePath: entry.relativePath,
+      status: idx === 0 ? "backup-created" : "staged",
+    })),
+  };
+  const signedDivergent = {
+    ...divergentContents,
+    journalHash: crypto.createHash("sha256").update(canonicalizeJson(divergentContents), "utf8").digest("hex"),
+  };
+
+  const journalDir = path.join(target, ".xbox-downloader-sim", "transactions");
+  fs.mkdirSync(journalDir, { recursive: true });
+  fs.writeFileSync(path.join(journalDir, `${transactionId}.json`), JSON.stringify(signedDivergent));
+
+  // Simula arquivo que havia sido movido para backupRoot pelo plano interrompido anterior
+  const orphanBackupFile = path.join(target, ".xbox-downloader-sim", "backup", transactionId, "Aurora", "old_plugin.xex");
+  fs.mkdirSync(path.dirname(orphanBackupFile), { recursive: true });
+  fs.writeFileSync(orphanBackupFile, "original-user-plugin");
+
+  const plan = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+  ], transactionId);
+
+  const result = await executeTransactionalWriteSimulation(plan, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(result.journal.state, "completed");
+  assert.equal(result.resumed, false);
+  assert.equal(result.writtenFiles, 2);
+  assert.equal(fs.readFileSync(path.join(target, "Aurora", "default.xex"), "utf8"), "aurora");
+  assert.equal(fs.readFileSync(path.join(target, "launch.ini"), "utf8"), "launch");
+  // O arquivo que estava em backupRoot do plano antigo deve ter sido restaurado para o alvo antes da limpeza
+  assert.equal(fs.readFileSync(path.join(target, "Aurora", "old_plugin.xex"), "utf8"), "original-user-plugin");
+});
+
+test("repreparo com arquivo de diário truncado ou corrompido no pendrive reseta e conclui com sucesso", async (t) => {
+  const target = createSimulationRoot(t);
+  const transactionId = crypto.randomUUID();
+
+  const journalDir = path.join(target, ".xbox-downloader-sim", "transactions");
+  fs.mkdirSync(journalDir, { recursive: true });
+  fs.writeFileSync(path.join(journalDir, `${transactionId}.json`), "{corrupted-json-after-crash");
+
+  const plan = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+  ], transactionId);
+
+  const result = await executeTransactionalWriteSimulation(plan, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(result.journal.state, "completed");
+  assert.equal(result.resumed, false);
+  assert.equal(result.writtenFiles, 2);
+});

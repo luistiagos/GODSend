@@ -1,8 +1,23 @@
 # Bug: "fatal" no meio do jogo deixa o pendrive BadAvatar ilegível no Xbox, e o cliente perde perfil e saves — duas vezes no mesmo cliente
 
+## Status
+
+- **Status:** Em reteste (2026-11-09).
+- **Corrigido em:** release 2.12.128.
+- **Onde:**
+  - `src/electron-app/infrastructure/usbUserContentBackup.ts`: backup preventivo com validação STFS (`CON `, `LIVE`, `PIRS` >= 0x370 bytes) e restauração automática pós-formatação;
+  - `src/electron-app/services/fixedBadAvatarPreparationService.ts`: orquestração do backup pré-formatação e restauração pós-gravação transacional;
+  - `src/electron-app/services/driveRepairService.ts`: consulta a `isVolumeDirty` e `findBrokenEntries` em `diagnoseDrive`, e backup preventivo silencioso antes do CHKDSK /F;
+  - `src/electron-app/infrastructure/simulatedTransactionalWriter.ts`: recuperação resiliente em `loadOrCreateJournal` limpando staging/backup de diários órfãos/divergentes;
+  - `src/electron-app/renderer/components/BadAvatarUsbPage.tsx`: atalho direto com botão "Reparar (CHKDSK)" e integração com `DriveRepairModal`;
+  - `src/server/services/pipeline/fat_directory.go`: tradução de erros Win32 1392, 1393, 123 e 206 em volumes FAT com orientação acionável para o reparo CHKDSK.
+- **Evidência:** 403 testes unitários aprovados em `npm run test:safety`, testes Go em `fat_directory_test.go` e `appVersion` aprovados.
+- **Falta para `closed/`:** Acompanhamento da telemetria de produção (erros de preparo/reparo FAT32 zerados em versões >= 2.12.128).
+
 - **Detectado em:** 2026-10-20 13:28 (chamados #18 e #233 do painel, sessão `258204978155575@lid`, telefone `5513988813688`)
 - **Origem:** conversa de suporte + leitura de `src/electron-app/infrastructure/readyToPlayConfiguration.ts::generateReadyToPlayLaunchIni`
   e `src/electron-app/services/fixedBadAvatarPreparationService.ts::prepareFixedBadAvatarDevice`
+- **Errors (serviço):** 9226, 9274, 9284, 9298, 9772, 10078, 10708, 10715, 11001, 11005, 11394, 11624, 11786, 11844, 11846, 12022, 12363, 12985 (18 ocorrências capturadas no preparo de pendrives com crash logs do Aurora)
 - **Classe:** crash (console) + perda de dados no dispositivo
 - **Severidade:** **P0 — Crítico** pela matriz de [`bug-triage.md`](../../agents/skills/bug-triage.md) (crash de console com
   corrupção de FAT32). **Provisória:** ainda não está provado que a causa é nossa. Custo medido: duas vezes o cliente perdeu
@@ -242,3 +257,23 @@ de `Wpp_proccess`, lidos pela skill `sessao-whatsapp`.
 2. O Windows pede para "verificar e reparar" o volume? `chkdsk E:` só leitura (roda sem admin, ver acima).
 3. Se o FAT32 estiver limpo e o HD seguir invisível ao console, a hipótese passa a ser energia/porta, e o caso sai
    deste doc.
+
+## Resolução (2.12.128)
+
+A blindagem completa do ecossistema contra perda de perfis e saves em casos de corrupção de FAT32 por crash no console foi implementada em cinco camadas:
+
+1. **Salvaguarda e Restauração Preventiva de Perfis e Saves (`usbUserContentBackup.ts`)**:
+   - `discoverUserProfilesAndSaves`: varre `Content/<16-hex>/` (perfis pessoais) e `Content/0000000000000000/<TitleID>/00000001/` (saves compartilhados), filtrando estritamente os arquivos do exploit BadAvatar e pacotes de DLCs/GODs.
+   - `isValidStfsFile`: valida cada pacote individual exigindo tamanho `>= 0x370` e cabeçalho STFS válido (`CON `, `LIVE` ou `PIRS`). Arquivos truncados ou corrompidos por falhas de I/O são ignorados com segurança sem abortar o processo.
+   - `backupUsbUserProfilesAndSaves`: acionado automaticamente antes de qualquer formatação em `prepareFixedBadAvatarDevice` e antes do reparo no `repairDrive` (CHKDSK), gerando snapshot atômico em `<saveBackupFolder>/usb-recovery/<timestamp>-<drive>/` com `recovery-manifest.json`.
+   - `restoreUsbUserProfilesAndSaves`: após a gravação transacional do BadAvatar terminar em uma unidade recém-formatada, restaura automaticamente todos os perfis e saves preservados de volta para `Content/` via escrita temporária `.tmp` e `rename` atômico.
+2. **Atalho Direto de Reparo CHKDSK no Wizard BadAvatar (`BadAvatarUsbPage.tsx`)**:
+   - Integrado `DriveRepairModal` com botão direto "Reparar (CHKDSK)" no alerta de inconsistência de sistema de arquivos e no banner de erro de integridade do portão (`requireCleanFileSystem`). O usuário pode rodar a autocorreção da FAT32 com 1 clique e retomar o preparo sem precisar recorrer à formatação.
+   - O aviso de confirmação da formatação esclarece que perfis e saves legíveis no pendrive serão salvos em backup no computador e restaurados automaticamente.
+3. **Detecção do Dirty Bit NT no Diagnóstico de Volume (`driveRepairService.ts::diagnoseDrive`)**:
+   - `diagnoseDrive` agora consulta diretamente `isVolumeDirty` (`FSCTL_IS_VOLUME_DIRTY`) e `findBrokenEntries`, garantindo que volumes com dirty bit ativo ligado pelo console sejam identificados imediatamente com `needsRepair: true`, `healthStatus: "Warning"` e `operationalStatus: "Dirty"` mesmo quando o cmdlet `Get-Volume` retornar falso positivo `"Healthy / OK"`.
+4. **Recuperação Resiliente de Diário Transacional Órfão no Repreparo (`simulatedTransactionalWriter.ts`)**:
+   - Em `loadOrCreateJournal`, diários transacionais com `planHash` divergente ou arquivos de diário corrompidos no pendrive não causam mais erro fatal que bloqueava o repreparo sem formatação (falha de 24% observada no E2E). O diário e os diretórios staging/backup antigos são resetados com segurança via `resetCompletedJournalForRepair`, iniciando uma transação nova e limpa para o plano atual.
+5. **Tradução de Erros de Corrupção FAT32 no Backend Go (`fat_directory.go`)**:
+   - `localWriteErrorText` traduz erros Win32 de fastfat (`ERROR_FILE_CORRUPT` 1392, `ERROR_DISK_CORRUPT` 1393, `ERROR_INVALID_NAME` 123 e `ERROR_FILENAME_EXCED_RANGE` 206) em orientações acionáveis em português, instruindo o usuário a utilizar **Jogos Instalados > Reparar (CHKDSK)** caso uma gravação local falhe por causa de corrupção na tabela FAT32.
+

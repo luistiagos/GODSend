@@ -229,7 +229,17 @@ async function loadOrCreateJournal(
   const current = path.join(paths.journalRoot, `${plan.transactionId}.json`);
   const previous = path.join(paths.journalRoot, `${plan.transactionId}.previous.json`);
   if (await pathExists(current) || await pathExists(previous)) {
-    const journal = await loadTransactionJournal(paths.journalRoot, plan.transactionId);
+    let journal: TransactionJournal | null = null;
+    try {
+      journal = await loadTransactionJournal(paths.journalRoot, plan.transactionId);
+    } catch {
+      // Quando o arquivo de diário anterior foi corrompido ou truncado por crash,
+      // resetamos o diário corrompido para que o repreparo prossiga limpo.
+      await resetCompletedJournalForRepair(root, paths, plan, revalidate);
+      const fresh = createTransactionJournal(plan);
+      await persistJournal(paths, fresh, revalidate);
+      return { journal: fresh, resumed: false };
+    }
     if (journal.planHash === plan.planHash) {
       verifyTransactionJournalAgainstPlan(journal, plan);
       return { journal, resumed: true };
@@ -249,12 +259,18 @@ async function loadOrCreateJournal(
         await persistJournal(paths, completed, revalidate);
         return { journal: completed, resumed: true };
       }
-      await resetCompletedJournalForRepair(paths, plan, revalidate);
+      await resetCompletedJournalForRepair(root, paths, plan, revalidate);
       const fresh = createTransactionJournal(plan);
       await persistJournal(paths, fresh, revalidate);
       return { journal: fresh, resumed: false };
     }
-    verifyTransactionJournalAgainstPlan(journal, plan);
+    // Quando um diário anterior de outro plano/versão foi interrompido (não-completed),
+    // restauramos eventuais backups pendentes para o alvo, limpamos o staging/backup antigo
+    // do diário divergente e reiniciamos um diário novo para o plano atual.
+    await resetCompletedJournalForRepair(root, paths, plan, revalidate);
+    const fresh = createTransactionJournal(plan);
+    await persistJournal(paths, fresh, revalidate);
+    return { journal: fresh, resumed: false };
   }
   await ensureSafeDirectory(root, paths.journalRoot, revalidate);
   const journal = createTransactionJournal(plan);
@@ -272,12 +288,49 @@ async function completedPlanStillMatchesTarget(
   return true;
 }
 
+async function restoreOrphanedBackups(
+  root: string,
+  backupRoot: string,
+  revalidate: () => Promise<void>,
+): Promise<void> {
+  if (!(await pathExists(backupRoot))) return;
+  async function walk(currentDir: string): Promise<void> {
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = await fsPromises.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        const rel = path.relative(backupRoot, fullPath).replace(/\\/g, "/");
+        try {
+          const targetPath = resolveInside(root, rel);
+          if (!(await pathExists(targetPath))) {
+            await ensureSafeDirectory(root, path.dirname(targetPath), revalidate);
+            await revalidate();
+            await fsPromises.rename(fullPath, targetPath);
+          }
+        } catch {
+          // Best-effort: se o caminho do backup antigo não for válido, ignora na limpeza.
+        }
+      }
+    }
+  }
+  await walk(backupRoot);
+}
+
 async function resetCompletedJournalForRepair(
+  root: string,
   paths: ReturnType<typeof metadataPaths>,
   plan: TransactionalWritePlan,
   revalidate: () => Promise<void>,
 ): Promise<void> {
   await revalidate();
+  await restoreOrphanedBackups(root, paths.backupRoot, revalidate);
   await fsPromises.rm(paths.stagingRoot, { recursive: true, force: true });
   await fsPromises.rm(paths.backupRoot, { recursive: true, force: true });
   for (const suffix of [".json", ".previous.json", ".next.json"]) {
@@ -317,7 +370,7 @@ async function executeTransactionalWrite(
         await fsPromises.rm(paths.backupRoot, { recursive: true, force: true });
         return { journal, resumed: true, reusedFiles: plan.entries.length, writtenFiles: 0 };
       }
-      await resetCompletedJournalForRepair(paths, plan, options.revalidateTarget);
+      await resetCompletedJournalForRepair(root, paths, plan, options.revalidateTarget);
       ({ journal, resumed } = await loadOrCreateJournal(root, plan, paths, options.revalidateTarget));
     }
     if (journal.state === "failed") {

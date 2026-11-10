@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"godsend/app"
@@ -258,6 +259,32 @@ func TestLocalWriteErrorTextTranslatesCannotMake(t *testing.T) {
 	}
 	if other := errors.New("disk exploded"); localWriteErrorText(other) != "disk exploded" {
 		t.Fatal("outros erros passam como estao")
+	}
+}
+
+func TestLocalWriteErrorTextExplainsCorruptionErrors(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Erros Win32 so existem no Windows")
+	}
+	for _, errno := range []syscall.Errno{errorFileCorrupt, errorDiskCorrupt} {
+		err := &os.PathError{Op: "open", Path: `E:\Content\game.iso`, Err: errno}
+		text := localWriteErrorText(err)
+		if !strings.Contains(text, "1392/1393") || !strings.Contains(text, "Reparar (CHKDSK)") {
+			t.Fatalf("erro de corrupcao %v deveria orientar CHKDSK: %q", errno, text)
+		}
+	}
+}
+
+func TestLocalWriteErrorTextExplainsNameSyntaxOrLengthErrors(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Erros Win32 so existem no Windows")
+	}
+	for _, errno := range []syscall.Errno{errorInvalidName, errorFilenameExcedRange} {
+		err := &os.PathError{Op: "create", Path: `E:\Games\Title\file.xex`, Err: errno}
+		text := localWriteErrorText(err)
+		if !strings.Contains(text, "123/206") || !strings.Contains(text, "Reparar (CHKDSK)") {
+			t.Fatalf("erro de sintaxe/tamanho %v em volume FAT deveria orientar CHKDSK: %q", errno, text)
+		}
 	}
 }
 

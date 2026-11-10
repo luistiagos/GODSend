@@ -1,7 +1,7 @@
 import { app } from "electron";
 import path from "path";
 import fs from "fs";
-import { ensureDirectory } from "../infrastructure/fileSystem";
+import { ensureDirectory, getWritableRuntimeRoot } from "../infrastructure/fileSystem";
 
 export interface GodsendConfig {
   appDataDir?: string;
@@ -124,6 +124,14 @@ export function getDefaultTransferFolder(writableRoot: string): string {
 export function getConfiguredSaveBackupFolder(): string {
   const v = readConfig().saveBackupFolder;
   return typeof v === "string" ? v.trim() : "";
+}
+
+export function getEffectiveSaveBackupFolder(): string {
+  const custom = getConfiguredSaveBackupFolder();
+  if (custom) return path.resolve(custom);
+  const tf = getConfiguredTransferFolder();
+  if (tf) return path.resolve(tf);
+  return getDefaultTransferFolder(getWritableRuntimeRoot());
 }
 
 export function getConfiguredIACookie(): string {

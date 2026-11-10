@@ -28,6 +28,13 @@ const fatErrorCannotMake = syscall.Errno(82)
 // ESRCH, hence the same GOOS guard as isFATDirectoryFull.
 const errorPathNotFound = syscall.Errno(3)
 
+const (
+	errorInvalidName        = syscall.Errno(123)
+	errorFilenameExcedRange = syscall.Errno(206)
+	errorFileCorrupt        = syscall.Errno(1392)
+	errorDiskCorrupt        = syscall.Errno(1393)
+)
+
 const fatInvalidShortNameChars = "\"*+,/:;<=>?[\\]| "
 
 // fatDirentCount is how many 32-byte entries a name takes in a FAT directory:
@@ -69,12 +76,43 @@ func isFATDirectoryFull(err error) bool {
 	return runtime.GOOS == "windows" && errors.Is(err, fatErrorCannotMake)
 }
 
+func isFATCorruptionError(err error) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	if errors.Is(err, errorFileCorrupt) || errors.Is(err, errorDiskCorrupt) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "1392") || strings.Contains(msg, "1393")
+}
+
+func isFATNameSyntaxOrLengthError(err error) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	if errors.Is(err, errorInvalidName) || errors.Is(err, errorFilenameExcedRange) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "123") || strings.Contains(msg, "206") ||
+		strings.Contains(msg, "The filename, directory name, or volume label syntax is incorrect") ||
+		strings.Contains(msg, "The filename or extension is too long") ||
+		strings.Contains(msg, "O nome de arquivo especificado é inválido")
+}
+
 // localWriteErrorText is the device error shown to the user. Go formats a
 // Windows errno in English; ERROR_CANNOT_MAKE in particular read as "The
 // directory or file cannot be created", which says nothing about the cause.
 func localWriteErrorText(err error) string {
 	if isFATDirectoryFull(err) {
 		return "o Windows recusou criar o arquivo porque a pasta atingiu o limite de 65.536 entradas do FAT32 (erro 82)"
+	}
+	if isFATCorruptionError(err) {
+		return fmt.Sprintf("a estrutura do arquivo ou disco está corrompida e ilegível (erro 1392/1393). A tabela FAT32 do pendrive foi danificada (comum após travamentos no console): no app, vá em Jogos Instalados > Reparar (CHKDSK) para corrigir o pendrive e tente gravar novamente (detalhe: %v)", err)
+	}
+	if isFATNameSyntaxOrLengthError(err) {
+		return fmt.Sprintf("o Windows recusou o nome do arquivo ou caminho na unidade FAT32 (erro 123/206). Em pendrives, esse erro ocorre quando entradas de diretório estão corrompidas após travamentos no console: no app, use Jogos Instalados > Reparar (CHKDSK) para corrigir a unidade e tente gravar novamente (detalhe: %v)", err)
 	}
 	// Every caller has just confirmed the device identity marker, so "path not
 	// found" here is not a disconnect: with the parent folder present it points

@@ -22,6 +22,7 @@ import {
   getDefaultTorrentTempPath,
   getConfiguredTransferFolder,
   getConfiguredSaveBackupFolder,
+  getEffectiveSaveBackupFolder,
   getDefaultTransferFolder,
   getConfiguredROMPath,
   getDefaultROMPath,
@@ -253,13 +254,7 @@ export function register(ipcMain: IpcMain): void {
   });
 
   ipcMain.handle("config:get-save-backup-folder", () => getConfiguredSaveBackupFolder());
-  ipcMain.handle("config:get-effective-save-backup-folder", () => {
-    const custom = getConfiguredSaveBackupFolder();
-    if (custom) return path.resolve(custom);
-    const tf = getConfiguredTransferFolder();
-    if (tf) return path.resolve(tf);
-    return getDefaultTransferFolder(getWritableRuntimeRoot());
-  });
+  ipcMain.handle("config:get-effective-save-backup-folder", () => getEffectiveSaveBackupFolder());
   ipcMain.handle("config:set-save-backup-folder", (_event, folder) => {
     const f = typeof folder === "string" ? folder.trim() : "";
     writeConfig({ saveBackupFolder: f });
