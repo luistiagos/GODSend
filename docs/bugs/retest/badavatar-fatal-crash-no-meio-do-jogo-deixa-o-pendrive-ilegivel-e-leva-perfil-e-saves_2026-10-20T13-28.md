@@ -3,16 +3,21 @@
 ## Status
 
 - **Status:** Em reteste (2026-11-09).
-- **Corrigido em:** release 2.12.128.
+- **Corrigido em:** release 2.12.128 (commits `d5af6d5`, `128c290`, `368cc2e`).
 - **Onde:**
   - `src/electron-app/infrastructure/usbUserContentBackup.ts`: backup preventivo com validação STFS (`CON `, `LIVE`, `PIRS` >= 0x370 bytes) e restauração automática pós-formatação;
   - `src/electron-app/services/fixedBadAvatarPreparationService.ts`: orquestração do backup pré-formatação e restauração pós-gravação transacional;
   - `src/electron-app/services/driveRepairService.ts`: consulta a `isVolumeDirty` e `findBrokenEntries` em `diagnoseDrive`, e backup preventivo silencioso antes do CHKDSK /F;
-  - `src/electron-app/infrastructure/simulatedTransactionalWriter.ts`: recuperação resiliente em `loadOrCreateJournal` limpando staging/backup de diários órfãos/divergentes;
-  - `src/electron-app/renderer/components/BadAvatarUsbPage.tsx`: atalho direto com botão "Reparar (CHKDSK)" e integração com `DriveRepairModal`;
-  - `src/server/services/pipeline/fat_directory.go`: tradução de erros Win32 1392, 1393, 123 e 206 em volumes FAT com orientação acionável para o reparo CHKDSK.
-- **Evidência:** 403 testes unitários aprovados em `npm run test:safety`, testes Go em `fat_directory_test.go` e `appVersion` aprovados.
-- **Falta para `closed/`:** Acompanhamento da telemetria de produção (erros de preparo/reparo FAT32 zerados em versões >= 2.12.128).
+  - `src/electron-app/infrastructure/simulatedTransactionalWriter.ts`: recuperação resiliente em `loadOrCreateJournal` restaurando backups órfãos e limpando staging/backup de diários divergentes/corrompidos;
+  - `src/electron-app/renderer/components/BadAvatarUsbPage.tsx`: atalho direto com botão "Reparar (CHKDSK)", botão "Reparar Pendrive (CHKDSK) Agora" e dica preventiva de segurança para saves;
+  - `src/server/services/pipeline/fat_directory.go`: tradução de erros Win32 1392, 1393, 123 e 206 em volumes FAT com orientação acionável para o reparo CHKDSK;
+  - `src/electron-app/ipc/toolsHandlers.ts`: `.unref()` no timer de polling pós-`xbox:move-game`.
+- **Evidência:**
+  - Pasta: `C:\projects\.bugfix-xbox360\evidencia\20261109-2340-badavatar-fatal-crash-no-meio-do-jogo-deixa-o-pendrive-ilegivel-e-leva-perfil-e-saves_2026-10-20T13-28\` (e E2E anterior em pendrive físico em `C:\projects\.bugfix-xbox360\evidencia\20261020-1551-badavatar-fatal-crash-3a\`);
+  - **T2 (UI E2E Playwright)**: alerta de volume sujo com botão "Reparar (CHKDSK)" (`t2-01-alerta-volume-sujo.png`), abertura do `DriveRepairModal` (`t2-02-modal-reparo-chkdsk.png`), bloqueio do portão `requireCleanFileSystem` com botão "Reparar Pendrive (CHKDSK) Agora" (`t2-03-portao-bloqueio-reparo-agora.png`) e dica preventiva 3b na conclusão (`t2-04-conclusao-aviso-seguranca-3b.png`);
+  - **T3 (Regressão)**: 405/405 testes unitários aprovados em `npm run test:safety` (`t3-test-safety.txt`), 12 pacotes Go aprovados em `go test -count=1 ./...` (`t3-go-test.txt`) e smoke tests `npm --prefix src/electron-app run test:electron-security` aprovados;
+  - **T4 (Logs)**: console do backend (`t4-backend-console.txt`) e logs de sessão (`t4-app-logs.txt`) verificados na `v2.12.128` sem erros atribuíveis ao fix.
+- **Falta para `closed/`:** Acompanhamento da telemetria de produção e confirmação de clientes na versão publicada `>= 2.12.128`.
 
 - **Detectado em:** 2026-10-20 13:28 (chamados #18 e #233 do painel, sessão `258204978155575@lid`, telefone `5513988813688`)
 - **Origem:** conversa de suporte + leitura de `src/electron-app/infrastructure/readyToPlayConfiguration.ts::generateReadyToPlayLaunchIni`
