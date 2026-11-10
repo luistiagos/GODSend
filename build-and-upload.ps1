@@ -226,6 +226,29 @@ function Print-Step {
     Write-Host "========================================" -ForegroundColor $Color
 }
 
+# Chaves do R2 no AMBIENTE do rclone, nunca na linha de comando: a linha de comando de um processo e
+# legivel por qualquer processo do usuario (Gerenciador de Tarefas, Win32_Process.CommandLine) e
+# ferramentas de diagnostico a gravam em log (foi assim que as chaves vazaram em 2026-11-10). Durante a
+# chamada saem as RCLONE_* herdadas: em DEBUG o rclone imprime o valor que leu do ambiente. No fim tudo
+# volta ao que era, para a chave nao ficar no PowerShell de quem rodou o script.
+# Uso: Invoke-R2Rclone $rclone $cfg <argumentos do rclone, sem as chaves>
+function Invoke-R2Rclone {
+    $exe = $args[0]
+    $r2 = $args[1]
+    $rcloneArgs = @($args | Select-Object -Skip 2)
+    $herdadas = @(Get-ChildItem Env: | Where-Object { $_.Name -like 'RCLONE_*' } |
+        ForEach-Object { [PSCustomObject]@{ Name = $_.Name; Value = $_.Value } })
+    foreach ($v in $herdadas) { Remove-Item -LiteralPath "Env:$($v.Name)" }
+    try {
+        $env:RCLONE_S3_ACCESS_KEY_ID = $r2.accessKeyId
+        $env:RCLONE_S3_SECRET_ACCESS_KEY = $r2.secretAccessKey
+        & $exe @rcloneArgs
+    } finally {
+        Remove-Item -LiteralPath Env:RCLONE_S3_ACCESS_KEY_ID, Env:RCLONE_S3_SECRET_ACCESS_KEY -ErrorAction SilentlyContinue
+        foreach ($v in $herdadas) { Set-Item -LiteralPath "Env:$($v.Name)" -Value $v.Value }
+    }
+}
+
 function Find-Rclone {
     $cmd = Get-Command rclone -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
@@ -445,8 +468,6 @@ if (-not $SkipR2) {
         $destFolder = ":s3:$($cfg.bucket)/$HF_FOLDER"
         $s3Flags = @(
             "--s3-provider=Cloudflare",
-            "--s3-access-key-id=$($cfg.accessKeyId)",
-            "--s3-secret-access-key=$($cfg.secretAccessKey)",
             "--s3-endpoint=$($cfg.endpoint)",
             "--s3-no-check-bucket"
         )
@@ -488,21 +509,21 @@ if (-not $SkipR2) {
         Copy-Item -LiteralPath $t.PortablePath -Destination $tempFile -Force
 
         Write-Host "Enviando $($t.DistName) -> '$($cfg.bucket)/$HF_FOLDER' e raiz..." -ForegroundColor Yellow
-        & $rclone copy $tempFile $destFolder @s3Flags --progress
+        Invoke-R2Rclone $rclone $cfg copy $tempFile $destFolder @s3Flags --progress
         if ($LASTEXITCODE -ne 0) {
             Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
             throw "rclone copy ($($t.DistName)) falhou com exit code $LASTEXITCODE"
         }
         # Mantem copia na raiz: e o link curto que o suporte manda
-        & $rclone copy $tempFile $destRoot @s3Flags
+        Invoke-R2Rclone $rclone $cfg copy $tempFile $destRoot @s3Flags
 
         # Envia sidecar .sha256
-        & $rclone copyto $shaFile "$destFolder/$($t.DistName).sha256" @s3Flags @txtHeaders
-        & $rclone copyto $shaFile "$destRoot/$($t.DistName).sha256" @s3Flags @txtHeaders
+        Invoke-R2Rclone $rclone $cfg copyto $shaFile "$destFolder/$($t.DistName).sha256" @s3Flags @txtHeaders
+        Invoke-R2Rclone $rclone $cfg copyto $shaFile "$destRoot/$($t.DistName).sha256" @s3Flags @txtHeaders
 
         # Verification do binario
         Write-Host "Verificando transferencia de $($t.DistName)..." -ForegroundColor Yellow
-        $remoteEntries = & $rclone lsjson $destFolder @s3Flags | ConvertFrom-Json
+        $remoteEntries = Invoke-R2Rclone $rclone $cfg lsjson $destFolder @s3Flags | ConvertFrom-Json
         $remoteByName = @{}
         foreach ($e in $remoteEntries) {
             if (-not $e.IsDir) { $remoteByName[$e.Name] = $e.Size }
@@ -543,8 +564,8 @@ if (-not $SkipR2) {
             "--header-upload=Content-Type: application/json; charset=utf-8",
             "--header-upload=Cache-Control: max-age=300"
         )
-        & $rclone copyto $versionJsonFile "$destFolder/version.json" @s3Flags @jsonHeaders
-        & $rclone copyto $versionJsonFile "$destRoot/version.json" @s3Flags @jsonHeaders
+        Invoke-R2Rclone $rclone $cfg copyto $versionJsonFile "$destFolder/version.json" @s3Flags @jsonHeaders
+        Invoke-R2Rclone $rclone $cfg copyto $versionJsonFile "$destRoot/version.json" @s3Flags @jsonHeaders
 
         Write-Host "  OK: version.json publicado" -ForegroundColor Green
 
