@@ -301,10 +301,11 @@ async function reportConsoleCrashArtifacts(
 }
 
 /**
- * Gravar por cima de um FAT32 danificado foi o que aconteceu em 18/09: o Windows ainda listava os
- * arquivos, mas as gravações seguintes do pipeline falharam e só o formatar resolveu. O console que
- * corrompe o pendrive no meio do jogo leva junto o perfil e os saves gravados nele. Uma verificação
- * que não chegou a uma resposta não bloqueia: só fica no log.
+ * A pasta oculta de sistema "Xbox360" (formato legado de armazenamento do console em contêineres
+ * Data0000..Data0003) tem precedência sobre a pasta Content da raiz FAT32 segundo a documentação
+ * oficial e do ConsoleMods ("Files and Directories"). Quando está presente com dados, a dashboard original
+ * do console ignora a pasta Content da raiz, impedindo que o perfil ABadAvatar seja reconhecido.
+ * O preparo sem formatação é recusado para evitar que o usuário vá ao console com um pendrive inoperante.
  */
 export async function requireNoLegacyXbox360Container(
   driveRoot: string,

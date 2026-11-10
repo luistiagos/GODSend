@@ -12,7 +12,7 @@
   (critérios C12 e C13, decisão 5, textos da T9), o risco **R1** de
   [`app-android-preparador-pendrive-badavatar_2026-10-11.md`](app-android-preparador-pendrive-badavatar_2026-10-11.md)
   e a hipótese da "Unidade de Memória" (Tarefa 5) do bug
-  [`badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md`](../bugs/open/badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md).
+  [`badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md`](../bugs/retest/badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md).
 - **Ninguém aqui tem console.** A investigação é por documentação, código de ferramentas abertas,
   vídeos e **conversas de clientes que têm console**: os clientes da loja são o laboratório.
 

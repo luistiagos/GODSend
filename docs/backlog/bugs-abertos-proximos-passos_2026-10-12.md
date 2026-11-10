@@ -18,7 +18,7 @@ Fecho de uma sessão longa de acompanhamento do `/pipeline-correcao-bugs` (execu
 
 | Bug | Sev. | Situação | Quem destrava |
 |---|---|---|---|
-| [badavatar-perfil-do-exploit-nao-aparece…](../bugs/open/badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md) | P1→médio | `bloqueado`: a causa provada já foi corrigida (2.12.99); sobra o caso do #66, que só reproduz no console do cliente | cliente/console |
+| [badavatar-perfil-do-exploit-nao-aparece…](../bugs/retest/badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md) | P1→médio | `reteste`: mitigado com detecção e bloqueio de contêiner legado `Xbox360/` e rebaixamento de estado | cliente/console |
 | [catalogo-gta5-hf-incompleto…](../bugs/open/catalogo-gta5-hf-incompleto-sem-disco-instalacao-trava-boot_2026-09-26T01-05.md) | P1 | `sem-codigo`: o app já filtra a fonte incompleta (2.12.102/105) | dono apaga a linha `GTA 5 7z` da API de ROMs; boot do #85 |
 | [release-xboxcompanion-exe-sem-assinatura…](../bugs/open/release-xboxcompanion-exe-sem-assinatura-barrado-no-download-pelo-smartscreen-do-edge_2026-10-06T17-49.md) | P2 | `sem-codigo`: falta assinatura Authenticode; contorno "Manter mesmo assim" | dono decide comprar o certificado |
 | [electron-main-ferramentas-iso-mostram-sucesso…](../bugs/open/electron-main-ferramentas-iso-mostram-sucesso-quando-o-backend-responde-erro_2026-10-11T13-55.md) | P2 | novo, nunca passou pelo pipeline: "ISO para XEX/GOD" mostra check verde quando o backend falha | pipeline |
