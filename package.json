@@ -4,6 +4,8 @@
   "private": true,
   "description": "Xbox 360 Companion — Go backend + Electron desktop app",
   "scripts": {
+    "test": "npm run test:safety --prefix src/electron-app",
+    "test:safety": "npm run test:safety --prefix src/electron-app",
     "postinstall": "npm install --prefix src/electron-app",
     "build:server": "node scripts/build-server.js",
     "build:server:win:x64": "node scripts/build-server.js --x64",

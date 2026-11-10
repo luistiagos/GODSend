@@ -279,7 +279,10 @@ export function register(ipcMain: IpcMain): void {
       (async () => {
         const jobId = r.id;
         for (let i = 0; i < 600; i++) { // poll up to ~10 minutes
-          await new Promise((res) => setTimeout(res, 1000));
+          await new Promise((res) => {
+            const timer = setTimeout(res, 1000);
+            if (typeof (timer as any)?.unref === "function") (timer as any).unref();
+          });
           try {
             const raw  = await backendGet("/ftp/jobs");
             const data = JSON.parse(raw);
