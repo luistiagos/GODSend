@@ -44,6 +44,8 @@ src/electron-app/.webpack/
 src/electron-app/out/
 
 .claude/settings.local.json
+__pycache__/
+*.pyc
 
 # graphify knowledge graph outputs (generated, not tracked)
 graphify-out/

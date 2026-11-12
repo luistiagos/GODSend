@@ -506,37 +506,89 @@ def extract_archives_and_cleanup(dest_dir: str, passwords: List[str] = None) -> 
 # Execucao em Lote ou Diretorio Unico
 # ----------------------------------------------------------------------
 
-def is_single_game_folder(folder: str) -> bool:
-    """Detecta se uma pasta parece ser um jogo individual ou uma pasta com varios jogos."""
+class AmbiguousTargetError(ValueError):
+    """Lancado quando uma pasta tem exatamente 1 subpasta e nenhum arquivo de jogo na raiz."""
+    pass
+
+
+def is_single_game_folder(folder: str, mode: Optional[str] = None) -> bool:
+    """Detecta se uma pasta parece ser um jogo individual ou uma pasta com varios jogos.
+
+    Parametros:
+      folder: Caminho da pasta.
+      mode: 'jogo', 'biblioteca' ou None (deteccao automatica).
+
+    Retorna:
+      True se for pasta de jogo individual, False se for biblioteca de multiplos jogos.
+
+    Lanca:
+      AmbiguousTargetError: se mode for None e a pasta tiver exatamente 1 subpasta
+      sem arquivos de jogo na raiz, tornando impossivel distinguir automaticamente
+      uma biblioteca com 1 jogo de um jogo aninhado em subpastas.
+    """
+    if mode == "jogo":
+        return True
+    if mode == "biblioteca":
+        return False
+
     entries = os.listdir(folder)
-    # Se contem default.xex ou Content ou arquivos .img/.rpf/containers
+    # Se contem default.xex ou Content ou arquivos .img/.rpf/containers na raiz
     has_xex = any(f.lower() == 'default.xex' for f in entries)
     has_content = any(f.lower() in {'content', '0000000000000000'} for f in entries)
     has_game_data = any(f.lower().endswith(('.rpf', '.img', '.xex', '.podlzx', '.fpt')) for f in entries)
     if has_xex or has_content or has_game_data:
         return True
-    # Se todas as subpastas sao pastas e contem mais de 3 pastas de jogos
+
+    # Subpastas diretas
     subdirs = [e for e in entries if os.path.isdir(os.path.join(folder, e))]
     if len(subdirs) >= 2:
         return False
+    if len(subdirs) == 1:
+        raise AmbiguousTargetError(
+            f"Alvo ambiguo: '{folder}' contem exatamente 1 subpasta ('{subdirs[0]}') "
+            f"e nenhum arquivo de jogo na raiz. Nao e possivel determinar automaticamente "
+            f"se e uma biblioteca com 1 jogo ou um jogo aninhado.\n"
+            f"Informe o modo explicitamente:\n"
+            f"  --biblioteca (-b) se for uma biblioteca que contem pastas de jogos\n"
+            f"  --jogo (-j)       se for a pasta de um jogo individual aninhado"
+        )
     return True
 
 
-def run_organizer(target: str, extract: bool = False, dry_run: bool = False, passwords: List[str] = None):
-    """Executa a organizacao completa para uma pasta de jogo ou pasta de biblioteca."""
+def run_organizer(
+    target: str,
+    extract: bool = False,
+    dry_run: bool = False,
+    passwords: List[str] = None,
+    mode: Optional[str] = None
+) -> bool:
+    """Executa a organizacao completa para uma pasta de jogo ou pasta de biblioteca.
+
+    Retorna True se concluido com sucesso, False em caso de erro (caminho invalido, alvo ambiguo, etc).
+    """
     target = os.path.abspath(target)
     if not os.path.exists(target):
         print(f"[!] Caminho nao encontrado: {target}")
-        return
+        return False
+    if not os.path.isdir(target):
+        print(f"[!] O alvo informado nao e um diretorio: {target}")
+        return False
 
     print("=" * 80)
     print(" ORGANIZADOR DE JOGOS PARA XBOX 360 RGH (AURORA)")
     print(f" Alvo: {target}")
-    print(f" Extrair compactados: {extract} | Dry-run (simulação): {dry_run}")
+    mode_desc = f" | Modo explicito: {mode}" if mode else ""
+    print(f" Extrair compactados: {extract} | Dry-run (simulação): {dry_run}{mode_desc}")
     print("=" * 80)
 
     # Verifica se o target e um jogo unico ou uma colecao de jogos
-    if is_single_game_folder(target):
+    try:
+        is_single = is_single_game_folder(target, mode=mode)
+    except AmbiguousTargetError as e:
+        print(f"\n[!] ERRO: {e}\n")
+        return False
+
+    if is_single:
         game_folders = [target]
     else:
         game_folders = [os.path.join(target, d) for d in sorted(os.listdir(target)) if os.path.isdir(os.path.join(target, d))]
@@ -561,6 +613,7 @@ def run_organizer(target: str, extract: bool = False, dry_run: bool = False, pas
     print("\n" + "=" * 80)
     print(f" CONCLUIDO! {success_count}/{len(game_folders)} pastas organizadas com sucesso para Xbox 360 RGH!")
     print("=" * 80)
+    return True
 
 
 def main():
@@ -571,6 +624,17 @@ def main():
         "--target", "-t",
         default=os.environ.get(BIBLIOTECA_ENV) or None,
         help=f"Caminho da pasta do jogo ou da pasta de biblioteca (padrao: variavel de ambiente {BIBLIOTECA_ENV})"
+    )
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--jogo", "-j",
+        action="store_true",
+        help="Trata o alvo explicitamente como pasta de um único jogo"
+    )
+    mode_group.add_argument(
+        "--biblioteca", "-b",
+        action="store_true",
+        help="Trata o alvo explicitamente como pasta de biblioteca contendo jogos em subpastas"
     )
     parser.add_argument(
         "--extract", "-e",
@@ -595,13 +659,21 @@ def main():
         # Antes saia com 0 e parecia sucesso.
         print(f"[!] Caminho nao encontrado: {os.path.abspath(args.target)}")
         sys.exit(1)
-    passwords =list(dict.fromkeys((args.password or []) + DEFAULT_PASSWORDS))
-    run_organizer(
+    if not os.path.isdir(args.target):
+        print(f"[!] O alvo informado nao e um diretorio: {os.path.abspath(args.target)}")
+        sys.exit(1)
+
+    passwords = list(dict.fromkeys((args.password or []) + DEFAULT_PASSWORDS))
+    mode = "jogo" if args.jogo else ("biblioteca" if args.biblioteca else None)
+    ok = run_organizer(
         target=args.target,
         extract=args.extract,
         dry_run=args.dry_run,
-        passwords=passwords
+        passwords=passwords,
+        mode=mode
     )
+    if not ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

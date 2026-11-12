@@ -65,16 +65,28 @@ faltar. Sem nenhum dos dois, o script para dizendo isso. Se o dono não disser a
 
 ### 2.1. Organizar Biblioteca Completa
 
-Varre todas as pastas de jogos no diretório destino, remove lixos, desaninha e unifica DLCs:
+Varre todas as pastas de jogos no diretório destino, remove lixos, desaninha e unifica DLCs. Quando a biblioteca contiver múltiplos jogos (2 ou mais), a detecção é automática:
 
 ```powershell
 python "<skill>\scripts\organizar_rgh.py" --target "<biblioteca>"
+```
+
+**Biblioteca com apenas 1 jogo (`--biblioteca` / `-b`):** Se a biblioteca contiver exatamente uma pasta de jogo e nenhum executável na raiz, a estrutura é ambígua em relação a um jogo com subpasta única. O script para preventivamente sem modificar nada e solicita a confirmação do modo. Use `--biblioteca` para forçar o tratamento como biblioteca:
+
+```powershell
+python "<skill>\scripts\organizar_rgh.py" --target "<biblioteca>" --biblioteca
 ```
 
 ### 2.2. Organizar um Jogo Específico
 
 ```powershell
 python "<skill>\scripts\organizar_rgh.py" --target "<biblioteca>\Grand Theft Auto V + MOD Definitive Edition 1.5.1 ( COPIA E COLA )"
+```
+
+**Jogo aninhado em subpasta única (`--jogo` / `-j`):** Se a pasta do jogo contiver apenas uma subpasta (ex: `Jogo\Sub 1\default.xex`) e nenhum arquivo de jogo na raiz, use `--jogo` para indicar explicitamente que a pasta é o jogo e desaninhar os arquivos diretamente para ela:
+
+```powershell
+python "<skill>\scripts\organizar_rgh.py" --target "<pasta_do_jogo>" --jogo
 ```
 
 ### 2.3. Extrair Compactados Pendentes com Senha e Organizar (`--extract`)
@@ -100,6 +112,8 @@ python "<skill>\scripts\organizar_rgh.py" --target "<biblioteca>" --dry-run
 | Parâmetro | Atalho | Padrão | Descrição |
 |---|---|---|---|
 | `--target` | `-t` | `XBOX360_BIBLIOTECA` (variável de ambiente; sem ela, obrigatório) | Caminho de uma pasta individual de jogo ou de uma biblioteca contendo múltiplos jogos. Caminho inexistente sai com código 1. |
+| `--jogo` | `-j` | `False` | Força o tratamento do alvo como pasta de um único jogo. |
+| `--biblioteca` | `-b` | `False` | Força o tratamento do alvo como biblioteca de jogos (processa cada subpasta como jogo individual). Obrigatório quando a biblioteca tem exatamente 1 jogo. |
 | `--extract` | `-e` | `False` | Extrai arquivos compactados pendentes antes de organizar e remove os arquivos de arquivo (.rar/.zip). |
 | `--password` | `-p` | `gorozinhobr` | Senha adicional para testar na extração pelo 7-Zip. |
 | `--dry-run` | `-d` | `False` | Executa apenas a análise sem mover ou apagar arquivos. |
