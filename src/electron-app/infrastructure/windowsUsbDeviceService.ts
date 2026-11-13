@@ -26,7 +26,9 @@ const SLOW_MACHINE_TIMEOUT_FACTOR = 3;
 const RECENT_DURATION_SAMPLES = 5;
 const SLOW_POWERSHELL_LOG_MS = 2_000;
 
-const recentPowerShellDurationsMs: number[] = [];
+// One window per script label: five fast native runs used to push a slow physical run out of a
+// shared window, dropping the physical deadline back to its base on the machine that needed more.
+const recentPowerShellDurationsMs = new Map<string, number[]>();
 
 /**
  * Deadline for an enumeration script on a machine whose recent PowerShell runs took
@@ -44,7 +46,7 @@ export function enumerationTimeoutFor(baseMs: number, recentDurationsMs: readonl
 // Only successes are measured: a timeout may be a real hang (Storage Management after a flaky
 // disconnect), and learning from it would stretch every later wait toward the ceiling.
 function enumerationTimeout(baseMs: number): number {
-  return enumerationTimeoutFor(baseMs, recentPowerShellDurationsMs);
+  return enumerationTimeoutFor(baseMs, [...recentPowerShellDurationsMs.values()].flat());
 }
 
 type UsbEnumerationTimeoutError = Error & {
@@ -188,8 +190,10 @@ function runPowerShell(
         }
         const durationMs = Math.round(performance.now() - startedAt);
         if (learnDuration) {
-          recentPowerShellDurationsMs.push(durationMs);
-          if (recentPowerShellDurationsMs.length > RECENT_DURATION_SAMPLES) recentPowerShellDurationsMs.shift();
+          const samples = recentPowerShellDurationsMs.get(label) ?? [];
+          samples.push(durationMs);
+          if (samples.length > RECENT_DURATION_SAMPLES) samples.shift();
+          recentPowerShellDurationsMs.set(label, samples);
         }
         if (durationMs >= SLOW_POWERSHELL_LOG_MS) {
           appendAppEvent("usb", `powershell (${label}) respondeu em ${durationMs} ms (prazo ${timeoutMs} ms)`);
@@ -567,11 +571,11 @@ export async function enumerateSafeWindowsUsbDevices(
     fillAllocationUnits(rows.map((row) => enrichDeviceSafety(parsePhysicalDevice(row), systemDrive)));
   const parseOutput = (rawOutput: string): Promise<SafeUsbDevice[]> => toDevices(parseRows(rawOutput));
 
-  // The native rows plus whether a non-system Fixed drive (a possible USB HDD) is mounted.
-  let fixedDriveMounted = false;
+  // The native rows plus the roots of the non-system Fixed drives (possible USB HDDs) mounted.
+  let fixedDriveRoots: string[] = [];
   const parseNativeOutput = (rawOutput: string): Promise<SafeUsbDevice[]> => {
     const rows = parseRows(rawOutput);
-    fixedDriveMounted = rows.some(isFixedDriveMarker);
+    fixedDriveRoots = rows.filter(isFixedDriveMarker).map((row) => asString(row.RootPath));
     return toDevices(rows.filter((row) => !isFixedDriveMarker(row)));
   };
 
@@ -583,7 +587,7 @@ export async function enumerateSafeWindowsUsbDevices(
     logPrefix?: string,
   ): Promise<SafeUsbDevice[]> => {
     const devices = await finishRemovableEnumeration(removable, includeHealth, logPrefix);
-    if (!fixedDriveMounted) return devices;
+    if (fixedDriveRoots.length === 0) return devices;
     const listed = new Set(devices.map((device) => normalizeRoot(device.rootPath)));
     // The physical rows for a root already listed are dropped by the filter below, so for a target
     // the native script already listed this pass cannot change the row the caller matches — it only
@@ -662,11 +666,19 @@ export async function enumerateSafeWindowsUsbDevices(
     }
   }
 
+  // Here a native run answered with no pendrive but a mounted Fixed drive, so only the physical
+  // script can list it (a USB HDD) and the native recovery below is blind to it. A fresh process
+  // starts with no measurement, and Storage Management took over 12 s on a customer's machine with
+  // the HDD mounted and readable: give it the ceiling at once instead of the base.
+  // [[electron-main-hd-externo-estoura-12s-na-enumeracao-fisica-e-recuperacao-nativa-e-cega-para-fixed_2026-11-12T20-35]]
+  const onlyPhysicalCanList = fixedDriveRoots.length > 0;
   try {
     const devices = await parseOutput(
       await runPowerShell(
         ENUMERATE_USB_SCRIPT,
-        enumerationTimeout(USB_ENUMERATION_TIMEOUT_MS),
+        onlyPhysicalCanList
+          ? ENUMERATION_TIMEOUT_CEILING_MS
+          : enumerationTimeout(USB_ENUMERATION_TIMEOUT_MS),
         "enumeracao fisica",
       ),
     );
@@ -677,6 +689,7 @@ export async function enumerateSafeWindowsUsbDevices(
     return devices;
   } catch (error: any) {
     appendAppEvent("usb", `enumeracao fisica falhou: ${error?.message || String(error)}`);
+    if (onlyPhysicalCanList) throw await explainSlowEnumeration(error, fixedDriveRoots[0]);
     if (isUsbEnumerationTimeout(error)) {
       const recovered = await recoverNativeListing("enumeracao fisica excedeu o tempo");
       if (recovered) return recovered;
