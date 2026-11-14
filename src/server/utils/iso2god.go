@@ -31,6 +31,7 @@ package utils
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha1"
 	_ "embed"
 	"encoding/binary"
@@ -161,6 +162,18 @@ type TitleExecInfo struct {
 // the LIVE header gets UTF-16 display title fields at 0x411 and 0x1691 (same as
 // iso2god-rs with_game_title). Pass nil to leave those slots zero.
 func RunIso2GodNative(isoPath, outDir string, resolveDisplayTitle func(titleID uint32) string) error {
+	return RunIso2GodNativeWithContext(context.Background(), isoPath, outDir, resolveDisplayTitle)
+}
+
+// RunIso2GodNativeWithContext converts an Xbox ISO to GOD format and aborts
+// cooperatively when ctx is cancelled.
+func RunIso2GodNativeWithContext(ctx context.Context, isoPath, outDir string, resolveDisplayTitle func(titleID uint32) string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f, err := os.Open(isoPath)
 	if err != nil {
 		return fmt.Errorf("iso2god: open %s: %w", isoPath, err)
@@ -228,12 +241,22 @@ func RunIso2GodNative(isoPath, outDir string, resolveDisplayTitle func(titleID u
 	// 6. Write DataNNNN partition files.
 	partSizes := make([]int64, partCount)
 	for p := uint64(0); p < partCount; p++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		outPath := filepath.Join(dataDir, fmt.Sprintf("Data%04d", p))
-		sz, err := writeGODPart(f, partOff, p, blockCount, outPath)
+		sz, err := writeGODPartWithContext(ctx, f, partOff, p, blockCount, outPath)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return err
+			}
 			return fmt.Errorf("iso2god: part %d: %w", p, err)
 		}
 		partSizes[p] = sz
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// 7. Link MHT hash chain across partitions.
@@ -566,11 +589,26 @@ func ExtractTitleIDFromFile(execPath string) (string, error) {
 //
 // Returns the actual byte size of the written file.
 func writeGODPart(iso *os.File, partOff uint64, partIdx, totalBlocks uint64, outPath string) (int64, error) {
+	return writeGODPartWithContext(context.Background(), iso, partOff, partIdx, totalBlocks, outPath)
+}
+
+func writeGODPartWithContext(ctx context.Context, iso *os.File, partOff uint64, partIdx, totalBlocks uint64, outPath string) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	out, err := os.Create(outPath)
 	if err != nil {
 		return 0, err
 	}
-	defer out.Close()
+	closed := false
+	defer func() {
+		if !closed {
+			_ = out.Close()
+		}
+	}()
 
 	var mht godHashList
 
@@ -583,6 +621,12 @@ func writeGODPart(iso *os.File, partOff uint64, partIdx, totalBlocks uint64, out
 	isoPos := int64(partOff) + int64(partIdx)*int64(godBlocksPerPart)*godBlockSz
 
 	for sp := 0; sp < godSPsPerPart; sp++ {
+		if err := ctx.Err(); err != nil {
+			_ = out.Close()
+			closed = true
+			_ = os.Remove(outPath)
+			return 0, err
+		}
 		if isoPos >= isoEnd {
 			break
 		}
@@ -831,12 +875,17 @@ func ExtractArchive(archivePath, destDir string) error {
 // ExtractArchiveWithProgress reports bounded, synchronous updates while extracting.
 // The callback is optional; existing callers can continue using ExtractArchive.
 func ExtractArchiveWithProgress(archivePath, destDir string, callback func(ExtractionProgress)) error {
-	progress := newArchiveProgress(callback)
+	return ExtractArchiveWithContext(context.Background(), archivePath, destDir, callback)
+}
+
+// ExtractArchiveWithContext behaves like ExtractArchiveWithProgress and aborts
+// cooperatively when ctx is cancelled.
+func ExtractArchiveWithContext(ctx context.Context, archivePath, destDir string, callback func(ExtractionProgress)) error {
+	progress := newArchiveProgressWithContext(ctx, callback)
 	if err := extractArchiveFilter(archivePath, destDir, "", progress); err != nil {
 		return err
 	}
-	progress.Done = true
-	progress.report(true)
+	progress.markDone()
 	return nil
 }
 
@@ -938,8 +987,14 @@ func ExtractISO(archivePath, safeName, tempRoot string) (string, error) {
 
 // ExtractISOWithProgress uses the total of matching entries, excluding other files.
 func ExtractISOWithProgress(archivePath, safeName, tempRoot string, callback func(ExtractionProgress)) (string, error) {
+	return ExtractISOWithContext(context.Background(), archivePath, safeName, tempRoot, callback)
+}
+
+// ExtractISOWithContext behaves like ExtractISOWithProgress and aborts
+// cooperatively when ctx is cancelled.
+func ExtractISOWithContext(ctx context.Context, archivePath, safeName, tempRoot string, callback func(ExtractionProgress)) (string, error) {
 	dest := filepath.Join(tempRoot, safeName+"_extracted")
-	progress := newArchiveProgress(callback)
+	progress := newArchiveProgressWithContext(ctx, callback)
 	if err := extractArchiveFilter(archivePath, dest, ".iso", progress); err != nil {
 		return "", err
 	}
@@ -947,8 +1002,7 @@ func ExtractISOWithProgress(archivePath, safeName, tempRoot string, callback fun
 	if iso == "" {
 		return "", fmt.Errorf("no .iso found in archive")
 	}
-	progress.Done = true
-	progress.report(true)
+	progress.markDone()
 	return iso, nil
 }
 
@@ -976,14 +1030,18 @@ func extractZipFilter(src, destDir, wantExt string, progress *archiveProgress) e
 		return fmt.Errorf("open zip: %w", err)
 	}
 	defer r.Close()
-	progress.TotalBytes = 0
+	var totalBytes int64
 	for _, f := range r.File {
 		if !f.FileInfo().IsDir() && (wantExt == "" || strings.EqualFold(filepath.Ext(f.Name), wantExt)) {
-			progress.TotalBytes += int64(f.UncompressedSize64)
+			totalBytes += int64(f.UncompressedSize64)
 		}
 	}
+	progress.setTotalBytes(totalBytes)
 	progress.report(true)
 	for _, f := range r.File {
+		if err := progress.cancelled(); err != nil {
+			return err
+		}
 		if wantExt != "" && strings.ToLower(filepath.Ext(f.Name)) != wantExt {
 			continue
 		}
@@ -1004,6 +1062,7 @@ func extractZipEntry(f *zip.File, destDir string, progress *archiveProgress) err
 		return err
 	}
 	defer rc.Close()
+	progress.startEntry(f.Name, int64(f.UncompressedSize64))
 	return extractFileAtomically(outPath, int64(f.UncompressedSize64), f.CRC32, true, true, rc, progress)
 }
 
@@ -1015,14 +1074,18 @@ func extract7zFilter(src, destDir, wantExt string, progress *archiveProgress) er
 		return fmt.Errorf("open 7z: %w", err)
 	}
 	defer r.Close()
-	progress.TotalBytes = 0
+	var totalBytes int64
 	for _, f := range r.File {
 		if !f.FileInfo().IsDir() && (wantExt == "" || strings.EqualFold(filepath.Ext(f.Name), wantExt)) {
-			progress.TotalBytes += f.FileInfo().Size()
+			totalBytes += f.FileInfo().Size()
 		}
 	}
+	progress.setTotalBytes(totalBytes)
 	progress.report(true)
 	for _, f := range r.File {
+		if err := progress.cancelled(); err != nil {
+			return err
+		}
 		if wantExt != "" && strings.ToLower(filepath.Ext(f.Name)) != wantExt {
 			continue
 		}
@@ -1043,6 +1106,7 @@ func extract7zEntry(f *sevenzip.File, destDir string, progress *archiveProgress)
 		return err
 	}
 	defer rc.Close()
+	progress.startEntry(f.Name, f.FileInfo().Size())
 	return extractFileAtomically(outPath, f.FileInfo().Size(), f.CRC32, true, true, rc, progress)
 }
 
@@ -1060,6 +1124,10 @@ func extractRarFilter(src, destDir, wantExt string, progress *archiveProgress) e
 
 func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string, progress *archiveProgress) error {
 	for {
+		if err := progress.cancelled(); err != nil {
+			return err
+		}
+		progress.setOp("rar-next")
 		h, err := r.Next()
 		if err == io.EOF {
 			return nil
@@ -1067,7 +1135,15 @@ func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string, progress *archiv
 		if err != nil {
 			return err
 		}
+		expected := h.UnPackedSize
+		if h.UnKnownSize {
+			expected = -1
+		}
 		if wantExt != "" && strings.ToLower(filepath.Ext(h.Name)) != wantExt {
+			if !h.IsDir {
+				progress.startEntry(h.Name, expected)
+				progress.setOp("rar-skip")
+			}
 			continue
 		}
 		outPath := filepath.Join(destDir, filepath.FromSlash(h.Name))
@@ -1077,10 +1153,7 @@ func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string, progress *archiv
 		}
 		// RAR readers may need the current entry fully drained (especially solid
 		// archives), so redo that entry atomically instead of size-skipping it.
-		expected := h.UnPackedSize
-		if h.UnKnownSize {
-			expected = -1
-		}
+		progress.startEntry(h.Name, expected)
 		if err := extractFileAtomically(outPath, expected, 0, false, false, r, progress); err != nil {
 			return err
 		}
@@ -1090,6 +1163,10 @@ func drainRAR(r *rardecode.ReadCloser, destDir, wantExt string, progress *archiv
 // extractFileAtomically never exposes a truncated final file. Fully committed
 // files are reused when a stage restarts; an interrupted .part is rewritten.
 func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint32, verifyCRC, allowReuse bool, src io.Reader, progress *archiveProgress) error {
+	if err := progress.cancelled(); err != nil {
+		return err
+	}
+	progress.ensureEntryName(filepath.Base(outPath), expectedSize)
 	if allowReuse && expectedSize >= 0 {
 		if st, err := os.Stat(outPath); err == nil && st.Mode().IsRegular() && st.Size() == expectedSize {
 			if !verifyCRC {
@@ -1100,8 +1177,11 @@ func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint3
 			f, openErr := os.Open(outPath)
 			if openErr == nil {
 				h := crc32.NewIEEE()
-				_, hashErr := io.Copy(h, f)
+				_, hashErr := io.Copy(h, cancelReader{Reader: f, progress: progress, op: "crc-reuse"})
 				closeErr := f.Close()
+				if err := progress.cancelled(); err != nil {
+					return err
+				}
 				if hashErr == nil && closeErr == nil && h.Sum32() == expectedCRC {
 					progress.addBytes(expectedSize)
 					progress.commitFile()
@@ -1109,6 +1189,9 @@ func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint3
 				}
 			}
 		}
+	}
+	if err := progress.cancelled(); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
 		return err
@@ -1125,14 +1208,26 @@ func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint3
 		crc = crc32.NewIEEE()
 		writer = io.MultiWriter(out, crc)
 	}
-	if progress.callback != nil {
-		writer = extractionProgressWriter{Writer: writer, progress: progress}
+	writer = extractionProgressWriter{Writer: writer, progress: progress}
+	written, copyErr := io.CopyBuffer(writer, cancelReader{Reader: src, progress: progress, op: "read"}, make([]byte, 1024*1024))
+	if cancelErr := progress.cancelled(); cancelErr != nil || errors.Is(copyErr, context.Canceled) {
+		_ = out.Close()
+		_ = os.Remove(partial)
+		if cancelErr != nil {
+			return cancelErr
+		}
+		return copyErr
 	}
-	written, copyErr := io.CopyBuffer(writer, src, make([]byte, 1024*1024))
+	if copyErr != nil {
+		_ = out.Close()
+		return copyErr
+	}
+	progress.setOp("sync")
 	syncErr := out.Sync()
 	closeErr := out.Close()
-	if copyErr != nil {
-		return copyErr
+	if cancelErr := progress.cancelled(); cancelErr != nil {
+		_ = os.Remove(partial)
+		return cancelErr
 	}
 	if syncErr != nil {
 		return syncErr
@@ -1146,6 +1241,7 @@ func extractFileAtomically(outPath string, expectedSize int64, expectedCRC uint3
 	if verifyCRC && crc.Sum32() != expectedCRC {
 		return fmt.Errorf("CRC32 invalido ao extrair %s", filepath.Base(outPath))
 	}
+	progress.setOp("rename")
 	if err := os.Remove(outPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -1334,6 +1430,18 @@ func ProbeISOInstallLayout(isoPath string, info *TitleExecInfo) (*ISOInstallLayo
 // It navigates: content/0000000000000000/{TitleID|FFED2000}/{00000002|first-dir}/
 // and copies every file recursively into destDir.
 func ExtractXDVDFSContentToDir(isoPath, destDir string, info *TitleExecInfo) error {
+	return ExtractXDVDFSContentToDirWithContext(context.Background(), isoPath, destDir, info)
+}
+
+// ExtractXDVDFSContentToDirWithContext behaves like ExtractXDVDFSContentToDir
+// and aborts cooperatively when ctx is cancelled.
+func ExtractXDVDFSContentToDirWithContext(ctx context.Context, isoPath, destDir string, info *TitleExecInfo) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f, err := os.Open(isoPath)
 	if err != nil {
 		return fmt.Errorf("contentExtract: open: %w", err)
@@ -1398,7 +1506,7 @@ func ExtractXDVDFSContentToDir(isoPath, destDir string, info *TitleExecInfo) err
 		}
 	}
 
-	return xdvdfsExtractRecursive(f, partOff, dSec, dSz, destDir)
+	return xdvdfsExtractRecursive(ctx, f, partOff, dSec, dSz, destDir)
 }
 
 // ProbeContentPackageTitleID opens an ISO and reads the real Title ID from the
@@ -1529,6 +1637,18 @@ func findXEXRootDirRecursive(f *os.File, partOff uint64, dirSec, dirSz uint32) (
 // (Xbox 360) or default.xbe (Original Xbox) into destDir — equivalent to a loose XEX
 // folder layout for FTP/HTTP install.
 func ExtractXEXFolderFromISO(isoPath, destDir string) error {
+	return ExtractXEXFolderFromISOWithContext(context.Background(), isoPath, destDir)
+}
+
+// ExtractXEXFolderFromISOWithContext behaves like ExtractXEXFolderFromISO and
+// aborts cooperatively when ctx is cancelled.
+func ExtractXEXFolderFromISOWithContext(ctx context.Context, isoPath, destDir string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f, err := os.Open(isoPath)
 	if err != nil {
 		return fmt.Errorf("xexFromISO: open: %w", err)
@@ -1549,22 +1669,28 @@ func ExtractXEXFolderFromISO(isoPath, destDir string) error {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
 	}
-	return xdvdfsExtractRecursive(f, partOff, xSec, xSz, destDir)
+	return xdvdfsExtractRecursive(ctx, f, partOff, xSec, xSz, destDir)
 }
 
 // xdvdfsExtractRecursive recursively copies an XDVDFS directory tree into destDir.
-func xdvdfsExtractRecursive(f *os.File, partOff uint64, sector, size uint32, destDir string) error {
+func xdvdfsExtractRecursive(ctx context.Context, f *os.File, partOff uint64, sector, size uint32, destDir string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	for _, e := range readXDVDFSDirTable(f, partOff, sector, size) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		dest := filepath.Join(destDir, e.name)
 		if e.isDir() {
 			if err := os.MkdirAll(dest, 0755); err != nil {
 				return err
 			}
-			if err := xdvdfsExtractRecursive(f, partOff, e.sector, e.size, dest); err != nil {
+			if err := xdvdfsExtractRecursive(ctx, f, partOff, e.sector, e.size, dest); err != nil {
 				return err
 			}
 		} else {
-			if err := xdvdfsExtractFile(f, partOff, e.sector, e.size, dest); err != nil {
+			if err := xdvdfsExtractFile(ctx, f, partOff, e.sector, e.size, dest); err != nil {
 				return err
 			}
 		}
@@ -1573,10 +1699,19 @@ func xdvdfsExtractRecursive(f *os.File, partOff uint64, sector, size uint32, des
 }
 
 // xdvdfsExtractFile copies a single XDVDFS file to a local path.
-func xdvdfsExtractFile(f *os.File, partOff uint64, sector, size uint32, destPath string) error {
+func xdvdfsExtractFile(ctx context.Context, f *os.File, partOff uint64, sector, size uint32, destPath string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	off := int64(partOff) + int64(sector)*xdvdfsSectorSz
 	if xdvdfsExtractedFileMatches(f, off, int64(size), destPath) {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	partial := destPath + ".xbox-companion-part"
 	_ = os.Remove(partial)
@@ -1587,6 +1722,11 @@ func xdvdfsExtractFile(f *os.File, partOff uint64, sector, size uint32, destPath
 	remaining := int64(size)
 	buf := make([]byte, 256*1024)
 	for remaining > 0 {
+		if err := ctx.Err(); err != nil {
+			_ = out.Close()
+			_ = os.Remove(partial)
+			return err
+		}
 		toRead := int64(len(buf))
 		if toRead > remaining {
 			toRead = remaining
@@ -1594,12 +1734,12 @@ func xdvdfsExtractFile(f *os.File, partOff uint64, sector, size uint32, destPath
 		n, readErr := f.ReadAt(buf[:toRead], off)
 		if n > 0 {
 			if _, werr := out.Write(buf[:n]); werr != nil {
-				out.Close()
+				_ = out.Close()
 				return werr
 			}
 		}
 		if readErr != nil && readErr != io.EOF {
-			out.Close()
+			_ = out.Close()
 			return readErr
 		}
 		if n == 0 {
@@ -1608,15 +1748,24 @@ func xdvdfsExtractFile(f *os.File, partOff uint64, sector, size uint32, destPath
 		off += int64(n)
 		remaining -= int64(n)
 	}
+	if err := ctx.Err(); err != nil {
+		_ = out.Close()
+		_ = os.Remove(partial)
+		return err
+	}
 	if remaining != 0 {
-		out.Close()
+		_ = out.Close()
 		return fmt.Errorf("xex/content incompleto: %s (%d bytes restantes)", filepath.Base(destPath), remaining)
 	}
 	if err := out.Sync(); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	if err := out.Close(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		_ = os.Remove(partial)
 		return err
 	}
 	if err := os.Remove(destPath); err != nil && !os.IsNotExist(err) {

@@ -2,6 +2,7 @@
 package pipeline
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,7 +86,9 @@ func (s *Service) ProcessROM(gameName, sysid string) {
 	defer s.cleanupStageAfterRun(gameName, extDir, xboxConn)
 	if err := s.extractArchiveResilient(gameName, zipPath, extDir); err != nil {
 		err = s.invalidateDownloadedArchiveOnCorruptExtract(gameName, zipPath, "edgeemu", err)
-		s.App.LogStatus(gameName, "Error", fmt.Sprintf("Extract: %v", err))
+		if !errors.Is(err, app.ErrJobCancelled) {
+			s.App.LogStatus(gameName, "Error", fmt.Sprintf("Extract: %v", err))
+		}
 		return
 	}
 	clearCorruptArchiveRedownloadMarker(zipPath)

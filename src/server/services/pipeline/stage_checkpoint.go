@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -78,7 +79,29 @@ func writeStageSourceMarker(destDir string, marker *stageSourceMarker) error {
 	return writeStageMetadata(stageSourceMarkerPath(destDir), data)
 }
 
+type cancelContextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r cancelContextReader) Read(b []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(b)
+}
+
 func hashStageFile(path string, onBytes func(int)) (string, error) {
+	return hashStageFileWithContext(context.Background(), path, onBytes)
+}
+
+func hashStageFileWithContext(ctx context.Context, path string, onBytes func(int)) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -89,13 +112,20 @@ func hashStageFile(path string, onBytes func(int)) (string, error) {
 	if onBytes != nil {
 		writer = io.MultiWriter(h, stageProgressWriter(onBytes))
 	}
-	if _, err := io.Copy(writer, f); err != nil {
+	if _, err := io.CopyBuffer(writer, cancelContextReader{ctx: ctx, r: f}, make([]byte, 256*1024)); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func buildStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) (*stageCheckpoint, error) {
+	return buildStageCheckpointWithContext(context.Background(), phase, sourcePath, destDir, onBytes)
+}
+
+func buildStageCheckpointWithContext(ctx context.Context, phase, sourcePath, destDir string, onBytes func(int)) (*stageCheckpoint, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	source, err := os.Stat(sourcePath)
 	if err != nil {
 		return nil, err
@@ -108,6 +138,9 @@ func buildStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) 
 		if err != nil {
 			return err
 		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if info.IsDir() {
 			return nil
 		}
@@ -118,7 +151,7 @@ func buildStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) 
 		if err != nil {
 			return err
 		}
-		hash, err := hashStageFile(path, onBytes)
+		hash, err := hashStageFileWithContext(ctx, path, onBytes)
 		if err != nil {
 			return err
 		}
@@ -174,6 +207,16 @@ func writeStageMetadata(path string, data []byte) error {
 }
 
 func validStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) bool {
+	return validStageCheckpointWithContext(context.Background(), phase, sourcePath, destDir, onBytes)
+}
+
+func validStageCheckpointWithContext(ctx context.Context, phase, sourcePath, destDir string, onBytes func(int)) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return false
+	}
 	data, err := os.ReadFile(stageCheckpointPath(destDir))
 	if err != nil {
 		return false
@@ -188,6 +231,9 @@ func validStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) 
 	}
 	expectedPaths := make(map[string]bool, len(checkpoint.Files))
 	for _, file := range checkpoint.Files {
+		if ctx.Err() != nil {
+			return false
+		}
 		clean := filepath.Clean(filepath.FromSlash(file.Path))
 		if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return false
@@ -198,7 +244,7 @@ func validStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) 
 		if err != nil || !st.Mode().IsRegular() || st.Size() != file.Size {
 			return false
 		}
-		hash, err := hashStageFile(path, onBytes)
+		hash, err := hashStageFileWithContext(ctx, path, onBytes)
 		if err != nil || hash != file.SHA256 {
 			return false
 		}
@@ -207,6 +253,9 @@ func validStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) 
 	if filepath.Walk(destDir, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
 		if info.IsDir() {
 			return nil
@@ -223,8 +272,64 @@ func validStageCheckpoint(phase, sourcePath, destDir string, onBytes func(int)) 
 	return true
 }
 
+func (s *Service) isStageCancelled(gameName string, err error) bool {
+	if errors.Is(err, app.ErrJobCancelled) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return s != nil && s.App != nil && gameName != "" && s.App.IsGameJobCancelled(gameName)
+}
+
+// jobCancelContext derives a context that cancels promptly once gameName is
+// removed or suppressed from the queue so running extractions abort quickly.
+func (s *Service) jobCancelContext(gameName string) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	if s == nil || s.App == nil || gameName == "" {
+		return ctx, cancel
+	}
+	if s.App.IsGameJobCancelled(gameName) {
+		cancel()
+		return ctx, cancel
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(15 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if s.App.IsGameJobCancelled(gameName) {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return ctx, func() {
+		cancel()
+		<-done
+	}
+}
+
 func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string, resetOnRetry bool, action func() error) error {
-	if validStageCheckpoint(phase, sourcePath, destDir, s.stageVerificationProgress(gameName)) {
+	return s.runDirectoryStageWithContext(gameName, phase, sourcePath, destDir, resetOnRetry, func(context.Context) error {
+		return action()
+	})
+}
+
+func (s *Service) runDirectoryStageWithContext(gameName, phase, sourcePath, destDir string, resetOnRetry bool, action func(context.Context) error) error {
+	if s.isStageCancelled(gameName, nil) {
+		return app.ErrJobCancelled
+	}
+	verifyCtx, verifyCancel := s.jobCancelContext(gameName)
+	cached := validStageCheckpointWithContext(verifyCtx, phase, sourcePath, destDir, s.stageVerificationProgress(gameName))
+	verifyCancel()
+	if s.isStageCancelled(gameName, nil) {
+		return app.ErrJobCancelled
+	}
+	if cached {
 		s.App.Logf("STAGE CACHE [%s]: reutilizando fase validada %s", gameName, phase)
 		s.App.LogStatus(gameName, "Processing", "Retomando: fase "+phase+" ja estava concluida e foi verificada...")
 		return nil
@@ -244,6 +349,9 @@ func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string,
 		currentSource, sourceErr = currentStageSource(phase, sourcePath)
 	}
 	if sourceErr != nil {
+		if s.isStageCancelled(gameName, sourceErr) {
+			return app.ErrJobCancelled
+		}
 		if connection != nil && connection.Mode == "local" {
 			return fmt.Errorf("%w: %w: fonte da fase %s: %v", ErrLocalDelivery, ErrLocalSourceLost, phase, sourceErr)
 		}
@@ -258,7 +366,7 @@ func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string,
 		}
 	}
 	for attempt := 0; attempt < 4; attempt++ {
-		if s.App.IsGameJobCancelled(gameName) {
+		if s.isStageCancelled(gameName, nil) {
 			return app.ErrJobCancelled
 		}
 		if resetOnRetry {
@@ -269,17 +377,29 @@ func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string,
 		if err := os.MkdirAll(destDir, 0755); err != nil {
 			return classifyLocalStorageFailure(connection, phase, err)
 		}
-		err := action()
-		if err == nil {
+		attemptCtx, attemptCancel := s.jobCancelContext(gameName)
+		err := action(attemptCtx)
+		if err == nil && attemptCtx.Err() == nil {
 			s.App.LogStatus(gameName, "Processing", "Verificando arquivos processados...")
-			checkpoint, checkpointErr := buildStageCheckpoint(phase, sourcePath, destDir, s.stageVerificationProgress(gameName))
+			checkpoint, checkpointErr := buildStageCheckpointWithContext(attemptCtx, phase, sourcePath, destDir, s.stageVerificationProgress(gameName))
 			if checkpointErr == nil {
 				checkpointErr = writeStageCheckpoint(destDir, checkpoint)
 			}
-			if checkpointErr == nil {
+			if checkpointErr == nil && !s.isStageCancelled(gameName, nil) {
+				attemptCancel()
 				return nil
 			}
-			err = fmt.Errorf("checkpoint %s: %w", phase, checkpointErr)
+			if checkpointErr != nil {
+				err = fmt.Errorf("checkpoint %s: %w", phase, checkpointErr)
+			} else {
+				err = app.ErrJobCancelled
+			}
+		} else if err == nil {
+			err = attemptCtx.Err()
+		}
+		attemptCancel()
+		if s.isStageCancelled(gameName, err) {
+			return app.ErrJobCancelled
 		}
 
 		if connection != nil && connection.Mode == "local" && connection.LocalDeviceID != "" {
@@ -307,11 +427,14 @@ func (s *Service) runDirectoryStage(gameName, phase, sourcePath, destDir string,
 }
 
 func (s *Service) extractArchiveResilient(gameName, archivePath, destDir string) error {
-	err := s.runDirectoryStage(gameName, "extract-archive", archivePath, destDir, false, func() error {
+	err := s.runDirectoryStageWithContext(gameName, "extract-archive", archivePath, destDir, false, func(ctx context.Context) error {
 		if err := s.ensureScratchSpace(archivePath, destDir, ""); err != nil {
 			return err
 		}
-		return utils.ExtractArchiveWithProgress(archivePath, destDir, s.archiveExtractionProgress(gameName))
+		monCtx, tracker := utils.ContextWithExtractionTracker(ctx)
+		return s.runMonitoredExtraction(gameName, "extract-archive", archivePath, destDir, tracker.Snapshot, func() error {
+			return utils.ExtractArchiveWithContext(monCtx, archivePath, destDir, s.archiveExtractionProgressForDir(gameName, destDir))
+		})
 	})
 	if err == nil {
 		s.App.LogStatus(gameName, "Processing", "Extracao verificada (100%)")
@@ -325,12 +448,15 @@ func (s *Service) extractArchiveResilient(gameName, archivePath, destDir string)
 // something installs it.
 func (s *Service) extractISOResilient(gameName, safeName, archivePath, tempRoot string) (string, string, error) {
 	destDir := filepath.Join(tempRoot, safeName+"_extracted")
-	err := s.runDirectoryStage(gameName, "extract-iso", archivePath, destDir, false, func() error {
+	err := s.runDirectoryStageWithContext(gameName, "extract-iso", archivePath, destDir, false, func(ctx context.Context) error {
 		if err := s.ensureScratchSpace(archivePath, destDir, ".iso"); err != nil {
 			return err
 		}
-		_, err := utils.ExtractISOWithProgress(archivePath, safeName, tempRoot, s.archiveExtractionProgress(gameName))
-		return err
+		monCtx, tracker := utils.ContextWithExtractionTracker(ctx)
+		return s.runMonitoredExtraction(gameName, "extract-iso", archivePath, destDir, tracker.Snapshot, func() error {
+			_, err := utils.ExtractISOWithContext(monCtx, archivePath, safeName, tempRoot, s.archiveExtractionProgressForDir(gameName, destDir))
+			return err
+		})
 	})
 	if err != nil {
 		return "", destDir, err
@@ -344,20 +470,23 @@ func (s *Service) extractISOResilient(gameName, safeName, archivePath, tempRoot 
 }
 
 func (s *Service) extractXEXResilient(gameName, isoPath, destDir string) error {
-	return s.runDirectoryStage(gameName, "extract-xex", isoPath, destDir, false, func() error {
-		return utils.ExtractXEXFolderFromISO(isoPath, destDir)
+	return s.runDirectoryStageWithContext(gameName, "extract-xex", isoPath, destDir, false, func(ctx context.Context) error {
+		return utils.ExtractXEXFolderFromISOWithContext(ctx, isoPath, destDir)
 	})
 }
 
 func (s *Service) extractContentResilient(gameName, isoPath, destDir string, info *utils.TitleExecInfo) error {
-	return s.runDirectoryStage(gameName, "extract-content", isoPath, destDir, false, func() error {
-		return utils.ExtractXDVDFSContentToDir(isoPath, destDir, info)
+	return s.runDirectoryStageWithContext(gameName, "extract-content", isoPath, destDir, false, func(ctx context.Context) error {
+		return utils.ExtractXDVDFSContentToDirWithContext(ctx, isoPath, destDir, info)
 	})
 }
 
 func (s *Service) convertGODResilient(gameName, isoPath, godDir string) error {
-	return s.runDirectoryStage(gameName, "convert-god", isoPath, godDir, true, func() error {
-		if err := utils.RunIso2GodNative(isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
+	return s.runDirectoryStageWithContext(gameName, "convert-god", isoPath, godDir, true, func(ctx context.Context) error {
+		if err := utils.RunIso2GodNativeWithContext(ctx, isoPath, godDir, Iso2GodResolveDisplayTitle); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		// Needs proper testing on physical Xbox 360 storage too; this semantic

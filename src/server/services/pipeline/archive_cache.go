@@ -1,9 +1,13 @@
 package pipeline
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+
+	"godsend/app"
 )
 
 func corruptArchiveRedownloadMarkerPath(archivePath string) string {
@@ -11,7 +15,7 @@ func corruptArchiveRedownloadMarkerPath(archivePath string) string {
 }
 
 func isArchiveIntegrityError(err error) bool {
-	if err == nil {
+	if err == nil || errors.Is(err, app.ErrJobCancelled) || errors.Is(err, context.Canceled) {
 		return false
 	}
 	message := strings.ToLower(err.Error())
@@ -42,6 +46,9 @@ func isArchiveIntegrityError(err error) bool {
 }
 
 func (s *Service) invalidateDownloadedArchiveOnCorruptExtract(gameName, archivePath, provider string, err error) error {
+	if errors.Is(err, app.ErrJobCancelled) || errors.Is(err, context.Canceled) {
+		return app.ErrJobCancelled
+	}
 	if !isArchiveIntegrityError(err) {
 		return err
 	}
