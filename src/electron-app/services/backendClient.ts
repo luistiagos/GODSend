@@ -39,6 +39,7 @@ const IA_LOGIN_UA =
 let outputBuffer: string[] = [];
 const maxBufferLines = 3000;
 let godsendProcess: ChildProcess | null = null;
+let restartPending = false;
 let mainWindowRef: BrowserWindow | null = null;
 
 export interface FTPCompletePayload {
@@ -92,6 +93,47 @@ export function getOutputBuffer(): string[] {
   return outputBuffer;
 }
 
+function consumeBufferedLines(
+  buffer: string,
+  chunk: string,
+  onLine: (line: string) => void,
+): string {
+  const combined = buffer + chunk;
+  const lines = combined.split(/\r?\n/);
+  const remainder = lines.pop() ?? "";
+  for (const line of lines) {
+    if (line.trim().length > 0) onLine(line);
+  }
+  return remainder;
+}
+
+function handleBackendStdoutLine(line: string): void {
+  const m = line.match(GODSEND_LISTEN_PORT_RE);
+  if (m) {
+    const p = parseInt(m[1], 10);
+    if (!isNaN(p) && p >= 1 && p <= 65535 && p !== getConfiguredServerPort()) {
+      writeConfig({ serverPort: p });
+      appendAppEvent("CONFIG", `serverPort=${p} (auto, requested port in use)`);
+    }
+    markBackendListening();
+  }
+  if (line.startsWith(GODSEND_FTP_COMPLETE_PREFIX)) {
+    const jsonStr = line.slice(GODSEND_FTP_COMPLETE_PREFIX.length);
+    try {
+      const evt = JSON.parse(jsonStr);
+      const payload: FTPCompletePayload = {
+        gameName: evt.game_name || "",
+        titleId:  (evt.title_id || "").toUpperCase(),
+        xboxIp:   evt.xbox_ip  || "",
+      };
+      for (const cb of _ftpCompleteListeners) {
+        try { cb(payload); } catch { /* listener error must not crash stdout handler */ }
+      }
+    } catch { /* malformed JSON — ignore */ }
+  }
+  addOutputLine(line, "out");
+}
+
 function startGodsend(): void {
   if (godsendProcess) return;
 
@@ -131,11 +173,13 @@ function startGodsend(): void {
     addOutputLine(msg);
     appendAppEvent("BACKEND", `start failed: missing binary at ${godsendExePath}`);
     appendBackendSessionEnd("missing_binary", null, null);
+    markBackendStopped();
     return;
   }
 
+  let proc: ChildProcess;
   try {
-    godsendProcess = spawn(godsendExePath, [], {
+    proc = spawn(godsendExePath, [], {
       cwd:         writableRoot,
       windowsHide: true,
       env:         childEnv,
@@ -154,10 +198,12 @@ function startGodsend(): void {
     addOutputLine(msg);
     appendAppEvent("BACKEND", `spawn threw ${code}: ${err?.message || err}`);
     appendBackendSessionEnd("spawn_throw", null, null);
+    markBackendStopped();
     return;
   }
 
-  appendAppEvent("BACKEND", `spawned pid=${godsendProcess.pid}`);
+  godsendProcess = proc;
+  appendAppEvent("BACKEND", `spawned pid=${proc.pid}`);
   markBackendStarting();
 
   let sessionEnded = false;
@@ -167,66 +213,65 @@ function startGodsend(): void {
     appendBackendSessionEnd(reason, code, signal);
   };
 
-  godsendProcess.stdout!.on("data", (data: Buffer) => {
-    data
-      .toString()
-      .split(/\r?\n/)
-      .forEach((line) => {
-        if (line.trim().length === 0) return;
-        const m = line.match(GODSEND_LISTEN_PORT_RE);
-        if (m) {
-          const p = parseInt(m[1], 10);
-          if (!isNaN(p) && p >= 1 && p <= 65535 && p !== getConfiguredServerPort()) {
-            writeConfig({ serverPort: p });
-            appendAppEvent("CONFIG", `serverPort=${p} (auto, requested port in use)`);
-          }
-          markBackendListening();
-        }
-        if (line.startsWith(GODSEND_FTP_COMPLETE_PREFIX)) {
-          const jsonStr = line.slice(GODSEND_FTP_COMPLETE_PREFIX.length);
-          try {
-            const evt = JSON.parse(jsonStr);
-            const payload: FTPCompletePayload = {
-              gameName: evt.game_name || "",
-              titleId:  (evt.title_id || "").toUpperCase(),
-              xboxIp:   evt.xbox_ip  || "",
-            };
-            for (const cb of _ftpCompleteListeners) {
-              try { cb(payload); } catch { /* listener error must not crash stdout handler */ }
-            }
-          } catch { /* malformed JSON — ignore */ }
-        }
-        addOutputLine(line, "out");
-      });
+  let stdoutBuffer = "";
+  let stderrBuffer = "";
+  const flushBufferedStreams = () => {
+    if (stdoutBuffer.trim().length > 0) {
+      handleBackendStdoutLine(stdoutBuffer);
+    }
+    stdoutBuffer = "";
+    if (stderrBuffer.trim().length > 0) {
+      addOutputLine(`[ERR] ${stderrBuffer}`, "err");
+    }
+    stderrBuffer = "";
+  };
+
+  let lifecycleFinished = false;
+  const finishProcessLifecycle = () => {
+    if (lifecycleFinished) return;
+    lifecycleFinished = true;
+    flushBufferedStreams();
+    if (godsendProcess === proc) {
+      godsendProcess = null;
+    }
+    if (restartPending) {
+      restartPending = false;
+      // Keep the readiness gate closed across the restart so concurrent callers
+      // wait for the new process's GODSEND_LISTEN_PORT instead of hitting ECONNREFUSED.
+      markBackendStarting();
+      startGodsendSafely();
+      return;
+    }
+    markBackendStopped();
+  };
+
+  proc.stdout?.on("data", (data: Buffer) => {
+    stdoutBuffer = consumeBufferedLines(stdoutBuffer, data.toString("utf8"), handleBackendStdoutLine);
   });
 
-  godsendProcess.stderr!.on("data", (data: Buffer) => {
-    data
-      .toString()
-      .split(/\r?\n/)
-      .forEach((line) => {
-        if (line.trim().length > 0) addOutputLine(`[ERR] ${line}`, "err");
-      });
+  proc.stderr?.on("data", (data: Buffer) => {
+    stderrBuffer = consumeBufferedLines(stderrBuffer, data.toString("utf8"), (line) => {
+      addOutputLine(`[ERR] ${line}`, "err");
+    });
   });
 
-  godsendProcess.on("error", (error: Error) => {
+  proc.on("error", (error: Error) => {
     endBackendSession("spawn_error", null, null);
-    markBackendStopped();
     addOutputLine(`[ERROR] Failed to start process: ${error.message}`);
-    godsendProcess = null;
+    finishProcessLifecycle();
   });
 
-  godsendProcess.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+  proc.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
     endBackendSession("process_exit", code, signal);
-    markBackendStopped();
     addOutputLine(
       `[INFO] Process closed (code=${code}, signal=${signal || "none"})`
     );
-    godsendProcess = null;
+    finishProcessLifecycle();
   });
 }
 
 export function stopGodsend(): void {
+  restartPending = false;
   if (!godsendProcess) return;
   appendAppEvent("BACKEND", "stop requested (kill)");
   addOutputLine("[INFO] Stopping process...");
@@ -242,6 +287,7 @@ export function startGodsendSafely(): void {
   try {
     startGodsend();
   } catch (err: any) {
+    markBackendStopped();
     const stack = err?.stack ? String(err.stack) : String(err);
     appendAppEvent("BACKEND", `startGodsend threw: ${stack}`);
     addOutputLine(`[ERROR] Could not start the backend: ${err?.message || err}`);
@@ -259,8 +305,18 @@ export function startGodsendSafely(): void {
 
 export function restartGodsendIfRunning(): void {
   if (!godsendProcess) return;
-  stopGodsend();
-  setTimeout(() => startGodsendSafely(), 400);
+  if (restartPending) return;
+  restartPending = true;
+  markBackendStarting();
+  appendAppEvent("BACKEND", "stop requested (kill)");
+  addOutputLine("[INFO] Stopping process...");
+  try {
+    godsendProcess.kill();
+  } catch (err: any) {
+    restartPending = false;
+    markBackendStopped();
+    addOutputLine(`[ERROR] Could not stop backend for restart: ${err?.message || err}`);
+  }
 }
 
 export interface IALoginResult {

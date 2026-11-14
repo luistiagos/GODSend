@@ -208,12 +208,9 @@ export function bootstrapApp(): void {
       },
     });
 
-    getMainWindow()!.webContents.once("did-finish-load", () => {
-      // Guarded: anything thrown from an Electron event handler escapes as an
-      // uncaughtException — the user gets the "GODsend crashed" dialog and the
-      // backend is never started.
-      startGodsendSafely();
-    });
+    // Start the backend right at ready instead of waiting for did-finish-load so
+    // the readiness gate is active before any renderer IPC can reach backendHttp.
+    startGodsendSafely();
 
     onFTPComplete(({ gameName, titleId, xboxIp }) => {
       (async () => {

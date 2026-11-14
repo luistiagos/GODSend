@@ -43,10 +43,8 @@ export function register(ipcMain: IpcMain): void {
 
   // ── Get game list from Go backend ──────────────────────────────────────────
   ipcMain.handle("browse:get-games", async (_event, { platform, source }) => {
-    let endpoint = "http://127.0.0.1";
     let httpStatus: number | undefined;
     try {
-      endpoint += `:${getConfiguredServerPort()}/browse`;
       const priority = getConfiguredProviderPriority().join(",");
       const src  = source ? `&source=${encodeURIComponent(source)}` : "";
       const response = await backendGetWithStatus(
@@ -67,6 +65,8 @@ export function register(ipcMain: IpcMain): void {
       const games = data.split("|").map((s: string) => s.trim()).filter(Boolean);
       return { ok: true, loading: false, games };
     } catch (err: unknown) {
+      const effectivePort = (err as any)?.port ?? getConfiguredServerPort();
+      const endpoint = `http://127.0.0.1:${effectivePort}/browse`;
       const message = `Falha ao carregar o catálogo em ${endpoint}` +
         (httpStatus === undefined ? "" : ` (HTTP ${httpStatus})`) +
         `: ${errorMessage(err)}`;

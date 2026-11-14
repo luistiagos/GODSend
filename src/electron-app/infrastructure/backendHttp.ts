@@ -1,11 +1,38 @@
 import http from "http";
 import { getConfiguredServerPort } from "../services/settingsService";
 import type { BackendResponse } from "./backendFailure";
-import { waitForBackendListening } from "./backendReadiness";
+import { isBackendStarting, waitForBackendListening } from "./backendReadiness";
 
 // The Go backend listens on IPv4. Resolving localhost to ::1 can refuse a
 // connection even while the backend is running normally on 127.0.0.1.
 const BACKEND_HOST = "127.0.0.1";
+// Stale scratch cleanup on large extractions or slow disks can exceed 120 s;
+// keep waiting as long as the spawned backend is still starting (up to 10 min).
+const BACKEND_READINESS_TIMEOUT_MS = 600000;
+const MAX_READINESS_RETRIES = 2;
+
+async function withReadinessRetry<T>(execute: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + BACKEND_READINESS_TIMEOUT_MS;
+  for (let attempt = 0; ; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining > 0) {
+      await waitForBackendListening(remaining);
+    }
+    try {
+      return await execute();
+    } catch (err: any) {
+      if (
+        err?.code === "ECONNREFUSED" &&
+        isBackendStarting() &&
+        deadline - Date.now() > 0 &&
+        attempt < MAX_READINESS_RETRIES
+      ) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 
 function networkError(err: NodeJS.ErrnoException, url: string, port: number): Error {
   const source = err as NodeJS.ErrnoException & { address?: string; port?: number };
@@ -36,25 +63,26 @@ function timeoutError(url: string, port: number, timeoutMs: number): Error {
  * the backend signals failure with a 4xx/5xx plus a JSON body, so a caller that
  * only looks at the body silently treats every failure as a success.
  */
-export async function backendGetWithStatus(urlPath: string): Promise<BackendResponse> {
+export function backendGetWithStatus(urlPath: string): Promise<BackendResponse> {
   // A backend we just spawned may still be clearing old scratch before it
   // listens. Read the port after the wait: the listen line can change it.
-  await waitForBackendListening();
-  const port = getConfiguredServerPort();
-  const url  = `http://${BACKEND_HOST}:${port}${urlPath}`;
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      let data = "";
-      res.on("data", (c: Buffer) => { data += c; });
-      res.on("end",  () => resolve({ status: res.statusCode ?? 0, body: data }));
-      res.on("error", (err: NodeJS.ErrnoException) => reject(networkError(err, url, port)));
-    });
-    req.on("error", (err: NodeJS.ErrnoException) => {
-      reject(networkError(err, url, port));
-    });
-    req.setTimeout(120000, () => {
-      reject(timeoutError(url, port, 120000));
-      req.destroy();
+  return withReadinessRetry(() => {
+    const port = getConfiguredServerPort();
+    const url  = `http://${BACKEND_HOST}:${port}${urlPath}`;
+    return new Promise((resolve, reject) => {
+      const req = http.get(url, (res) => {
+        let data = "";
+        res.on("data", (c: Buffer) => { data += c; });
+        res.on("end",  () => resolve({ status: res.statusCode ?? 0, body: data }));
+        res.on("error", (err: NodeJS.ErrnoException) => reject(networkError(err, url, port)));
+      });
+      req.on("error", (err: NodeJS.ErrnoException) => {
+        reject(networkError(err, url, port));
+      });
+      req.setTimeout(120000, () => {
+        reject(timeoutError(url, port, 120000));
+        req.destroy();
+      });
     });
   });
 }
@@ -71,37 +99,38 @@ export function backendGet(urlPath: string): Promise<string> {
  * Fire a POST request with a JSON body to the local Go backend and resolve
  * with the parsed JSON response. Rejects on network error or timeout.
  */
-export async function backendPost(urlPath: string, body: object, timeoutMs = 600000): Promise<any> {
-  await waitForBackendListening();
-  const port    = getConfiguredServerPort();
-  const url     = `http://${BACKEND_HOST}:${port}${urlPath}`;
-  const payload = JSON.stringify(body);
-  return new Promise((resolve, reject) => {
-    const opts: http.RequestOptions = {
-      hostname: BACKEND_HOST,
-      port,
-      path:     urlPath,
-      method:   "POST",
-      headers: {
-        "Content-Type":   "application/json",
-        "Content-Length": Buffer.byteLength(payload),
-      },
-    };
-    const req = http.request(opts, (res) => {
-      let data = "";
-      res.on("data", (c: Buffer) => { data += c; });
-      res.on("end",  () => {
-        try { resolve(JSON.parse(data)); }
-        catch { resolve({ error: data }); }
+export function backendPost(urlPath: string, body: object, timeoutMs = 600000): Promise<any> {
+  return withReadinessRetry(() => {
+    const port    = getConfiguredServerPort();
+    const url     = `http://${BACKEND_HOST}:${port}${urlPath}`;
+    const payload = JSON.stringify(body);
+    return new Promise((resolve, reject) => {
+      const opts: http.RequestOptions = {
+        hostname: BACKEND_HOST,
+        port,
+        path:     urlPath,
+        method:   "POST",
+        headers: {
+          "Content-Type":   "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+        },
+      };
+      const req = http.request(opts, (res) => {
+        let data = "";
+        res.on("data", (c: Buffer) => { data += c; });
+        res.on("end",  () => {
+          try { resolve(JSON.parse(data)); }
+          catch { resolve({ error: data }); }
+        });
+        res.on("error", (err: NodeJS.ErrnoException) => reject(networkError(err, url, port)));
       });
-      res.on("error", (err: NodeJS.ErrnoException) => reject(networkError(err, url, port)));
+      req.on("error", (err: NodeJS.ErrnoException) => reject(networkError(err, url, port)));
+      req.setTimeout(timeoutMs, () => {
+        reject(timeoutError(url, port, timeoutMs));
+        req.destroy();
+      });
+      req.write(payload);
+      req.end();
     });
-    req.on("error", (err: NodeJS.ErrnoException) => reject(networkError(err, url, port)));
-    req.setTimeout(timeoutMs, () => {
-      reject(timeoutError(url, port, timeoutMs));
-      req.destroy();
-    });
-    req.write(payload);
-    req.end();
   });
 }

@@ -32,6 +32,10 @@ export function markBackendStopped(): void {
   releaseWaiters();
 }
 
+export function isBackendStarting(): boolean {
+  return starting;
+}
+
 // Resolves at once when no spawned backend is starting (already listening, run
 // outside the app, unit tests). Never rejects: past the deadline the request is
 // sent anyway and fails with its real error.

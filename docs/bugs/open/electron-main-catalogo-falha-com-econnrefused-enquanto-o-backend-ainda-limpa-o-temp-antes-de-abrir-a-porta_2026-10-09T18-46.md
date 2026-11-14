@@ -3,6 +3,7 @@
 ## Status
 
 - **Reaberto em:** 2026-11-09 (triagem de telemetria): reincidência confirmada em produção na **v2.12.123** e **v2.12.118** (IDs 12067, 12068, 12529, 12530, 12532, 12533, 12549, 12550, 12553, 12554). O gate de readiness ainda permitiu chamadas concorrentes ao endpoint `/browse` e `/browse/releases` antes do bind HTTP.
+- **Correção da reincidência aplicada em:** 2026-11-14 (aguardando validação E2E/telemetria em produção antes de mover para `retest/`).
 - **Histórico anterior:** movido de `open/` para `retest/` em 2026-10-12 após commit `2a9816d` e `8f6fd36`.
 - **Complexidade:** **Média** — sincronização de ciclo de vida e garantia de bloqueio de requisições IPC até a conclusão da prontidão do backend.
 - **Versões com reincidência:** v2.12.118 e v2.12.123.
@@ -275,3 +276,19 @@ intervalo ainda pode receber `ECONNREFUSED`. O usuário está na tela de Configu
 - dev: não há (sem-codigo).
 - teste: effort medium, ultrathink não. O roteiro é mecânico; o único cuidado é abrir o catálogo dentro da janela
   de limpeza.
+
+## Correção da reincidência (2026-11-14)
+
+### Brechas encontradas após v2.12.118 / v2.12.123
+1. **Timeout de 120 s no gate de readiness (`backendReadiness.ts` / `backendHttp.ts`)**: `waitForBackendListening(120000)` resolvia após 120 s mesmo com o processo Go ainda vivo limpando `Temp` (`starting === true`), liberando `/browse` e `/browse/releases` diretamente para `ECONNREFUSED`.
+2. **Janela aberta e aborto silencioso em `restartGodsendIfRunning()` (`backendClient.ts`)**: chamava `stopGodsend()` (cujo `close` chamava `markBackendStopped()`, abrindo o gate) e agendava `setTimeout(..., 400)`. Se o processo antigo fechasse antes dos 400 ms, o gate ficava aberto; se demorasse > 400 ms para sair no Windows, `startGodsend()` via `godsendProcess !== null` e abortava o reinício.
+3. **Início adiado até `did-finish-load` (`bootstrap.ts`)**: antes do evento, `starting` permanecia `false`.
+4. **Leitura de `stdout` sem buffer de linha (`backendClient.ts`)**: um chunk dividido no meio de `GODSEND_LISTEN_PORT=...` impedia o reconhecimento da porta e prendia o gate até o timeout.
+
+### Alterações aplicadas
+- `src/electron-app/infrastructure/backendReadiness.ts`: exporta `isBackendStarting()`.
+- `src/electron-app/infrastructure/backendHttp.ts`: `withReadinessRetry()` passa a aguardar até 600 s (`BACKEND_READINESS_TIMEOUT_MS`) e, caso `ECONNREFUSED` ocorra enquanto `isBackendStarting()` for `true` (ex.: reinício iniciado em paralelo), volta a aguardar a abertura da porta dentro do prazo restante.
+- `src/electron-app/services/backendClient.ts`: `restartGodsendIfRunning()` mantém o gate fechado continuamente e reinicia imediatamente no `close`/`error` do processo anterior (sem timer cego de 400 ms), `stopGodsend()` cancela reinício pendente, falhas de spawn/binário ausente liberam o gate (`markBackendStopped()`), e `stdout`/`stderr` passam por buffer de linha (`consumeBufferedLines`).
+- `src/electron-app/app/bootstrap.ts`: inicia o backend diretamente em `app.whenReady()` via `startGodsendSafely()`.
+- `src/electron-app/ipc/browseHandlers.ts`: atualiza a porta exibida no diagnóstico de erro de `browse:get-games` com a porta efetiva após a espera.
+- `src/electron-app/tests/unit/backendReadiness.test.cjs`: novos testes cobrindo chamadas concorrentes a `/browse` e `/browse/releases`, `ECONNREFUSED` durante reinício, encerramento lento (> 400 ms) em `restartGodsendIfRunning`, `GODSEND_LISTEN_PORT` partido entre chunks e binário ausente.
