@@ -128,10 +128,11 @@ Configurações → "Verificar atualizações"
         │     └── execPath dentro de %TEMP% (cópia extraída) → recusa e mostra o caminho manual
         ├─ Grava <userData>/update-pending.json (versão de origem e de destino)
         ├─ Grava o script em <userData>/update-replace.ps1 (UTF-8 com BOM)
-        ├─ Dispara cmd.exe destacado → start "" /min powershell -ExecutionPolicy Bypass
-        │  -WindowStyle Hidden -File update-replace.ps1 (cwd = <userData>);
-        │  só chama app.quit() depois do evento "spawn"
-        │     └── spawn falhou (ex.: EPERM) → { ok: false } → modal em "error", sem fechar o app
+        ├─ Dispara primeiro via WMI Win32_Process.Create (fora de qualquer Job Object),
+        │  com fallback para cmd.exe destacado → start "" /min powershell -File e,
+        │  por último, batch cmd.exe puro sem PowerShell (update-replace.cmd);
+        │  aguarda `started` em update-result.txt antes de chamar app.quit()
+        │     └── falha/sem `started` → limpa marcador, { ok: false } → modal em "error", sem fechar o app
         └─ O script:
               ├─ grava "started" em <userData>/update-result.txt
               ├─ espera o pid do Electron E todo processo cujo Path é o alvo (até 180 s)
@@ -140,16 +141,7 @@ Configurações → "Verificar atualizações"
               └─ reabre o alvo (a versão nova, ou a antiga que então avisa)
 ```
 
-**Por que `cmd.exe` + `start`, e não o PowerShell destacado direto.** Até a 2.12.110 o PowerShell
-era criado com `spawn(..., { detached: true })` (`DETACHED_PROCESS`). Em algumas máquinas (medido
-no Windows 11 26200 com Kaspersky) esse PowerShell sai com código 0 sem iniciar o engine: o app
-fechava, nada era trocado e `update-result.txt` nunca existia (reports 8758, 8759, 8839). Sem
-`detached` ele cai no job kill-on-close do libuv e morre junto com o Electron. O `cmd.exe`
-destacado roda, e o `start` dá ao PowerShell um console próprio, fora desse job. O script vai em
-arquivo porque `-WindowStyle Hidden` com o script inline em `-Command` era negado (`spawn EPERM`).
-O `cwd` em `<userData>` mantém os dois fora da pasta extraída do portable, que o launcher apaga
-enquanto o script espera
-(`docs/bugs/open/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md`).
+**Por que WMI `Win32_Process.Create` + handshaking de `started` + fallbacks.** Até a 2.12.110 o PowerShell era criado com `spawn(..., { detached: true })` (`DETACHED_PROCESS`), que em algumas máquinas saía com código 0 sem iniciar o engine. Na 2.12.118 `cmd.exe` destacado + `start "" /min` ainda podia ser morto por um **Job Object com `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`** herdado de navegadores/descompactadores ao fechar o Electron, além de `app.quit()` sair antes de confirmar que o script começou a rodar. `Win32_Process.Create` cria o processo pelo serviço WMI (`WmiPrvSE.exe`), fora de qualquer Job Object da árvore do app e sem `DETACHED_PROCESS`; se WMI ou PowerShell falharem (ex.: AV/GPO bloqueando scripts `.ps1`), o disparo tenta `cmd.exe /d /s /c start` e depois um batch `.cmd` puro sem PowerShell, e só chama `app.quit()` após confirmar `update-result.txt` (`docs/bugs/retest/electron-main-updater-script-substituicao-interrompido-sem-resultado_2026-09-30T22-58.md`).
 
 **Por que esperar processos, e não um tempo fixo.** No build portable o arquivo que o usuário
 abre é o launcher NSIS (`src/electron-app/build/portable.nsi`, desde a 2.12.107; antes, o template

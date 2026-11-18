@@ -55,7 +55,7 @@ function triggerDownload(gameName, platform, installType, source)
     local json, err = httpGet(url)
 
     if not json then
-        showError("TRIGGER_FAILED", err)
+        showError("TRIGGER_FAILED")
         return false
     end
 
@@ -84,7 +84,7 @@ function triggerDownload(gameName, platform, installType, source)
         return false
     end
 
-    showError("TRIGGER_FAILED", "Server response: " .. json:sub(1, 100))
+    showError("TRIGGER_FAILED")
     return false
 end
 
@@ -113,13 +113,13 @@ function registerForFTP(gameName, platform, installType)
     local json, err = httpGet(url)
 
     if not json then
-        showError("FTP_REGISTER_FAILED", err)
+        showError("FTP_REGISTER_FAILED")
         return false
     end
 
     if json:find("registered") then return true end
 
-    showError("FTP_REGISTER_FAILED", "Unexpected server response")
+    showError("FTP_REGISTER_FAILED")
     return false
 end
 
@@ -127,7 +127,7 @@ function testServerConnection()
     Script.SetStatus("Testing server connection...")
     local json, err = httpGet(SERVER_BASE .. "/status?game=__ping__")
     if not json then
-        showError("SERVER_UNREACHABLE", err)
+        showError("SERVER_UNREACHABLE")
         return false
     end
     return true
@@ -404,7 +404,7 @@ local function _installGame_http_unused(gameName)
             return
         end
         if not dlOk or not dlRes then
-            showError("DOWNLOAD_FAILED", "XEX archive: " .. partUrl)
+            showError("DOWNLOAD_FAILED")
             pcall(FileSystem.DeleteFile, dlAbs)
             pcall(FileSystem.DeleteFile, Script.GetBasePath() .. localIniRel)
             return
@@ -414,7 +414,7 @@ local function _installGame_http_unused(gameName)
         local extractOk, extractErr = extractZipNative(dlRel, installPath)
         pcall(FileSystem.DeleteFile, dlAbs)
         if not extractOk then
-            showError("INSTALL_FAILED", extractErr)
+            showError("INSTALL_FAILED")
         else
             Script.ShowMessageBox("Installation Complete",
                 "XEX game installed to:\n" .. installPath .. "\n\n" ..
@@ -629,7 +629,7 @@ local function _installGame_http_unused(gameName)
         end
 
         if not dlOk or not dlRes then
-            showError("DOWNLOAD_FAILED", "Content archive download failed\nURL: " .. fullUrl)
+            showError("DOWNLOAD_FAILED")
             pcall(FileSystem.DeleteFile, dlAbs)
             pcall(FileSystem.DeleteFile, Script.GetBasePath() .. localIniRel)
             return
@@ -641,7 +641,7 @@ local function _installGame_http_unused(gameName)
         pcall(FileSystem.DeleteFile, Script.GetBasePath() .. localIniRel)
 
         if not extractOk then
-            showError("INSTALL_FAILED", "Content extraction failed:\n" .. tostring(extractErr))
+            showError("INSTALL_FAILED")
         else
             Script.ShowMessageBox("Content Installed",
                 "Disc content installed to:\n" .. installPath .. "\n\n" ..
@@ -703,11 +703,7 @@ local function _installGame_http_unused(gameName)
 
         if not dlOk then
             showError("DOWNLOAD_FAILED",
-                "Part " .. i .. "/" .. gTotalParts .. " crashed during download.\n" ..
-                "File: " .. fileName .. "\n" ..
-                "Error: " .. tostring(dlRes) .. "\n\n" ..
-                "This may be caused by a network interruption or\n" ..
-                "memory issue. Try FTP mode for more reliable transfers.")
+                "Part " .. i .. "/" .. gTotalParts .. " did not finish downloading.")
             pcall(FileSystem.DeleteFile, dlAbs)
             pcall(FileSystem.DeleteFile, Script.GetBasePath() .. localIniRel)
             return
@@ -715,8 +711,7 @@ local function _installGame_http_unused(gameName)
 
         if not dlRes then
             showError("DOWNLOAD_FAILED",
-                "Part " .. i .. "/" .. gTotalParts .. " failed.\n" ..
-                "File: " .. fileName .. "\nURL: " .. fullUrl)
+                "Part " .. i .. "/" .. gTotalParts .. " failed to download.")
             pcall(FileSystem.DeleteFile, dlAbs)
             pcall(FileSystem.DeleteFile, Script.GetBasePath() .. localIniRel)
             return
@@ -730,8 +725,7 @@ local function _installGame_http_unused(gameName)
 
         if not extractOk then
             showError("INSTALL_FAILED",
-                "Part " .. i .. "/" .. gTotalParts .. " extraction failed.\n" ..
-                (extractErr or "Unknown extraction error"))
+                "Part " .. i .. "/" .. gTotalParts .. " could not be extracted.")
             pcall(FileSystem.DeleteFile, Script.GetBasePath() .. localIniRel)
             return
         end

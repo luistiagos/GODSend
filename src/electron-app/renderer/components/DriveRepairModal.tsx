@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Wrench, CheckCircle2, AlertTriangle, X, Terminal, RefreshCw, ShieldAlert } from "lucide-react";
 import { Button } from "./ui/button";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 interface DriveRepairModalProps {
   open: boolean;
@@ -55,15 +56,21 @@ export default function DriveRepairModal({
     try {
       const res = await window.godsendApi.toolsDriveRepair(driveRoot);
       if (res && res.result) {
+        const rawSummary = res.result.summary || "";
+        const friendlySummary = res.ok
+          ? (rawSummary || "Reparo finalizado com sucesso.")
+          : /código\s+\d+|chkdsk concluiu com avisos/i.test(rawSummary)
+            ? "O reparo não conseguiu corrigir todos os problemas do dispositivo. Feche todas as janelas abertas dele e tente novamente (ou use “Formatar antes” na preparação)."
+            : formatErrorForUser(rawSummary, { area: "drive-maintenance", driveRoot });
         setResult({
           ok: res.ok,
-          summary: res.result.summary || "Reparo finalizado.",
+          summary: friendlySummary,
           repaired: res.result.repaired,
         });
       } else {
         setResult({
           ok: false,
-          summary: res?.error || "Falha ao executar reparo de disco.",
+          summary: formatErrorForUser(res?.error, { area: "drive-maintenance", driveRoot }),
           repaired: false,
         });
       }
@@ -71,7 +78,7 @@ export default function DriveRepairModal({
     } catch (err: any) {
       setResult({
         ok: false,
-        summary: err?.message || "Erro inesperado durante o reparo.",
+        summary: formatErrorForUser(err, { area: "drive-maintenance", driveRoot }),
         repaired: false,
       });
     } finally {

@@ -183,7 +183,7 @@ test("script de substituição grava copy-failed quando não consegue copiar", {
 });
 
 // ── Disparo da troca (bug: script de substituição não registrava resultado) ──
-const { buildReplaceLaunch } = require("../../services/autoUpdateService.js");
+const { buildReplaceLaunch, buildCmdFallbackScript, startReplaceScript } = require("../../services/autoUpdateService.js");
 const SVC = path.join(__dirname, "..", "..", "services", "autoUpdateService.js");
 const tryResult = (f) => {
   try {
@@ -230,13 +230,17 @@ test("buildReplaceLaunch: cmd destacado faz start do PowerShell com -File; nunca
   assert.equal(options.cwd, path.dirname(ps1), "fora da pasta extraída que o launcher apaga");
 });
 
-test("consumePendingUpdate: 'started' sem desfecho = script interrompido; o .ps1 da troca é apagado", () => {
+test("consumePendingUpdate: 'started' sem desfecho = script interrompido; os scripts auxiliares são apagados", () => {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, "update-pending.json"), JSON.stringify({ fromVersion: "2.12.103", targetVersion: "2.12.104" }));
   fs.writeFileSync(path.join(dir, "update-result.txt"), "\uFEFFstarted\r\n");
   fs.writeFileSync(path.join(dir, "update-replace.ps1"), "x");
+  fs.writeFileSync(path.join(dir, "update-launch.ps1"), "y");
+  fs.writeFileSync(path.join(dir, "update-replace.cmd"), "z");
   assert.match(consumePendingUpdate(dir, "2.12.103").reason, /começou mas não terminou/);
   assert.equal(fs.existsSync(path.join(dir, "update-replace.ps1")), false);
+  assert.equal(fs.existsSync(path.join(dir, "update-launch.ps1")), false);
+  assert.equal(fs.existsSync(path.join(dir, "update-replace.cmd")), false);
 });
 
 test("script de substituição grava 'started' antes de esperar o processo", { skip: process.platform !== "win32" }, async () => {
@@ -281,4 +285,155 @@ test("disparo da troca sobrevive ao processo que o lançou saindo na hora", { sk
 
   assert.equal(await waitFor(() => tryResult(resultFile) === "ok", 30000), true, `resultado: "${tryResult(resultFile)}"`);
   assert.deepEqual(fs.readFileSync(target), fs.readFileSync(source));
+});
+
+test("buildCmdFallbackScript: gera batch sem BOM, escapando % e usando variaveis de ambiente", () => {
+  const cmd = buildCmdFallbackScript({
+    target: String.raw`C:\Users\100%João\xboxcompanion.exe`,
+    source: String.raw`C:\Temp\xboxcompanion-update.exe`,
+    resultFile: String.raw`C:\Users\100%João\update-result.txt`,
+    waitPid: 4321,
+    waitSeconds: 30,
+  });
+  assert.equal(cmd.startsWith("@echo off\r\n"), true);
+  assert.ok(cmd.includes('if not defined GODSEND_UPD_TARGET set "GODSEND_UPD_TARGET=C:\\Users\\100%%João\\xboxcompanion.exe"'));
+  assert.ok(cmd.includes('echo started'));
+  assert.ok(cmd.includes('echo ok'));
+});
+
+test("fallback cmd.exe puro conclui a troca mesmo sem PowerShell", { skip: process.platform !== "win32" }, async () => {
+  const { dir, sys, target, source, resultFile } = fakeUpdate();
+  const cmdFile = path.join(dir, "update-replace.cmd");
+  fs.writeFileSync(
+    cmdFile,
+    buildCmdFallbackScript({ target, source, resultFile, waitPid: 0x7ffffff0, waitSeconds: 5 }),
+    "utf8"
+  );
+  const child = spawn(path.join(sys, "cmd.exe"), ["/d", "/c", cmdFile], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    cwd: dir,
+    env: {
+      ...process.env,
+      GODSEND_UPD_TARGET: target,
+      GODSEND_UPD_SOURCE: source,
+      GODSEND_UPD_RESULT: resultFile,
+    },
+  });
+  child.unref();
+
+  assert.equal(await waitFor(() => tryResult(resultFile) === "ok", 20000), true, `resultado: "${tryResult(resultFile)}"`);
+  assert.deepEqual(fs.readFileSync(target), fs.readFileSync(source));
+});
+
+test("disparo via WMI sobrevive mesmo quando o processo pai esta em Job Object KILL_ON_JOB_CLOSE", { skip: process.platform !== "win32" }, async () => {
+  const { dir, sys, target, source, resultFile } = fakeUpdate();
+  const scriptFile = path.join(dir, "update-replace.ps1");
+  const childRunner = path.join(dir, "run-in-job.js");
+  fs.writeFileSync(
+    childRunner,
+    `const svc = require(${JSON.stringify(SVC)});
+     const opts = ${JSON.stringify({ target, source, resultFile, waitSeconds: 60 })};
+     svc.startReplaceScript(${JSON.stringify(scriptFile)}, svc.buildReplaceScript({ ...opts, waitPid: process.pid }), {
+       resultFile: opts.resultFile,
+       target: opts.target,
+       source: opts.source,
+       waitPid: process.pid,
+     }).then(() => process.exit(0), (e) => { console.error(e && e.stack || e); process.exit(1); });`,
+    "utf8"
+  );
+
+  // Wrap Node child in a strict KILL_ON_JOB_CLOSE Job Object (allowBreakaway=false),
+  // simulating a browser/archiver/sandbox Job Object closing as soon as the app exits.
+  const jobPs = path.join(dir, "job-host.ps1");
+  fs.writeFileSync(
+    jobPs,
+    "\uFEFF" +
+      `
+Add-Type @"
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+public class StrictJobHost {
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string lpName);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern bool SetInformationJobObject(IntPtr hJob, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, uint len);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern bool CloseHandle(IntPtr hObj);
+  [StructLayout(LayoutKind.Sequential)]
+  public struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
+    public long PerProcessUserTimeLimit;
+    public long PerJobUserTimeLimit;
+    public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize;
+    public UIntPtr MaximumWorkingSetSize;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass;
+    public uint SchedulingClass;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct IO_COUNTERS {
+    public ulong ReadOperationCount;
+    public ulong WriteOperationCount;
+    public ulong OtherOperationCount;
+    public ulong ReadTransferCount;
+    public ulong WriteTransferCount;
+    public ulong OtherTransferCount;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+    public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+    public IO_COUNTERS IoInfo;
+    public UIntPtr ProcessMemoryLimit;
+    public UIntPtr JobMemoryLimit;
+    public UIntPtr PeakProcessMemoryUsed;
+    public UIntPtr PeakJobMemoryUsed;
+  }
+  public static int Run(string exe, string args) {
+    IntPtr job = CreateJobObject(IntPtr.Zero, null);
+    var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+    info.BasicLimitInformation.LimitFlags = 0x2000; // KILL_ON_JOB_CLOSE only (no BREAKAWAY_OK)
+    SetInformationJobObject(job, 9, ref info, (uint)Marshal.SizeOf(info));
+    var psi = new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true };
+    var p = Process.Start(psi);
+    AssignProcessToJobObject(job, p.Handle);
+    p.WaitForExit();
+    int code = p.ExitCode;
+    CloseHandle(job); // kills anything remaining inside the job!
+    return code;
+  }
+}
+"@
+$exe = '${process.execPath.replace(/'/g, "''")}'
+$scriptArg = '"${childRunner.replace(/'/g, "''")}"'
+$rc = [StrictJobHost]::Run($exe, $scriptArg)
+exit $rc
+`,
+    "utf8"
+  );
+
+  const host = spawnSync(path.join(sys, "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", jobPs], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  assert.equal(host.status, 0, host.stderr || host.stdout);
+
+  assert.equal(await waitFor(() => tryResult(resultFile) === "ok", 30000), true, `resultado: "${tryResult(resultFile)}"`);
+  assert.deepEqual(fs.readFileSync(target), fs.readFileSync(source));
+});
+
+test("startReplaceScript rejeita quando o script nao confirma inicializacao no arquivo de resultado", { skip: process.platform !== "win32" }, async () => {
+  const dir = tmp();
+  const scriptFile = path.join(dir, "update-replace.ps1");
+  const resultFile = path.join(dir, "update-result.txt");
+  // Script exits immediately without writing resultFile -> must reject instead of letting app.quit() run.
+  await assert.rejects(
+    startReplaceScript(scriptFile, "exit 0", { resultFile, startupWaitMs: 600 }),
+    /Não foi possível iniciar o script de atualização/
+  );
 });

@@ -616,7 +616,7 @@ func (s *Service) RetryFTPJobForever(job PendingFTPJob) {
 	backoff := 30 * time.Second
 	const maxBackoff = 5 * time.Minute
 	s.App.Logf("FTP PENDING: %s — will retry every %s", job.GameName, backoff)
-	s.App.LogStatus(job.GameName, "Pending FTP", "Xbox unreachable — will retry automatically when FTP comes back online")
+	s.App.LogStatus(job.GameName, "Pending FTP", "O Xbox 360 não respondeu agora. O envio continuará automaticamente quando o console estiver ligado na Aurora e na mesma rede.")
 
 	for {
 		time.Sleep(backoff)
@@ -632,10 +632,10 @@ func (s *Service) RetryFTPJobForever(job PendingFTPJob) {
 		}
 
 		s.App.Logf("FTP PENDING: Retrying %s...", job.GameName)
-		s.App.LogStatus(job.GameName, "Processing", "FTP retry: reconnecting to Xbox...")
+		s.App.LogStatus(job.GameName, "Processing", "Tentando conectar novamente ao Xbox 360...")
 		if err := s.ExecutePendingFTPJob(job); err != nil {
 			s.App.Logf("FTP PENDING: Retry failed for %s: %v", job.GameName, err)
-			s.App.LogStatus(job.GameName, "Pending FTP", fmt.Sprintf("FTP retry failed — will try again: %v", err))
+			s.App.LogStatus(job.GameName, "Pending FTP", "O Xbox 360 ainda não respondeu. Deixe o videogame ligado na Aurora que o envio tentará de novo sozinho.")
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff

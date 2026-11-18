@@ -153,6 +153,24 @@ var knownBadHuggingFaceFiles = map[string]bool{
 	"bomba patch 2023 para o pes 17 - att.agosto ( xbox 360 rgh ).zip": true,
 	// A Sleeping Dogs PT-BR rar nested inside sdfasdasdfas.rar: does not deliver PES 2018.
 	"pes 2018™ patch atualização dezembro 2023 ( xbox 360 rgh ).zip": true,
+	// Same nested sdfasdasdfas.rar payload (4.98 GiB) that does not deliver FIFA/PES.
+	"fifa 23_24 att.setembro ( xbox 360 rgh ).zip":                                true,
+	"pro evolution soccer 2023™ patch atualização outubro 2023 ( xbox 360 rgh ).zip": true,
+	// Save/squad CON files only (7.26 MiB) with no executable or base game.
+	"fifa 19 + atualização elenco 2023_2024 ( xbox 360 rgh ).zip": true,
+	// Patch-only Content/CPK/Trainer/Save packages without a playable base game (no default.xex / GOD 00007000).
+	"bomba patch 2025 ( xbox 360 rgh ).zip":                                                true,
+	"onfire 5.3 att. fevereiro ( xbox 360 rgh _ xploit ).zip":                              true,
+	"onfire 5.4 att. maio.zip":                                                             true,
+	"pes 2018_2023 _ atualização patch onfire v4.2 março 2023.zip":                         true,
+	"pes 2026 - the joker patch setembro 2025 (xbox 360 rgh).zip":                          true,
+	"pes 2026 janeiro - super bomba patch.zip":                                             true,
+	"pro evolution soccer 2018™ fl patch março 2025( xbox 360 rgh ).zip":                   true,
+	"pro evolution soccer 2024™ att.fevereiro _ março 24 ( xbox 360 rgh ).zip":             true,
+	"pro evolution soccer 2024™ patch onfire 4.8 outubro 2024 ( xbox 360 rgh ).zip":        true,
+	"pro evolution soccer 2025™ patch arrow patch 10.1 fevereiro 25 ( xbox 360 rgh ).zip":  true,
+	"pro evolution soccer 2025™ patch att. janeiro 2025 ( xbox 360 rgh ).zip":              true,
+	"pro evolution soccer 2025™ patch the joker v16 fevereiro 25 ( xbox 360 rgh ).zip":     true,
 	// XeLL ELF homebrew (xenon.elf / "Método Shell"): no Xbox 360 dashboard executable (.xex).
 	"emulador nintendo ¨n64 mupen &quot; método shell&quot; ( xbox 360 rgh ).zip": true,
 	"emulador nintendo ¨n64 mupen \" método shell\" ( xbox 360 rgh ).zip":         true,

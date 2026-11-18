@@ -120,7 +120,7 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 	// porque este caminho retorna antes do telemetry.Report do fim da funcao —
 	// era por isso que so restava a foto da tela do usuario, sem nenhum log.
 	haltOnLocalStorageFailure := func(provider string, err error) {
-		message := "Falha no dispositivo local. O download concluido foi preservado para nova tentativa: " + err.Error()
+		message := app.FormatErrorForUser(err.Error())
 		if errors.Is(err, ErrLocalStaging) {
 			// Download, extracao e conversao GOD rodam todas no disco do PC, e
 			// nenhuma delas chegou ao destino: nada "concluiu" e o dispositivo
@@ -130,9 +130,10 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 			message = localStagingMessage(err, s.App.TempDir)
 			if reverted := s.App.EnsureWorkingVolume(); reverted != "" {
 				s.App.Logf("[WARN] Working volume %s failed during job; reverted to default %s", reverted, s.App.TempDir)
-				message += fmt.Sprintf(" (O volume temporário %s ficou indisponível e foi revertido para %s)", reverted, s.App.TempDir)
+				message += " (O armazenamento temporário mudou para a pasta padrão do aplicativo.)"
 			}
 		}
+		s.App.Logf("LOCAL STORAGE HALT [%s/%s]: %v", gameName, provider, err)
 		s.App.LogStatus(gameName, "Error", message)
 		logs := append(append([]string{}, providerErrors...), fmt.Sprintf("%s: %v", provider, err))
 		telemetry.Report("pipeline", "fallback.go", "ProcessGameWithFallback",
@@ -259,11 +260,18 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 	}
 
 	s.cleanupGameScratch(gameName)
-	message := fmt.Sprintf("Download falhou em todas as fontes. Ultimo erro: %v", lastErr)
 	if len(providerErrors) > 0 {
-		message = "Download falhou em todas as fontes. Erros: " + strings.Join(providerErrors, " | ")
+		s.App.Logf("FALLBACK FAILED [%s]: %s", gameName, strings.Join(providerErrors, " | "))
 	}
-	s.App.LogStatus(gameName, "Error", message)
+	summaryErr := lastErr
+	if reportedErr != nil {
+		summaryErr = reportedErr
+	}
+	userMsg := "Este jogo não pôde ser baixado em nenhuma das fontes disponíveis. Verifique sua internet e tente novamente mais tarde."
+	if summaryErr != nil {
+		userMsg = app.FormatErrorForUser(summaryErr.Error())
+	}
+	s.App.LogStatus(gameName, "Error", userMsg)
 
 	// Sem isto a causa real (ex.: "GOD convert failed: ...") existe apenas no log
 	// da maquina do usuario: a telemetria so tinha pontos de captura para panico

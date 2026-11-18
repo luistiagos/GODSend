@@ -311,3 +311,62 @@ func TestSanitizeHuggingFaceCacheRemovesCorruptAndIncompatibleReleases(t *testin
 		t.Errorf("expected only 1 cleanEntry, got %d", len(cleanEntries))
 	}
 }
+
+func TestSanitizeHuggingFaceCacheRemovesBrokenSoccerAndPatchOnlyReleases(t *testing.T) {
+	const base = "https://huggingface.co/datasets/luisluis123/xboxrghgames/resolve/main/"
+	badCases := []struct {
+		title string
+		file  string
+	}{
+		{"FIFA 23_24 ATT.SETEMBRO ( XBOX 360 RGH )", base + "FIFA%2023_24%20ATT.SETEMBRO%20%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"Pro Evolution Soccer 2023™ Patch Atualização Outubro 2023 ( XBOX 360 RGH )", base + "Pro%20Evolution%20Soccer%202023%E2%84%A2%20Patch%20Atualiza%C3%A7%C3%A3o%20Outubro%202023%20%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"FIFA 19 + ATUALIZAÇÃO ELENCO 2023_2024 ( XBOX 360 RGH )", base + "FIFA%2019%20%2B%20ATUALIZA%C3%87%C3%83O%20ELENCO%202023_2024%20%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"BOMBA PATCH 2025 ( XBOX 360 RGH )", base + "BOMBA%20PATCH%202025%20%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"ONFIRE 5.3 ATT. FEVEREIRO ( XBOX 360 RGH _ XPLOIT )", base + "ONFIRE%205.3%20ATT.%20FEVEREIRO%20%28%20XBOX%20360%20RGH%20_%20XPLOIT%20%29.zip"},
+		{"Onfire 5.4 ATT. MAIO", base + "Onfire%205.4%20ATT.%20MAIO.zip"},
+		{"PES 2018_2023 _ ATUALIZAÇÃO PATCH ONFIRE V4.2 MARÇO 2023", base + "PES%202018_2023%20_%20ATUALIZA%C3%87%C3%83O%20PATCH%20ONFIRE%20V4.2%20MAR%C3%87O%202023.zip"},
+		{"PES 2026 - THE JOKER PATCH SETEMBRO 2025 (Xbox 360 RGH)", base + "PES%202026%20-%20THE%20JOKER%20PATCH%20SETEMBRO%202025%20%28Xbox%20360%20RGH%29.zip"},
+		{"PES 2026 JANEIRO - SUPER BOMBA PATCH", base + "PES%202026%20JANEIRO%20-%20SUPER%20BOMBA%20PATCH.zip"},
+		{"Pro Evolution Soccer 2018™ FL PATCH MARÇO 2025( XBOX 360 RGH )", base + "Pro%20Evolution%20Soccer%202018%E2%84%A2%20FL%20PATCH%20MAR%C3%87O%202025%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"Pro Evolution Soccer 2024™ ATT.FEVEREIRO _ MARÇO 24 ( XBOX 360 RGH )", base + "Pro%20Evolution%20Soccer%202024%E2%84%A2%20ATT.FEVEREIRO%20_%20MAR%C3%87O%2024%20%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"Pro Evolution Soccer 2024™ PATCH ONFIRE 4.8 OUTUBRO 2024 ( XBOX 360 RGH )", base + "Pro%20Evolution%20Soccer%202024%E2%84%A2%20PATCH%20ONFIRE%204.8%20OUTUBRO%202024%20%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"Pro Evolution Soccer 2025™ PATCH ARROW PATCH 10.1 FEVEREIRO 25 ( XBOX 360 RGH )", base + "Pro%20Evolution%20Soccer%202025%E2%84%A2%20PATCH%20ARROW%20PATCH%2010.1%20FEVEREIRO%2025%20%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"Pro Evolution Soccer 2025™ PATCH ATT. JANEIRO 2025 ( XBOX 360 RGH )", base + "Pro%20Evolution%20Soccer%202025%E2%84%A2%20PATCH%20ATT.%20JANEIRO%202025%20%28%20XBOX%20360%20RGH%20%29.zip"},
+		{"Pro Evolution Soccer 2025™ PATCH THE JOKER V16 FEVEREIRO 25 ( XBOX 360 RGH )", base + "Pro%20Evolution%20Soccer%202025%E2%84%A2%20PATCH%20THE%20JOKER%20V16%20FEVEREIRO%2025%20%28%20XBOX%20360%20RGH%20%29.zip"},
+	}
+
+	validTitle := "FIFA 19 PT-BR"
+	validURL := base + "FIFA%2019%20PT-BR.zip"
+	if IsKnownIncompleteHuggingFaceURL(validURL) {
+		t.Fatalf("playable soccer release %q should NOT be blocked", validURL)
+	}
+
+	games := make([]string, 0, len(badCases)+1)
+	entries := make(map[string]models.IAGameEntry, len(badCases)+1)
+	for _, tc := range badCases {
+		if !IsKnownIncompleteHuggingFaceURL(tc.file) {
+			t.Errorf("expected broken/patch-only release to be recognized as known bad: %s", tc.file)
+		}
+		games = append(games, tc.title)
+		entries["xbox360\x00"+strings.ToLower(tc.title)] = models.IAGameEntry{
+			CollectionID: "10.00 GiB",
+			FileName:     tc.file,
+		}
+	}
+	games = append(games, validTitle)
+	entries["xbox360\x00"+strings.ToLower(validTitle)] = models.IAGameEntry{
+		CollectionID: "7.10 GiB",
+		FileName:     validURL,
+	}
+
+	cleanGames, cleanEntries, removed := sanitizeHuggingFaceCache("xbox360", games, entries)
+	if removed != len(badCases) {
+		t.Errorf("expected %d removed, got %d", len(badCases), removed)
+	}
+	if len(cleanGames) != 1 || cleanGames[0] != validTitle {
+		t.Errorf("expected only %q to remain, got %v", validTitle, cleanGames)
+	}
+	if len(cleanEntries) != 1 {
+		t.Errorf("expected only 1 cleanEntry, got %d", len(cleanEntries))
+	}
+}

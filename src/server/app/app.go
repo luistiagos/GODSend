@@ -139,6 +139,12 @@ func (a *App) LogStatus(game, state, msg string) {
 	if _, suppressed := a.SuppressedJobs.Load(game); suppressed {
 		return
 	}
+	if state == "Error" {
+		// Always preserve the exact technical error in the backend log before
+		// translating the message shown to the layman user in the queue UI.
+		a.Logf("[JOB ERROR] %s: %s", game, msg)
+		msg = FormatErrorForUser(msg)
+	}
 	// A disc whose release could not be assembled in full must never read as simply done.
 	// Every pipeline funnels its delivery through here, so attaching the warning at this one
 	// point covers all of them — GOD, XEX, content, FTP and local alike.

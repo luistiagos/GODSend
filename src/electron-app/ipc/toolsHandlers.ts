@@ -19,47 +19,55 @@ import { addOutputLine } from "../services/backendClient";
 import { backendGet, backendPost } from "../infrastructure/backendHttp";
 import { getMainWindow } from "../app/window";
 import { doAuroraLibrarySync } from "../services/autoSyncService";
+import { formatErrorForUser, type UserErrorArea } from "../infrastructure/userFriendlyError";
+
+const MISSING_IP_MSG =
+  "O endereço do seu Xbox 360 ainda não foi configurado. Vá em “Configurações”, informe o IP do videogame e tente novamente.";
 
 // Rotas /tools/probe-iso e /tools/iso2* falham pelo jsonError do backend:
 // {"state":"Error","message":...}, sem `error` nem `ok`. Sucesso so com o sinal
 // positivo de cada rota (`titleId` / `ok:true`).
 // [[electron-main-ferramentas-iso-mostram-sucesso-quando-o-backend-responde-erro_2026-10-11T13-55]]
-function isoBackendError(r: any, fallback: string): string {
-  return String(r?.message || r?.error || fallback);
+function isoBackendError(r: any, fallback: string, opName: string): string {
+  const raw = String(r?.message || r?.error || fallback);
+  addOutputLine(`[ERROR] ${opName}: ${raw}`);
+  return formatErrorForUser(raw, { area: "tools-iso" });
 }
 
 export function register(ipcMain: IpcMain): void {
 
   // ── Open folder in Explorer / Finder ────────────────────────────────────────
   ipcMain.handle("tools:open-folder", async (_event, folderPath: string) => {
-    if (!folderPath) return { ok: false, error: "Caminho não fornecido" };
+    if (!folderPath) return { ok: false, error: "Não foi possível identificar a pasta deste jogo." };
     try {
       if (fs.existsSync(folderPath)) {
         await shell.openPath(folderPath);
         return { ok: true };
       }
-      return { ok: false, error: "Caminho não encontrado" };
+      return { ok: false, error: "Esta pasta não foi encontrada. Confira se o pendrive ainda está conectado e clique em “Atualizar”." };
     } catch (err: any) {
-      return { ok: false, error: err.message };
+      addOutputLine(`[ERROR] tools:open-folder (${folderPath}): ${err.message || err}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "local-files" }) };
     }
   });
 
   // ── Delete local game folder from USB / disk safely ─────────────────────────
   ipcMain.handle("tools:delete-local-game", async (_event, gamePath: string) => {
-    if (!gamePath || typeof gamePath !== "string") return { ok: false, error: "Caminho inválido" };
+    if (!gamePath || typeof gamePath !== "string") return { ok: false, error: "Não foi possível identificar a pasta deste jogo." };
     const cleaned = path.normalize(gamePath);
     // Disallow deleting root drive
     if (cleaned.length <= 4 || /^[A-Za-z]:\\?$/.test(cleaned)) {
-      return { ok: false, error: "Operação não permitida na raiz da unidade" };
+      return { ok: false, error: "Por segurança, não é permitido apagar a unidade inteira. Escolha apenas a pasta do jogo." };
     }
     try {
       if (fs.existsSync(cleaned)) {
         fs.rmSync(cleaned, { recursive: true, force: true });
         return { ok: true };
       }
-      return { ok: false, error: "Pasta não encontrada" };
+      return { ok: false, error: "A pasta deste jogo não existe mais. Clique em “Atualizar” para atualizar a lista." };
     } catch (err: any) {
-      return { ok: false, error: err.message };
+      addOutputLine(`[ERROR] tools:delete-local-game (${cleaned}): ${err.message || err}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "local-files" }) };
     }
   });
 
@@ -89,55 +97,63 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("tools:probe-iso", async (_event, isoPath: string) => {
     try {
       const r = await backendPost("/tools/probe-iso", { isoPath });
-      if (!r || !r.titleId) return { ok: false, error: isoBackendError(r, "o servidor local não identificou a ISO") };
+      if (!r || !r.titleId) return { ok: false, error: isoBackendError(r, "Probe failed", "tools:probe-iso") };
       return { ok: true, ...r };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:probe-iso (${isoPath}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "tools-iso" }) };
     }
   });
 
   ipcMain.handle("tools:iso2god", async (_event, { isoPath, outDir }) => {
     try {
       const r = await backendPost("/tools/iso2god", { isoPath, outDir });
-      if (!r || r.ok !== true) return { ok: false, error: isoBackendError(r, "o servidor local não confirmou a conversão") };
+      if (!r || r.ok !== true) return { ok: false, error: isoBackendError(r, "ISO2GOD failed", "tools:iso2god") };
       return { ok: true, ...r };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:iso2god (${isoPath}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "tools-iso" }) };
     }
   });
 
   ipcMain.handle("tools:iso2xex", async (_event, { isoPath, outDir }) => {
     try {
       const r = await backendPost("/tools/iso2xex", { isoPath, outDir });
-      if (!r || r.ok !== true) return { ok: false, error: isoBackendError(r, "o servidor local não confirmou a conversão") };
+      if (!r || r.ok !== true) return { ok: false, error: isoBackendError(r, "ISO2XEX failed", "tools:iso2xex") };
       return { ok: true, ...r };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:iso2xex (${isoPath}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "tools-iso" }) };
     }
   });
 
   // The Go backend returns {state:"ok"} on success, or {state:"Error",
   // message:"..."} (HTTP 4xx/5xx) on failure. Normalise to {ok, error} so
-  // the renderer can surface the actual reason instead of "Unknown error".
-  function normalizeBackendResp(r: any): { ok: boolean; error?: string; [k: string]: any } {
+  // the renderer can surface a friendly reason while keeping the raw message in logs.
+  function normalizeBackendResp(r: any, opName = "backend", area: UserErrorArea = "ftp"): { ok: boolean; error?: string; [k: string]: any } {
     if (r && typeof r === "object") {
       if (r.ok === true || r.state === "ok") return { ok: true, ...r };
-      const message = r.message || r.error || r.errorMessage;
-      if (message) return { ok: false, error: String(message), ...r };
+      const rawMessage = r.message || r.error || r.errorMessage;
+      if (rawMessage) {
+        addOutputLine(`[ERROR] ${opName}: ${String(rawMessage)}`);
+        return { ok: false, ...r, error: formatErrorForUser(String(rawMessage), { area }) };
+      }
     }
-    return { ok: false, error: "Unknown error" };
+    addOutputLine(`[ERROR] ${opName}: empty or invalid backend response`);
+    return { ok: false, error: formatErrorForUser("Unknown error", { area }) };
   }
 
   // ── FTP Manager: list directory (proxied to Go backend) ────────────────────
   ipcMain.handle("tools:ftp-list", async (_event, remotePath: string) => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       const r = await backendPost("/ftp/list", { ip: xboxIp, path: remotePath || "/" });
-      return normalizeBackendResp(r);
+      return normalizeBackendResp(r, "tools:ftp-list");
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:ftp-list (${remotePath}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
@@ -165,13 +181,14 @@ export function register(ipcMain: IpcMain): void {
   // ── FTP Manager: upload files (proxied to Go backend — async tracked) ──────
   ipcMain.handle("tools:ftp-upload", async (_event, { localPaths, remotePath }: { localPaths: string[]; remotePath: string }) => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       const r = await backendPost("/ftp/upload", { ip: xboxIp, local_paths: localPaths, remote_path: remotePath });
-      return normalizeBackendResp(r);
+      return normalizeBackendResp(r, "tools:ftp-upload");
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:ftp-upload: ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
@@ -182,7 +199,8 @@ export function register(ipcMain: IpcMain): void {
       const r   = JSON.parse(raw);
       return r;
     } catch (err: any) {
-      return { ok: false, jobs: [], error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:ftp-upload-status: ${err.message || String(err)}`);
+      return { ok: false, jobs: [], error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
@@ -199,67 +217,71 @@ export function register(ipcMain: IpcMain): void {
   // ── FTP Manager: delete remote file/folder (proxied to Go backend) ─────────
   ipcMain.handle("tools:ftp-delete", async (_event, remotePath: string) => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       const r = await backendPost("/ftp/delete", { ip: xboxIp, path: remotePath });
-      return normalizeBackendResp(r);
+      return normalizeBackendResp(r, "tools:ftp-delete");
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:ftp-delete: ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
   // ── FTP Manager: create remote directory (proxied to Go backend) ───────────
   ipcMain.handle("tools:ftp-mkdir", async (_event, remotePath: string) => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       const r = await backendPost("/ftp/mkdir", { ip: xboxIp, path: remotePath });
-      return normalizeBackendResp(r);
+      return normalizeBackendResp(r, "tools:ftp-mkdir");
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:ftp-mkdir: ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
   // ── FTP Manager: rename / move (proxied to Go backend) ─────────────────────
   ipcMain.handle("tools:ftp-rename", async (_event, { from, to }: { from: string; to: string }) => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       const r = await backendPost("/ftp/rename", { ip: xboxIp, from, to });
-      return normalizeBackendResp(r);
+      return normalizeBackendResp(r, "tools:ftp-rename");
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:ftp-rename: ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
   // ── FTP Manager: copy (proxied to Go backend — async tracked) ──────────────
   ipcMain.handle("tools:ftp-copy", async (_event, { src, dst, isDir }: { src: string; dst: string; isDir: boolean }) => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       const r = await backendPost("/ftp/copy", { ip: xboxIp, src, dst, is_dir: isDir });
-      return normalizeBackendResp(r);
+      return normalizeBackendResp(r, "tools:ftp-copy");
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] tools:ftp-copy: ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
   // ── Move a game to a different Xbox drive (proxied to Go backend) ──────────
   ipcMain.handle("xbox:move-game", async (_event, { game, targetDrive }: { game: any; targetDrive: string }) => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
-    if (!game || !targetDrive) return { ok: false, error: "Missing game or target drive." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
+    if (!game || !targetDrive) return { ok: false, error: "Escolha o jogo e a unidade de destino no Xbox 360 para mover." };
 
     const gameName = game.name || game.titleId || "Unknown";
     const srcDrive = game.sourceDrive;
     const gameDir  = game.directory;
-    if (!srcDrive || !gameDir) return { ok: false, error: "Game has no source drive or directory info." };
+    if (!srcDrive || !gameDir) return { ok: false, error: "Não foi possível identificar a pasta atual deste jogo. Atualize a biblioteca do Xbox e tente novamente." };
     if (srcDrive + ":" === targetDrive || srcDrive === targetDrive) {
-      return { ok: false, error: "Source and destination drive are the same." };
+      return { ok: false, error: formatErrorForUser("Source and destination drive are the same.", { area: "library" }) };
     }
 
     try {
@@ -270,7 +292,7 @@ export function register(ipcMain: IpcMain): void {
         directory:    gameDir,
         target_drive: targetDrive,
       });
-      const r = normalizeBackendResp(raw);
+      const r = normalizeBackendResp(raw, "xbox:move-game", "library");
       if (!r.ok) return r;
 
       addOutputLine(`[INFO] Move ${gameName}: queued via backend (job ${r.id})`);
@@ -304,7 +326,8 @@ export function register(ipcMain: IpcMain): void {
 
       return { ok: true, jobId: r.id, message: r.message };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      addOutputLine(`[ERROR] xbox:move-game (${gameName}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "library" }) };
     }
   });
 }

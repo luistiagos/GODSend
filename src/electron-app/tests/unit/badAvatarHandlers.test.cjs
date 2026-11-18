@@ -58,7 +58,10 @@ test("tools:badavatar-prepare reports a failure with mode, drive and last progre
     throw error;
   });
   const result = await h.prepare(baseRequest);
-  assert.deepEqual(result, { ok: false, error: error.message });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /pendrive ou HD \(D:\)/);
+  assert.ok(!result.error.includes("UNKNOWN:"));
+  assert.ok(!result.error.includes(".xbox-downloader"));
   assert.equal(h.pushed.length, 1);
   assert.equal(h.reports.length, 1);
   const [component, file, method, message, extra, logs, terminal] = h.reports[0];

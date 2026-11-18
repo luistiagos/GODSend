@@ -450,6 +450,8 @@ export function cancelUpdateDownload(): void {
 const PENDING_UPDATE_FILE = "update-pending.json";
 const UPDATE_RESULT_FILE = "update-result.txt";
 const REPLACE_SCRIPT_FILE = "update-replace.ps1";
+const REPLACE_LAUNCH_SCRIPT_FILE = "update-launch.ps1";
+const REPLACE_CMD_SCRIPT_FILE = "update-replace.cmd";
 
 export interface PendingUpdate {
   fromVersion: string;
@@ -580,22 +582,258 @@ export function buildReplaceLaunch(scriptFile: string): { file: string; args: st
   };
 }
 
+export interface StartReplaceScriptOptions {
+  resultFile?: string;
+  target?: string;
+  source?: string;
+  waitPid?: number;
+  startupWaitMs?: number;
+}
+
+function readTrimmedResult(resultFile: string): string {
+  try {
+    return fs.readFileSync(resultFile, "utf8").replace(/^\uFEFF/, "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function extractPsVar(script: string, name: string): string {
+  const m = script.match(new RegExp(`\\$${name}\\s*=\\s*'((?:[^']|'')*)'`));
+  return m ? m[1].replace(/''/g, "'") : "";
+}
+
+function extractWaitPid(script: string): number {
+  const m = script.match(/Get-Process\s+-Id\s+(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
 /**
- * Writes `script` to `scriptFile` and starts it (buildReplaceLaunch). Resolves
- * once `cmd.exe` is running; only the `started` line in the result file proves
- * the script itself ran.
+ * Helper PowerShell script that spawns the real replace PowerShell via WMI
+ * `Win32_Process.Create` (`WmiPrvSE.exe`), breaking completely out of any
+ * caller Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) without passing
+ * `DETACHED_PROCESS` and without `cmd.exe` quote/env expansion.
  */
-export async function startReplaceScript(scriptFile: string, script: string): Promise<void> {
+export function buildWmiLaunchScript(opts: {
+  powerShellPath: string;
+  scriptFile: string;
+  workDir: string;
+}): string {
+  return `
+      $ErrorActionPreference = 'Stop'
+      $psExe = ${psQuote(opts.powerShellPath)}
+      $scriptFile = ${psQuote(opts.scriptFile)}
+      $workDir = ${psQuote(opts.workDir)}
+      $cmd = '"' + $psExe + '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $scriptFile + '"'
+      $mc = [wmiclass]'Win32_Process'
+      $si = ([wmiclass]'Win32_ProcessStartup').CreateInstance()
+      $si.ShowWindow = 0
+      $res = $mc.Create($cmd, $workDir, $si)
+      if ($null -eq $res -or $res.ReturnValue -ne 0) {
+        $code = if ($null -eq $res) { 'null' } else { $res.ReturnValue }
+        Write-Error ("Win32_Process.Create failed with code " + $code)
+        exit 1
+      }
+      Write-Output ("WMI_PID=" + $res.ProcessId)
+    `;
+}
+
+/**
+ * Pure cmd.exe fallback script when PowerShell itself is blocked on the
+ * machine (AppLocker / ASR / GPO). Avoids BOM on byte 0 so cmd.exe parses
+ * `@echo off` cleanly, and prefers UTF-16 environment variables when provided so
+ * accented paths work even without a console (`chcp 65001` fails in DETACHED_PROCESS).
+ */
+export function buildCmdFallbackScript(opts: {
+  target: string;
+  source: string;
+  resultFile: string;
+  waitPid: number;
+  waitSeconds?: number;
+}): string {
+  const esc = (s: string) => s.replace(/%/g, "%%");
+  const maxTries = Math.max(20, Math.ceil(opts.waitSeconds ?? 180) * 2);
+  return [
+    "@echo off",
+    "setlocal",
+    `if not defined GODSEND_UPD_TARGET set "GODSEND_UPD_TARGET=${esc(opts.target)}"`,
+    `if not defined GODSEND_UPD_SOURCE set "GODSEND_UPD_SOURCE=${esc(opts.source)}"`,
+    `if not defined GODSEND_UPD_RESULT set "GODSEND_UPD_RESULT=${esc(opts.resultFile)}"`,
+    "> \"%GODSEND_UPD_RESULT%\" echo started",
+    "set /a TRIES=0",
+    ":retry_copy",
+    "set /a TRIES+=1",
+    "copy /y \"%GODSEND_UPD_SOURCE%\" \"%GODSEND_UPD_TARGET%\" >nul 2>nul",
+    "if not errorlevel 1 (",
+    "  > \"%GODSEND_UPD_RESULT%\" echo ok",
+    "  start \"\" \"%GODSEND_UPD_TARGET%\"",
+    "  exit /b 0",
+    ")",
+    `if %TRIES% lss ${maxTries} (`,
+    "  ping -n 2 127.0.0.1 >nul",
+    "  goto :retry_copy",
+    ")",
+    "> \"%GODSEND_UPD_RESULT%\" echo copy-failed: could not overwrite executable",
+    "start \"\" \"%GODSEND_UPD_TARGET%\"",
+    "",
+  ].join("\r\n");
+}
+
+async function waitForResultFile(resultFile: string, timeoutMs: number): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = readTrimmedResult(resultFile);
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return readTrimmedResult(resultFile);
+}
+
+async function launchViaWmi(scriptFile: string): Promise<{ ok: boolean; wmiPid?: number; error?: string }> {
+  const dir = path.dirname(scriptFile);
+  const launchFile = path.join(dir, REPLACE_LAUNCH_SCRIPT_FILE);
+  const ps = powerShellExe();
+  const launchScript = buildWmiLaunchScript({
+    powerShellPath: ps,
+    scriptFile,
+    workDir: dir,
+  });
+  fs.writeFileSync(launchFile, "\uFEFF" + launchScript, "utf8");
+  try {
+    const child = spawn(
+      ps,
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", launchFile],
+      {
+        cwd: dir,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (d: Buffer) => { stdout += d.toString("utf8"); });
+    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString("utf8"); });
+    const exit = await new Promise<{ code: number | null; err?: Error }>((resolve) => {
+      const timer = setTimeout(() => {
+        try { child.kill(); } catch {}
+        resolve({ code: null, err: new Error("WMI launcher timed out") });
+      }, 10000);
+      child.once("error", (err) => {
+        clearTimeout(timer);
+        resolve({ code: null, err });
+      });
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        resolve({ code });
+      });
+    });
+    if (exit.err || exit.code !== 0) {
+      return {
+        ok: false,
+        error: exit.err?.message || stderr.trim() || `exit=${exit.code}`,
+      };
+    }
+    const m = stdout.match(/WMI_PID=(\d+)/);
+    return { ok: true, wmiPid: m ? parseInt(m[1], 10) : undefined };
+  } finally {
+    try { fs.unlinkSync(launchFile); } catch {}
+  }
+}
+
+/**
+ * Writes `script` to `scriptFile` and launches it, verifying that the script
+ * actually wrote `started` (or an outcome) to `resultFile` before resolving so
+ * `app.quit()` never kills the app while the updater failed to start.
+ *
+ * 1) Primary: WMI `Win32_Process.Create` (breaks out of any parent Job Object
+ *    with `KILL_ON_JOB_CLOSE` and avoids `DETACHED_PROCESS`).
+ * 2) Fallback: `buildReplaceLaunch` (`cmd.exe /d /s /c "start ..."`).
+ * 3) Fallback: pure `cmd.exe` batch script when PowerShell itself is blocked.
+ */
+export async function startReplaceScript(
+  scriptFile: string,
+  script: string,
+  opts: StartReplaceScriptOptions = {}
+): Promise<void> {
   // BOM: Windows PowerShell 5.1 reads a .ps1 without one in the ANSI code page,
   // and the target path may carry accents.
   fs.writeFileSync(scriptFile, "\uFEFF" + script, "utf8");
-  const { file, args, options } = buildReplaceLaunch(scriptFile);
-  const child = spawn(file, args, options);
-  await new Promise<void>((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
-  });
-  child.unref();
+
+  const dir = path.dirname(scriptFile);
+  const resultFile =
+    opts.resultFile || extractPsVar(script, "resultFile") || path.join(dir, UPDATE_RESULT_FILE);
+  const startupWaitMs = opts.startupWaitMs ?? 8000;
+  const failures: string[] = [];
+
+  if (process.platform === "win32") {
+    const wmi = await launchViaWmi(scriptFile);
+    if (wmi.ok) {
+      if (await waitForResultFile(resultFile, startupWaitMs)) return;
+      if (wmi.wmiPid) {
+        try { process.kill(wmi.wmiPid); } catch {}
+      }
+      failures.push(`wmi(pid=${wmi.wmiPid ?? "?"}): result file not created within ${startupWaitMs}ms`);
+    } else {
+      failures.push(`wmi: ${wmi.error || "failed"}`);
+    }
+  }
+
+  // Fallback 2: detached cmd.exe + start
+  try {
+    const { file, args, options } = buildReplaceLaunch(scriptFile);
+    const child = spawn(file, args, options);
+    await new Promise<void>((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    child.unref();
+    if (await waitForResultFile(resultFile, startupWaitMs)) return;
+    failures.push(`cmd-start: result file not created within ${startupWaitMs}ms`);
+  } catch (err: any) {
+    failures.push(`cmd-start: ${err?.message || err}`);
+  }
+
+  // Fallback 3: pure cmd.exe batch script (no PowerShell dependency)
+  const target = opts.target || extractPsVar(script, "target");
+  const source = opts.source || extractPsVar(script, "source");
+  const waitPid = opts.waitPid ?? extractWaitPid(script);
+  if (process.platform === "win32" && target && source) {
+    try {
+      const cmdFile = path.join(dir, REPLACE_CMD_SCRIPT_FILE);
+      fs.writeFileSync(
+        cmdFile,
+        buildCmdFallbackScript({ target, source, resultFile, waitPid }),
+        "utf8"
+      );
+      const child = spawn(
+        system32Exe("cmd.exe", "cmd.exe"),
+        ["/d", "/c", cmdFile],
+        {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+          cwd: dir,
+          env: {
+            ...process.env,
+            GODSEND_UPD_TARGET: target,
+            GODSEND_UPD_SOURCE: source,
+            GODSEND_UPD_RESULT: resultFile,
+          },
+        }
+      );
+      await new Promise<void>((resolve, reject) => {
+        child.once("spawn", resolve);
+        child.once("error", reject);
+      });
+      child.unref();
+      if (await waitForResultFile(resultFile, Math.min(startupWaitMs, 5000))) return;
+      failures.push("cmd-fallback: result file not created");
+    } catch (err: any) {
+      failures.push(`cmd-fallback: ${err?.message || err}`);
+    }
+  }
+
+  throw new Error(`Não foi possível iniciar o script de atualização (${failures.join("; ")})`);
 }
 
 /**
@@ -615,7 +853,13 @@ export function consumePendingUpdate(dir: string, currentVersion: string): Updat
   try {
     outcome = fs.readFileSync(resultFile, "utf8").replace(/^﻿/, "").trim();
   } catch {}
-  for (const f of [markerFile, resultFile, path.join(dir, REPLACE_SCRIPT_FILE)]) {
+  for (const f of [
+    markerFile,
+    resultFile,
+    path.join(dir, REPLACE_SCRIPT_FILE),
+    path.join(dir, REPLACE_LAUNCH_SCRIPT_FILE),
+    path.join(dir, REPLACE_CMD_SCRIPT_FILE),
+  ]) {
     try {
       fs.unlinkSync(f);
     } catch {}
@@ -691,9 +935,14 @@ export async function applyUpdateAndRestart(downloadedFilePath?: string, targetV
 
     const psScript = buildReplaceScript({ target: targetExecutable, source: updateFile, resultFile, waitPid: process.pid });
     try {
-      // Quit only once the launch went through; a blocked spawn (EPERM) must
-      // surface as an error, not as a dead app.
-      await startReplaceScript(path.join(dir, REPLACE_SCRIPT_FILE), psScript);
+      // Quit only once the replacement script confirmed startup (`started` written);
+      // a blocked or dead launcher must surface as an error, not close the app silently.
+      await startReplaceScript(path.join(dir, REPLACE_SCRIPT_FILE), psScript, {
+        resultFile,
+        target: targetExecutable,
+        source: updateFile,
+        waitPid: process.pid,
+      });
     } catch (err) {
       try {
         fs.unlinkSync(markerFile);

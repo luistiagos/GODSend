@@ -53,6 +53,7 @@ import {
 import { getLogInfo, openLogsFolder, appendAppEvent } from "../infrastructure/serverLog";
 import { getWritableRuntimeRoot, getDefaultWritableRuntimeRoot } from "../infrastructure/fileSystem";
 import { getMainWindow } from "../app/window";
+import { formatErrorForUser } from "../infrastructure/userFriendlyError";
 
 export function register(ipcMain: IpcMain): void {
 
@@ -202,12 +203,15 @@ export function register(ipcMain: IpcMain): void {
     } catch { /* ignore */ }
 
     try { fs.mkdirSync(target, { recursive: true }); }
-    catch (err: any) { return { ok: false, error: `Cannot create ${target}: ${err.message || err}` }; }
+    catch (err: any) {
+      appendAppEvent("CONFIG", `appDataDir mkdir FAILED ${target}: ${err.message || err}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "config" }) };
+    }
 
     const result = migrateAppData(current, target);
     if (!result.ok) {
       appendAppEvent("CONFIG", `appDataDir migrate FAILED ${current} → ${target}: ${result.error}`);
-      return { ok: false, error: result.error || "Migration failed" };
+      return { ok: false, error: formatErrorForUser(result.error || "Migration failed", { area: "config" }) };
     }
 
     setAppDataDirOverride(trimmed);
@@ -321,7 +325,7 @@ export function register(ipcMain: IpcMain): void {
     } catch (err: any) {
       const msg = err && err.message ? err.message : String(err);
       appendAppEvent("IA_LOGIN", `failed: ${msg}`);
-      return { ok: false, error: msg };
+      return { ok: false, error: formatErrorForUser(err, { area: "ia-login" }) };
     }
   });
 
@@ -349,7 +353,7 @@ export function register(ipcMain: IpcMain): void {
     appendAppEvent("CACHE", `refresh requested platform=${p}`);
     return new Promise((resolve) => {
       const req = http.get(
-        `http://localhost:${getConfiguredServerPort()}/cache-refresh?platform=${encodeURIComponent(p)}`,
+        `http://127.0.0.1:${getConfiguredServerPort()}/cache-refresh?platform=${encodeURIComponent(p)}`,
         (res) => {
           let data = "";
           res.on("data",  (chunk) => { data += chunk; });
@@ -361,12 +365,12 @@ export function register(ipcMain: IpcMain): void {
       );
       req.on("error", (err: Error) => {
         appendAppEvent("CACHE", `refresh error: ${err.message}`);
-        resolve({ ok: false, error: err.message });
+        resolve({ ok: false, error: formatErrorForUser(err, { area: "generic" }) });
       });
       req.setTimeout(5000, () => {
         req.destroy();
         appendAppEvent("CACHE", "refresh error: timeout");
-        resolve({ ok: false, error: "timeout" });
+        resolve({ ok: false, error: formatErrorForUser("timeout", { area: "generic" }) });
       });
     });
   });
@@ -448,29 +452,46 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("data:status", () => {
     return new Promise((resolve) => {
       const port = getConfiguredServerPort();
-      const req  = http.get(`http://localhost:${port}/data/status`, (res) => {
+      const req  = http.get(`http://127.0.0.1:${port}/data/status`, (res) => {
         let data = "";
         res.on("data",  (chunk) => { data += chunk; });
         res.on("end", () => {
           try { resolve({ ok: true, ...JSON.parse(data) }); }
-          catch { resolve({ ok: false, error: "parse error" }); }
+          catch {
+            appendAppEvent("DATA", `data:status parse error: ${data.slice(0, 200)}`);
+            resolve({ ok: false, error: formatErrorForUser("parse error", { area: "config" }) });
+          }
         });
       });
-      req.on("error", (err: Error) => resolve({ ok: false, error: err.message }));
-      req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false, error: "timeout" }); });
+      req.on("error", (err: Error) => {
+        appendAppEvent("DATA", `data:status error: ${err.message}`);
+        resolve({ ok: false, error: formatErrorForUser(err, { area: "config" }) });
+      });
+      req.setTimeout(5000, () => {
+        req.destroy();
+        appendAppEvent("DATA", "data:status timeout");
+        resolve({ ok: false, error: formatErrorForUser("timeout", { area: "config" }) });
+      });
     });
   });
 
   ipcMain.handle("data:clear", () => {
     return new Promise((resolve) => {
       const port = getConfiguredServerPort();
-      const req  = http.get(`http://localhost:${port}/data/clear`, (res) => {
+      const req  = http.get(`http://127.0.0.1:${port}/data/clear`, (res) => {
         let data = "";
         res.on("data",  (chunk) => { data += chunk; });
         res.on("end", () => resolve({ ok: true }));
       });
-      req.on("error", (err: Error) => resolve({ ok: false, error: err.message }));
-      req.setTimeout(10000, () => { req.destroy(); resolve({ ok: false, error: "timeout" }); });
+      req.on("error", (err: Error) => {
+        appendAppEvent("DATA", `data:clear error: ${err.message}`);
+        resolve({ ok: false, error: formatErrorForUser(err, { area: "config" }) });
+      });
+      req.setTimeout(10000, () => {
+        req.destroy();
+        appendAppEvent("DATA", "data:clear timeout");
+        resolve({ ok: false, error: formatErrorForUser("timeout", { area: "config" }) });
+      });
     });
   });
 

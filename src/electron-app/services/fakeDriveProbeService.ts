@@ -15,6 +15,7 @@ import { join } from "path";
 import { normalizeDriveRoot } from "../infrastructure/deviceSafetyPolicy";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { powerShellExe } from "../infrastructure/windowsSystemExecutables";
+import { formatErrorForUser } from "../infrastructure/userFriendlyError";
 
 
 export interface ProbeCheckpointResult {
@@ -128,6 +129,8 @@ export async function probeFakeDrive(
     }
     mkdirSync(probeDir, { recursive: true });
   } catch (err: any) {
+    appendAppEvent("usb", `Teste de capacidade falhou ao criar pasta em ${normalizedRoot}: ${err.message}`);
+    const userMsg = formatErrorForUser(err, { area: "drive-maintenance", driveRoot: normalizedRoot });
     return {
       ok: false,
       authentic: false,
@@ -137,10 +140,10 @@ export async function probeFakeDrive(
       realCapacityEstimateBytes: 0,
       wrapAroundDetected: false,
       readErrorsDetected: false,
-      summary: `Não foi possível criar pasta de teste no pendrive: ${err.message}`,
-      details: err.message,
+      summary: userMsg,
+      details: userMsg,
       checkpoints: [],
-      error: err.message,
+      error: userMsg,
     };
   }
 
@@ -209,8 +212,9 @@ export async function probeFakeDrive(
         flushFile(blockPath);
         writtenBlocks.push({ index: i + 1, path: blockPath, hash: block.hash, offsetBytes: targetOffset });
       } catch (writeErr: any) {
+        appendAppEvent("usb", `Probe write error at ${offsetGb} GB (${normalizedRoot}): ${writeErr.message}`);
         readErrorsDetected = true;
-        firstFailureMessage = `Falha na gravação ao atingir ${offsetGb} GB: ${writeErr.message}`;
+        firstFailureMessage = `O dispositivo falhou ao gravar quando chegou perto de ${offsetGb} GB.`;
         checkpoints.push({
           offsetBytes: targetOffset,
           offsetGb,
@@ -226,8 +230,9 @@ export async function probeFakeDrive(
         const readCurrent = readFileSync(blockPath);
         const verifyCurrent = verifyProbeBlock(readCurrent, block.hash, i + 1);
         if (!verifyCurrent.valid) {
+          appendAppEvent("usb", `Probe verify error at ${offsetGb} GB (${normalizedRoot}): ${verifyCurrent.error}`);
           readErrorsDetected = true;
-          firstFailureMessage = `Bloco em ${offsetGb} GB corrompido: ${verifyCurrent.error}`;
+          firstFailureMessage = `Os dados gravados perto de ${offsetGb} GB vieram com erro na leitura.`;
           checkpoints.push({
             offsetBytes: targetOffset,
             offsetGb,
@@ -238,8 +243,9 @@ export async function probeFakeDrive(
           break;
         }
       } catch (readErr: any) {
+        appendAppEvent("usb", `Probe read error at ${offsetGb} GB (${normalizedRoot}): ${readErr.message}`);
         readErrorsDetected = true;
-        firstFailureMessage = `Erro de I/O ao reler ${offsetGb} GB: ${readErr.message}`;
+        firstFailureMessage = `Não foi possível ler de volta os dados gravados perto de ${offsetGb} GB.`;
         checkpoints.push({
           offsetBytes: targetOffset,
           offsetGb,
@@ -256,7 +262,7 @@ export async function probeFakeDrive(
         const verify0 = verifyProbeBlock(readBlock0, block0.hash, 0);
         if (!verify0.valid) {
           wrapAroundDetected = true;
-          firstFailureMessage = `Sobrescrita de memória detectada ao gravar em ${offsetGb} GB (o início do pendrive foi destruído). O dispositivo possui capacidade física adulterada.`;
+          firstFailureMessage = `Ao chegar perto de ${offsetGb} GB, o dispositivo começou a apagar os arquivos anteriores sozinho — sinal de capacidade falsa.`;
           checkpoints.push({
             offsetBytes: targetOffset,
             offsetGb,
@@ -267,8 +273,9 @@ export async function probeFakeDrive(
           break;
         }
       } catch (err0: any) {
+        appendAppEvent("usb", `Probe block0 read error at ${offsetGb} GB (${normalizedRoot}): ${err0.message}`);
         wrapAroundDetected = true;
-        firstFailureMessage = `Bloco inicial inacessível após gravar em ${offsetGb} GB: ${err0.message}`;
+        firstFailureMessage = `O início do dispositivo parou de responder depois de gravar perto de ${offsetGb} GB.`;
         checkpoints.push({
           offsetBytes: targetOffset,
           offsetGb,
@@ -312,15 +319,15 @@ export async function probeFakeDrive(
 
   const realGb = Number((realCapacityEstimate / (1024 ** 3)).toFixed(1));
 
-  let summary = `Pendrive autêntico! Todos os ${checkpoints.length} blocos testados responderam com 100% de integridade (capacidade validada: ${totalGb} GB).`;
-  let details = `O dispositivo suporta gravação e leitura contínua até ${totalGb} GB sem perda de dados ou wrap-around.`;
+  let summary = `Pendrive ou HD autêntico! Todos os ${checkpoints.length} pontos testados funcionaram sem erro (capacidade real confirmada: ${totalGb} GB).`;
+  let details = `O dispositivo conseguiu gravar e ler até ${totalGb} GB normalmente, sem apagar arquivos antigos.`;
 
   if (wrapAroundDetected) {
-    summary = `ALERTA: Capacidade Falsificada Detectada! O pendrive anuncia ${totalGb} GB, mas os dados corromperam ao atingir ~${realGb} GB.`;
-    details = `Ao ultrapassar ~${realGb} GB, a memória física atingiu o limite real e o controlador reiniciou a gravação sobre os primeiros setores, destruindo a tabela FAT e os arquivos anteriores. ${firstFailureMessage}`;
+    summary = `ALERTA: Capacidade falsa detectada! Ele diz ter ${totalGb} GB, mas só aguenta cerca de ${realGb} GB.`;
+    details = `Quando passa de cerca de ${realGb} GB, este dispositivo começa a apagar o que já estava gravado antes para fingir que tem mais espaço. Use outro pendrive ou HD original para não perder seus jogos. ${firstFailureMessage}`;
   } else if (readErrorsDetected) {
-    summary = `Aviso: Falhas de leitura/escrita encontradas ao atingir ${realGb} GB.`;
-    details = `O pendrive apresentou erros físicos ou de sistema de arquivos durante a verificação. ${firstFailureMessage}`;
+    summary = `Aviso: O dispositivo falhou ao gravar ou ler perto de ${realGb} GB.`;
+    details = `O dispositivo apresentou falhas físicas ou mau contato durante o teste. Tente em outra porta USB ou use outro pendrive ou HD. ${firstFailureMessage}`;
   }
 
   appendAppEvent(

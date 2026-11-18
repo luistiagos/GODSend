@@ -26,6 +26,11 @@ import {
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { reportError } from "../infrastructure/telemetry";
 import { describeWindowsExecutableEnvironment } from "../infrastructure/windowsSystemExecutables";
+import {
+  formatBadAvatarListErrorForUser,
+  formatBadAvatarPrepareErrorForUser,
+} from "../infrastructure/badAvatarPrepareError";
+import { formatErrorForUser } from "../infrastructure/userFriendlyError";
 
 let previewInProgress = false;
 let previewAbortController: AbortController | null = null;
@@ -58,7 +63,7 @@ export function register(ipcMain: IpcMain): void {
         [environment],
         false,
       );
-      return { ok: false, drives: [], error: message };
+      return { ok: false, drives: [], error: formatBadAvatarListErrorForUser(err) };
     }
   });
 
@@ -130,7 +135,10 @@ export function register(ipcMain: IpcMain): void {
         err?.stack ? [context, err.stack] : [context],
         false,
       );
-      return { ok: false, error: message };
+      return {
+        ok: false,
+        error: formatBadAvatarPrepareErrorForUser(err, request?.driveRoot),
+      };
     } finally {
       preparationInProgress = false;
       setUsbPreparationActive(false);
@@ -162,7 +170,9 @@ export function register(ipcMain: IpcMain): void {
           error: "Prévia cancelada; nenhum arquivo foi gravado no dispositivo.",
         };
       }
-      return { ok: false, error: err?.message || String(err) };
+      const raw = err?.message || String(err);
+      appendAppEvent("BADAVATAR", `falha na prévia: ${raw}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "drive-maintenance", driveRoot: request?.driveRoot }) };
     } finally {
       previewInProgress = false;
       previewAbortController = null;

@@ -22,12 +22,15 @@ import {
   SKIP_SCREEN_TEXT,
 } from "../../services/preparedDeviceCopy.ts";
 import { XBOX360_SYSTEM_UPDATE_USB_URL } from "../../infrastructure/navigationPolicy.ts";
+import { isSamePhysicalUsbSelection } from "../../infrastructure/usbSelectionIdentity.ts";
 
 interface UsbDrive {
   rootPath: string;
   label: string;
   sizeBytes: number;
   fingerprint?: string;
+  diskUniqueId?: string;
+  serialNumber?: string;
   friendlyName?: string;
   manufacturer?: string;
   fileSystem?: string;
@@ -49,15 +52,15 @@ interface UsbDrive {
 // estáveis de deviceSafetyPolicy.ts. Cai para o motivo técnico quando o código
 // for desconhecido.
 const BLOCK_REASONS: Record<string, string> = {
-  NOT_USB: "Este disco não é um pendrive ou HD conectado por USB. Ligue o dispositivo direto numa porta USB.",
-  BOOT_OR_SYSTEM: "Este é um disco do sistema. Por segurança ele nunca é usado — escolha um pendrive ou HD USB.",
-  WINDOWS_VOLUME: "Esta é a unidade onde o Windows está rodando. Escolha um pendrive ou HD USB.",
-  DISK_ZERO: "Este é o disco principal do computador. Escolha um pendrive ou HD USB.",
-  READ_ONLY: "O dispositivo está protegido contra gravação. Desative a trava de proteção e clique em Atualizar.",
-  OFFLINE: "O dispositivo está offline no Windows. Coloque-o online e clique em Atualizar.",
-  AMBIGUOUS_IDENTITY: "O Windows não reconhece um identificador estável deste dispositivo. Tente outra porta USB ou outro pendrive.",
-  INVALID_CAPACITY: "Capacidade não reconhecida ou menor que 1 GB. Use um pendrive ou HD de pelo menos 1 GB.",
-  MULTIPLE_MOUNTED_PARTITIONS: "Este dispositivo tem mais de uma partição. Use um com partição única ou marque “Formatar antes”.",
+  NOT_USB: "Este disco fica dentro do computador e não é um pendrive ou HD externo. Escolha um pendrive ou HD ligado na entrada USB.",
+  BOOT_OR_SYSTEM: "Este é o disco do Windows. Por segurança ele nunca é alterado — escolha um pendrive ou HD ligado na entrada USB.",
+  WINDOWS_VOLUME: "Esta é a unidade onde o Windows está instalado. Escolha um pendrive ou HD ligado na entrada USB.",
+  DISK_ZERO: "Este é o disco principal do computador. Escolha um pendrive ou HD ligado na entrada USB.",
+  READ_ONLY: "Este pendrive ou HD está travado contra gravação. Destrave a chavinha física dele e clique em Atualizar.",
+  OFFLINE: "Este pendrive ou HD não está pronto no Windows. Desconecte e conecte ele novamente e clique em Atualizar.",
+  AMBIGUOUS_IDENTITY: "O Windows não conseguiu reconhecer este pendrive ou HD corretamente. Troque de porta USB ou use outro pendrive ou HD.",
+  INVALID_CAPACITY: "Tamanho não reconhecido ou menor que 1 GB. Use um pendrive ou HD de pelo menos 1 GB.",
+  MULTIPLE_MOUNTED_PARTITIONS: "Este dispositivo está dividido em mais de uma unidade. Marque “Formatar antes” para juntar tudo ou use outro pendrive ou HD.",
 };
 
 function blockReason(device?: UsbDrive): string {
@@ -124,14 +127,23 @@ export default function BadAvatarUsbPage({
     }
   }, [initialIsRghOnly]);
 
-  const refreshDrives = useCallback(async (manual = false) => {
+  const refreshDrives = useCallback(async (
+    manual = false,
+  ): Promise<{ ok: boolean; drives: UsbDrive[]; error?: string }> => {
     setLoading(true);
     setLoadError("");
+    let refreshedResult: { ok: boolean; drives: UsbDrive[]; error?: string } = {
+      ok: false,
+      drives: [],
+      error: "Não foi possível procurar dispositivos USB.",
+    };
     const drivesPromise = window.godsendApi.toolsBadAvatarListDrives({ fresh: manual }).then((driveResult: any) => {
       if (!driveResult?.ok) {
+        const message = driveResult?.error || "Não foi possível procurar dispositivos USB.";
         setDrives([]);
         setSelectedDrive("");
-        setLoadError(driveResult?.error || "Não foi possível procurar dispositivos USB.");
+        setLoadError(message);
+        refreshedResult = { ok: false, drives: [], error: message };
       } else {
         const nextDrives = Array.isArray(driveResult.drives) ? driveResult.drives : [];
         setDrives(nextDrives);
@@ -142,11 +154,17 @@ export default function BadAvatarUsbPage({
           const safeDrive = nextDrives.find((drive: UsbDrive) => drive.safety?.allowed);
           return (safeDrive || nextDrives[0])?.rootPath || "";
         });
+        refreshedResult = { ok: true, drives: nextDrives };
       }
     }).catch(() => {
       setDrives([]);
       setSelectedDrive("");
       setLoadError("Não foi possível procurar dispositivos USB.");
+      refreshedResult = {
+        ok: false,
+        drives: [],
+        error: "Não foi possível procurar dispositivos USB.",
+      };
     });
 
     const readinessPromise = window.godsendApi.toolsBadAvatarIsAdmin().then((readinessResult: any) => {
@@ -165,6 +183,7 @@ export default function BadAvatarUsbPage({
     await Promise.allSettled([drivesPromise, readinessPromise]);
     setLoading(false);
     setHasLoadedOnce(true);
+    return refreshedResult;
   }, []);
 
   useEffect(() => {
@@ -258,22 +277,59 @@ export default function BadAvatarUsbPage({
 
   async function handlePrepare() {
     if (!canPrepare || !selectedDevice?.fingerprint) return;
-    if (formatDrive) {
-      const confirmed = window.confirm(
-        `Formatar ${selectedDevice.rootPath} e preparar para o Xbox 360?\n\nOs jogos instalados nesta unidade serão apagados.\n\nNota: Perfis pessoais e saves de jogos encontrados no pendrive serão salvos em backup no computador e restaurados automaticamente após a formatação.`,
-      );
-      if (!confirmed) return;
-    }
+    const previousDevice = selectedDevice;
+    const targetRoot = previousDevice.rootPath;
+    const driveLabel = targetRoot.replace(/\\+$/, "");
+    let prepareInvoked = false;
+
     setBusy(true);
     setDone(false);
     setError("");
-    setStatus("Iniciando preparação…");
+    setStatus("Conferindo dispositivo conectado…");
     setPercent(0);
     try {
+      const refreshed = await refreshDrives(true);
+      if (!refreshed.ok) {
+        throw new Error(
+          refreshed.error ||
+            `Não foi possível acessar o seu pendrive ou HD (${driveLabel}). Verifique a conexão USB e tente novamente.`,
+        );
+      }
+      const latestDevice = refreshed.drives.find((drive) => drive.rootPath === targetRoot);
+      if (!latestDevice || !latestDevice.fingerprint) {
+        throw new Error(
+          `O seu pendrive ou HD (${driveLabel}) não foi encontrado. Reconecte o dispositivo e tente novamente.`,
+        );
+      }
+      if (!isSamePhysicalUsbSelection(previousDevice, latestDevice)) {
+        throw new Error(
+          `O dispositivo conectado em ${driveLabel} mudou desde a seleção anterior. Confira o pendrive ou HD exibido acima e clique em “Preparar pendrive/HD” novamente.`,
+        );
+      }
+      if (latestDevice.safety?.allowed !== true) {
+        throw new Error(blockReason(latestDevice));
+      }
+
+      const latestHasStableVolume = /^\\\\\?\\Volume\{[0-9a-f-]+\}\\?$/i.test(
+        latestDevice.volumeGuid || "",
+      );
+      const effectiveFormatDrive = formatDrive && formatAvailable && latestHasStableVolume;
+      if (effectiveFormatDrive) {
+        const confirmed = window.confirm(
+          `Formatar ${latestDevice.rootPath} e preparar para o Xbox 360?\n\nOs jogos instalados nesta unidade serão apagados.\n\nNota: Perfis pessoais e saves de jogos encontrados no pendrive serão salvos em backup no computador e restaurados automaticamente após a formatação.`,
+        );
+        if (!confirmed) {
+          setStatus("");
+          return;
+        }
+      }
+
+      setStatus("Iniciando preparação…");
+      prepareInvoked = true;
       const response = await window.godsendApi.toolsBadAvatarPrepare({
-        driveRoot: selectedDevice.rootPath,
-        expectedDeviceFingerprint: selectedDevice.fingerprint,
-        formatDrive,
+        driveRoot: latestDevice.rootPath,
+        expectedDeviceFingerprint: latestDevice.fingerprint,
+        formatDrive: effectiveFormatDrive,
         requirementsAccepted,
         isRghOnly: isRghOnly === true,
       });
@@ -281,9 +337,12 @@ export default function BadAvatarUsbPage({
       setDone(true);
       setStatus("Pronto! O pendrive está preparado para o Xbox 360.");
       setPercent(100);
-      await refreshDrives();
+      await refreshDrives(true);
     } catch (prepareError: any) {
       setError(prepareError?.message || "Não foi possível preparar o dispositivo.");
+      if (prepareInvoked) {
+        await refreshDrives(true);
+      }
     } finally {
       setBusy(false);
     }

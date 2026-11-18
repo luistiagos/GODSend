@@ -3,6 +3,7 @@ import {
   FolderOpen, FileUp, Loader2, Check, AlertTriangle, X, Disc,
 } from "lucide-react";
 import { Button } from "./ui/button";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 interface IsoFile {
   path: string;
@@ -108,12 +109,12 @@ export default function ISO2GODPage({}: ISO2GODPageProps) {
           ));
         } else {
           setFiles(prev => prev.map(f =>
-            f.path === file.path ? { ...f, state: "error", error: r.error || "Falha na conversão" } : f
+            f.path === file.path ? { ...f, state: "error", error: formatErrorForUser(r.error, { area: "tools-iso" }) } : f
           ));
         }
       } catch (err: any) {
         setFiles(prev => prev.map(f =>
-          f.path === file.path ? { ...f, state: "error", error: err.message || "Erro desconhecido" } : f
+          f.path === file.path ? { ...f, state: "error", error: formatErrorForUser(err, { area: "tools-iso" }) } : f
         ));
       }
     }

@@ -772,9 +772,18 @@ try {
       appendAppEvent("usb", `Dispositivo ${driveLetter}: ejetado com sucesso.`);
       return { ok: true };
     }
-    return { ok: false, error: res.trim().replace(/^FAIL:\s*/i, "") || "Não foi possível ejetar a unidade." };
+    const rawReason = res.trim().replace(/^FAIL:\s*/i, "");
+    appendAppEvent("usb", `Falha ao ejetar ${driveLetter}: ${rawReason || "sem detalhe"}`);
+    return {
+      ok: false,
+      error: `Não foi possível ejetar o dispositivo (${driveLetter}:). Feche todas as pastas dele que estiverem abertas no Windows e tente novamente.`,
+    };
   } catch (err: any) {
-    return { ok: false, error: err?.message || String(err) };
+    appendAppEvent("usb", `Exceção ao ejetar ${driveLetter}: ${err?.message || String(err)}`);
+    return {
+      ok: false,
+      error: `Não foi possível ejetar o dispositivo (${driveLetter}:). Feche todas as pastas dele que estiverem abertas no Windows e tente novamente.`,
+    };
   }
 }
 

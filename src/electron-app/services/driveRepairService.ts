@@ -512,12 +512,13 @@ export async function repairDrive(
     });
 
     child.on("error", (err) => {
+      appendAppEvent("usb", `Falha ao iniciar CHKDSK em ${driveLetter}: ${err.message}`);
       resolve({
         ok: false,
         rootPath: normalized,
         exitCode: -1,
         output: fullOutput,
-        summary: `Falha ao iniciar o utilitário de reparo: ${err.message}`,
+        summary: "Não foi possível iniciar o reparo deste dispositivo. Feche todas as pastas dele, reconecte em outra porta USB e tente novamente.",
         repaired: false,
         error: err.message,
       });

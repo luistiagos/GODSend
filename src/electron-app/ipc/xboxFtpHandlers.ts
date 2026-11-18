@@ -23,6 +23,10 @@ import { getMainWindow } from "../app/window";
 import { xboxAuroraMediaDir } from "../services/auroraPathHelper";
 import { xboxBuildGameNameMap } from "../services/auroraLibraryService";
 import { backendGet, backendPost } from "../infrastructure/backendHttp";
+import { formatErrorForUser } from "../infrastructure/userFriendlyError";
+
+const MISSING_IP_MSG =
+  "O endereço do seu Xbox 360 ainda não foi configurado. Vá em “Configurações”, informe o IP do videogame e tente novamente.";
 
 function getLocalIPAddress(): string | null {
   const ifaces = os.networkInterfaces();
@@ -44,12 +48,18 @@ export function register(ipcMain: IpcMain): void {
   // ── Ping (proxied to Go backend) ──────────────────────────────────────────
   ipcMain.handle("xbox:ping", async () => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
-      return await backendPost("/ftp/ping", { ip: xboxIp });
+      const res = await backendPost("/ftp/ping", { ip: xboxIp });
+      if (res && res.ok === false && res.error) {
+        appendAppEvent("FTP", `xbox:ping failed (${xboxIp}): ${res.error}`);
+        return { ...res, error: formatErrorForUser(res.error, { area: "ftp" }) };
+      }
+      return res;
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      appendAppEvent("FTP", `xbox:ping error (${xboxIp}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
@@ -60,7 +70,7 @@ export function register(ipcMain: IpcMain): void {
     const ftpUser = (typeof p.ftpUser  === "string" ? p.ftpUser.trim() : "") || getConfiguredFtpUser();
     const ftpPass = (typeof p.ftpPassword === "string" ? p.ftpPassword  : "") || getConfiguredFtpPassword();
 
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     const sendDebug = (line: string) => {
       const win = getMainWindow();
@@ -73,17 +83,22 @@ export function register(ipcMain: IpcMain): void {
       if (Array.isArray(r.log)) {
         for (const line of r.log) sendDebug(line);
       }
-      return { ok: r.ok || false, error: r.ok ? undefined : "FTP test failed" };
+      if (!r.ok) {
+        appendAppEvent("FTP", `xbox:ftp-test failed (${xboxIp}): ${(r.log || []).slice(-2).join(" | ")}`);
+      }
+      return { ok: r.ok || false, error: r.ok ? undefined : formatErrorForUser("FTP test failed", { area: "ftp" }) };
     } catch (err: any) {
-      sendDebug(`[TEST] FAILED: ${err.message || String(err)}`);
-      return { ok: false, error: err.message || String(err) };
+      const raw = err.message || String(err);
+      sendDebug(`[TEST] FAILED: ${raw}`);
+      appendAppEvent("FTP", `xbox:ftp-test error (${xboxIp}): ${raw}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
   // ── FTP Port Scanner (raw TCP — stays Electron-side, no FTP library needed) ─
   ipcMain.handle("xbox:ftp-scan", async (_event, subnet: string) => {
     if (typeof subnet !== "string" || !/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(subnet.trim())) {
-      return { ok: false, error: "Invalid subnet. Use format like 192.168.1" };
+      return { ok: false, error: formatErrorForUser("Invalid subnet", { area: "ftp" }) };
     }
     subnet = subnet.trim();
 
@@ -146,13 +161,14 @@ export function register(ipcMain: IpcMain): void {
       if (win && !win.isDestroyed()) win.webContents.send("godsend-ftp-progress", msg);
     };
 
-    if (!xboxIp) return { ok: false, error: "Xbox IP address is required." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     const scriptsDir = getAuroraScriptsPath();
     const pcIp       = getLocalIPAddress();
     const serverPort = getConfiguredServerPort();
     if (!pcIp) {
-      return { ok: false, error: "Could not detect this PC's local IPv4 address for state.lua patching." };
+      appendAppEvent("FTP", "xbox:ftp-scripts: local IPv4 unavailable");
+      return { ok: false, error: formatErrorForUser("local IPv4 unavailable", { area: "ftp" }) };
     }
 
     try {
@@ -167,31 +183,39 @@ export function register(ipcMain: IpcMain): void {
       if (r.ok) {
         sendProgress("Upload complete.");
         appendAppEvent("FTP", `upload complete host=${xboxIp} path=${remotePath}`);
+      } else {
+        appendAppEvent("FTP", `upload scripts failed host=${xboxIp}: ${r.message || r.error || "unknown"}`);
       }
-      return { ok: r.ok, remotePath, error: r.ok ? undefined : (r.message || "Upload failed") };
+      return { ok: r.ok, remotePath, error: r.ok ? undefined : formatErrorForUser(r.message || r.error || "Upload failed", { area: "ftp" }) };
     } catch (err: any) {
       appendAppEvent("FTP", `error: ${err.message || String(err)}`);
-      return { ok: false, error: err.message || String(err) };
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
   // ── List Xbox drives (proxied to Go backend) ──────────────────────────────
   ipcMain.handle("xbox:list-drives", async () => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       const raw = await backendGet(`/ftp/drives?ip=${encodeURIComponent(xboxIp)}`);
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.ok === false && parsed.error) {
+        appendAppEvent("FTP", `xbox:list-drives failed (${xboxIp}): ${parsed.error}`);
+        return { ...parsed, error: formatErrorForUser(parsed.error, { area: "ftp" }) };
+      }
+      return parsed;
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      appendAppEvent("FTP", `xbox:list-drives error (${xboxIp}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "ftp" }) };
     }
   });
 
   // ── List games (via Go backend /ftp/batch for multi-directory scan) ────────
   ipcMain.handle("xbox:list-games", async () => {
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured. Set it in Settings." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       const nameMap  = xboxBuildGameNameMap();
@@ -269,7 +293,8 @@ export function register(ipcMain: IpcMain): void {
       const gameList = Array.from(games.values()).sort((a: any, b: any) => a.name.localeCompare(b.name));
       return { ok: true, games: gameList, connectedTo: xboxIp };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      appendAppEvent("FTP", `xbox:list-games error (${xboxIp}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "library" }) };
     }
   });
 
@@ -278,7 +303,7 @@ export function register(ipcMain: IpcMain): void {
     if (!Array.isArray(coverRequests) || coverRequests.length === 0) return { ok: true };
 
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     try {
       // Build batch ops to download each cover as base64
@@ -309,7 +334,8 @@ export function register(ipcMain: IpcMain): void {
       }
       return { ok: true };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      appendAppEvent("FTP", `xbox:fetch-covers error (${xboxIp}): ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "library" }) };
     }
   });
 }

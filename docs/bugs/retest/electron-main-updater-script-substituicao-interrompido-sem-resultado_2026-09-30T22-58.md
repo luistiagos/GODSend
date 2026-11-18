@@ -3,6 +3,7 @@
 ## Status
 
 - **Reaberto em:** 2026-11-09 (triagem de telemetria): reincidência confirmada em produção na **v2.12.118** atualizando para **v2.12.123** (IDs 12439, 12441). O executável permaneceu na 2.12.118 com o script de substituição sem registrar resultado.
+- **Correção da reincidência aplicada e validada em:** 2026-11-17 (unitários em `autoUpdate.test.cjs` inclusive sob Job Object `KILL_ON_JOB_CLOSE` + E2E real `src/electron-app/tests/electron/backend-lifecycle-and-update-e2e.cjs` invocando `applyUpdateAndRestart` no Electron real com troca concluída para `update-result.txt=ok`); movido para `retest/` aguardando validação com launcher portátil publicado em produção.
 - **Histórico anterior:** corrigido em 2026-10-12 (pipeline commit `e2d9756`), mas a substituição do binário ainda sofreu interrupção silenciosa em máquina de cliente com a v2.12.118.
 - **Complexidade:** **Média** — requer isolamento de ciclo de vida e desvinculação de Job Object/process group no Windows para garantir que o script de substituição continue rodando até o fim após `app.quit()`.
 
@@ -285,3 +286,20 @@ Sem acesso à telemetria nesta sessão (o token exige ler o `.env` do backend, o
 **Retomada 2 (2026-10-12) — CHANGELOG resolvido:** `sync` ok (branch sobre `origin/main` @ `8e5f3af`), `claim --file CHANGELOG.md` ok, entrada acima aplicada em `## [Unreleased]` / `### Fixed`. Depois do rebase: `pipeline.py build` → rc 0; `node --test tests/unit/*.test.cjs` → 325 pass / 0 fail (os 4 testes novos incluídos).
 
 **Ajustes ao Plano de teste:** a receita não muda. Na T2, conferir também que `EV\fake\godsend-data\update-replace.ps1` existe depois do clique. O efeito do `cwd` (não prender a pasta extraída do portable) só aparece com o launcher NSIS real: vai para "falta para close" junto com a troca do portable real.
+
+---
+
+## Correção da reincidência (2026-11-17)
+
+### Brechas encontradas após v2.12.118 -> v2.12.123 (IDs 12439, 12441)
+1. **Herança de Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`)**: reproduzido localmente que `cmd.exe /d /s /c "start "" /min powershell.exe ..."` herda Job Objects sem `BREAKAWAY_OK` (ex.: processo iniciado a partir de navegador/descompactador/sandbox) e é encerrado pelo kernel assim que o processo pai e o launcher saem (`cmd_start_in_job_result=False`).
+2. **Saída cega no evento `spawn`**: `startReplaceScript()` resolvia assim que `cmd.exe` disparava `spawn` e `applyUpdateAndRestart()` chamava `app.quit()` imediatamente, antes de confirmar que o script havia gravado `started` em `update-result.txt`.
+3. **Sem fallback caso PowerShell seja bloqueado**: ambientes com bloqueio a `.ps1`/PowerShell (AV/ASR/GPO) não tinham caminho alternativo em batch puro.
+
+### Alterações aplicadas
+- `src/electron-app/services/autoUpdateService.ts`:
+  - `buildWmiLaunchScript()` + `launchViaWmi()`: dispara o PowerShell da troca via WMI `Win32_Process.Create` (`WmiPrvSE.exe`, `ShowWindow = 0`), executando fora de qualquer Job Object da árvore do app e sem `DETACHED_PROCESS`.
+  - `startReplaceScript()` aguarda a confirmação (`started` ou desfecho em `update-result.txt`) antes de resolver para `app.quit()`, com fallback automático para `buildReplaceLaunch` (`cmd.exe` + `start`) e, por último, para `buildCmdFallbackScript()` (`update-replace.cmd`, batch puro sem PowerShell recebendo caminhos em variáveis de ambiente UTF-16 `GODSEND_UPD_*`). Se nenhum método gravar `update-result.txt`, lança erro para o modal em vez de encerrar o app silenciosamente.
+  - `consumePendingUpdate()` também limpa `update-launch.ps1` e `update-replace.cmd`.
+- `src/electron-app/tests/unit/autoUpdate.test.cjs`: adicionados testes cobrindo sobrevivência dentro de Job Object `KILL_ON_JOB_CLOSE` (sem `BREAKAWAY_OK`), fallback `.cmd` puro com caminho acentuado, limpeza dos scripts auxiliares e rejeição quando o script não confirma inicialização.
+

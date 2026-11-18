@@ -43,6 +43,10 @@ import {
 } from "../services/coverArtService";
 import { getMainWindow, getWebContentsForPush } from "../app/window";
 import { backendPost } from "../infrastructure/backendHttp";
+import { formatErrorForUser } from "../infrastructure/userFriendlyError";
+
+const MISSING_IP_MSG =
+  "O endereço do seu Xbox 360 ainda não foi configurado. Vá em “Configurações”, informe o IP do videogame e tente novamente.";
 
 // ── FTP batch helper ──────────────────────────────────────────────────────────
 
@@ -188,10 +192,10 @@ export function register(ipcMain: IpcMain): void {
   // ── Fetch a remote image URL → base64 data URL ─────────────────────────────
   ipcMain.handle("xbox:fetch-url-image", async (_event, url: string) => {
     if (typeof url !== "string" || !url.startsWith("http")) {
-      return { ok: false, error: "Invalid URL." };
+      return { ok: false, error: formatErrorForUser("Invalid URL.", { area: "assets" }) };
     }
     const buf = await fetchHttpImage(url);
-    if (!buf || buf.length < 100) return { ok: false, error: "Could not fetch image." };
+    if (!buf || buf.length < 100) return { ok: false, error: formatErrorForUser("Could not fetch image.", { area: "assets" }) };
     const mime =
       (buf[0] === 0xFF && buf[1] === 0xD8) ? "image/jpeg" :
       (buf[0] === 0x89 && buf[1] === 0x50) ? "image/png"  : "image/jpeg";
@@ -232,18 +236,18 @@ export function register(ipcMain: IpcMain): void {
     const assetType   = typeof p.assetType   === "string" ? p.assetType.trim().toLowerCase() : "";
     const gameDataDir = typeof p.gameDataDir === "string" ? p.gameDataDir.trim()             : "";
     if (!titleId || !/^[0-9A-F]{8}$/.test(titleId)) {
-      return { ok: false, error: "Invalid or missing titleId." };
+      return { ok: false, error: formatErrorForUser("Invalid or missing titleId.", { area: "assets" }) };
     }
     if (!gameDataDir) {
-      return { ok: false, error: "gameDataDir is required for asset upload." };
+      return { ok: false, error: formatErrorForUser("gameDataDir is required for asset upload.", { area: "assets" }) };
     }
     const slotInfo = ASSET_SLOT_MAP[assetType];
     if (!slotInfo) {
-      return { ok: false, error: `Unknown assetType: ${assetType}` };
+      return { ok: false, error: formatErrorForUser(`Unknown assetType: ${assetType}`, { area: "assets" }) };
     }
 
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     let imgBuf: Buffer | null = null;
     if (typeof p.imageBase64 === "string" && p.imageBase64.length > 0) {
@@ -251,7 +255,7 @@ export function register(ipcMain: IpcMain): void {
     } else if (typeof p.imageUrl === "string" && p.imageUrl.startsWith("http")) {
       imgBuf = await fetchHttpImage(p.imageUrl);
     }
-    if (!imgBuf || imgBuf.length < 100) return { ok: false, error: "No valid image data provided." };
+    if (!imgBuf || imgBuf.length < 100) return { ok: false, error: formatErrorForUser("No valid image data provided.", { area: "assets" }) };
 
     const port = getConfiguredServerPort();
     const scriptsPath = getConfiguredFtpScriptsPath();
@@ -289,7 +293,8 @@ export function register(ipcMain: IpcMain): void {
       const allSlots = [...existingSlots, changedSlot];
       const rxeaBuf = await rxeaEncodeMulti(allSlots, port);
       if (!rxeaBuf || rxeaBuf.length < 2048) {
-        return { ok: false, error: "RXEA multi-slot encoding failed — backend returned no data." };
+        appendAppEvent("AURORA_ASSET", `RXEA multi-slot encoding failed for ${titleId}/${assetType}`);
+        return { ok: false, error: formatErrorForUser("RXEA multi-slot encoding failed", { area: "assets" }) };
       }
 
       try {
@@ -305,14 +310,15 @@ export function register(ipcMain: IpcMain): void {
       } catch (err: any) {
         const msg = err.message || String(err);
         appendAppEvent("AURORA_ASSET", `upload error ${titleId}/${assetType}: ${msg}`);
-        return { ok: false, error: msg };
+        return { ok: false, error: formatErrorForUser(err, { area: "assets" }) };
       }
     }
 
     // ── Single-slot upload (cover, background, screenshots)
     const rxeaBuf = await rxeaEncodeImage(imgBuf, slotInfo.slot, port);
     if (!rxeaBuf || rxeaBuf.length < 2048) {
-      return { ok: false, error: "RXEA encoding failed — backend returned no data." };
+      appendAppEvent("AURORA_ASSET", `RXEA encoding failed for ${titleId}/${assetType}`);
+      return { ok: false, error: formatErrorForUser("RXEA encoding failed", { area: "assets" }) };
     }
 
     const assetName  = `${slotInfo.prefix}${titleId}.asset`;
@@ -331,7 +337,7 @@ export function register(ipcMain: IpcMain): void {
     } catch (err: any) {
       const msg = err.message || String(err);
       appendAppEvent("AURORA_ASSET", `upload error ${titleId}/${assetType}: ${msg}`);
-      return { ok: false, error: msg };
+      return { ok: false, error: formatErrorForUser(err, { area: "assets" }) };
     }
   });
 
@@ -367,10 +373,10 @@ export function register(ipcMain: IpcMain): void {
     const p           = payload || {};
     const titleId     = typeof p.titleId     === "string" ? p.titleId.trim().toUpperCase() : "";
     const gameDataDir = typeof p.gameDataDir === "string" ? p.gameDataDir.trim() : "";
-    if (!titleId || !gameDataDir) return { ok: false, error: "titleId and gameDataDir required." };
+    if (!titleId || !gameDataDir) return { ok: false, error: formatErrorForUser("titleId and gameDataDir required.", { area: "assets" }) };
 
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     const scriptsPath  = getConfiguredFtpScriptsPath();
     const auroraRoot   = xboxAuroraRoot(scriptsPath);
@@ -547,7 +553,8 @@ export function register(ipcMain: IpcMain): void {
     } catch (err: any) {
       const msg = err.message || String(err);
       addOutputLine(`[WARN] RXEA decode ${titleId}: ${msg}`);
-      return { ok: false, error: msg };
+      appendAppEvent("AURORA_ASSET", `decode error ${titleId}: ${msg}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "assets" }) };
     }
   });
 
@@ -558,11 +565,11 @@ export function register(ipcMain: IpcMain): void {
     const gameDataDir = typeof p.gameDataDir === "string" ? p.gameDataDir.trim() : "";
     const slotNum     = typeof p.slot === "number" ? p.slot : parseInt(p.slot, 10);
     if (!titleId || !gameDataDir || isNaN(slotNum) || slotNum < 0 || slotNum > 24) {
-      return { ok: false, error: "titleId, gameDataDir, and slot (0–24) required." };
+      return { ok: false, error: formatErrorForUser("titleId, gameDataDir, and slot (0–24) required.", { area: "assets" }) };
     }
 
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     let imgBuf: Buffer | null = null;
     if (typeof p.imageBase64 === "string" && p.imageBase64.length > 0) {
@@ -570,7 +577,7 @@ export function register(ipcMain: IpcMain): void {
     } else if (typeof p.imageUrl === "string" && p.imageUrl.startsWith("http")) {
       imgBuf = await fetchHttpImage(p.imageUrl);
     }
-    if (!imgBuf || imgBuf.length < 100) return { ok: false, error: "No valid image data." };
+    if (!imgBuf || imgBuf.length < 100) return { ok: false, error: formatErrorForUser("No valid image data.", { area: "assets" }) };
 
     const port = getConfiguredServerPort();
     const finalImgBuf = imgBuf;
@@ -589,7 +596,8 @@ export function register(ipcMain: IpcMain): void {
     });
 
     if (!rxeaBuf || rxeaBuf.length < 2048) {
-      return { ok: false, error: "RXEA encoding failed — Go server returned no data." };
+      appendAppEvent("AURORA_ASSET", `RXEA encoding failed for ${titleId} slot ${slotNum}`);
+      return { ok: false, error: formatErrorForUser("RXEA encoding failed", { area: "assets" }) };
     }
 
     const prefixMap: Record<number, string> = { 0: "GL", 1: "GL", 2: "GC", 3: "GC", 4: "BK" };
@@ -612,7 +620,7 @@ export function register(ipcMain: IpcMain): void {
     } catch (err: any) {
       const msg = err.message || String(err);
       appendAppEvent("AURORA_ASSET", `encode-upload error: ${msg}`);
-      return { ok: false, error: msg };
+      return { ok: false, error: formatErrorForUser(err, { area: "assets" }) };
     }
   });
 
@@ -621,10 +629,10 @@ export function register(ipcMain: IpcMain): void {
     const p           = payload || {};
     const titleId     = typeof p.titleId     === "string" ? p.titleId.trim().toUpperCase() : "";
     const gameDataDir = typeof p.gameDataDir === "string" ? p.gameDataDir.trim() : "";
-    if (!titleId || !gameDataDir) return { ok: false, error: "titleId and gameDataDir are required." };
+    if (!titleId || !gameDataDir) return { ok: false, error: formatErrorForUser("titleId and gameDataDir are required.", { area: "assets" }) };
 
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     const scriptsPath  = getConfiguredFtpScriptsPath();
     const auroraRoot   = xboxAuroraRoot(scriptsPath);
@@ -681,17 +689,18 @@ export function register(ipcMain: IpcMain): void {
         gameCoverInfo: summarizeGameCoverInfoJson(gameCoverInfoText),
       };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      appendAppEvent("AURORA_ASSET", `inspect error ${titleId}: ${err.message || String(err)}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "library" }) };
     }
   });
 
   // ── Batch download covers for all library games ─────────────────────────────
   ipcMain.handle("xbox:download-all-covers", async (_event, payload) => {
     const { games } = payload || {};
-    if (!Array.isArray(games) || games.length === 0) return { ok: false, error: "No games provided." };
+    if (!Array.isArray(games) || games.length === 0) return { ok: false, error: "Nenhum jogo encontrado na biblioteca para baixar capas." };
 
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     const scriptsPath = getConfiguredFtpScriptsPath();
     const auroraRoot  = xboxAuroraRoot(scriptsPath);

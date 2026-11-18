@@ -6,6 +6,7 @@ import {
   getGodsendExePath,
   prepareWritableRuntime,
 } from "../infrastructure/fileSystem";
+import { system32Exe } from "../infrastructure/windowsSystemExecutables";
 import {
   appendBackendSessionStart,
   appendBackendSessionEnd,
@@ -39,8 +40,18 @@ const IA_LOGIN_UA =
 let outputBuffer: string[] = [];
 const maxBufferLines = 3000;
 let godsendProcess: ChildProcess | null = null;
+let activeProcessExitPromise: Promise<void> | null = null;
 let restartPending = false;
+let stopRequested = false;
+let homeLockRetries = 0;
+let homeLockRetryTimer: NodeJS.Timeout | null = null;
 let mainWindowRef: BrowserWindow | null = null;
+
+const HOME_LOCK_CONFLICT_MARKER = "is locked by another instance of godsend";
+const MAX_HOME_LOCK_RETRIES = 3;
+const HOME_LOCK_RETRY_DELAY_MS = 800;
+const STOP_GRACE_MS = 1500;
+const FORCE_KILL_WAIT_MS = 2500;
 
 export interface FTPCompletePayload {
   gameName: string;
@@ -134,8 +145,64 @@ function handleBackendStdoutLine(line: string): void {
   addOutputLine(line, "out");
 }
 
+function clearHomeLockRetry(): void {
+  if (homeLockRetryTimer) {
+    clearTimeout(homeLockRetryTimer);
+    homeLockRetryTimer = null;
+  }
+}
+
+function forceKillProcessTree(proc: ChildProcess, pid: number | undefined, timeoutMs = FORCE_KILL_WAIT_MS): Promise<void> {
+  if (process.platform === "win32" && pid) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      timer.unref?.();
+      try {
+        const killer = spawn(
+          system32Exe("taskkill.exe", "taskkill.exe"),
+          ["/F", "/T", "/PID", String(pid)],
+          { windowsHide: true, stdio: "ignore" }
+        );
+        killer.once("error", () => {
+          try { proc.kill("SIGKILL"); } catch {}
+          done();
+        });
+        killer.once("close", done);
+      } catch {
+        try { proc.kill("SIGKILL"); } catch {}
+        done();
+      }
+    });
+  }
+  try {
+    proc.kill("SIGKILL");
+  } catch {}
+  return Promise.resolve();
+}
+
+function waitWithTimeout(promise: Promise<void> | null, timeoutMs: number): Promise<void> {
+  if (!promise) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    timer.unref?.();
+    promise.finally(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 function startGodsend(): void {
   if (godsendProcess) return;
+  clearHomeLockRetry();
+  stopRequested = false;
 
   const writableRoot    = prepareWritableRuntime();
   const godsendExePath  = getGodsendExePath();
@@ -202,7 +269,12 @@ function startGodsend(): void {
     return;
   }
 
+  let resolveExit!: () => void;
+  const exitPromise = new Promise<void>((resolve) => {
+    resolveExit = resolve;
+  });
   godsendProcess = proc;
+  activeProcessExitPromise = exitPromise;
   appendAppEvent("BACKEND", `spawned pid=${proc.pid}`);
   markBackendStarting();
 
@@ -213,14 +285,30 @@ function startGodsend(): void {
     appendBackendSessionEnd(reason, code, signal);
   };
 
+  let heardListenPort = false;
+  let sawHomeLockConflict = false;
+  const onStdoutLine = (line: string) => {
+    if (GODSEND_LISTEN_PORT_RE.test(line)) {
+      heardListenPort = true;
+      homeLockRetries = 0;
+    }
+    if (line.includes(HOME_LOCK_CONFLICT_MARKER)) {
+      sawHomeLockConflict = true;
+    }
+    handleBackendStdoutLine(line);
+  };
+
   let stdoutBuffer = "";
   let stderrBuffer = "";
   const flushBufferedStreams = () => {
     if (stdoutBuffer.trim().length > 0) {
-      handleBackendStdoutLine(stdoutBuffer);
+      onStdoutLine(stdoutBuffer);
     }
     stdoutBuffer = "";
     if (stderrBuffer.trim().length > 0) {
+      if (stderrBuffer.includes(HOME_LOCK_CONFLICT_MARKER)) {
+        sawHomeLockConflict = true;
+      }
       addOutputLine(`[ERR] ${stderrBuffer}`, "err");
     }
     stderrBuffer = "";
@@ -234,23 +322,53 @@ function startGodsend(): void {
     if (godsendProcess === proc) {
       godsendProcess = null;
     }
+    if (activeProcessExitPromise === exitPromise) {
+      activeProcessExitPromise = null;
+    }
+    resolveExit();
+
     if (restartPending) {
       restartPending = false;
+      homeLockRetries = 0;
       // Keep the readiness gate closed across the restart so concurrent callers
       // wait for the new process's GODSEND_LISTEN_PORT instead of hitting ECONNREFUSED.
       markBackendStarting();
       startGodsendSafely();
       return;
     }
+
+    if (
+      !stopRequested &&
+      !heardListenPort &&
+      sawHomeLockConflict &&
+      homeLockRetries < MAX_HOME_LOCK_RETRIES
+    ) {
+      homeLockRetries += 1;
+      appendAppEvent(
+        "BACKEND",
+        `GODSEND_HOME locked by exiting instance; retrying start (${homeLockRetries}/${MAX_HOME_LOCK_RETRIES})...`
+      );
+      markBackendStarting();
+      homeLockRetryTimer = setTimeout(() => {
+        homeLockRetryTimer = null;
+        if (!stopRequested) startGodsendSafely();
+      }, HOME_LOCK_RETRY_DELAY_MS);
+      return;
+    }
+
+    homeLockRetries = 0;
     markBackendStopped();
   };
 
   proc.stdout?.on("data", (data: Buffer) => {
-    stdoutBuffer = consumeBufferedLines(stdoutBuffer, data.toString("utf8"), handleBackendStdoutLine);
+    stdoutBuffer = consumeBufferedLines(stdoutBuffer, data.toString("utf8"), onStdoutLine);
   });
 
   proc.stderr?.on("data", (data: Buffer) => {
     stderrBuffer = consumeBufferedLines(stderrBuffer, data.toString("utf8"), (line) => {
+      if (line.includes(HOME_LOCK_CONFLICT_MARKER)) {
+        sawHomeLockConflict = true;
+      }
       addOutputLine(`[ERR] ${line}`, "err");
     });
   });
@@ -271,11 +389,64 @@ function startGodsend(): void {
 }
 
 export function stopGodsend(): void {
+  stopRequested = true;
   restartPending = false;
-  if (!godsendProcess) return;
+  clearHomeLockRetry();
+  const proc = godsendProcess;
+  if (!proc) {
+    markBackendStopped();
+    return;
+  }
+  const pid = proc.pid;
   appendAppEvent("BACKEND", "stop requested (kill)");
   addOutputLine("[INFO] Stopping process...");
-  godsendProcess.kill();
+  try {
+    proc.kill();
+  } catch {}
+  const timer = setTimeout(() => {
+    if (godsendProcess === proc) {
+      appendAppEvent("BACKEND", `backend pid=${pid} still alive after ${STOP_GRACE_MS}ms; forcing tree kill`);
+      void forceKillProcessTree(proc, pid);
+    }
+  }, STOP_GRACE_MS);
+  timer.unref?.();
+}
+
+/**
+ * Stops the backend process and waits until it has exited (or force-kills the
+ * process tree after a short grace period) so quitting the app never leaves
+ * godsend-backend.exe alive holding `.godsend.lock`.
+ */
+export async function stopGodsendAndWait(opts?: {
+  graceMs?: number;
+  killTimeoutMs?: number;
+}): Promise<void> {
+  const graceMs = opts?.graceMs ?? STOP_GRACE_MS;
+  const killTimeoutMs = opts?.killTimeoutMs ?? FORCE_KILL_WAIT_MS;
+  stopRequested = true;
+  restartPending = false;
+  clearHomeLockRetry();
+
+  const proc = godsendProcess;
+  const exitPromise = activeProcessExitPromise;
+  if (!proc) {
+    markBackendStopped();
+    return;
+  }
+
+  const pid = proc.pid;
+  appendAppEvent("BACKEND", "stop requested (kill)");
+  addOutputLine("[INFO] Stopping process...");
+  try {
+    proc.kill();
+  } catch {}
+
+  await waitWithTimeout(exitPromise, graceMs);
+  if (godsendProcess === proc) {
+    appendAppEvent("BACKEND", `backend pid=${pid} still alive after ${graceMs}ms; forcing tree kill`);
+    await forceKillProcessTree(proc, pid, killTimeoutMs);
+    await waitWithTimeout(exitPromise, killTimeoutMs);
+  }
 }
 
 // Use this from timer callbacks and Electron event handlers. A throw that
@@ -304,14 +475,24 @@ export function startGodsendSafely(): void {
 }
 
 export function restartGodsendIfRunning(): void {
-  if (!godsendProcess) return;
+  const proc = godsendProcess;
+  if (!proc) return;
   if (restartPending) return;
+  stopRequested = false;
   restartPending = true;
   markBackendStarting();
+  const pid = proc.pid;
   appendAppEvent("BACKEND", "stop requested (kill)");
   addOutputLine("[INFO] Stopping process...");
   try {
-    godsendProcess.kill();
+    proc.kill();
+    const timer = setTimeout(() => {
+      if (godsendProcess === proc && restartPending) {
+        appendAppEvent("BACKEND", `backend pid=${pid} still alive during restart; forcing tree kill`);
+        void forceKillProcessTree(proc, pid);
+      }
+    }, FORCE_KILL_WAIT_MS);
+    timer.unref?.();
   } catch (err: any) {
     restartPending = false;
     markBackendStopped();

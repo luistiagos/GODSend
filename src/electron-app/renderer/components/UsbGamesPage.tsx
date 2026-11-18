@@ -8,6 +8,7 @@ import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 import DriveRepairModal from "./DriveRepairModal";
 import FakeDriveProbeModal from "./FakeDriveProbeModal";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 export interface InstalledGame {
   name: string;
@@ -244,7 +245,7 @@ export default function UsbGamesPage({
         onGamesCountChange?.(0);
       }
     } catch (err: any) {
-      setActionFeedback({ msg: `Erro ao buscar jogos: ${err.message}`, type: "error" });
+      setActionFeedback({ msg: formatErrorForUser(err, { area: "browse", isLocal: true }), type: "error" });
     } finally {
       setLoading(false);
     }
@@ -305,10 +306,10 @@ export default function UsbGamesPage({
     try {
       const res = await window.godsendApi.toolsOpenFolder(folderPath);
       if (!res.ok) {
-        setActionFeedback({ msg: res.error || "Não foi possível abrir a pasta.", type: "error" });
+        setActionFeedback({ msg: formatErrorForUser(res.error, { area: "local-files" }), type: "error" });
       }
     } catch (err: any) {
-      setActionFeedback({ msg: err.message, type: "error" });
+      setActionFeedback({ msg: formatErrorForUser(err, { area: "local-files" }), type: "error" });
     }
   }
 
@@ -323,10 +324,10 @@ export default function UsbGamesPage({
         setDeleteCandidate(null);
         await refreshAll();
       } else {
-        setActionFeedback({ msg: res.error || "Falha ao excluir jogo.", type: "error" });
+        setActionFeedback({ msg: formatErrorForUser(res.error, { area: "local-files" }), type: "error" });
       }
     } catch (err: any) {
-      setActionFeedback({ msg: `Erro ao excluir: ${err.message}`, type: "error" });
+      setActionFeedback({ msg: formatErrorForUser(err, { area: "local-files" }), type: "error" });
     } finally {
       setDeleting(false);
     }
@@ -341,10 +342,10 @@ export default function UsbGamesPage({
         setActionFeedback({ msg: `Unidade ${rootPath} ejetada com segurança. Você já pode desconectar o pendrive.`, type: "success" });
         await refreshAll();
       } else {
-        setActionFeedback({ msg: res.error || "Não foi possível ejetar a unidade.", type: "error" });
+        setActionFeedback({ msg: formatErrorForUser(res.error, { area: "drive-maintenance", driveRoot: rootPath }), type: "error" });
       }
     } catch (err: any) {
-      setActionFeedback({ msg: `Erro ao ejetar: ${err.message}`, type: "error" });
+      setActionFeedback({ msg: formatErrorForUser(err, { area: "drive-maintenance", driveRoot: rootPath }), type: "error" });
     } finally {
       setEjecting(false);
     }

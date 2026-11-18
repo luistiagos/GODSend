@@ -88,8 +88,7 @@ function showQueue()
 
         local data, err = httpGet(SERVER_BASE .. "/queue")
         if not data then
-            Script.ShowMessageBox("Queue Error",
-                "Could not reach the server.\n\n" .. tostring(err or "Unknown error"), "OK")
+            showError("SERVER_UNREACHABLE")
             return
         end
 
@@ -288,7 +287,7 @@ function browseROMLibrary(platform, sysName)
     collectgarbage()
 
     if not list_data then
-        showError("SERVER_UNREACHABLE", err)
+        showError("SERVER_UNREACHABLE")
         return
     end
 
@@ -416,8 +415,7 @@ function browseROMLibrary(platform, sysName)
                     if waitResult == true then
                         local ok, err2 = pcall(installGame, cleanName)
                         if not ok then
-                            showError("INSTALL_FAILED",
-                                "ROM install error:\n" .. tostring(err2))
+                            showError("INSTALL_FAILED")
                         end
                     elseif waitResult == "backgrounded" then
                         Script.ShowMessageBox("Running in Background",
@@ -650,8 +648,7 @@ function browseLibrary(platform)
                             if waitResult == true then
                                 local installOk, installErr = pcall(installGame, cleanName)
                                 if not installOk then
-                                    showError("INSTALL_FAILED",
-                                        "Unexpected error during installation:\n" .. tostring(installErr))
+                                    showError("INSTALL_FAILED")
                                 end
                             elseif waitResult == "backgrounded" then
                                 Script.ShowMessageBox("Running in Background",
@@ -667,6 +664,6 @@ function browseLibrary(platform)
             end -- game list loop
         end
     else
-        showError("SERVER_UNREACHABLE", err)
+        showError("SERVER_UNREACHABLE")
     end
 end

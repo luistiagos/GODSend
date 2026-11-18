@@ -45,3 +45,14 @@ Confirmada no fonte:
 1. No `before-quit` (`bootstrap.ts`) + `stopGodsend` (`backendClient.ts`), interceptar a primeira passagem de saída (`event.preventDefault()` enquanto o backend ainda está vivo), aguardar a saída do `godsendProcess` por um prazo curto (e aplicar `taskkill /F /T /PID` no Windows em fallback se não fechar), só então concluir `app.quit()`.
 2. Garantir em teste unitário/integração de lifecycle que, após `Quit` e reabertura imediata, o antigo PID já encerrou ou há retry breve de inicialização do backend antes de declarar falha permanente.
 
+## Correção aplicada (2026-11-17)
+
+- `src/electron-app/app/quitLifecycle.ts::createBeforeQuitHandler` + `src/electron-app/app/bootstrap.ts`: o `before-quit` intercepta a primeira passagem de saída (`event.preventDefault()`) quando `getProcess()` ainda está ativo, aguarda `stopGodsendAndWait()` e só então chama `app.quit()`.
+- `src/electron-app/services/backendClient.ts`:
+  - `stopGodsendAndWait()` acompanha o encerramento efetivo do `ChildProcess`, envia `kill()` e, se o processo ainda estiver vivo após `STOP_GRACE_MS` (1500 ms), executa `taskkill /F /T /PID <pid>` no Windows (`SIGKILL` em POSIX) aguardando a saída antes de resolver.
+  - `stopGodsend()` e `restartGodsendIfRunning()` também agendam fallback de `taskkill /F /T /PID` quando o processo trava no encerramento.
+  - `startGodsend()` detecta `is locked by another instance of godsend` antes de `GODSEND_LISTEN_PORT=`, mantém o gate de readiness fechado (`markBackendStarting()`) e retenta brevemente (`MAX_HOME_LOCK_RETRIES = 3`, intervalo de 800 ms) caso o processo anterior ainda esteja finalizando a liberação do lock.
+- Testes unitários/integração em `src/electron-app/tests/unit/backendLifecycle.test.cjs` cobrindo interceptação de `before-quit`, espera de saída, fallback `taskkill /F /T /PID`, morte real de processo filho e retry na reabertura imediata.
+- Teste E2E real (Electron + `godsend-windows-x64.exe`) em `src/electron-app/tests/electron/backend-lifecycle-and-update-e2e.cjs`: após `app.quit()`, o PID do backend encerrou antes da saída do Electron e a reabertura imediata subiu normalmente sem conflito em `.godsend.lock`. Movido para `retest/` em 2026-11-17 aguardando confirmação após publicação.
+
+

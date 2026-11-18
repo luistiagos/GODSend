@@ -45,6 +45,10 @@ import {
   emitAuroraTitleVisualEvents,
 } from "../services/auroraVisualService";
 import { backendPost } from "../infrastructure/backendHttp";
+import { formatErrorForUser } from "../infrastructure/userFriendlyError";
+
+const MISSING_IP_MSG =
+  "O endereço do seu Xbox 360 ainda não foi configurado. Vá em “Configurações”, informe o IP do videogame e tente novamente.";
 
 export function register(ipcMain: IpcMain): void {
 
@@ -53,7 +57,7 @@ export function register(ipcMain: IpcMain): void {
     const force       = opts && opts.force === true;
     const xboxIp      = getConfiguredXboxIP();
     const scriptsPath = getConfiguredFtpScriptsPath();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured. Set it in Settings." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     let auroraRoot = xboxAuroraRoot(scriptsPath);
     let dbDir      = `${auroraRoot}/Data/Databases`;
@@ -84,7 +88,7 @@ export function register(ipcMain: IpcMain): void {
           const games = await buildAuroraGamesFromDbBuffers(contentBuf, settingsBuf, scanDriveMap);
           return { ok: true, games, connectedTo: xboxIp, auroraRoot, libraryUnchanged: true, fromCache: true, ftpBusy: true };
         }
-        return { ok: false, error: "Xbox FTP busy and no cached Aurora library available." };
+        return { ok: false, error: formatErrorForUser("Xbox FTP busy", { area: "library" }) };
       }
       let results = batchRes.results || [];
       let contentSz  = results[0] && results[0].ok ? Number(results[0].data) : -1;
@@ -183,7 +187,7 @@ export function register(ipcMain: IpcMain): void {
       const msg = err.message || String(err);
       addOutputLine(`[ERROR] Aurora library: ${msg}`);
       appendAppEvent("AURORA_LIB", `error: ${msg}`);
-      return { ok: false, error: msg };
+      return { ok: false, error: formatErrorForUser(err, { area: "library" }) };
     }
   });
 
@@ -195,7 +199,7 @@ export function register(ipcMain: IpcMain): void {
     const fromDiskOnly = opts && opts.fromDiskOnly  === true;
 
     const xboxIp      = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     const scriptsPath = getConfiguredFtpScriptsPath();
     const auroraRoot  = xboxAuroraRoot(scriptsPath);
@@ -258,7 +262,7 @@ export function register(ipcMain: IpcMain): void {
         emitAuroraTitleVisualEvents(titleId, gameDataDir, cacheRoot);
       }
 
-      return { ok: false, error: msg };
+      return { ok: false, error: formatErrorForUser(err, { area: "library" }) };
     }
   });
 
@@ -267,10 +271,10 @@ export function register(ipcMain: IpcMain): void {
     const p           = payload || {};
     const titleId     = typeof p.titleId     === "string" ? p.titleId.trim().toUpperCase() : "";
     const gameDataDir = typeof p.gameDataDir === "string" ? p.gameDataDir.trim() : "";
-    if (!titleId || !gameDataDir) return { ok: false, error: "titleId and gameDataDir required." };
+    if (!titleId || !gameDataDir) return { ok: false, error: "Não foi possível identificar o jogo selecionado. Atualize a biblioteca e tente novamente." };
 
     const xboxIp = getConfiguredXboxIP();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     const scriptsPath = getConfiguredFtpScriptsPath();
     const auroraRoot  = xboxAuroraRoot(scriptsPath);
@@ -284,7 +288,7 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("xbox:export-aurora-db", async () => {
     const xboxIp      = getConfiguredXboxIP();
     const scriptsPath = getConfiguredFtpScriptsPath();
-    if (!xboxIp) return { ok: false, error: "No Xbox IP configured." };
+    if (!xboxIp) return { ok: false, error: MISSING_IP_MSG };
 
     let auroraRoot = xboxAuroraRoot(scriptsPath);
     let dbDir      = `${auroraRoot}/Data/Databases`;
@@ -311,7 +315,7 @@ export function register(ipcMain: IpcMain): void {
       properties: ["openDirectory", "createDirectory"],
     });
     if (dlg.canceled || !dlg.filePaths[0]) {
-      return { ok: false, error: "No destination folder selected." };
+      return { ok: false, error: "Nenhuma pasta foi escolhida para salvar o arquivo." };
     }
     const destDir = dlg.filePaths[0];
 
@@ -328,7 +332,8 @@ export function register(ipcMain: IpcMain): void {
       if (!contentOk || !settingsOk) {
         const err = (!contentOk ? results[0]?.error : "") + " " + (!settingsOk ? results[1]?.error : "");
         addOutputLine(`[ERROR] Aurora DB export failed: ${err.trim()}`);
-        return { ok: false, error: err.trim() || "FTP download failed." };
+        appendAppEvent("AURORA_LIB", `export-aurora-db failed: ${err.trim()}`);
+        return { ok: false, error: formatErrorForUser(err.trim() || "FTP download failed.", { area: "library" }) };
       }
 
       addOutputLine(`[INFO] Aurora DBs exported to ${destDir}`);
@@ -336,7 +341,8 @@ export function register(ipcMain: IpcMain): void {
     } catch (err: any) {
       const msg = err.message || String(err);
       addOutputLine(`[ERROR] Aurora DB export: ${msg}`);
-      return { ok: false, error: msg };
+      appendAppEvent("AURORA_LIB", `export-aurora-db error: ${msg}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "library" }) };
     }
   });
 }

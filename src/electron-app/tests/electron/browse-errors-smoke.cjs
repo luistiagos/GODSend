@@ -118,10 +118,16 @@ async function main() {
       await page.waitForFunction(() => window.browseMock.calls.length > 0);
     };
     const retry = () => page.getByRole("button", { name: "Tentar de novo", exact: true });
-    const assertError = async (detail) => {
+    const assertError = async (expectedMatcher) => {
       const alert = page.getByRole("alert");
       await alert.waitFor({ state: "visible" });
-      assert.ok((await alert.innerText()).includes(detail));
+      const text = await alert.innerText();
+      if (expectedMatcher instanceof RegExp) {
+        assert.match(text, expectedMatcher);
+      } else {
+        assert.ok(text.includes(expectedMatcher), `expected ${expectedMatcher} in: ${text}`);
+      }
+      assert.ok(!/ECONNREFUSED|EACCES|IPC channel|IPC local|127\.0\.0\.1/.test(text), `technical detail leaked to UI: ${text}`);
       assert.equal(await retry().isVisible(), true);
       assert.equal(await page.getByText("Carregando a lista de jogos…", { exact: true }).count(), 0);
       assert.equal(await page.getByText("Lendo a pasta Transfer…", { exact: true }).count(), 0);
@@ -131,7 +137,7 @@ async function main() {
 
     const refused = "connect ECONNREFUSED 127.0.0.1:8080";
     await mount({ online: [{ value: { ok: false, error: refused } }, { defer: "retry" }] });
-    await assertError(refused);
+    await assertError(/Tentar de novo/i);
     await assertNoReports(); // Main already reports the backend failure.
     if (process.env.GODSEND_TEST_SCREENSHOT) {
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -151,7 +157,7 @@ async function main() {
     process.stdout.write("PASS: backend detail, loading and successful retry\n");
 
     await mount({ online: [{ reject: "IPC channel disconnected" }], telemetryRejects: true });
-    await assertError("IPC channel disconnected");
+    await assertError(/Aguarde alguns segundos|Tentar de novo/i);
     const reports = await page.evaluate(() => window.browseMock.reports);
     assert.equal(reports.length, 1, "unexpected IPC rejection is reported exactly once");
     assert.deepEqual(reports[0].slice(0, 3), ["electron-renderer", "BrowsePage.tsx", "loadGames"]);
@@ -165,7 +171,7 @@ async function main() {
     await mount({ local: [{ value: { ok: false, error: "Transfer indisponível: EACCES" } }] });
     await page.getByText("Nenhum jogo encontrado.", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Biblioteca Local", exact: true }).click();
-    await assertError("Transfer indisponível: EACCES");
+    await assertError(/antivírus|Windows/i);
     assert.equal(await page.getByText("Nenhum jogo encontrado no pendrive ou na pasta Transfer.", { exact: true }).count(), 0);
     await assertNoReports();
     process.stdout.write("PASS: local backend failure is an error, not an empty library\n");
@@ -173,7 +179,7 @@ async function main() {
     await mount({ local: [{ reject: "IPC local disconnected" }] });
     await page.getByText("Nenhum jogo encontrado.", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Biblioteca Local", exact: true }).click();
-    await assertError("IPC local disconnected");
+    await assertError(/Aguarde alguns segundos|Tentar de novo/i);
     const localReports = await page.evaluate(() => window.browseMock.reports);
     assert.equal(localReports.length, 1);
     assert.ok(localReports[0][5].some((line) => line.includes("platform=local") && line.includes("source=local")));

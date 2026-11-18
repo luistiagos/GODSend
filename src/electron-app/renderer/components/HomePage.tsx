@@ -19,6 +19,7 @@ import {
   PREPARED_DEVICE_SUMMARY,
   PREPARED_DEVICE_TITLE,
 } from "../../services/preparedDeviceCopy.ts";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 interface LogInfo {
   logsDirectory?: string;
@@ -147,7 +148,7 @@ export default function HomePage({
     } catch (error: any) {
       if (!preparedDetectionMounted.current) return;
       if (manual) {
-        setPreparedCheckNotice(error?.message || "Não foi possível verificar o pendrive agora.");
+        setPreparedCheckNotice(formatErrorForUser(error, { area: "drive-maintenance" }));
       }
       setWizardStep((current) => current === "checking-prepared" ? "unlock" : current);
     } finally {
@@ -190,25 +191,25 @@ export default function HomePage({
       const ipParts = localIp.split(".");
       if (ipParts.length !== 4) {
         setScanState("not-found");
-        setStatusMsg("Subrede inválida detectada.");
+        setStatusMsg("Não foi possível identificar a rede do seu computador. Confira se o Wi-Fi ou cabo de rede está conectado e tente novamente.");
         return;
       }
       
       const subnet = ipParts.slice(0, 3).join(".");
       setScanState("scanning");
-      setStatusMsg(`Procurando Xbox 360 na sua subrede (${subnet}.X)...`);
+      setStatusMsg(`Procurando Xbox 360 na mesma rede (${subnet}.X)...`);
       
       const scanRes = await window.godsendApi.ftpScanPorts(subnet);
       if (!scanRes.ok || !scanRes.hosts || scanRes.hosts.length === 0) {
         setScanState("not-found");
-        setStatusMsg("Nenhum console Xbox 360 foi encontrado na rede local.");
+        setStatusMsg("Nenhum Xbox 360 foi encontrado na rede. Ligue o videogame com a Aurora aberta, conecte no mesmo Wi-Fi ou cabo de rede e tente de novo.");
         return;
       }
       
       // Try connection on the first found host
       const detectedIp = scanRes.hosts[0];
       setScanState("connecting");
-      setStatusMsg(`Configurando conexão e enviando scripts para ${detectedIp}...`);
+      setStatusMsg(`Configurando conexão e enviando arquivos para ${detectedIp}...`);
       
       const testRes = await window.godsendApi.ftpTestConnection({
         xboxIp: detectedIp,
@@ -218,7 +219,7 @@ export default function HomePage({
       
       if (!testRes.ok) {
         setScanState("not-found");
-        setStatusMsg(`Xbox encontrado no IP ${detectedIp}, mas o FTP recusou as credenciais padrão.`);
+        setStatusMsg(`Encontramos o Xbox 360 (${detectedIp}), mas ele recusou o usuário e senha padrão. Confira os dados da Aurora em “Configurações”.`);
         return;
       }
       
@@ -246,11 +247,11 @@ export default function HomePage({
         onReconnect(); // update FTP status indicator globally
       } else {
         setScanState("not-found");
-        setStatusMsg(`Conectado ao IP ${detectedIp}, mas falhou ao enviar os scripts do Aurora.`);
+        setStatusMsg(`Conectado ao Xbox 360 (${detectedIp}), mas não foi possível enviar os arquivos da loja para a Aurora. Verifique se há espaço livre no HD do console e tente novamente.`);
       }
     } catch (err: any) {
       setScanState("error");
-      setStatusMsg(`Erro durante a busca: ${err.message || String(err)}`);
+      setStatusMsg(formatErrorForUser(err, { area: "ftp" }));
     }
   };
 
@@ -268,7 +269,7 @@ export default function HomePage({
       
       if (!testRes.ok) {
         setScanState("error");
-        setStatusMsg(`Falha na conexão FTP para ${manualIp}. Verifique o IP e certifique-se de que a Aurora está aberta.`);
+        setStatusMsg(`Não foi possível conectar ao Xbox 360 (${manualIp}). Confira se o videogame está ligado na Aurora, na mesma rede do computador, e se o IP digitado está correto.`);
         return;
       }
       
@@ -295,11 +296,11 @@ export default function HomePage({
         onReconnect();
       } else {
         setScanState("error");
-        setStatusMsg(`Conexão estabelecida, mas falhou ao enviar os scripts do Aurora.`);
+        setStatusMsg("Conectado ao Xbox 360, mas não foi possível enviar os arquivos da loja para a Aurora. Tente novamente em instantes.");
       }
     } catch (err: any) {
       setScanState("error");
-      setStatusMsg(`Erro ao conectar: ${err.message || String(err)}`);
+      setStatusMsg(formatErrorForUser(err, { area: "ftp" }));
     }
   };
 
@@ -324,7 +325,7 @@ export default function HomePage({
       // force=true: ignora tanto a preferência desligada quanto o intervalo de 12 h.
       const res = await window.godsendApi.checkForUpdates(true);
       if (!res?.ok) {
-        setUpdateCheckMsg(`Falha na verificação: ${res?.error || "não foi possível contatar o servidor de distribuição."}`);
+        setUpdateCheckMsg(formatErrorForUser(res?.error, { area: "update" }));
       } else if (res.updateAvailable) {
         setUpdateCheckMsg(`Versão v${res.latestVersion} disponível.`);
         onOpenUpdateModal?.(res);
@@ -332,7 +333,7 @@ export default function HomePage({
         setUpdateCheckMsg(`Você já está na versão mais recente${res.currentVersion ? ` (v${res.currentVersion})` : ""}.`);
       }
     } catch (err: any) {
-      setUpdateCheckMsg(`Erro ao verificar: ${err?.message || String(err)}`);
+      setUpdateCheckMsg(formatErrorForUser(err, { area: "update" }));
     } finally {
       setUpdateCheckBusy(false);
     }

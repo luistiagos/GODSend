@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 interface FtpEntry {
   name: string;
@@ -87,7 +88,7 @@ function UploadJobRow({ job, onRemove }: UploadJobRowProps) {
             <span className="text-[10px] text-muted-foreground shrink-0">{job.progress}%</span>
           )}
         </div>
-        {job.error && <p className="text-[10px] text-red-400 truncate">{job.error}</p>}
+        {job.error && <p className="text-[10px] text-red-400 break-words">{formatErrorForUser(job.error, { area: "ftp" })}</p>}
         {job.state === "Processing" && job.progress !== undefined && job.progress > 0 && (
           <div className="mt-0.5 h-1 bg-muted rounded-full overflow-hidden max-w-[200px]">
             <div
@@ -145,7 +146,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
     setLoading(true);
     setError(null);
     setSelected(new Set());
-    const r = await window.godsendApi.toolsFtpList(dir).catch((err: any) => ({ ok: false, error: err.message }));
+    const r = await window.godsendApi.toolsFtpList(dir).catch((err: any) => ({ ok: false, error: formatErrorForUser(err, { area: "ftp" }) }));
     if (r.ok) {
       setEntries(r.entries.sort((a: FtpEntry, b: FtpEntry) => {
         if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
@@ -153,7 +154,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
       }));
       setCwd(r.cwd);
     } else {
-      setError(r.error || "Falha ao listar a pasta");
+      setError(formatErrorForUser(r.error, { area: "ftp" }));
       setEntries([]);
     }
     setLoading(false);
@@ -189,7 +190,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
     if (!r.ok) return;
     const res = await window.godsendApi.toolsFtpUpload({ localPaths: r.files, remotePath: cwd });
     if (res && !res.ok) {
-      setError(res.error || "Falha ao enviar arquivo(s)");
+      setError(formatErrorForUser(res.error, { area: "ftp" }));
     }
   }
 
@@ -198,7 +199,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
     if (!r.ok) return;
     const res = await window.godsendApi.toolsFtpUpload({ localPaths: [r.folder], remotePath: cwd });
     if (res && !res.ok) {
-      setError(res.error || "Falha ao enviar pasta");
+      setError(formatErrorForUser(res.error, { area: "ftp" }));
     }
   }
 
@@ -208,7 +209,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
     if (r.ok) {
       fetchDir(cwd);
     } else {
-      setError(r.error || "Falha ao excluir");
+      setError(formatErrorForUser(r.error, { area: "ftp" }));
     }
   }
 
@@ -217,7 +218,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
       const target = cwd.replace(/\/+$/, "") + "/" + name;
       const r = await window.godsendApi.toolsFtpDelete(target);
       if (r && !r.ok) {
-        setError(r.error || "Falha ao excluir");
+        setError(formatErrorForUser(r.error, { area: "ftp" }));
         break;
       }
     }
@@ -234,7 +235,7 @@ export default function FTPManagerPage({}: FTPManagerPageProps) {
       setShowMkdir(false);
       fetchDir(cwd);
     } else {
-      setError(r.error || "Falha ao criar pasta");
+      setError(formatErrorForUser(r.error, { area: "ftp" }));
     }
   }
 

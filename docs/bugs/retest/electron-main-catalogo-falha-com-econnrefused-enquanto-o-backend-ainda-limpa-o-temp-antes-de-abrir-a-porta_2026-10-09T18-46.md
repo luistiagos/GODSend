@@ -3,7 +3,7 @@
 ## Status
 
 - **Reaberto em:** 2026-11-09 (triagem de telemetria): reincidência confirmada em produção na **v2.12.123** e **v2.12.118** (IDs 12067, 12068, 12529, 12530, 12532, 12533, 12549, 12550, 12553, 12554). O gate de readiness ainda permitiu chamadas concorrentes ao endpoint `/browse` e `/browse/releases` antes do bind HTTP.
-- **Correção da reincidência aplicada em:** 2026-11-14 (aguardando validação E2E/telemetria em produção antes de mover para `retest/`).
+- **Correção da reincidência aplicada em:** 2026-11-14 e validada em 2026-11-17 (unitários `backendReadiness.test.cjs` + `backendLifecycle.test.cjs` + E2E real `src/electron-app/tests/electron/backend-lifecycle-and-update-e2e.cjs` com 6.000 arquivos em `Temp`); movido para `retest/` aguardando confirmação de telemetria após publicação.
 - **Histórico anterior:** movido de `open/` para `retest/` em 2026-10-12 após commit `2a9816d` e `8f6fd36`.
 - **Complexidade:** **Média** — sincronização de ciclo de vida e garantia de bloqueio de requisições IPC até a conclusão da prontidão do backend.
 - **Versões com reincidência:** v2.12.118 e v2.12.123.

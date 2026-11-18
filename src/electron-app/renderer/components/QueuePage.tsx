@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, Loader2, X, Upload, HardDrive, RotateCcw } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 // ── Unified job type ──────────────────────────────────────────────────────────
 
@@ -101,9 +102,8 @@ function JobRow({ job, onRemove, onRetry, removing, retrying }: JobRowProps) {
           </span>
         </div>
         {job.message && (
-          // Em erro a mensagem carrega o motivo (ex.: a falha de cada provedor);
-          // truncar em uma linha escondia justamente a causa, que so aparecia no
-          // tooltip do hover. Mensagens de progresso continuam truncadas.
+          // Em erro a mensagem carrega o motivo; traduzimos qualquer mensagem tecnica
+          // para linguagem simples e acionavel ao usuario leigo.
           <p
             className={cn(
               "text-[11px] mt-0.5",
@@ -111,9 +111,9 @@ function JobRow({ job, onRemove, onRetry, removing, retrying }: JobRowProps) {
                 ? "text-red-300 whitespace-pre-wrap break-words"
                 : "text-muted-foreground truncate"
             )}
-            title={job.message}
+            title={isError ? formatErrorForUser(job.message, { area: "queue", gameName: job.name }) : job.message}
           >
-            {job.message}
+            {isError ? formatErrorForUser(job.message, { area: "queue", gameName: job.name }) : job.message}
           </p>
         )}
         {!isFinished && pct !== null && pct > 0 && (

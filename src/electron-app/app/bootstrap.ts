@@ -79,12 +79,14 @@ import {
   getOutputBuffer,
   startGodsendSafely,
   stopGodsend,
+  stopGodsendAndWait,
   restartGodsendIfRunning,
   onFTPComplete,
   addOutputLine,
 } from "../services/backendClient";
 import { autoUploadAuroraAssets, doAuroraLibrarySync } from "../services/autoSyncService";
 import { createMainWindow, setIsQuitting, getMainWindow, focusMainWindow } from "./window";
+import { createBeforeQuitHandler } from "./quitLifecycle";
 import { checkPendingUpdateResult } from "../services/autoUpdateService";
 import { reportLauncherFailures } from "../services/portableLauncherReport";
 
@@ -230,11 +232,17 @@ export function bootstrapApp(): void {
     });
   });
 
-  app.on("before-quit", () => {
-    setIsQuitting(true);
-    appendAppEvent("LIFECYCLE", "application before-quit");
-    stopGodsend();
-  });
+  app.on(
+    "before-quit",
+    createBeforeQuitHandler({
+      setIsQuitting,
+      hasRunningBackend: () => Boolean(getProcess()),
+      stopSync: stopGodsend,
+      stopAndWait: () => stopGodsendAndWait(),
+      retriggerQuit: () => app.quit(),
+      logEvent: appendAppEvent,
+    })
+  );
 
   app.on("window-all-closed", () => {
     // Intentionally do nothing — prevent default quit so tray keeps the app alive.

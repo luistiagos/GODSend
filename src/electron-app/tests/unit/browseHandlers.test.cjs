@@ -1,4 +1,4 @@
-﻿const test = require("node:test");
+const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -48,30 +48,33 @@ function createBrowseHandler(backendReply, port = 8097, releasesReply = null) {
   };
 }
 
-test("browse:get-games preserves connection detail and reports context plus original stack", async () => {
+test("browse:get-games sends friendly message to UI while preserving connection detail in logs and telemetry", async () => {
   const error = new Error("connect ECONNREFUSED 127.0.0.1:8097");
   const h = createBrowseHandler(() => { throw error; });
   const result = await h.browse();
   assert.equal(result.ok, false);
   assert.deepEqual(result.games, []);
-  assert.match(result.error, /ECONNREFUSED/);
-  assert.match(result.error, /127\.0\.0\.1:8097\/browse/);
+  assert.ok(!result.error.includes("ECONNREFUSED"), `technical code leaked to UI: ${result.error}`);
+  assert.ok(!result.error.includes("127.0.0.1"), `internal host leaked to UI: ${result.error}`);
+  assert.match(result.error, /Tentar de novo/i);
   assert.equal(h.events.length, 1);
   assert.equal(h.events[0][0], "BROWSE");
   assert.match(h.events[0][1], /platform=xbox360; source=ia/);
-  assert.ok(h.events[0][1].includes(result.error));
+  assert.match(h.events[0][1], /ECONNREFUSED/);
+  assert.match(h.events[0][1], /127\.0\.0\.1:8097\/browse/);
   assert.equal(h.reports.length, 1);
   const [component, file, method, message, , logs, terminal] = h.reports[0];
   assert.equal(component, "electron-main");
   assert.equal(file, "browseHandlers.ts");
   assert.equal(method, "browse:get-games");
-  assert.equal(message, result.error);
+  assert.match(message, /ECONNREFUSED/);
+  assert.match(message, /127\.0\.0\.1:8097\/browse/);
   assert.ok(logs.includes(error.stack));
   assert.match(logs.join("\n"), /platform=xbox360; source=ia; endpoint=http:\/\/127\.0\.0\.1:8097\/browse/);
   assert.equal(terminal, false);
 });
 
-test("browse:get-games rejects HTTP errors instead of showing their body as game names", async () => {
+test("browse:get-games rejects HTTP errors with friendly UI error while logging/reporting technical detail", async () => {
   const cases = [
     { status: 400, body: '{"state":"Error","message":"Unknown ROM system: invalid"}', detail: /Unknown ROM system/ },
     { status: 503, body: "servico indisponivel", detail: /servico indisponivel/ },
@@ -83,10 +86,14 @@ test("browse:get-games rejects HTTP errors instead of showing their body as game
     const result = await h.browse();
     assert.equal(result.ok, false);
     assert.deepEqual(result.games, []);
-    assert.match(result.error, new RegExp(`HTTP ${status}`));
-    assert.match(result.error, detail);
+    assert.ok(!/HTTP \d{3}/.test(result.error), `HTTP status leaked to UI: ${result.error}`);
+    assert.match(result.error, /Tentar de novo/i);
     assert.equal(h.events.length, 1);
+    assert.match(h.events[0][1], new RegExp(`HTTP ${status}`));
+    assert.match(h.events[0][1], detail);
     assert.equal(h.reports.length, 1);
+    assert.match(h.reports[0][3], new RegExp(`HTTP ${status}`));
+    assert.match(h.reports[0][3], detail);
   }
 });
 
@@ -99,9 +106,11 @@ test("browse:get-games reports JSON error replies even with HTTP 200", async () 
     const h = createBrowseHandler(() => ({ status: 200, body }));
     const result = await h.browse();
     assert.equal(result.ok, false);
-    assert.match(result.error, /catalog unavailable/);
+    assert.ok(result.error.length > 0);
+    assert.match(result.error, /Tentar de novo/i);
     assert.deepEqual(result.games, []);
     assert.equal(h.reports.length, 1);
+    assert.match(h.reports[0][3], /catalog unavailable/);
   }
 });
 
@@ -129,11 +138,13 @@ test("browse:get-games keeps query escaping and succeeds after a failed retry", 
   });
   const request = { platform: "rom_mega drive", source: "ia&minerva" };
   const result = await h.browse(request);
-  assert.match(result.error, /ETIMEDOUT/);
+  assert.ok(!result.error.includes("ETIMEDOUT"), `technical code leaked to UI: ${result.error}`);
+  assert.match(result.error, /Tentar de novo/i);
   failed = false;
   assert.deepEqual(await h.browse(request), { ok: true, loading: false, games: ["Halo 3"] });
   assert.equal(h.calls[1], "/browse?platform=rom_mega%20drive&source=ia%26minerva&priority=huggingface%2Cia%2Cminerva");
   assert.equal(h.reports.length, 1);
+  assert.match(h.reports[0][3], /ETIMEDOUT/);
 });
 
 test("browse:get-games supplies nonempty diagnostics for message-less rejections", async () => {
@@ -149,11 +160,14 @@ test("browse:get-games supplies nonempty diagnostics for message-less rejections
 
 // The queue dialog keeps every download button disabled until the disc grouping arrives, so a
 // failure of this call blocks the whole catalog. It used to reach only the local log.
-test("browse:get-release-groups reports failures to telemetry and stays quiet on success", async () => {
+test("browse:get-release-groups reports technical failure to telemetry while giving friendly UI message", async () => {
   const error = new Error("ETIMEDOUT: o servidor local nao respondeu em 120s");
   const failing = createBrowseHandler(() => { throw new Error("unused"); }, 8097, () => { throw error; });
   const result = await failing.releaseGroups();
-  assert.deepEqual(result, { ok: false, error: error.message, releases: [] });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.releases, []);
+  assert.ok(!result.error.includes("ETIMEDOUT"), `technical code leaked to UI: ${result.error}`);
+  assert.match(result.error, /Aguarde alguns segundos|Tentar de novo|reinicie/i);
   assert.equal(failing.events.length, 1);
   assert.equal(failing.reports.length, 1);
   const [component, file, method, message, , logs, terminal] = failing.reports[0];

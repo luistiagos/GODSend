@@ -11,6 +11,7 @@ import { IpcMain } from "electron";
 import { getConfiguredXboxIP, getConfiguredServerPort, getConfiguredProviderPriority } from "../services/settingsService";
 import { backendGet, backendGetWithStatus } from "../infrastructure/backendHttp";
 import { backendFailureReason, errorMessage } from "../infrastructure/backendFailure";
+import { formatErrorForUser } from "../infrastructure/userFriendlyError";
 import { fetchHttpImage } from "../infrastructure/httpHelper";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { reportError } from "../infrastructure/telemetry";
@@ -37,7 +38,9 @@ export function register(ipcMain: IpcMain): void {
       const games = await scanUsbAndLocalGames();
       return { ok: true, games };
     } catch (err: any) {
-      return { ok: false, error: err.message, games: [] };
+      const raw = errorMessage(err);
+      appendAppEvent("BROWSE", `browse:get-installed-games falhou: ${raw}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "browse", isLocal: true }), games: [] };
     }
   });
 
@@ -82,7 +85,11 @@ export function register(ipcMain: IpcMain): void {
         stack ? [context, stack] : [context],
         false,
       );
-      return { ok: false, error: message, games: [] };
+      return {
+        ok: false,
+        error: formatErrorForUser(err, { area: "browse", isLocal: source === "local" }),
+        games: [],
+      };
     }
   });
 
@@ -113,7 +120,11 @@ export function register(ipcMain: IpcMain): void {
         stack ? [context, stack] : [context],
         false,
       );
-      return { ok: false, error: msg, releases: [] };
+      return {
+        ok: false,
+        error: formatErrorForUser(err, { area: "browse" }),
+        releases: [],
+      };
     }
   });
 
@@ -126,10 +137,10 @@ export function register(ipcMain: IpcMain): void {
 
       let xboxIp = "";
       if (isLocal) {
-        if (!localRoot) return { ok: false, error: "Selecione um pendrive/HD preparado como destino." };
+        if (!localRoot) return { ok: false, error: "Escolha um pendrive ou HD preparado onde o jogo será salvo." };
       } else {
         xboxIp = getConfiguredXboxIP();
-        if (!xboxIp) return { ok: false, error: "Nenhum IP do Xbox configurado. Verifique Configurações → conexão com o Xbox." };
+        if (!xboxIp) return { ok: false, error: "O endereço do seu Xbox 360 ainda não foi configurado. Vá em “Configurações”, informe o IP do videogame e tente novamente." };
       }
 
       const itemsToQueue: string[] = (Array.isArray(games) && games.length > 0)
@@ -156,17 +167,25 @@ export function register(ipcMain: IpcMain): void {
             `/register?game=${enc}&ip=${encodeURIComponent(xboxIp)}&drive=${drv}&platform=${plat}&mode=${mode}&install_type=${inst}${localParam}`
           );
           const regFailure = backendFailureReason(reg);
-          if (regFailure) return { ok: false, error: `Falha ao registrar "${g}": ${regFailure}` };
+          if (regFailure) {
+            appendAppEvent("BROWSE", `browse:queue-game register falhou (${g}): ${regFailure}`);
+            return { ok: false, error: formatErrorForUser(regFailure, { area: "queue", gameName: g, driveRoot: localRoot, isLocal }) };
+          }
 
           const trig = await backendGetWithStatus(
             `/trigger?game=${enc}&platform=${plat}&install_type=${inst}${src}&priority=${encodeURIComponent(priority)}`
           );
           const trigFailure = backendFailureReason(trig);
-          if (trigFailure) return { ok: false, error: `Falha ao iniciar o download de "${g}": ${trigFailure}` };
+          if (trigFailure) {
+            appendAppEvent("BROWSE", `browse:queue-game trigger falhou (${g}): ${trigFailure}`);
+            return { ok: false, error: formatErrorForUser(trigFailure, { area: "queue", gameName: g, driveRoot: localRoot, isLocal }) };
+          }
 
           try { lastStatus = JSON.parse(trig.body).status || "triggered"; } catch { lastStatus = "triggered"; }
         } catch (err: unknown) {
-          return { ok: false, error: `Erro ao enfileirar "${g}": ${errorMessage(err)}` };
+          const raw = errorMessage(err);
+          appendAppEvent("BROWSE", `browse:queue-game erro (${g}): ${raw}`);
+          return { ok: false, error: formatErrorForUser(err, { area: "queue", gameName: g, driveRoot: localRoot, isLocal }) };
         }
       }
 
@@ -175,7 +194,10 @@ export function register(ipcMain: IpcMain): void {
       // Never let this handler reject: an IPC rejection reaches the renderer
       // with no result object at all, which is what left users staring at an
       // error box with nothing in it.
-      return { ok: false, error: `Falha inesperada ao enfileirar: ${errorMessage(err)}` };
+      const raw = errorMessage(err);
+      appendAppEvent("BROWSE", `browse:queue-game falha inesperada: ${raw}`);
+      reportError("electron-main", "browseHandlers.ts", "browse:queue-game", raw, "", err instanceof Error && err.stack ? [err.stack] : [], false);
+      return { ok: false, error: formatErrorForUser(err, { area: "queue" }) };
     }
   });
 
@@ -301,8 +323,14 @@ export function register(ipcMain: IpcMain): void {
           catch { resolve({ ok: true, jobs: [] }); }
         });
       });
-      req.on("error", (err: Error) => resolve({ ok: false, jobs: [], error: err.message }));
-      req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false, jobs: [] }); });
+      req.on("error", (err: Error) => {
+        appendAppEvent("QUEUE", `xbox:get-queue error: ${err.message}`);
+        resolve({ ok: false, jobs: [], error: formatErrorForUser(err, { area: "queue" }) });
+      });
+      req.setTimeout(5000, () => {
+        req.destroy();
+        resolve({ ok: false, jobs: [], error: formatErrorForUser("timeout", { area: "queue" }) });
+      });
     });
   });
 
@@ -315,8 +343,14 @@ export function register(ipcMain: IpcMain): void {
         res.on("data",  (chunk) => { data += chunk; });
         res.on("end", () => resolve({ ok: true, data }));
       });
-      req.on("error", (err: Error) => resolve({ ok: false, error: err.message }));
-      req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false }); });
+      req.on("error", (err: Error) => {
+        appendAppEvent("QUEUE", `xbox:remove-queue-item (${game}) error: ${err.message}`);
+        resolve({ ok: false, error: formatErrorForUser(err, { area: "queue" }) });
+      });
+      req.setTimeout(5000, () => {
+        req.destroy();
+        resolve({ ok: false, error: formatErrorForUser("timeout", { area: "queue" }) });
+      });
     });
   });
 
@@ -332,8 +366,14 @@ export function register(ipcMain: IpcMain): void {
           catch { resolve({ ok: true, data }); }
         });
       });
-      req.on("error", (err: Error) => resolve({ ok: false, error: err.message }));
-      req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false }); });
+      req.on("error", (err: Error) => {
+        appendAppEvent("QUEUE", `xbox:retry-queue-item (${game}) error: ${err.message}`);
+        resolve({ ok: false, error: formatErrorForUser(err, { area: "queue" }) });
+      });
+      req.setTimeout(5000, () => {
+        req.destroy();
+        resolve({ ok: false, error: formatErrorForUser("timeout", { area: "queue" }) });
+      });
     });
   });
 }

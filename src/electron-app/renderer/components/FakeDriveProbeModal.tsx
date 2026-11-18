@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ShieldCheck, ShieldAlert, AlertTriangle, CheckCircle2, X, RefreshCw, Zap, HardDrive } from "lucide-react";
 import { Button } from "./ui/button";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 interface FakeDriveProbeModalProps {
   open: boolean;
@@ -77,23 +78,25 @@ export default function FakeDriveProbeModal({
       if (res && res.result) {
         setResult(res.result);
       } else {
+        const msg = formatErrorForUser(res?.error, { area: "drive-maintenance", driveRoot });
         setResult({
           ok: false,
           authentic: false,
           wrapAroundDetected: false,
           readErrorsDetected: true,
-          summary: res?.error || "Falha ao executar teste de capacidade.",
-          details: res?.error || "O teste não pôde ser concluído.",
+          summary: msg,
+          details: msg,
         });
       }
     } catch (err: any) {
+      const msg = formatErrorForUser(err, { area: "drive-maintenance", driveRoot });
       setResult({
         ok: false,
         authentic: false,
         wrapAroundDetected: false,
         readErrorsDetected: true,
-        summary: err?.message || "Erro inesperado durante o teste.",
-        details: err?.message || "O teste foi interrompido.",
+        summary: msg,
+        details: msg,
       });
     } finally {
       setRunning(false);

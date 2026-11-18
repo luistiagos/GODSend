@@ -19,12 +19,19 @@ import {
 } from "../services/settingsService";
 import { getWebContentsForPush } from "../app/window";
 import { appendAppEvent } from "../infrastructure/serverLog";
+import { formatErrorForUser } from "../infrastructure/userFriendlyError";
 
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle("update:check", async (_event, payload?: { force?: boolean }) => {
     try {
       const force = payload?.force === true;
       const result = await checkForUpdates(force);
+      if (!result.ok && result.error) {
+        return {
+          ...result,
+          error: formatErrorForUser(result.error, { area: "update" }),
+        };
+      }
       return result;
     } catch (err: any) {
       appendAppEvent("UPDATE", `update:check error: ${err.message || err}`);
@@ -33,7 +40,7 @@ export function register(ipcMain: IpcMain): void {
         updateAvailable: false,
         currentVersion: "",
         latestVersion: "",
-        error: err.message || String(err),
+        error: formatErrorForUser(err, { area: "update" }),
       };
     }
   });
@@ -56,7 +63,7 @@ export function register(ipcMain: IpcMain): void {
         return { ok: true, filePath };
       } catch (err: any) {
         appendAppEvent("UPDATE", `update:download error: ${err.message || err}`);
-        return { ok: false, error: err.message || String(err) };
+        return { ok: false, error: formatErrorForUser(err, { area: "update" }) };
       }
     }
   );
@@ -66,7 +73,8 @@ export function register(ipcMain: IpcMain): void {
       cancelUpdateDownload();
       return { ok: true };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      appendAppEvent("UPDATE", `update:cancel-download error: ${err.message || err}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "update" }) };
     }
   });
 
@@ -76,15 +84,22 @@ export function register(ipcMain: IpcMain): void {
       return { ok: success };
     } catch (err: any) {
       appendAppEvent("UPDATE", `update:apply error: ${err.message || err}`);
-      return { ok: false, error: err.message || String(err) };
+      return { ok: false, error: formatErrorForUser(err, { area: "update" }) };
     }
   });
 
-  ipcMain.handle("update:take-apply-failure", async () => takeLastApplyFailure());
+  ipcMain.handle("update:take-apply-failure", async () => {
+    const failure = takeLastApplyFailure();
+    if (!failure) return null;
+    return {
+      ...failure,
+      reason: formatErrorForUser(failure.reason, { area: "update" }),
+    };
+  });
 
   ipcMain.handle("update:show-downloaded-file", async () => {
     const file = getDownloadedUpdateFile();
-    if (!fs.existsSync(file)) return { ok: false, error: "Arquivo baixado não encontrado." };
+    if (!fs.existsSync(file)) return { ok: false, error: "O arquivo da atualização baixada não foi encontrado. Baixe a atualização novamente." };
     shell.showItemInFolder(file);
     return { ok: true };
   });
@@ -96,7 +111,8 @@ export function register(ipcMain: IpcMain): void {
       }
       return { ok: true };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      appendAppEvent("UPDATE", `update:dismiss-version error: ${err.message || err}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "update" }) };
     }
   });
 
@@ -109,7 +125,8 @@ export function register(ipcMain: IpcMain): void {
       writeConfig({ autoCheckUpdates: payload.enabled === true });
       return { ok: true, enabled: payload.enabled === true };
     } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
+      appendAppEvent("UPDATE", `update:set-auto-check error: ${err.message || err}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "config" }) };
     }
   });
 }

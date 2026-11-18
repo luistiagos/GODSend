@@ -12,6 +12,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collap
 import { cn } from "../lib/utils";
 import XboxBoxCover from "./XboxBoxCover";
 import MainNav from "./MainNav";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -589,7 +590,7 @@ function AssetEditorSection({ game, titleVisuals, rxeaSlots, rxeaLoading, onRefr
       });
 
       if (!r || !r.ok) {
-        errorMsg = `Falha no envio de ${slotKey}: ${r?.error || "Erro desconhecido"}`;
+        errorMsg = formatErrorForUser(r?.error, { area: "assets" });
         break;
       }
     }
@@ -927,9 +928,9 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
         const dlcs = (dlcRes?.ok ? dlcRes.dlcs : []) || [];
         installedTus = (dlcRes?.ok ? dlcRes.title_updates : []) || [];
         setManifest({ dlcs, title_updates: mergeTUs(installedTus, candidateTus) });
-        if (!dlcRes?.ok && dlcRes?.error) setError(dlcRes.error);
+        if (!dlcRes?.ok && dlcRes?.error) setError(formatErrorForUser(dlcRes.error, { area: "content" }));
       })
-      .catch((err: any) => setError(err?.message || "Falha ao carregar DLC"))
+      .catch((err: any) => setError(formatErrorForUser(err, { area: "content" })))
       .finally(() => setLoadingDlc(false));
 
     window.godsendApi
@@ -960,10 +961,10 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
       if (r?.ok) {
         loadContent();
       } else {
-        setQueueStatus(`Falha ao ativar: ${r?.error || "Erro desconhecido"}`);
+        setQueueStatus(formatErrorForUser(r?.error, { area: "content" }));
       }
     } catch (err: any) {
-      setQueueStatus(`Erro ao ativar: ${err.message}`);
+      setQueueStatus(formatErrorForUser(err, { area: "content" }));
     } finally {
       setTogglingActive((prev) => ({ ...prev, [key]: false }));
     }
@@ -983,10 +984,10 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
       if (r?.ok) {
         loadContent();
       } else {
-        setQueueStatus(`Falha ao excluir: ${r?.error || "Erro desconhecido"}`);
+        setQueueStatus(formatErrorForUser(r?.error, { area: "ftp" }));
       }
     } catch (err: any) {
-      setQueueStatus(`Erro ao excluir: ${err.message}`);
+      setQueueStatus(formatErrorForUser(err, { area: "ftp" }));
     } finally {
       setDeleting((prev) => ({ ...prev, [key]: false }));
     }
@@ -1007,10 +1008,10 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
         setShowMoveFor(null);
         loadContent();
       } else {
-        setQueueStatus(`Falha ao mover: ${r?.error || "Erro desconhecido"}`);
+        setQueueStatus(formatErrorForUser(r?.error, { area: "ftp" }));
       }
     } catch (err: any) {
-      setQueueStatus(`Erro ao mover: ${err.message}`);
+      setQueueStatus(formatErrorForUser(err, { area: "ftp" }));
     } finally {
       setMoving((prev) => ({ ...prev, [key]: false }));
     }
@@ -1036,10 +1037,10 @@ function ContentSection({ game, visible = true }: ContentSectionProps) {
         setQueueStatus(`${item.display_name} adicionado à fila.`);
         setTimeout(() => setQueueStatus(null), 3000);
       } else {
-        setQueueStatus(`Falha na fila: ${r?.error || "Erro desconhecido"}`);
+        setQueueStatus(formatErrorForUser(r?.error, { area: "content" }));
       }
     } catch (err: any) {
-      setQueueStatus(`Erro na fila: ${err.message}`);
+      setQueueStatus(formatErrorForUser(err, { area: "content" }));
     } finally {
       setQueuing((prev) => ({ ...prev, [key]: false }));
     }
@@ -1422,13 +1423,11 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
       const r = await window.godsendApi.savesDiscover(game.titleId);
       if (r?.ok && Array.isArray(r.profiles)) {
         setProfiles(r.profiles);
-      } else if (r?.error) {
-        setError(r.error);
       } else {
-        setError("Falha ao descobrir saves.");
+        setError(formatErrorForUser(r?.error, { area: "saves" }));
       }
     } catch (err: any) {
-      setError(err?.message || "Erro desconhecido");
+      setError(formatErrorForUser(err, { area: "saves" }));
     } finally {
       setLoading(false);
     }
@@ -1446,10 +1445,10 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
       if (r?.ok && Array.isArray(r.entries)) {
         setSaves(r.entries);
       } else if (r?.error) {
-        setError(r.error);
+        setError(formatErrorForUser(r.error, { area: "saves" }));
       }
     } catch (err: any) {
-      setError(err?.message || "Erro desconhecido");
+      setError(formatErrorForUser(err, { area: "saves" }));
     } finally {
       setSavesLoading(false);
     }
@@ -1469,11 +1468,11 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
         setStatusKind("ok");
         setTimeout(() => setStatusMsg(null), 4000);
       } else {
-        setStatusMsg(r?.error || "Falha no download.");
+        setStatusMsg(formatErrorForUser(r?.error, { area: "saves" }));
         setStatusKind("error");
       }
     } catch (err: any) {
-      setStatusMsg(err?.message || "Erro no download");
+      setStatusMsg(formatErrorForUser(err, { area: "saves" }));
       setStatusKind("error");
     } finally {
       setDownloading((prev) => ({ ...prev, [profileId]: false }));
@@ -1498,11 +1497,11 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
         }
         setTimeout(() => setStatusMsg(null), 4000);
       } else {
-        setStatusMsg(r?.error || "Falha ao excluir.");
+        setStatusMsg(formatErrorForUser(r?.error, { area: "saves" }));
         setStatusKind("error");
       }
     } catch (err: any) {
-      setStatusMsg(err?.message || "Erro ao excluir");
+      setStatusMsg(formatErrorForUser(err, { area: "saves" }));
       setStatusKind("error");
     } finally {
       setDeleting((prev) => ({ ...prev, [profileId]: false }));
@@ -1531,11 +1530,11 @@ function SaveGamesSection({ game, visible = true }: SaveGamesSectionProps) {
         loadProfiles();
         setTimeout(() => setStatusMsg(null), 4000);
       } else {
-        setStatusMsg(r?.error || "Falha ao copiar.");
+        setStatusMsg(formatErrorForUser(r?.error, { area: "saves" }));
         setStatusKind("error");
       }
     } catch (err: any) {
-      setStatusMsg(err?.message || "Erro ao copiar");
+      setStatusMsg(formatErrorForUser(err, { area: "saves" }));
       setStatusKind("error");
     } finally {
       setCopying((prev) => ({ ...prev, [srcProfile]: false }));
@@ -1928,7 +1927,7 @@ function GameDetail({
       if (errorJob) {
         setMoveJobId(errorJob.id);
         setMoveStatus("error");
-        setMoveError(errorJob.error || "Falha ao mover.");
+        setMoveError(formatErrorForUser(errorJob.error, { area: "library" }));
         return;
       }
       const doneJob = matchingJobs.find((j: any) => j.state === "Ready");
@@ -1974,11 +1973,11 @@ function GameDetail({
         if (!r.jobId) setMoveStatus("done");
       } else {
         setMoveStatus("error");
-        setMoveError(r?.error || "Falha ao iniciar movimentação.");
+        setMoveError(formatErrorForUser(r?.error, { area: "library" }));
       }
     } catch (err: any) {
       setMoveStatus("error");
-      setMoveError(err.message || "Erro desconhecido");
+      setMoveError(formatErrorForUser(err, { area: "library" }));
     }
   }
 
@@ -2007,7 +2006,7 @@ function GameDetail({
           clearInterval(id);
         } else if (job.state === "Error") {
           setMoveStatus("error");
-          setMoveError(job.error || "Falha ao mover.");
+          setMoveError(formatErrorForUser(job.error, { area: "library" }));
           setMoveDetail(null);
           setMoveSpeed(null);
           clearInterval(id);
@@ -2823,7 +2822,9 @@ export default function LibraryPage({
       {status === "error" && (
         <CenteredOverlay>
           <WifiOff className="h-8 w-8 text-muted-foreground" />
-          <p className="text-[13px]">Não foi possível carregar a biblioteca do Aurora.</p>
+          <p className="text-[13px] text-center max-w-md px-4">
+            Não foi possível carregar a biblioteca do Xbox 360. Confira se o videogame está ligado com a Aurora aberta, na mesma rede do computador, e se o IP está correto em Configurações.
+          </p>
           <Button size="sm" onClick={onToggle}>Voltar ao console</Button>
         </CenteredOverlay>
       )}

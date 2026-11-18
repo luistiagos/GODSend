@@ -9,6 +9,7 @@ import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "../lib/utils";
 import { errorMessage } from "../../infrastructure/backendFailure.ts";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ interface LocalDrive {
  * user a message that tells them nothing.
  */
 function queueFailureReason(result: any, game: string): string {
-  if (result?.error) return String(result.error);
+  if (result?.error) return formatErrorForUser(result.error, { area: "queue", gameName: game });
 
   let detail: string;
   try { detail = JSON.stringify(result); } catch { detail = String(result); }
@@ -132,8 +133,7 @@ function queueFailureReason(result: any, game: string): string {
     );
   } catch { /* telemetry must never break the dialog */ }
 
-  return `O aplicativo não recebeu o motivo da falha (resposta: ${detail}). ` +
-         `Verifique se o servidor local está em execução e tente novamente.`;
+  return formatErrorForUser("", { area: "queue", gameName: game });
 }
 
 // A unified destination shown in the queue dialog dropdown.
@@ -395,7 +395,12 @@ function QueueDialog({
       // A rejected IPC used to leave the dialog spinning forever; surface it.
       setResult({
         ok: false,
-        error: `Falha de comunicação com o aplicativo: ${err?.message || String(err)}`,
+        error: formatErrorForUser(err, {
+          area: "queue",
+          gameName: game,
+          driveRoot: selectedDest?.rootPath,
+          isLocal: selectedDest?.kind === "local",
+        }),
       });
     } finally {
       setQueuing(false);
@@ -1340,7 +1345,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
 
         const r = await window.godsendApi.browseGetGames({ platform, source });
         if (!r?.ok) {
-          setLoadError(r?.error ? errorMessage(r.error) : "O aplicativo não recebeu o motivo da falha ao carregar o catálogo.");
+          setLoadError(formatErrorForUser(r?.error, { area: "browse", isLocal: false }));
           setStatus("error");
           return;
         }
@@ -1369,7 +1374,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
       }
 
       if (!r?.ok) {
-        setLoadError(r?.error ? errorMessage(r.error) : "O aplicativo não recebeu o motivo da falha ao carregar a biblioteca local.");
+        setLoadError(formatErrorForUser(r?.error, { area: "browse", isLocal: true }));
         setStatus("error");
         return;
       }
@@ -1395,16 +1400,16 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
       setStatus(list.length === 0 ? "empty" : "ready");
       setTimeout(() => filterRef.current?.focus(), 50);
     } catch (err: unknown) {
-      const message = `Falha de comunicação com o aplicativo: ${errorMessage(err)}`;
-      setLoadError(message);
+      const technicalMessage = `Falha de comunicação com o aplicativo: ${errorMessage(err)}`;
+      setLoadError(formatErrorForUser(err, { area: "browse", isLocal }));
       setStatus("error");
       // Expected backend failures are reported by browse:get-games. An IPC
       // rejection never returns that result, so report it from the renderer.
       try {
         await window.godsendApi.reportError?.(
-          "electron-renderer", "BrowsePage.tsx", "loadGames", message,
+          "electron-renderer", "BrowsePage.tsx", "loadGames", technicalMessage,
           window.location.href,
-          [`platform=${isLocal ? "local" : platform}; source=${source}`, err instanceof Error ? err.stack || message : message],
+          [`platform=${isLocal ? "local" : platform}; source=${source}`, err instanceof Error ? err.stack || technicalMessage : technicalMessage],
         );
       } catch { /* telemetry must never prevent retrying the catalog */ }
     }

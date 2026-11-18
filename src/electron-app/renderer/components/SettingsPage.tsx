@@ -7,6 +7,7 @@ import { Label } from "./ui/label";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
 import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "../lib/utils";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 // ── Shared layout helpers ──────────────────────────────────────────────────────
 
@@ -236,7 +237,7 @@ export default function SettingsPage({
     try {
       const res = await window.godsendApi.checkForUpdates(true);
       if (!res.ok) {
-        setUpdateStatusMsg(`Falha na verificação: ${res.error || "Não foi possível conectar ao servidor de distribuição."}`);
+        setUpdateStatusMsg(formatErrorForUser(res.error, { area: "update" }));
         return;
       }
       if (res.updateAvailable) {
@@ -249,7 +250,7 @@ export default function SettingsPage({
         setUpdateStatusMsg(`Você já está na versão mais recente (v${res.currentVersion || "2.12.39"}).`);
       }
     } catch (err: any) {
-      setUpdateStatusMsg(`Erro: ${err.message || String(err)}`);
+      setUpdateStatusMsg(formatErrorForUser(err, { area: "update" }));
     } finally {
       setUpdateCheckLoading(false);
     }
@@ -305,7 +306,7 @@ export default function SettingsPage({
     try {
       const r: any = await window.godsendApi.setAppDataDir(target);
       if (!r?.ok) {
-        setAppDataStatus(`Falha: ${r?.error || "Erro desconhecido"}`);
+        setAppDataStatus(formatErrorForUser(r?.error, { area: "config" }));
         setAppDataSaving(false);
         return;
       }
@@ -316,7 +317,7 @@ export default function SettingsPage({
         setAppDataSaving(false);
       }
     } catch (err: any) {
-      setAppDataStatus(`Falha: ${err.message || String(err)}`);
+      setAppDataStatus(formatErrorForUser(err, { area: "config" }));
       setAppDataSaving(false);
     }
   }
@@ -382,10 +383,10 @@ export default function SettingsPage({
         );
         onAppendLine(`[INFO] Save backup-all: ${x.files_backed_up} files across ${x.profiles_processed} profiles.`);
       } else {
-        setBackupAllStatus(`Falha: ${r?.error || r?.message || "erro desconhecido"}`);
+        setBackupAllStatus(formatErrorForUser(r?.error || r?.message, { area: "saves" }));
       }
     } catch (err: any) {
-      setBackupAllStatus(`Falha: ${err?.message || String(err)}`);
+      setBackupAllStatus(formatErrorForUser(err, { area: "saves" }));
     } finally {
       setBackupAllBusy(false);
     }
@@ -404,7 +405,10 @@ export default function SettingsPage({
         applyIAStatus(await window.godsendApi.getArchiveAuth());
       } else {
         onAppendLine(`[ERROR] Internet Archive login: ${r.error || "Unknown error"}`);
+        setIaSessionStatus(formatErrorForUser(r.error, { area: "ia-login" }));
       }
+    } catch (err: any) {
+      setIaSessionStatus(formatErrorForUser(err, { area: "ia-login" }));
     } finally {
       setIaLoginLoading(false);
     }
@@ -431,8 +435,8 @@ export default function SettingsPage({
     const r = await window.godsendApi.refreshCache("all");
     setCacheStatus(
       r.ok
-        ? "Atualização iniciada — rodando em segundo plano. Veja o log do servidor para acompanhar."
-        : `Falha: ${r.error || "erro desconhecido"}`
+        ? "Atualização iniciada — rodando em segundo plano."
+        : formatErrorForUser(r.error, { area: "generic" })
     );
     setCacheLoading(false);
   }
@@ -448,11 +452,11 @@ export default function SettingsPage({
         ftpScriptsPath: ftpScriptsPath.trim(),
       });
       setXboxConnectionStatus(
-        "Salvo. Backend reiniciado \u2014 as pr\u00f3ximas instala\u00e7\u00f5es via FTP usar\u00e3o estas credenciais."
+        "Salvo! As pr\u00f3ximas instala\u00e7\u00f5es para o Xbox 360 usar\u00e3o estes dados."
       );
       onAppendLine("[INFO] Xbox connection saved; backend restarted if running.");
     } catch (err: any) {
-      setXboxConnectionStatus(`Falha ao salvar: ${err.message || "erro desconhecido"}`);
+      setXboxConnectionStatus(formatErrorForUser(err, { area: "config" }));
     } finally {
       setXboxSaveLoading(false);
     }
@@ -481,11 +485,11 @@ export default function SettingsPage({
       });
       setFtpScriptsStatus(
         r.ok
-          ? `Scripts enviados com sucesso para ${r.remotePath || "(caminho desconhecido)"}.`
-          : `Falha: ${r.error || "erro desconhecido"}`
+          ? `Scripts enviados com sucesso para ${r.remotePath || "(pasta padrão da Aurora)"}.`
+          : formatErrorForUser(r.error, { area: "ftp" })
       );
     } catch (err: any) {
-      setFtpScriptsStatus(`Falha: ${err.message || "erro desconhecido"}`);
+      setFtpScriptsStatus(formatErrorForUser(err, { area: "ftp" }));
     } finally {
       setFtpUploadLoading(false);
     }
@@ -502,10 +506,10 @@ export default function SettingsPage({
         ftpPassword,
       });
       setFtpDebugStatus(
-        r.ok ? "Conexão bem-sucedida." : `Falha no teste: ${r.error}`
+        r.ok ? "Conexão bem-sucedida." : formatErrorForUser(r.error, { area: "ftp" })
       );
     } catch (err: any) {
-      setFtpDebugStatus(`Falha no teste: ${err.message || "erro desconhecido"}`);
+      setFtpDebugStatus(formatErrorForUser(err, { area: "ftp" }));
     } finally {
       setFtpTestLoading(false);
     }
@@ -540,10 +544,10 @@ export default function SettingsPage({
             : "Nenhum servidor FTP encontrado nesta sub-rede."
         );
       } else {
-        setFtpDebugStatus(`Falha na varredura: ${r.error}`);
+        setFtpDebugStatus(formatErrorForUser(r.error, { area: "ftp" }));
       }
     } catch (err: any) {
-      setFtpDebugStatus(`Falha na varredura: ${err.message || "erro desconhecido"}`);
+      setFtpDebugStatus(formatErrorForUser(err, { area: "ftp" }));
     } finally {
       setFtpScanLoading(false);
     }
@@ -568,10 +572,10 @@ export default function SettingsPage({
         setDriveList(r.drives);
         setDriveStatus(`Encontrado(s) ${r.drives.length} drive(s).`);
       } else {
-        setDriveStatus(`Falha: ${r.error || "erro desconhecido"}`);
+        setDriveStatus(formatErrorForUser(r.error, { area: "ftp" }));
       }
     } catch (err: any) {
-      setDriveStatus(`Falha: ${err.message || "erro desconhecido"}`);
+      setDriveStatus(formatErrorForUser(err, { area: "ftp" }));
     } finally {
       setDriveLoading(false);
     }
@@ -642,10 +646,10 @@ export default function SettingsPage({
         setFtpPickerEntries(isRoot ? dirs : [parent, ...dirs]);
         setFtpPickerStatus(`${dirs.length} pasta(s)`);
       } else {
-        setFtpPickerStatus(`Erro: ${r.error || "desconhecido"}`);
+        setFtpPickerStatus(formatErrorForUser(r.error, { area: "ftp" }));
       }
     } catch (err: any) {
-      setFtpPickerStatus(`Erro: ${err.message || "desconhecido"}`);
+      setFtpPickerStatus(formatErrorForUser(err, { area: "ftp" }));
     } finally {
       setFtpPickerLoading(false);
     }
@@ -688,10 +692,10 @@ export default function SettingsPage({
       if (r.ok) {
         setExportDbStatus(`Exportado para:\n${(r.files || []).join("\n")}`);
       } else {
-        setExportDbStatus(`Falha na exportação: ${r.error || "erro desconhecido"}`);
+        setExportDbStatus(formatErrorForUser(r.error, { area: "library" }));
       }
     } catch (err: any) {
-      setExportDbStatus(`Falha na exportação: ${err.message || "erro desconhecido"}`);
+      setExportDbStatus(formatErrorForUser(err, { area: "library" }));
     } finally {
       setExportDbLoading(false);
     }
@@ -705,11 +709,13 @@ export default function SettingsPage({
       if (r.ok) {
         setDataStatus(r);
         setDataStatusMsg(
-          `${r.active_jobs} tarefa(s) ativa(s), ${r.pending_ftp_jobs} aguardando FTP, ${r.local_data_mb} MB em dados locais`
+          `${r.active_jobs} tarefa(s) ativa(s), ${r.pending_ftp_jobs} aguardando envio ao Xbox, ${r.local_data_mb} MB em arquivos temporários`
         );
       } else {
-        setDataStatusMsg(`Falha: ${r.error || "erro desconhecido"}`);
+        setDataStatusMsg(formatErrorForUser(r.error, { area: "config" }));
       }
+    } catch (err: any) {
+      setDataStatusMsg(formatErrorForUser(err, { area: "config" }));
     } finally {
       setDataCheckLoading(false);
     }
@@ -718,8 +724,8 @@ export default function SettingsPage({
   async function handleDataClear() {
     const hasJobs = dataStatus && (dataStatus.active_jobs > 0 || dataStatus.pending_ftp_jobs > 0);
     const warn = hasJobs
-      ? `ATENÇÃO: Há ${dataStatus.active_jobs} tarefa(s) ativa(s) e ${dataStatus.pending_ftp_jobs} aguardando FTP.\n\nApagar cancelará todas elas.\n\nDeseja continuar?`
-      : "Apagar todos os dados locais (pastas Ready/ e Temp/) e cancelar envios FTP pendentes?\n\nEssa ação não pode ser desfeita.";
+      ? `ATENÇÃO: Há ${dataStatus.active_jobs} tarefa(s) ativa(s) e ${dataStatus.pending_ftp_jobs} aguardando envio ao Xbox.\n\nApagar cancelará todas elas.\n\nDeseja continuar?`
+      : "Apagar todos os arquivos temporários de downloads e cancelar envios pendentes?\n\nEssa ação não pode ser desfeita.";
 
     if (!window.confirm(warn)) return;
 
@@ -728,7 +734,9 @@ export default function SettingsPage({
     try {
       const r = await window.godsendApi.clearLocalData();
       setDataStatus(null);
-      setDataStatusMsg(r.ok ? "Dados locais apagados." : `Falha: ${r.error || "erro desconhecido"}`);
+      setDataStatusMsg(r.ok ? "Dados locais apagados." : formatErrorForUser(r.error, { area: "config" }));
+    } catch (err: any) {
+      setDataStatusMsg(formatErrorForUser(err, { area: "config" }));
     } finally {
       setDataClearLoading(false);
     }

@@ -8,10 +8,11 @@ const Module = require("node:module");
 // [[electron-main-gerenciador-ftp-descarta-o-motivo-do-backend-ao-listar-enviar-e-mover-jogo_2026-10-12T19-00]]
 function createToolsHandlers(backendReply, xboxIp = "192.168.1.100") {
   const handlers = new Map();
+  const outputLines = [];
   const mocks = {
     electron: { dialog: {}, BrowserWindow: {}, shell: {} },
     "../services/settingsService": { getConfiguredXboxIP: () => xboxIp },
-    "../services/backendClient": { addOutputLine: () => {} },
+    "../services/backendClient": { addOutputLine: (line) => outputLines.push(line) },
     "../infrastructure/backendHttp": {
       backendPost: async () => backendReply(),
       backendGet: async () => ({}),
@@ -27,7 +28,9 @@ function createToolsHandlers(backendReply, xboxIp = "192.168.1.100") {
   loaded.require = (id) => Object.hasOwn(mocks, id) ? mocks[id] : realRequire(id);
   loaded._compile(fs.readFileSync(filename, "utf8"), filename);
   loaded.exports.register({ handle: (name, handler) => handlers.set(name, handler) });
-  return (channel, arg) => handlers.get(channel)(null, arg);
+  const invoke = (channel, arg) => handlers.get(channel)(null, arg);
+  invoke.outputLines = outputLines;
+  return invoke;
 }
 
 const channels = [
@@ -39,11 +42,13 @@ const channels = [
 ];
 
 for (const [channel, arg, success, keptField] of channels) {
-  test(`${channel} treats the backend jsonError body as failure with its message`, async () => {
+  test(`${channel} treats backend jsonError as failure, logs raw reason and returns layman message`, async () => {
     const invoke = createToolsHandlers(() => ({ state: "Error", message: "Backend operation failed: reason X" }));
     const r = await invoke(channel, arg);
     assert.equal(r.ok, false);
-    assert.match(r.error, /reason X/);
+    assert.ok(r.error.length > 0);
+    assert.ok(!r.error.includes("Backend operation failed"), `raw English leaked to UI: ${r.error}`);
+    assert.ok(invoke.outputLines.some((l) => l.includes("reason X")), "technical reason must stay in logs");
   });
 
   test(`${channel} treats an empty non-JSON body as failure with a non-empty reason`, async () => {
@@ -62,22 +67,25 @@ for (const [channel, arg, success, keptField] of channels) {
     }
   });
 
-  test(`${channel} reports a network rejection`, async () => {
+  test(`${channel} logs network rejection and returns layman-friendly error`, async () => {
     const invoke = createToolsHandlers(() => { throw new Error("ECONNREFUSED"); });
     const r = await invoke(channel, arg);
     assert.equal(r.ok, false);
-    assert.match(r.error, /ECONNREFUSED/);
+    assert.ok(!r.error.includes("ECONNREFUSED"), `technical code leaked to UI: ${r.error}`);
+    assert.match(r.error, /tente novamente|Aguarde/i);
+    assert.ok(invoke.outputLines.some((l) => l.includes("ECONNREFUSED")), "technical code must stay in logs");
   });
 }
 
-test("xbox:move-game normalizes backend jsonError and returns error message", async () => {
+test("xbox:move-game normalizes backend jsonError and returns layman-friendly Portuguese message", async () => {
   const invoke = createToolsHandlers(() => ({ state: "Error", message: "source and destination drive are the same" }));
   const r = await invoke("xbox:move-game", {
     game: { name: "Halo 3", sourceDrive: "Hdd1", directory: "Content/0000000000000000/4D5307E6" },
     targetDrive: "Usb0",
   });
   assert.equal(r.ok, false);
-  assert.match(r.error, /source and destination drive are the same/);
+  assert.match(r.error, /unidade de origem e a unidade de destino são a mesma/i);
+  assert.ok(invoke.outputLines.some((l) => l.includes("source and destination drive are the same")));
 });
 
 test("xbox:move-game preserves successful response and jobId", async () => {

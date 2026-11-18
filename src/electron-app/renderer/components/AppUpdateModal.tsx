@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Sparkles, Download, CheckCircle2, AlertCircle, X, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -89,7 +90,7 @@ export default function AppUpdateModal({
 
   async function handleStartDownload() {
     if (!updateInfo?.downloadUrl) {
-      setErrorMessage("URL de download indisponível no manifesto.");
+      setErrorMessage("Não foi possível encontrar o link desta atualização. Tente novamente mais tarde ou baixe a versão nova manualmente.");
       setModalState("error");
       return;
     }
@@ -107,7 +108,7 @@ export default function AppUpdateModal({
       });
 
       if (!res.ok) {
-        setErrorMessage(res.error || "Falha ao baixar atualização.");
+        setErrorMessage(formatErrorForUser(res.error, { area: "update" }));
         setModalState("error");
         return;
       }
@@ -115,7 +116,7 @@ export default function AppUpdateModal({
       setDownloadedFilePath(res.filePath || "");
       setModalState("downloaded");
     } catch (err: any) {
-      setErrorMessage(err.message || String(err));
+      setErrorMessage(formatErrorForUser(err, { area: "update" }));
       setModalState("error");
     }
   }
@@ -133,9 +134,9 @@ export default function AppUpdateModal({
     try {
       const res = await window.godsendApi.applyUpdateAndRestart(downloadedFilePath, updateInfo?.latestVersion);
       if (res?.ok) return; // o app está fechando
-      error = res?.error || "Falha ao reiniciar para atualização.";
+      error = formatErrorForUser(res?.error || "script de substituição", { area: "update" });
     } catch (err: any) {
-      error = err.message || "Falha ao reiniciar para atualização.";
+      error = formatErrorForUser(err, { area: "update" });
     }
     setIsApplying(false);
     setApplyFailed(true);
