@@ -165,3 +165,10 @@ A causa raiz foi provada por inspeção direta das dependências de runtime e do
 - `node --test tests/unit/portableLauncher.test.cjs tests/unit/portableLauncherReport.test.cjs` (em `src/electron-app`) -> `tests 8, pass 8, fail 0` (os 4 do launcher que ja existiam + o novo + os 3 do report).
 - Estragar de proposito: `Call checkWindowsVersion` comentado no `.onInit` -> `node --test --test-name-pattern="Windows anterior" tests/unit/portableLauncher.test.cjs` falha com `actual: 7, expected: 2` (o launcher extraiu e iniciou o app de mentira: o "nem abre" sem aviso). Arquivo restaurado com `git checkout` sobre o commit do fix.
 - Plano de teste: sem ajuste. A T2 (launcher em modo janela com a variavel, print da caixa) e o controle positivo continuam como no Planejamento.
+
+## Confirmação de campo — chamado #302 (2026-10-31)
+
+- **Sessão:** `250525459161306@lid` (telefone `553299566675`, chamado `#302` do painel).
+- **Prova:** em `2026-10-31T02:05:20Z` (`[161699]`), o agente entregou o link publicado `https://versions.digitalstoregames.com/xboxcompanion.exe`; em `2026-10-31T02:18:44Z` (`[161707]`), o cliente enviou print do notebook LG rodando **Windows 7** com a caixa exata da correção (`5d3825c`):
+  > *"O Xbox 360 Companion precisa do Windows 10 ou do Windows 11. Este computador está com uma versão mais antiga do Windows (versão 6.1, build 7601), na qual o programa não funciona. Use um computador com Windows 10 ou 11."*
+- **Resultado:** a checagem de versão do portátil publicado executou em Windows 7 real (`versão 6.1, build 7601`) e exibiu a mensagem em português em vez de falhar silenciosamente; cliente seguiu pelo caminho alternativo de celular Android + OTG (`[161712]`). (Pendente apenas confirmar `xboxcompanion32.exe` caso aplicável, conforme item *"Falta para `closed/`"*.)
