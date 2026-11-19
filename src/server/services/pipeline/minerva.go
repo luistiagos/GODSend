@@ -3,11 +3,9 @@ package pipeline
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"godsend/infrastructure/ftp"
@@ -306,60 +304,8 @@ func (s *Service) ProcessMinervaDigitalWithErr(gameName string, entry models.Min
 	}
 	clearCorruptArchiveRedownloadMarker(archivePath)
 
-	var contentFile, titleID, typeDir string
-	filepath.Walk(extDir, func(p string, i os.FileInfo, e error) error {
-		if e != nil || i.IsDir() || i.Size() < 0x368 {
-			return nil
-		}
-		ext := strings.ToLower(filepath.Ext(p))
-		if ext == ".txt" || ext == ".nfo" || ext == ".jpg" {
-			return nil
-		}
-		tid, ct := helpers.ParseXboxHeader(p)
-		if tid != "" {
-			contentFile = p
-			titleID = tid
-			typeDir = fmt.Sprintf("%08X", ct)
-			return io.EOF
-		}
-		return nil
-	})
-
-	if contentFile == "" {
-		return fmt.Errorf("No valid Xbox content found in Minerva archive")
-	}
-	s.App.Logf("Minerva Digital: TitleID=%s Type=%s", titleID, typeDir)
-	finalName := filepath.Base(contentFile)
-
-	if xboxConn != nil && xboxConn.Mode == "ftp" {
-		drive := strings.TrimSuffix(xboxConn.Drive, ":")
-		base := fmt.Sprintf("/%s/Content/0000000000000000/%s/%s", drive, titleID, typeDir)
-		fc, err := s.FTP.ConnectWithRetry(xboxConn.IP)
-		if err != nil {
-			return fmt.Errorf("FTP connect failed: %w", err)
-		}
-		defer s.FTP.QuitConn(fc)
-		ftp.MkdirAll(fc, base)
-		info, _ := os.Stat(contentFile)
-		var xfer int64
-		if err := s.FTP.UploadFile(fc, contentFile, base+"/"+finalName, gameName, &xfer, info.Size(), 1, 1, time.Now(), new(float64)); err != nil {
-			return fmt.Errorf("FTP upload failed: %w", err)
-		}
-		os.RemoveAll(gameDir)
-		s.App.LogFTPComplete(gameName, titleID, xboxConn.IP)
-	} else if xboxConn != nil && xboxConn.Mode == "local" {
-		if err := s.InstallContentFileLocal(contentFile, xboxConn.LocalRoot, gameName, titleID, typeDir); err != nil {
-			return fmt.Errorf("Gravação local: %w", err)
-		}
-		os.RemoveAll(gameDir)
-		s.App.LogLocalComplete(gameName, titleID, xboxConn.LocalRoot)
-	} else {
-		relPath := fmt.Sprintf("Content\\0000000000000000\\%s\\%s\\", titleID, typeDir)
-		if err := helpers.CopyFileBuffered(contentFile, filepath.Join(gameDir, finalName)); err != nil {
-			return fmt.Errorf("Copy failed: %w", err)
-		}
-		s.updateGameINI_Raw(gameDir, gameName, finalName, relPath, "")
-		s.App.LogStatus(gameName, "Ready", "Ready to Install")
+	if err := s.deliverDigitalContent(gameName, safeName, gameDir, extDir, xboxConn, "Minerva Digital", "No valid Xbox content found in Minerva archive"); err != nil {
+		return err
 	}
 	s.App.Logf("=== Complete (Minerva Digital): %s ===", gameName)
 	return nil

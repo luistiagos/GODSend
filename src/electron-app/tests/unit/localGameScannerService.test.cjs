@@ -426,8 +426,11 @@ test("scanContentDirectory: TitleID com pasta de tipo ainda sendo gravada nao ap
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-test-"));
   try {
     const contentDir = path.join(tmp, "Content", "0000000000000000");
+    const godDir = path.join(contentDir, "545408A7", "00007000");
     const typeDir = path.join(contentDir, "545408A7", "00000002");
+    fs.mkdirSync(godDir, { recursive: true });
     fs.mkdirSync(typeDir, { recursive: true });
+    fs.writeFileSync(path.join(godDir, "545408A700000000"), Buffer.alloc(1024, 2));
     fs.writeFileSync(path.join(typeDir, "pkg"), Buffer.alloc(1024, 3));
     fs.writeFileSync(path.join(typeDir, ".xbox-companion-installing"), "GTA V\n");
 
@@ -435,6 +438,35 @@ test("scanContentDirectory: TitleID com pasta de tipo ainda sendo gravada nao ap
 
     fs.rmSync(path.join(typeDir, ".xbox-companion-installing"));
     assert.equal((await scanContentDirectory(contentDir, "F:")).length, 1);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scanContentDirectory: pastas apenas de DLC (00000002), TU (000B0000) ou cookies (00040000) nao viram card duplicado de jogo", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "godsend-scan-dlc-only-"));
+  try {
+    const contentDir = path.join(tmp, "Content", "0000000000000000");
+    // Jogo base instalado em Games/ e apenas DLC + TU + cookie em Content/
+    fs.mkdirSync(path.join(contentDir, "415608C3", "00000002"), { recursive: true });
+    fs.writeFileSync(path.join(contentDir, "415608C3", "00000002", "SeasonPass"), Buffer.alloc(100 * 1024, 1));
+    fs.mkdirSync(path.join(contentDir, "415608C3", "000B0000"), { recursive: true });
+    fs.writeFileSync(path.join(contentDir, "415608C3", "000B0000", "tu00000018_00000000"), Buffer.alloc(64 * 1024, 2));
+    fs.mkdirSync(path.join(contentDir, "584D07D1", "00040000"), { recursive: true });
+    fs.writeFileSync(path.join(contentDir, "584D07D1", "00040000", "asset_refresh_cookie"), Buffer.alloc(512, 3));
+
+    // XBLA legitimo (000D0000) continua aparecendo normalmente
+    fs.mkdirSync(path.join(contentDir, "584107F4", "000D0000"), { recursive: true });
+    fs.writeFileSync(path.join(contentDir, "584107F4", "000D0000", "38AD647E"), Buffer.alloc(2048, 4));
+
+    const nameMap = new Map([
+      ["415608C3", "Call of Duty: Black Ops II"],
+      ["584107F4", "Street Fighter II' HF"],
+    ]);
+    const results = await scanContentDirectory(contentDir, "E: (BADAVATAR)", nameMap);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].titleId, "584107F4");
+    assert.equal(results[0].name, "Street Fighter II' HF");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

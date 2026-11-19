@@ -1,4 +1,4 @@
-export const READY_TO_PLAY_CONFIGURATION_VERSION = "5";
+export const READY_TO_PLAY_CONFIGURATION_VERSION = "6";
 export const AURORA_READY_TO_PLAY_FILTER_PATH =
   "Aurora/User/Scripts/Content/Filters/XboxCompanionReady.lua";
 export const READY_TO_PLAY_MARKER_PATH =
@@ -24,6 +24,11 @@ export function generateReadyToPlayLaunchIni(): string {
     "noupdater = true",
     "liveblock = true",
     "livestrong = false",
+    // Sem contpatch/xblapatch/licpatch o DashLaunch mantem os padroes FALSE e
+    // bloqueia DLCs (00000002) e jogos XBLA (000D0000) LIVE/PIRS no console.
+    "contpatch = true",
+    "xblapatch = true",
+    "licpatch = true",
     "",
   ].join("\r\n");
 }

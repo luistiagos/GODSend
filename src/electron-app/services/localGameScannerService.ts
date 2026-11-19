@@ -48,6 +48,21 @@ const KNOWN_CONTENT_TYPES = new Set([
   "00040000", // Title Updates / DLC / Arcade
 ]);
 
+/**
+ * Subfolders under Content/0000000000000000/<TitleID>/ that represent standalone playable titles.
+ * Folders holding only DLC/addons (00000002), Title Updates (000B0000), saves (00000001), or
+ * system/cache cookies (00040000) belong to an existing base game and must not appear as a
+ * duplicate game card in Installed Games.
+ */
+const PLAYABLE_CONTENT_TYPES = new Set([
+  "00007000", // Games on Demand (GOD)
+  "000D0000", // Xbox Live Arcade (XBLA)
+  "00005000", // Xbox Originals (GOD)
+  "00004000", // Xbox Originals
+  "00080000", // Demos
+  "00020000", // Indie Games (XBLIG)
+]);
+
 const SYSTEM_CONTAINER_NAMES = new Set([
   "$systemupdate",
   "$$systemupdate",
@@ -553,32 +568,26 @@ async function parseContentTitleFolder(
     const subdirs = await fsp.readdir(fullPath, { withFileTypes: true });
     if (subdirs.length === 0) return null;
 
-    let hasValidContent = false;
+    let hasPlayableContent = false;
     for (const sub of subdirs) {
       if (isCorruptedFolderName(sub.name)) continue;
-      if (sub.isDirectory()) {
-        const subUpper = sub.name.toUpperCase();
-        if (KNOWN_CONTENT_TYPES.has(subUpper) || subUpper.startsWith("000")) {
-          hasValidContent = true;
-          break;
-        }
-      } else if (sub.isFile()) {
-        hasValidContent = true;
+      if (sub.isDirectory() && PLAYABLE_CONTENT_TYPES.has(sub.name.toUpperCase())) {
+        hasPlayableContent = true;
         break;
       }
     }
-    if (!hasValidContent) return null;
+    if (!hasPlayableContent) return null;
 
     let titleName = nameMap?.get(tid) || tid;
     const ini = await readGodsendIni(fullPath);
     if (ini?.titleName) titleName = ini.titleName;
 
-    // If title name is still just the hex TID, look for a named container file inside subfolders
+    // If title name is still just the hex TID, look for a named container file inside playable subfolders
     if (titleName === tid) {
       try {
         for (const sub of subdirs) {
           if (isCorruptedFolderName(sub.name)) continue;
-          if (sub.isDirectory()) {
+          if (sub.isDirectory() && PLAYABLE_CONTENT_TYPES.has(sub.name.toUpperCase())) {
             const files = await fsp.readdir(path.join(fullPath, sub.name), { withFileTypes: true });
             for (const f of files) {
               if (isCorruptedFolderName(f.name)) continue;

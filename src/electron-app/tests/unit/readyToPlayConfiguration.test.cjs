@@ -17,8 +17,17 @@ const initSqlJs = require("sql.js");
 test("configuracao pronta para jogar gera launch.ini canonico", () => {
   assert.equal(
     generateReadyToPlayLaunchIni(),
-    "[Paths]\r\nDefault = Usb:\\Aurora\\default.xex\r\nDumpfile = Usb:\\crashlog.txt\r\n\r\n[Settings]\r\nnoupdater = true\r\nliveblock = true\r\nlivestrong = false\r\n",
+    "[Paths]\r\nDefault = Usb:\\Aurora\\default.xex\r\nDumpfile = Usb:\\crashlog.txt\r\n\r\n[Settings]\r\nnoupdater = true\r\nliveblock = true\r\nlivestrong = false\r\ncontpatch = true\r\nxblapatch = true\r\nlicpatch = true\r\n",
   );
+});
+
+test("launch.ini habilita patches de licenca para DLCs e XBLA em [Settings]", () => {
+  const ini = generateReadyToPlayLaunchIni();
+  const settings = ini.slice(ini.indexOf("[Settings]"));
+
+  assert.match(settings, /^contpatch = true$/m);
+  assert.match(settings, /^xblapatch = true$/m);
+  assert.match(settings, /^licpatch = true$/m);
 });
 
 test("launch.ini aponta o dump do DashLaunch para o proprio pendrive", () => {
@@ -37,12 +46,12 @@ test("hook carregado pelo Aurora identifica o pendrive e registra os caminhos de
     AURORA_READY_TO_PLAY_FILTER_PATH,
     "Aurora/User/Scripts/Content/Filters/XboxCompanionReady.lua",
   );
-  assert.equal(READY_TO_PLAY_MARKER_PATH, ".xbox-downloader/ready-to-play-v5.marker");
-  assert.equal(generateReadyToPlayMarker(), "xbox-companion-ready-to-play-v5\r\n");
+  assert.equal(READY_TO_PLAY_MARKER_PATH, ".xbox-downloader/ready-to-play-v6.marker");
+  assert.equal(generateReadyToPlayMarker(), "xbox-companion-ready-to-play-v6\r\n");
   assert.match(lua, /FileSystem\.GetDrives\(false\)/);
   assert.match(lua, /string\.sub\(mountPoint, 1, 5\) == "game:"/);
   assert.match(lua, /normalizedSerial/);
-  assert.match(lua, /ready-to-play-v5\.marker/);
+  assert.match(lua, /ready-to-play-v6\.marker/);
   assert.match(lua, /Aurora\\\\default\.xex/);
   assert.match(lua, /path = "\\\\games", depth = 6/);
   assert.match(lua, /path = "\\\\Content\\\\0000000000000000", depth = 5/);
@@ -67,10 +76,10 @@ test("cadastro reconhece o mesmo dispositivo quando o serial vem prefixado por _
 test("marcas gravadas pelo console seguem a versao da configuracao", () => {
   const lua = generateAuroraReadyToPlayFilterLua();
 
-  assert.equal(READY_TO_PLAY_RESTART_GUARD_PATH, ".xbox-downloader/ready-to-play-v5.restart");
-  assert.equal(READY_TO_PLAY_TU_SCAN_ATTEMPT_PATH, ".xbox-downloader/ready-to-play-v5.tuscan");
-  assert.match(lua, /local RESTART_GUARD_PATH = "\.xbox-downloader\\\\ready-to-play-v5\.restart"/);
-  assert.match(lua, /local TU_SCAN_ATTEMPT_PATH = "\.xbox-downloader\\\\ready-to-play-v5\.tuscan"/);
+  assert.equal(READY_TO_PLAY_RESTART_GUARD_PATH, ".xbox-downloader/ready-to-play-v6.restart");
+  assert.equal(READY_TO_PLAY_TU_SCAN_ATTEMPT_PATH, ".xbox-downloader/ready-to-play-v6.tuscan");
+  assert.match(lua, /local RESTART_GUARD_PATH = "\.xbox-downloader\\\\ready-to-play-v6\.restart"/);
+  assert.match(lua, /local TU_SCAN_ATTEMPT_PATH = "\.xbox-downloader\\\\ready-to-play-v6\.tuscan"/);
   assert.doesNotMatch(lua, /TUScanAutoStart/);
 });
 

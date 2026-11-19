@@ -4,7 +4,6 @@ package pipeline
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -338,9 +337,27 @@ func (s *Service) ProcessDigitalWithErr(gameName, platform string) error {
 	}
 	clearCorruptArchiveRedownloadMarker(archivePath)
 
-	var contentFile, titleID, typeDir string
-	filepath.Walk(extDir, func(p string, i os.FileInfo, e error) error {
-		if e != nil || i.IsDir() || i.Size() < 0x368 {
+	if err := s.deliverDigitalContent(gameName, safeName, gameDir, extDir, xboxConn, "Digital", "No valid Xbox content found in archive"); err != nil {
+		return err
+	}
+	s.App.Logf("=== Complete (Digital): %s ===", gameName)
+	return nil
+}
+
+type digitalContentPackage struct {
+	path    string
+	titleID string
+	typeDir string
+	size    int64
+}
+
+// collectDigitalContentPackages walks extDir and collects every valid STFS
+// container along with its TitleID and ContentType folder, preserving per-file
+// classification (e.g. 00000002 for DLC vs 000B0000 for Title Updates).
+func collectDigitalContentPackages(extDir string) []digitalContentPackage {
+	var packages []digitalContentPackage
+	_ = filepath.Walk(extDir, func(p string, i os.FileInfo, e error) error {
+		if e != nil || i == nil || i.IsDir() || i.Size() < 0x368 {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(p))
@@ -348,51 +365,144 @@ func (s *Service) ProcessDigitalWithErr(gameName, platform string) error {
 			return nil
 		}
 		tid, ct := helpers.ParseXboxHeader(p)
-		if tid != "" {
-			contentFile = p
-			titleID = tid
-			typeDir = fmt.Sprintf("%08X", ct)
-			return io.EOF
+		if tid == "" {
+			return nil
 		}
+		typeDir := fmt.Sprintf("%08X", ct)
+		if typeDir == "00000000" {
+			typeDir = "00000002"
+		}
+		packages = append(packages, digitalContentPackage{
+			path:    p,
+			titleID: tid,
+			typeDir: typeDir,
+			size:    i.Size(),
+		})
 		return nil
 	})
+	return packages
+}
 
-	if contentFile == "" {
-		return fmt.Errorf("No valid Xbox content found in archive")
+func (s *Service) ensureDigitalContentFitsLocal(xboxConn *models.XboxConnection, packages []digitalContentPackage) error {
+	if len(packages) <= 1 {
+		return nil
 	}
-	s.App.Logf("Digital: TitleID=%s Type=%s", titleID, typeDir)
-	finalName := filepath.Base(contentFile)
+	root := xboxConn.LocalRoot
+	if _, err := os.Stat(root); err != nil {
+		return nil
+	}
+	if xboxConn.LocalDeviceID != "" && !localDeviceMatches(root, xboxConn.LocalDeviceID) {
+		return nil
+	}
+	var pending int64
+	for _, pkg := range packages {
+		dst := filepath.Join(root, "Content", "0000000000000000", pkg.titleID, pkg.typeDir, filepath.Base(pkg.path))
+		if st, err := os.Stat(dst); err == nil && st.Mode().IsRegular() && st.Size() == pkg.size {
+			continue
+		}
+		pending += pkg.size
+	}
+	if pending == 0 {
+		return nil
+	}
+	if err := s.ensureFreeSpace(root, pending); err != nil {
+		return fmt.Errorf("%w: %v", ErrLocalDelivery, err)
+	}
+	return nil
+}
+
+// deliverDigitalContent installs every valid STFS container found under extDir
+// to the target (FTP, local device, or manual Ready package).
+func (s *Service) deliverDigitalContent(gameName, safeName, gameDir, extDir string, xboxConn *models.XboxConnection, logLabel, emptyErr string) error {
+	packages := collectDigitalContentPackages(extDir)
+	if len(packages) == 0 {
+		return fmt.Errorf("%s", emptyErr)
+	}
+	primaryTitleID := packages[0].titleID
+	if len(packages) == 1 {
+		s.App.Logf("%s: TitleID=%s Type=%s", logLabel, packages[0].titleID, packages[0].typeDir)
+	} else {
+		s.App.Logf("%s: %d pacotes STFS encontrados (TitleID principal=%s)", logLabel, len(packages), primaryTitleID)
+		for i, pkg := range packages {
+			s.App.Logf("%s [%d/%d]: %s -> TitleID=%s Type=%s", logLabel, i+1, len(packages), filepath.Base(pkg.path), pkg.titleID, pkg.typeDir)
+		}
+	}
 
 	if xboxConn != nil && xboxConn.Mode == "ftp" {
 		drive := strings.TrimSuffix(xboxConn.Drive, ":")
-		base := fmt.Sprintf("/%s/Content/0000000000000000/%s/%s", drive, titleID, typeDir)
 		fc, err := s.FTP.ConnectWithRetry(xboxConn.IP)
 		if err != nil {
 			return fmt.Errorf("FTP connect failed: %w", err)
 		}
 		defer s.FTP.QuitConn(fc)
-		ftp.MkdirAll(fc, base)
-		info, _ := os.Stat(contentFile)
+
+		var totalSize int64
+		for _, pkg := range packages {
+			totalSize += pkg.size
+		}
+		createdDirs := make(map[string]bool)
 		var xfer int64
-		if err := s.FTP.UploadFile(fc, contentFile, base+"/"+finalName, gameName, &xfer, info.Size(), 1, 1, time.Now(), new(float64)); err != nil {
-			return fmt.Errorf("FTP upload failed: %w", err)
+		var hwm float64
+		overallStart := time.Now()
+		for i, pkg := range packages {
+			base := fmt.Sprintf("/%s/Content/0000000000000000/%s/%s", drive, pkg.titleID, pkg.typeDir)
+			if !createdDirs[base] {
+				ftp.MkdirAll(fc, base)
+				createdDirs[base] = true
+			}
+			finalName := filepath.Base(pkg.path)
+			if err := s.FTP.UploadFile(fc, pkg.path, base+"/"+finalName, gameName, &xfer, totalSize, i+1, len(packages), overallStart, &hwm); err != nil {
+				return fmt.Errorf("FTP upload failed: %w", err)
+			}
 		}
 		os.RemoveAll(gameDir)
-		s.App.LogFTPComplete(gameName, titleID, xboxConn.IP)
+		s.App.LogFTPComplete(gameName, primaryTitleID, xboxConn.IP)
 	} else if xboxConn != nil && xboxConn.Mode == "local" {
-		if err := s.InstallContentFileLocal(contentFile, xboxConn.LocalRoot, gameName, titleID, typeDir); err != nil {
+		if err := s.ensureDigitalContentFitsLocal(xboxConn, packages); err != nil {
 			return fmt.Errorf("Gravação local: %w", err)
 		}
+		for i, pkg := range packages {
+			if s.App.IsGameJobCancelled(gameName) {
+				return app.ErrJobCancelled
+			}
+			if len(packages) > 1 {
+				s.App.LogStatus(gameName, "Processing", fmt.Sprintf("Gravando pacote %d/%d (%s)...", i+1, len(packages), filepath.Base(pkg.path)))
+			}
+			if err := s.InstallContentFileLocal(pkg.path, xboxConn.LocalRoot, gameName, pkg.titleID, pkg.typeDir); err != nil {
+				return fmt.Errorf("Gravação local: %w", err)
+			}
+		}
 		os.RemoveAll(gameDir)
-		s.App.LogLocalComplete(gameName, titleID, xboxConn.LocalRoot)
-	} else {
-		relPath := fmt.Sprintf("Content\\0000000000000000\\%s\\%s\\", titleID, typeDir)
-		if err := helpers.CopyFileBuffered(contentFile, filepath.Join(gameDir, finalName)); err != nil {
+		s.App.LogLocalComplete(gameName, primaryTitleID, xboxConn.LocalRoot)
+	} else if len(packages) == 1 {
+		pkg := packages[0]
+		finalName := filepath.Base(pkg.path)
+		relPath := fmt.Sprintf("Content\\0000000000000000\\%s\\%s\\", pkg.titleID, pkg.typeDir)
+		if err := helpers.CopyFileBuffered(pkg.path, filepath.Join(gameDir, finalName)); err != nil {
 			return fmt.Errorf("Copy failed: %w", err)
 		}
 		s.updateGameINI_Raw(gameDir, gameName, finalName, relPath, "")
 		s.App.LogStatus(gameName, "Ready", "Ready to Install")
+	} else {
+		stageDir := filepath.Join(s.App.TempDir, safeName+"_content_ready")
+		_ = os.RemoveAll(stageDir)
+		defer os.RemoveAll(stageDir)
+		for _, pkg := range packages {
+			dst := filepath.Join(stageDir, pkg.titleID, pkg.typeDir, filepath.Base(pkg.path))
+			if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+				return fmt.Errorf("Prepare content dir: %w", err)
+			}
+			if err := helpers.CopyFileBuffered(pkg.path, dst); err != nil {
+				return fmt.Errorf("Copy failed: %w", err)
+			}
+		}
+		partName := safeName + "_Part1.7z"
+		if err := utils.CreateZipFromDir(stageDir, filepath.Join(gameDir, partName)); err != nil {
+			return fmt.Errorf("Archive content: %w", err)
+		}
+		s.App.GamePartsMap.Store(gameName, []string{partName})
+		s.updateGameINI_Content(gameDir, gameName, primaryTitleID, partName, "Content\\0000000000000000\\")
+		s.App.LogStatus(gameName, "Ready", "Ready to Install")
 	}
-	s.App.Logf("=== Complete (Digital): %s ===", gameName)
 	return nil
 }

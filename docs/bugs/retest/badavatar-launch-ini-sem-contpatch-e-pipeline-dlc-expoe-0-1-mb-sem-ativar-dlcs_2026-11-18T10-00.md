@@ -61,21 +61,22 @@ Tres defeitos no fluxo de DLCs do `HEAD` (`v2.12.130`):
 
 - O erro paralelo do mesmo chamado `#393` com `pes 2018_2023 _ atualização patch onfire v4.2 março 2023.zip` (`[185160]`–`[185393]`) ja foi resolvido no commit `4444a1c` (`v2.12.130`), que bloqueou esse arquivo em `knownBadHuggingFaceFiles` e o removeu de `hf_xbox360.json`.
 
-## Resolução (vX.Y.Z)
+## Resolução (v2.12.131 / Unreleased)
 
-*(Pendente)*
-
-1. **`readyToPlayConfiguration.ts` (`generateReadyToPlayLaunchIni`):** incluir `contpatch = true`, `xblapatch = true` e `licpatch = true` em `[Settings]` (junto com bump obrigatorio de `READY_TO_PLAY_CONFIGURATION_VERSION` conforme invariante de `docs/agents/skills/bug-triage.md`, e atualizacao de `readyToPlayConfiguration.test.cjs` / `foreignConsoleStateMigration.test.cjs`).
-2. **`digital.go` / `minerva.go` (`ProcessDigitalWithErr`, `ProcessMinervaDigitalWithErr`):** coletar e instalar **todos** os containers STFS validos encontrados em `extDir` (nao parar no primeiro com `return io.EOF`), preservando a classificacao `typeDir` (`00000002` vs `000B0000`) por arquivo.
-3. **`localGameScannerService.ts` (`parseContentTitleFolder`):** nao listar pastas `Content/0000000000000000/<TID>/` que contenham apenas `00000002`/`000B0000` (DLC/TU) sem pacote jogavel (`00007000`/`000D0000`) como se fossem um jogo `GOD` independente na tela **Jogos Instalados** (ou agregar tamanho/indicador de DLC no jogo base correspondente).
+1. **`readyToPlayConfiguration.ts` (`generateReadyToPlayLaunchIni`):** adicionados `contpatch = true`, `xblapatch = true` e `licpatch = true` em `[Settings]` do `launch.ini`, com bump obrigatório de `READY_TO_PLAY_CONFIGURATION_VERSION` de `"5"` para `"6"`.
+2. **`digital.go` / `minerva.go` (`collectDigitalContentPackages`, `deliverDigitalContent`, `ProcessDigitalWithErr`, `ProcessMinervaDigitalWithErr`):** removida a interrupção prematura com `io.EOF` no primeiro STFS válido. Todo container STFS válido em `extDir` agora é coletado com seu próprio `TitleID` e `typeDir` (`00000002` para DLCs, `000B0000` para Title Updates, etc.) e instalado no destino (FTP com progresso agregado, dispositivo local com verificação prévia de espaço combinado em `ensureDigitalContentFitsLocal`, ou empacotado via `type=content` no modo manual quando há múltiplos arquivos).
+3. **`localGameScannerService.ts` (`parseContentTitleFolder`):** introduzido `PLAYABLE_CONTENT_TYPES` (`00007000`, `000D0000`, `00005000`, `00004000`, `00080000`, `00020000`) para que `scanContentDirectory` exija pelo menos uma subpasta de título jogável, impedindo que pastas apenas de DLC (`00000002`), Title Update (`000B0000`), saves (`00000001`) ou cookies (`00040000`) apareçam como card duplicado de jogo `"god"` (ex.: `0.1 MB`).
 
 ## Testes Automatizados
 
-*(Pendente — atualizar `src/electron-app/tests/unit/readyToPlayConfiguration.test.cjs`, adicionar teste unitario em `localGameScannerService.test.cjs` para pasta apenas-`00000002` e teste Go em `src/server/services/pipeline/` cobrindo arquivo `DLC` com multiplos containers STFS.)*
+- `src/electron-app/tests/unit/readyToPlayConfiguration.test.cjs`: atualizado para `v6` e adicionado teste garantindo `contpatch = true`, `xblapatch = true` e `licpatch = true` em `[Settings]`.
+- `src/electron-app/tests/unit/localGameScannerService.test.cjs`: ajustado o teste do marcador `.xbox-companion-installing` em `Content/` para incluir pasta `00007000` e adicionado teste comprovando que pastas apenas de `00000002` (DLC), `000B0000` (TU) e `00040000` não são listadas como jogos, preservando `000D0000` (XBLA).
+- `src/server/services/pipeline/digital_content_test.go`: adicionados testes cobrindo coleta multi-STFS (`00000002` + `000B0000`), entrega local completa via `extractArchiveResilient` + `deliverDigitalContent`, empacotamento manual (`type=raw` para 1 pacote vs `type=content` zipado para múltiplos) e checagem de espaço combinado antes da gravação.
 
 ## Critérios para fechar
 
-- [ ] `generateReadyToPlayLaunchIni` inclui `contpatch = true`, `xblapatch = true` e `licpatch = true` com bump de `READY_TO_PLAY_CONFIGURATION_VERSION`
-- [ ] `ProcessDigitalWithErr` e `ProcessMinervaDigitalWithErr` instalam todos os arquivos STFS validos do pacote (sem descartar apos o 1o)
-- [ ] `scanContentDirectory` nao cria card duplicado de jogo `"god"` para pastas apenas de DLC/TU (`00000002` / `000B0000`)
-- [ ] `npm run test:safety --prefix src/electron-app` e `go -C src/server test ./...` aprovados + validacao em console real com DLC `LIVE`/`PIRS`
+- [x] `generateReadyToPlayLaunchIni` inclui `contpatch = true`, `xblapatch = true` e `licpatch = true` com bump de `READY_TO_PLAY_CONFIGURATION_VERSION` (`"6"`)
+- [x] `ProcessDigitalWithErr` e `ProcessMinervaDigitalWithErr` instalam todos os arquivos STFS validos do pacote (sem descartar apos o 1o)
+- [x] `scanContentDirectory` nao cria card duplicado de jogo `"god"` para pastas apenas de DLC/TU (`00000002` / `000B0000`)
+- [x] `npm run test:safety --prefix src/electron-app` e `go -C src/server test -count=1 ./...` aprovados
+- [ ] Validação em console real com DLC `LIVE`/`PIRS` (movido para `docs/bugs/retest/`)
