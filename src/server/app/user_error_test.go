@@ -57,6 +57,12 @@ func TestFormatErrorForUserTranslatesTechnicalErrors(t *testing.T) {
 			forbidden: []string{"invalid memory"},
 		},
 		{
+			name:      "minerva zero seeders stall",
+			raw:       "Minerva torrent failed: Minerva sem fontes ativas (peers: 50, seeders: 0) por 45s: download estagnado sem dados, alternando para o próximo provedor",
+			wantMatch: "sem seeders ativos",
+			forbidden: []string{"Minerva torrent failed", "Download failed"},
+		},
+		{
 			name:      "preserves layman Portuguese message",
 			raw:       "Não há espaço no disco do PC (C:) para extrair o jogo: são necessários 7.00 GB e há 2.00 GB livres. Libere espaço e tente novamente; o download já concluído é reaproveitado.",
 			wantMatch: "Libere espaço",

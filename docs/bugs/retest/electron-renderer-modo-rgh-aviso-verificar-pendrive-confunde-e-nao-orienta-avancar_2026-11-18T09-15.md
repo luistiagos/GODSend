@@ -48,19 +48,20 @@ Confirmada nos simbolos abertos:
 - **Nao** reverter a protecao de `badavatar-usb-service-declara-ja-preparado-sem-conferir-o-perfil-do-exploit_2026-09-23T14-08`: um console Bloqueado/LT conectado com pendrive preparado apenas para RGH continua nao podendo pular automaticamente na primeira vez sem que o usuario tenha declarado console RGH.
 - As pastas vazias (`0 bytes`) no 2o pendrive do chamado `#286` (e os erros posteriores na Aurora) sao problema separado do dispositivo USB do cliente, nao deste fluxo de UI.
 
-## Resolução (vX.Y.Z)
+## Resolução (v2.12.131 / Unreleased)
 
-*(Pendente)*
-
-1. **`preparedDeviceCopy.ts` (`PREPARED_DEVICE_NOTICE["preparado-rgh"]`):** manter o alerta para Bloqueado/LT e explicitar claramente a acao para RGH: *"Pendrive preparado para console RGH detectado. Se o seu Xbox é RGH, selecione “Xbox Desbloqueado RGH” acima e clique em “Avançar” para ir aos jogos. Se o seu Xbox é travado ou LT, prepare de novo escolhendo “Xbox Bloqueado ou LT”."* (conferir compatibilidade com `preparedDeviceCopy.test.cjs` — a regra de nunca afirmar que existe desbloqueio BadAvatar continua intacta).
-2. **Opcional/recomendado em `HomePage.tsx`:** lembrar a escolha explícita `selectedUnlockMode === true` (ou ao confirmar `Avançar` com `RGH`), ou destacar o botao `Xbox Desbloqueado RGH` quando `preparedDeviceState === "preparado-rgh"` e `manual = true`, evitando que usuarios RGH precisem redescobrir o fluxo a cada abertura sem expor consoles travados/LT no primeiro uso.
+1. **`preparedDeviceCopy.ts` (`PREPARED_DEVICE_NOTICE["preparado-rgh"]`):** atualizado para orientar explicitamente usuários RGH (*"Pendrive preparado para console RGH detectado. Se o seu Xbox é RGH, selecione “Xbox Desbloqueado RGH” acima e clique em “Avançar” para ir aos jogos."*) mantendo o aviso de ausência do perfil do exploit e instrução de repreparo para Xbox travado ou LT (*"Se o seu Xbox é travado ou LT, ele não tem o perfil do exploit (ABadAvatar) — prepare de novo escolhendo “Xbox Bloqueado ou LT”."*).
+2. **`preparedUsbDetection.ts`, `HomePage.tsx` e `BadAvatarUsbPage.tsx`:** adicionados `readPersistedRghDeclaration` / `writePersistedRghDeclaration` (`godsend.declaredRghConsole` em `localStorage`) e parâmetro opcional `declaredRghConsole` em `nextStepAfterPreparedUsbScan`. A confirmação explícita em **"Avançar"** grava `true` para RGH (e limpa ao confirmar **"Xbox Bloqueado ou LT"**). Na reabertura ou retorno à Home com pendrive `preparado-rgh` conectado, quem já declarou RGH vai direto para `prepared-detected`; quem nunca declarou (incluindo consoles travados/LT no primeiro uso) continua caindo em `unlock` sem pular a verificação. Em `HomePage.tsx`, `detectedGamesCount` também é atualizado via `useEffect` ao entrar em `prepared-detected` e o botão **"Voltar"** da tela `unlock` limpa `preparedDetectionDismissed`.
 
 ## Testes Automatizados
 
-*(Pendente — atualizar/estender `src/electron-app/tests/unit/preparedDeviceCopy.test.cjs` e `preparedUsbDetection.test.cjs` garantindo a regra negativa para Bloqueado/LT e a orientacao explicita para RGH no texto de `PREPARED_DEVICE_NOTICE["preparado-rgh"]`.)*
+- `src/electron-app/tests/unit/preparedDeviceCopy.test.cjs`: verifica a presença das orientações para RGH (`Xbox Desbloqueado RGH`, `Avançar`), o aviso de ausência do perfil do exploit (`não tem o perfil do exploit`) e a instrução para travado/LT (`Xbox Bloqueado ou LT`), preservando a regra negativa de não afirmar desbloqueio BadAvatar.
+- `src/electron-app/tests/unit/preparedUsbDetection.test.cjs`: cobre `nextStepAfterPreparedUsbScan` com `declaredRghConsole` (`true`, `false`, `detectionDismissed`, e bloqueio para `jogos-apenas`) e `readPersistedRghDeclaration` / `writePersistedRghDeclaration` (incluindo armazenamento ausente ou com erro).
+- `npm run test:safety --prefix src/electron-app` (TypeScript main + renderer + suíte unitária completa).
 
 ## Critérios para fechar
 
-- [ ] Texto de `PREPARED_DEVICE_NOTICE["preparado-rgh"]` atualizado orientando o usuario RGH a selecionar `Xbox Desbloqueado RGH` e clicar em `Avançar`, mantendo o alerta para Bloqueado/LT
-- [ ] UX de reabertura para RGH declarada avaliada/ajustada sem quebrar a protecao contra skip indevido em Bloqueado/LT
-- [ ] `npm run test:safety --prefix src/electron-app` aprovado
+- [x] Texto de `PREPARED_DEVICE_NOTICE["preparado-rgh"]` atualizado orientando o usuario RGH a selecionar `Xbox Desbloqueado RGH` e clicar em `Avançar`, mantendo o alerta para Bloqueado/LT
+- [x] UX de reabertura para RGH declarada avaliada/ajustada sem quebrar a protecao contra skip indevido em Bloqueado/LT
+- [x] `npm run test:safety --prefix src/electron-app` aprovado
+- [ ] Validação em campo / versão publicada (movido para `docs/bugs/retest/`)

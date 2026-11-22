@@ -46,18 +46,19 @@ test("hook carregado pelo Aurora identifica o pendrive e registra os caminhos de
     AURORA_READY_TO_PLAY_FILTER_PATH,
     "Aurora/User/Scripts/Content/Filters/XboxCompanionReady.lua",
   );
-  assert.equal(READY_TO_PLAY_MARKER_PATH, ".xbox-downloader/ready-to-play-v6.marker");
-  assert.equal(generateReadyToPlayMarker(), "xbox-companion-ready-to-play-v6\r\n");
+  assert.equal(READY_TO_PLAY_MARKER_PATH, ".xbox-downloader/ready-to-play-v7.marker");
+  assert.equal(generateReadyToPlayMarker(), "xbox-companion-ready-to-play-v7\r\n");
   assert.match(lua, /FileSystem\.GetDrives\(false\)/);
   assert.match(lua, /string\.sub\(mountPoint, 1, 5\) == "game:"/);
   assert.match(lua, /normalizedSerial/);
-  assert.match(lua, /ready-to-play-v6\.marker/);
+  assert.match(lua, /ready-to-play-v7\.marker/);
   assert.match(lua, /Aurora\\\\default\.xex/);
-  assert.match(lua, /path = "\\\\games", depth = 6/);
-  assert.match(lua, /path = "\\\\Content\\\\0000000000000000", depth = 5/);
+  assert.match(lua, /path = "\\\\games", depth = 3/);
+  assert.match(lua, /path = "\\\\Content\\\\0000000000000000", depth = 2/);
   assert.match(lua, /SELECT id, path, deviceid, depth FROM scanpaths/);
   assert.match(lua, /INSERT INTO scanpaths/);
   assert.match(lua, /UPDATE scanpaths SET depth=/);
+  assert.match(lua, /Name = 'ScanAutoStart'/);
   assert.match(lua, /Aurora\.Restart\(\)/);
   assert.doesNotMatch(lua, /Content\.StartScan\(\)/);
   assert.doesNotMatch(lua, /Usb[0-9]:/);
@@ -76,10 +77,10 @@ test("cadastro reconhece o mesmo dispositivo quando o serial vem prefixado por _
 test("marcas gravadas pelo console seguem a versao da configuracao", () => {
   const lua = generateAuroraReadyToPlayFilterLua();
 
-  assert.equal(READY_TO_PLAY_RESTART_GUARD_PATH, ".xbox-downloader/ready-to-play-v6.restart");
-  assert.equal(READY_TO_PLAY_TU_SCAN_ATTEMPT_PATH, ".xbox-downloader/ready-to-play-v6.tuscan");
-  assert.match(lua, /local RESTART_GUARD_PATH = "\.xbox-downloader\\\\ready-to-play-v6\.restart"/);
-  assert.match(lua, /local TU_SCAN_ATTEMPT_PATH = "\.xbox-downloader\\\\ready-to-play-v6\.tuscan"/);
+  assert.equal(READY_TO_PLAY_RESTART_GUARD_PATH, ".xbox-downloader/ready-to-play-v7.restart");
+  assert.equal(READY_TO_PLAY_TU_SCAN_ATTEMPT_PATH, ".xbox-downloader/ready-to-play-v7.tuscan");
+  assert.match(lua, /local RESTART_GUARD_PATH = "\.xbox-downloader\\\\ready-to-play-v7\.restart"/);
+  assert.match(lua, /local TU_SCAN_ATTEMPT_PATH = "\.xbox-downloader\\\\ready-to-play-v7\.tuscan"/);
   assert.doesNotMatch(lua, /TUScanAutoStart/);
 });
 
@@ -112,7 +113,7 @@ async function createConsole(extraFiles = []) {
   const db = new SQL.Database();
   db.run("CREATE TABLE ScanPaths (Id INTEGER PRIMARY KEY AUTOINCREMENT, Path TEXT, DeviceId TEXT, Depth INTEGER, ScriptData TEXT, OptionsFlag INTEGER)");
   db.run("ATTACH ':memory:' AS Config");
-  db.run("CREATE TABLE Config.SystemSettings (Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT, Value TEXT, UNIQUE(Name))");
+  db.run("CREATE TABLE Config.SystemSettings (Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT COLLATE NOCASE, Value TEXT COLLATE NOCASE, UNIQUE(Name))");
   return {
     db,
     files: new Set([onDevice("Aurora/default.xex"), onDevice(READY_TO_PLAY_MARKER_PATH), ...extraFiles]),
@@ -127,9 +128,19 @@ function tuScanAtBoot(console) {
   return rows.length === 0 ? null : rows[0].values[0][0];
 }
 
+function scanAutoStart(console) {
+  const rows = console.db.exec("SELECT Value FROM SystemSettings WHERE Name = 'ScanAutoStart'");
+  return rows.length === 0 ? null : rows[0].values[0][0];
+}
+
 /** O que a propria Aurora faz: fim da varredura grava 0; "Procurar agora" grava 1. */
 function setTuScanAtBoot(console, value) {
   console.db.run("INSERT OR REPLACE INTO SystemSettings (Name, Value) VALUES ('TUScanAtBoot', ?)", [value]);
+}
+
+/** O que o usuario faz ao clicar na caixa AutoScan de Manage Paths. */
+function setScanAutoStart(console, value) {
+  console.db.run("INSERT OR REPLACE INTO SystemSettings (Name, Value) VALUES ('ScanAutoStart', ?)", [value]);
 }
 
 function pushValue(L, value) {
@@ -343,4 +354,98 @@ test("falhas de Sql ou de escrita devolvem o comportamento de hoje, sem reinicio
   readOnly.writable = false;
   for (let i = 0; i < 4; i++) assert.equal(boot(readOnly).restarted, false);
   assert.equal(tuScanAtBoot(readOnly), null);
+});
+
+test("pendrive novo: grava profundidades 3 e 2 e nao cria linha desnecessaria de ScanAutoStart", async () => {
+  const console = await createConsole();
+
+  const first = boot(console);
+  assert.equal(first.restarts, 1);
+  assert.deepEqual(
+    console.db.exec("SELECT Path, Depth FROM ScanPaths ORDER BY Id ASC")[0].values,
+    [
+      ["\\games", 3],
+      ["\\Content\\0000000000000000", 2],
+    ],
+  );
+  // Sem linha vale o padrao do Aurora ("1"); o hook nao mexe em bancos virgens.
+  assert.equal(scanAutoStart(console), null);
+  assert.equal(boot(console).restarted, false);
+  assert.equal(scanAutoStart(console), null);
+});
+
+test("ScanAutoStart desmarcado (0) e reativado para 1 com reinicio unico e protegido contra laco", async () => {
+  const console = await createConsole();
+  boot(console);
+  boot(console);
+  setTuScanAtBoot(console, "0");
+
+  // Usuario desmarcou AutoScan em Manage Paths.
+  setScanAutoStart(console, "0");
+  const idBefore = console.db.exec("SELECT Id FROM SystemSettings WHERE Name = 'ScanAutoStart'")[0].values[0][0];
+  const repaired = boot(console);
+  assert.equal(repaired.restarts, 1);
+  assert.equal(scanAutoStart(console), "1");
+  // UPDATE preserva o Id da linha existente, igual ao UpdateSystemSetting da propria Aurora.
+  assert.equal(console.db.exec("SELECT Id FROM SystemSettings WHERE Name = 'ScanAutoStart'")[0].values[0][0], idBefore);
+  assert.ok(console.files.has(GUARD));
+  assert.ok(repaired.logs.some((line) => line.includes("ScanAutoStart reativado para 1")));
+  assert.ok(repaired.logs.some((line) => line.includes("AutoScan reativado; reiniciando Aurora.")));
+
+  // Boot seguinte: ja esta em 1, apaga a marca e nao reinicia.
+  const steady = boot(console);
+  assert.equal(steady.restarted, false);
+  assert.ok(!console.files.has(GUARD));
+
+  // Se o 1 nao persistir (banco volta a 0), a marca segura o laco apos um unico reinicio.
+  setScanAutoStart(console, "0");
+  assert.equal(boot(console).restarts, 1);
+  for (let i = 0; i < 3; i++) {
+    setScanAutoStart(console, "0");
+    const blocked = boot(console);
+    assert.equal(blocked.restarted, false);
+    assert.ok(blocked.logs.some((line) => line.includes("AutoScan reativado sem reiniciar")));
+  }
+});
+
+test("atualiza profundidades legadas (6 e 5) para 3 e 2 com reinicio unico", async () => {
+  const console = await createConsole();
+  console.db.run(
+    "INSERT INTO ScanPaths (Path, DeviceId, Depth, ScriptData) VALUES ('\\games', ?, 6, ''), ('\\Content\\0000000000000000', ?, 5, '')",
+    [SERIAL, SERIAL],
+  );
+  setTuScanAtBoot(console, "0");
+
+  const upgraded = boot(console);
+  assert.equal(upgraded.restarts, 1);
+  assert.deepEqual(
+    console.db.exec("SELECT Path, Depth FROM ScanPaths ORDER BY Id ASC")[0].values,
+    [
+      ["\\games", 3],
+      ["\\Content\\0000000000000000", 2],
+    ],
+  );
+  assert.equal(boot(console).restarted, false);
+});
+
+test("falhas ao ler ou gravar ScanAutoStart nao geram erro nem reinicio", async () => {
+  const fetchFails = await createConsole();
+  boot(fetchFails);
+  boot(fetchFails);
+  setTuScanAtBoot(fetchFails, "0");
+  fetchFails.failFetch = (query) => query.includes("ScanAutoStart");
+  const r1 = boot(fetchFails);
+  assert.equal(r1.restarted, false);
+  assert.ok(r1.logs.some((line) => line.includes("ScanAutoStart ilegivel")));
+
+  const execFails = await createConsole();
+  boot(execFails);
+  boot(execFails);
+  setTuScanAtBoot(execFails, "0");
+  setScanAutoStart(execFails, "0");
+  execFails.failExecute = (query) => query.includes("ScanAutoStart");
+  const r2 = boot(execFails);
+  assert.equal(r2.restarted, false);
+  assert.equal(scanAutoStart(execFails), "0");
+  assert.ok(r2.logs.some((line) => line.includes("falha ao reativar ScanAutoStart")));
 });

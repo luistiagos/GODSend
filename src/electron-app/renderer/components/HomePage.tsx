@@ -10,7 +10,9 @@ import MainNav from "./MainNav";
 import {
   canSkipPreparation,
   nextStepAfterPreparedUsbScan,
+  readPersistedRghDeclaration,
   readPreparedUsbDetection,
+  writePersistedRghDeclaration,
   type PreparedDeviceState,
   type PreparedUsbWizardStep,
 } from "../../services/preparedUsbDetection.ts";
@@ -83,6 +85,8 @@ export default function HomePage({
   const preparedDetectionDismissed = useRef(false);
   const preparedDetectionMounted = useRef(false);
   const [selectedUnlockMode, setSelectedUnlockMode] = useState<boolean | null>(null);
+  const selectedUnlockModeRef = useRef<boolean | null>(null);
+  selectedUnlockModeRef.current = selectedUnlockMode;
   const [scanState, setScanState] = useState<"idle" | "checking" | "scanning" | "connecting" | "success" | "not-found" | "error">("idle");
   const [xboxIp, setXboxIp] = useState("");
   const [manualIp, setManualIp] = useState("");
@@ -129,19 +133,18 @@ export default function HomePage({
         return;
       }
 
+      const declaredRgh = selectedUnlockModeRef.current === false
+        ? false
+        : readPersistedRghDeclaration();
       setPreparedDeviceState(detectedState);
       setWizardStep((current) => nextStepAfterPreparedUsbScan(
         current,
         detectedState,
         preparedDetectionDismissed.current,
+        declaredRgh,
       ));
-      if (canSkipPreparation(detectedState)) {
+      if (canSkipPreparation(detectedState, declaredRgh)) {
         setPreparedCheckNotice("");
-        window.godsendApi.browseGetInstalledGames().then((r: any) => {
-          if (r?.ok && Array.isArray(r.games)) {
-            setDetectedGamesCount(r.games.length);
-          }
-        }).catch(() => {});
       } else if (manual) {
         setPreparedCheckNotice(PREPARED_DEVICE_NOTICE[detectedState]);
       }
@@ -168,6 +171,15 @@ export default function HomePage({
       window.clearInterval(timer);
     };
   }, [simpleMode, checkPreparedDevice]);
+
+  useEffect(() => {
+    if (!simpleMode || wizardStep !== "prepared-detected") return;
+    window.godsendApi.browseGetInstalledGames().then((r: any) => {
+      if (r?.ok && Array.isArray(r.games)) {
+        setDetectedGamesCount(r.games.length);
+      }
+    }).catch(() => {});
+  }, [simpleMode, wizardStep]);
 
   // Auto-scan when switching to network mode
   useEffect(() => {
@@ -531,12 +543,18 @@ export default function HomePage({
           <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
             <div className="animate-fade-in flex flex-col gap-4">
               <header className="mb-5 text-center relative">
-                {canSkipPreparation(preparedDeviceState, selectedUnlockMode) && (
+                {canSkipPreparation(
+                  preparedDeviceState,
+                  selectedUnlockMode === false ? false : (selectedUnlockMode === true || readPersistedRghDeclaration()),
+                ) && (
                   <Button
                     variant="ghost"
                     size="sm"
                     className="absolute left-0 top-1 text-muted-foreground hover:text-foreground text-[12px] flex items-center gap-1.5 p-0"
-                    onClick={() => setWizardStep("prepared-detected")}
+                    onClick={() => {
+                      preparedDetectionDismissed.current = false;
+                      setWizardStep("prepared-detected");
+                    }}
                   >
                     <ArrowLeft className="h-3.5 w-3.5" />
                     Voltar
@@ -601,13 +619,19 @@ export default function HomePage({
                   variant="primary"
                   className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
                   // Quem declara RGH e tem um pendrive preparado em RGH ganha aqui o caminho de
-                  // pular a preparação. É no clique dele, não na varredura de 5 s, que trocaria a
-                  // tela debaixo de quem acabou de escolher o modo do console.
-                  onClick={() => setWizardStep(
-                    canSkipPreparation(preparedDeviceState, selectedUnlockMode) && !preparedDetectionDismissed.current
-                      ? "prepared-detected"
-                      : "method",
-                  )}
+                  // pular a preparação (e a confirmação fica salva para as próximas aberturas). É
+                  // no clique dele, não na varredura de 5 s, que trocaria a tela debaixo de quem
+                  // acabou de escolher o modo do console.
+                  onClick={() => {
+                    if (selectedUnlockMode !== null) {
+                      writePersistedRghDeclaration(selectedUnlockMode);
+                    }
+                    setWizardStep(
+                      canSkipPreparation(preparedDeviceState, selectedUnlockMode) && !preparedDetectionDismissed.current
+                        ? "prepared-detected"
+                        : "method",
+                    );
+                  }}
                   disabled={selectedUnlockMode === null}
                 >
                   Avançar

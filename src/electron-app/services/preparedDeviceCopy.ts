@@ -15,7 +15,7 @@ import type { PreparedDeviceState } from "./preparedUsbDetection";
 export const PREPARED_DEVICE_NOTICE: Record<PreparedDeviceState, string> = {
   "sem-preparo": "Nenhum pendrive preparado foi encontrado. Aguarde o Windows mostrar a unidade e verifique novamente.",
   "jogos-apenas": "Encontramos jogos neste pendrive ou HD, mas ele ainda não foi preparado. Escolha o desbloqueio do seu console abaixo e prepare o dispositivo.",
-  "preparado-rgh": "Este pendrive tem a Aurora para console RGH, mas não tem o perfil do exploit (ABadAvatar). Se o seu Xbox é travado ou LT, prepare de novo escolhendo “Xbox Bloqueado ou LT”.",
+  "preparado-rgh": "Pendrive preparado para console RGH detectado. Se o seu Xbox é RGH, selecione “Xbox Desbloqueado RGH” acima e clique em “Avançar” para ir aos jogos. Se o seu Xbox é travado ou LT, ele não tem o perfil do exploit (ABadAvatar) — prepare de novo escolhendo “Xbox Bloqueado ou LT”.",
   "preparado-bloqueado-lt": "Este pendrive já tem o desbloqueio BadAvatar.",
 };
 

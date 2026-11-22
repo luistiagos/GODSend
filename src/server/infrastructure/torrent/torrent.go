@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -40,6 +41,11 @@ type Service struct {
 	aria2cResolvedPath string
 	minervaTorrentMu   sync.Mutex
 	minervaTorrents    map[string][]byte
+
+	// Test hooks (nil in production; zero-value defaults apply).
+	commandContextFn          func(ctx context.Context, name string, arg ...string) *exec.Cmd
+	lowSpeedGracePeriod       time.Duration
+	lowSpeedSustainedDuration time.Duration
 }
 
 // FetchMinervaTorrent downloads the collection .torrent file for the given platform from Minerva.
@@ -381,18 +387,24 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 
 	fileIndex := -1
 	var fileSize int64
+	var matchedTorrentBase string
 	for i, f := range info.UpvertedFiles() {
 		torrentBase := filepath.Base(filepath.Join(f.Path...))
 		if torrentBasenameMatches(torrentBase, entry.FileName) {
 			fileIndex = i + 1 // aria2c uses 1-based index
 			fileSize = f.Length
+			matchedTorrentBase = torrentBase
 			break
 		}
 	}
 	if fileIndex < 0 {
 		return "", fmt.Errorf("file %q not found in torrent", entry.FileName)
 	}
-	cachedFile := filepath.Join(destDir, filepath.Base(entry.FileName))
+	cachedName := matchedTorrentBase
+	if cachedName == "" {
+		cachedName = helpers.DecodeMinervaName(filepath.Base(entry.FileName))
+	}
+	cachedFile := filepath.Join(destDir, cachedName)
 	if st, statErr := os.Stat(cachedFile); statErr == nil && st.Mode().IsRegular() && st.Size() == fileSize {
 		s.App.Logf("TORRENT CACHE [%s]: reutilizando arquivo completo %s", gameName, cachedFile)
 		s.App.LogStatus(gameName, "Processing", "Torrent ja concluido. Reutilizando arquivo local...")
@@ -481,7 +493,14 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 	}
 	_ = torrentURL // URL was used to fetch; aria2c gets the temp file
 
-	cmd := exec.Command(aria2c, args...)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmdCtxFn := s.commandContextFn
+	if cmdCtxFn == nil {
+		cmdCtxFn = exec.CommandContext
+	}
+	cmd := cmdCtxFn(ctx, aria2c, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("aria2c pipe: %w", err)
@@ -492,15 +511,12 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		return "", fmt.Errorf("aria2c start: %w", err)
 	}
 
-	// aria2c summary lines look like:
-	//   [#abc123 195MiB/6504MiB(3%) CN:67 DL:9.9MiB ETA:31m]
-	summaryRe := regexp.MustCompile(`\[#\S+\s+([\d.]+\S+)/([\d.]+\S+)\((\d+)%\)[^\]]*DL:([\d.]+\S+)[^\]]*ETA:(\S+)\]`)
-
 	// Drain aria2c output in a goroutine so the pipe never fills and deadlocks cmd.Wait().
 	const tailMax = 50
 	var (
 		tailMu     sync.Mutex
 		tailBuf    []string
+		abortMu    sync.Mutex
 		abortError error
 	)
 	appendTail := func(line string) {
@@ -511,9 +527,86 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		}
 		tailBuf = append(tailBuf, line)
 	}
+	abortWith := func(err error) {
+		abortMu.Lock()
+		if abortError == nil {
+			abortError = err
+			cancel()
+		}
+		abortMu.Unlock()
+	}
 
 	startTime := time.Now()
+	var lastDataActivity atomic.Int64
+	lastDataActivity.Store(startTime.UnixNano())
+	var firstDataNano atomic.Int64
+	var completedBytesFlag atomic.Bool
+	var sawSummaryFlag atomic.Bool
+	var lastConnections atomic.Int64
+	var lastSeeders atomic.Int64
+
+	gracePeriod := s.lowSpeedGracePeriod
+	if gracePeriod <= 0 {
+		gracePeriod = app.LowSpeedGracePeriod
+	}
+	sustainedDuration := s.lowSpeedSustainedDuration
+	if sustainedDuration <= 0 {
+		sustainedDuration = app.LowSpeedSustainedDuration
+	}
+
+	// Independent watchdog catches both silent aria2c hangs and 0 B/s stalls
+	// even if aria2c stops emitting lines or user cancels while silent.
+	watchdogStop := make(chan struct{})
+	watchdogDone := make(chan struct{})
+	go func() {
+		defer close(watchdogDone)
+		tickInterval := 250 * time.Millisecond
+		if app.DownloadStallTimeout > 0 && app.DownloadStallTimeout < tickInterval {
+			tickInterval = app.DownloadStallTimeout / 4
+			if tickInterval < 10*time.Millisecond {
+				tickInterval = 10 * time.Millisecond
+			}
+		}
+		ticker := time.NewTicker(tickInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-watchdogStop:
+				return
+			case now := <-ticker.C:
+				if s.App.IsGameJobCancelled(gameName) {
+					abortWith(app.ErrJobCancelled)
+					return
+				}
+				if !completedBytesFlag.Load() && app.DownloadStallTimeout > 0 {
+					lastAct := time.Unix(0, lastDataActivity.Load())
+					if now.Sub(lastAct) > app.DownloadStallTimeout {
+						var stallErr error
+						if sawSummaryFlag.Load() {
+							cn := lastConnections.Load()
+							sd := lastSeeders.Load()
+							s.App.Logf("WARN [%s]: Minerva torrent estagnado (peers: %d, seeders: %d, nenhum dado recebido por %s) — abortando",
+								gameName, cn, sd, app.DownloadStallTimeout)
+							stallErr = fmt.Errorf("Minerva sem fontes ativas (peers: %d, seeders: %d) por %s: %w",
+								cn, sd, app.DownloadStallTimeout, app.ErrDownloadStalled)
+						} else {
+							s.App.Logf("WARN [%s]: Minerva torrent sem resposta (nenhum dado recebido por %s) — abortando",
+								gameName, app.DownloadStallTimeout)
+							stallErr = fmt.Errorf("Minerva torrent sem resposta por %s: %w",
+								app.DownloadStallTimeout, app.ErrDownloadStalled)
+						}
+						abortWith(stallErr)
+						return
+					}
+				}
+			}
+		}
+	}()
+
 	var lowSpeedStart time.Time
+	var baselineBytes int64 = -1
+	var lastStatusMsg string
+	var lastStatusLogTime time.Time
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
@@ -536,42 +629,58 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		})
 		for sc.Scan() {
 			if s.App.IsGameJobCancelled(gameName) {
-				tailMu.Lock()
-				abortError = app.ErrJobCancelled
-				tailMu.Unlock()
-				if cmd.Process != nil {
-					_ = cmd.Process.Kill()
-				}
+				abortWith(app.ErrJobCancelled)
 				return
 			}
 			line := strings.TrimRight(sc.Text(), " \t")
 			if line == "" {
 				continue
 			}
-			if m := summaryRe.FindStringSubmatch(line); m != nil {
-				pct, dl, eta := m[3], m[4], m[5]
-				msg := fmt.Sprintf("Torrenting (Minerva): %s%% @ %s/s ETA %s", pct, dl, eta)
-				s.App.Logf("TORRENT [%s]: %s", gameName, msg)
-				s.App.LogStatus(gameName, "Processing", msg)
-
+			if sum, ok := parseAria2cSummary(line); ok {
+				if sum.HasConnections {
+					lastConnections.Store(int64(sum.Connections))
+				}
+				if sum.HasSeeders {
+					lastSeeders.Store(int64(sum.Seeders))
+				}
+				sawSummaryFlag.Store(true)
+				if baselineBytes < 0 {
+					baselineBytes = sum.DownloadedBytes
+				}
 				now := time.Now()
-				speedBps := parseSpeedBytesPerSec(dl)
-				var pctVal int
-				fmt.Sscanf(pct, "%d", &pctVal)
+				grew := sum.DownloadedBytes > baselineBytes
+				if grew {
+					baselineBytes = sum.DownloadedBytes
+				}
+				if sum.DLBytesPerSec > 0 || grew {
+					lastDataActivity.Store(now.UnixNano())
+					firstDataNano.CompareAndSwap(0, now.UnixNano())
+				}
+				if sum.Pct >= 100 {
+					completedBytesFlag.Store(true)
+				}
+
+				msg := formatAria2cStatus(sum)
+				if msg != lastStatusMsg {
+					lastStatusMsg = msg
+					lastStatusLogTime = now
+					s.App.Logf("TORRENT [%s]: %s", gameName, msg)
+					s.App.LogStatus(gameName, "Processing", msg)
+				} else if now.Sub(lastStatusLogTime) >= 15*time.Second {
+					lastStatusLogTime = now
+					s.App.Logf("TORRENT [%s]: %s", gameName, msg)
+				}
+
 				threshold := s.App.MinDownloadSpeedThreshold
-				if threshold > 0 && !s.App.IsSpeedCheckBypassed(gameName) && now.Sub(startTime) > app.LowSpeedGracePeriod && pctVal < 95 {
-					if speedBps < float64(threshold) {
+				firstNano := firstDataNano.Load()
+				if threshold > 0 && !s.App.IsSpeedCheckBypassed(gameName) && firstNano > 0 && now.Sub(time.Unix(0, firstNano)) > gracePeriod && sum.Pct < 95 {
+					if sum.DLBytesPerSec < float64(threshold) {
 						if lowSpeedStart.IsZero() {
 							lowSpeedStart = now
-						} else if now.Sub(lowSpeedStart) >= app.LowSpeedSustainedDuration {
+						} else if now.Sub(lowSpeedStart) >= sustainedDuration {
 							s.App.Logf("WARN [%s]: Minerva torrent speed sustained below threshold (%s/s < %.2f MB/s) — aborting for provider switch",
-								gameName, dl, float64(threshold)/1048576)
-							tailMu.Lock()
-							abortError = app.ErrDownloadTooSlow
-							tailMu.Unlock()
-							if cmd.Process != nil {
-								cmd.Process.Kill()
-							}
+								gameName, sum.DLStr, float64(threshold)/1048576)
+							abortWith(app.ErrDownloadTooSlow)
 							return
 						}
 					} else {
@@ -590,12 +699,14 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 		}
 	}()
 
+	<-doneCh // drain pipe before cmd.Wait closes it
+	close(watchdogStop)
+	<-watchdogDone
 	waitErr := cmd.Wait()
-	<-doneCh // ensure pipe is fully drained before proceeding
 
-	tailMu.Lock()
+	abortMu.Lock()
 	aborted := abortError
-	tailMu.Unlock()
+	abortMu.Unlock()
 	if aborted != nil {
 		if errors.Is(aborted, app.ErrJobCancelled) {
 			_ = os.RemoveAll(aria2cDir)
@@ -616,10 +727,11 @@ func (s *Service) DownloadViaTorrent(platform, destDir, gameName string, entry m
 	// Walk the short temp dir to find the downloaded file.
 	var foundPath string
 	_ = filepath.Walk(aria2cDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil || info.IsDir() || strings.HasSuffix(strings.ToLower(info.Name()), ".aria2") {
 			return nil
 		}
-		if strings.EqualFold(filepath.Base(path), entry.FileName) {
+		base := filepath.Base(path)
+		if (matchedTorrentBase != "" && strings.EqualFold(base, matchedTorrentBase)) || torrentBasenameMatches(base, entry.FileName) {
 			foundPath = path
 			return filepath.SkipAll
 		}
@@ -673,15 +785,98 @@ func isCrossDeviceRenameErr(err error) bool {
 		strings.Contains(msg, "exdev")
 }
 
-func parseSpeedBytesPerSec(dlStr string) float64 {
-	dlStr = strings.TrimSpace(strings.ToUpper(dlStr))
+var (
+	aria2cSummaryCoreRe = regexp.MustCompile(`\[#\S+\s+([\d.]+\S+)/([\d.]+\S+)\((\d+)%\)([^\]]*)\]`)
+	aria2cCNRe          = regexp.MustCompile(`\bCN:(\d+)`)
+	aria2cSDRe          = regexp.MustCompile(`\bSD:(\d+)`)
+	aria2cDLRe          = regexp.MustCompile(`\bDL:([\d.]+\S+)`)
+	aria2cETARe         = regexp.MustCompile(`\bETA:(\S+)`)
+)
+
+type aria2cSummary struct {
+	DownloadedStr   string
+	TotalStr        string
+	DownloadedBytes int64
+	TotalBytes      int64
+	Pct             int
+	Connections     int
+	HasConnections  bool
+	Seeders         int
+	HasSeeders      bool
+	DLStr           string
+	DLBytesPerSec   float64
+	ETA             string
+}
+
+// parseAria2cSummary parses both active download lines (with ETA) and zero-speed /
+// peer-discovery lines (without ETA, e.g. `[#abc123 0B/5580MiB(0%) CN:0 SD:0 DL:0B]`).
+func parseAria2cSummary(line string) (aria2cSummary, bool) {
+	m := aria2cSummaryCoreRe.FindStringSubmatch(line)
+	if m == nil {
+		return aria2cSummary{}, false
+	}
+	pct, err := strconv.Atoi(m[3])
+	if err != nil {
+		return aria2cSummary{}, false
+	}
+	rest := m[4]
+	sum := aria2cSummary{
+		DownloadedStr:   m[1],
+		TotalStr:        m[2],
+		DownloadedBytes: int64(parseHumanBytes(m[1])),
+		TotalBytes:      int64(parseHumanBytes(m[2])),
+		Pct:             pct,
+		DLStr:           "0B",
+	}
+	matchedField := false
+	if cm := aria2cCNRe.FindStringSubmatch(rest); cm != nil {
+		sum.Connections, _ = strconv.Atoi(cm[1])
+		sum.HasConnections = true
+		matchedField = true
+	}
+	if sm := aria2cSDRe.FindStringSubmatch(rest); sm != nil {
+		sum.Seeders, _ = strconv.Atoi(sm[1])
+		sum.HasSeeders = true
+		matchedField = true
+	}
+	if dm := aria2cDLRe.FindStringSubmatch(rest); dm != nil {
+		sum.DLStr = dm[1]
+		sum.DLBytesPerSec = parseSpeedBytesPerSec(dm[1])
+		matchedField = true
+	}
+	if em := aria2cETARe.FindStringSubmatch(rest); em != nil {
+		sum.ETA = em[1]
+		matchedField = true
+	}
+	return sum, matchedField
+}
+
+func formatAria2cStatus(sum aria2cSummary) string {
+	if sum.ETA != "" {
+		return fmt.Sprintf("Torrenting (Minerva): %d%% @ %s/s ETA %s", sum.Pct, sum.DLStr, sum.ETA)
+	}
+	if sum.HasConnections && sum.HasSeeders {
+		return fmt.Sprintf("Torrenting (Minerva): %d%% @ %s/s (peers: %d, seeders: %d — aguardando dados...)",
+			sum.Pct, sum.DLStr, sum.Connections, sum.Seeders)
+	}
+	if sum.HasConnections {
+		return fmt.Sprintf("Torrenting (Minerva): %d%% @ %s/s (peers: %d — aguardando dados...)",
+			sum.Pct, sum.DLStr, sum.Connections)
+	}
+	return fmt.Sprintf("Torrenting (Minerva): %d%% @ %s/s (aguardando peers...)", sum.Pct, sum.DLStr)
+}
+
+func parseHumanBytes(raw string) float64 {
+	raw = strings.TrimSpace(strings.ToUpper(raw))
 	var val float64
 	var unit string
-	_, err := fmt.Sscanf(dlStr, "%f%s", &val, &unit)
+	_, err := fmt.Sscanf(raw, "%f%s", &val, &unit)
 	if err != nil {
 		return 0
 	}
 	switch {
+	case strings.HasPrefix(unit, "TIB") || strings.HasPrefix(unit, "TB"):
+		return val * 1024 * 1024 * 1024 * 1024
 	case strings.HasPrefix(unit, "GIB") || strings.HasPrefix(unit, "GB"):
 		return val * 1024 * 1024 * 1024
 	case strings.HasPrefix(unit, "MIB") || strings.HasPrefix(unit, "MB"):
@@ -691,4 +886,8 @@ func parseSpeedBytesPerSec(dlStr string) float64 {
 	default:
 		return val
 	}
+}
+
+func parseSpeedBytesPerSec(dlStr string) float64 {
+	return parseHumanBytes(dlStr)
 }

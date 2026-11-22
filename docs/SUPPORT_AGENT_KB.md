@@ -267,6 +267,34 @@ Utilize as respostas prontas abaixo para enviar diretamente ao cliente quando el
 
 ---
 
+#### ❓ 8. "Baixei vários jogos (todos aparecem como 'Pronto' na Fila), mas só 1 jogo aparece no Xbox."
+
+> **⚠️ Atenção do atendente:** antes de mandar configurar pasta na Aurora, olhe no print do cliente
+> a barra superior do aplicativo: compare o número no botão **Fila** com o número no botão
+> **Jogos Instalados**.
+> - Se **Jogos Instalados** já mostra apenas **1** (enquanto a Fila mostra vários `Pronto`), o próprio
+>   PC não está encontrando os outros jogos gravados na unidade conectada — quase sempre por
+>   **pendrive/HD falsificado (capacidade adulterada)**, corrupção FAT32 (remoção sem ejetar) ou
+>   por os jogos terem ido para outra unidade desconectada.
+> - **Nunca** peça para clicar no botão de atualizar dentro da **Fila de tarefas** achando que isso
+>   regrava os arquivos: aquele botão só atualiza a lista na tela.
+> - Só parta para o passo da pergunta ❓ 3 (Scan Paths da Aurora) se **Jogos Instalados** no PC
+>   já mostrar todos os jogos e o Explorer confirmar as pastas completas em `Games\` / `Content\0000000000000000\`.
+>
+> **Resposta Pronta:**
+> *"Olhando a tela do seu aplicativo, dá para ver que até no computador a aba **Jogos Instalados** está mostrando menos jogos do que a fila (e aquele botão de atualizar na fila só atualiza a lista da tela, não regrava o pendrive).*
+>
+> *Normalmente isso acontece quando o pendrive/HD tem **capacidade falsa ou defeito** (o Windows aceita gravar, mas ao passar da memória real os jogos novos sobrescrevem os antigos e só sobra 1), quando o dispositivo é **removido sem ejetar**, ou quando parte dos jogos foi gravada em **outro pendrive/HD**.*
+>
+> **Como conferir agora com o pendrive/HD conectado no PC:**
+> 1. *Abra a aba **Jogos Instalados** lá em cima no aplicativo.*
+> 2. *Se aparecer algum aviso amarelo de erro no disco, clique em **Reparar Agora**.*
+> 3. *Clique em **Testar Capacidade** e aguarde terminar para confirmar se a capacidade do pendrive/HD é real ou falsificada. Me mande foto do resultado.*
+> 4. *Depois clique em **Abrir** (na mesma tela) e me mande foto do que aparece dentro das pastas **`Games`** e **`Content\0000000000000000`**.*
+> 5. *(Dica importante: sempre clique em **Ejetar** no aplicativo antes de tirar o pendrive/HD do computador!)"*
+
+---
+
 ## 📌 MÓDULO 6: Resumo de Decisão Rápida para o Atendente (Cheat Sheet)
 
 ```

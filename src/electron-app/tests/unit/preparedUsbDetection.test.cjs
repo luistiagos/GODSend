@@ -2,10 +2,13 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
+  DECLARED_RGH_STORAGE_KEY,
   canSkipPreparation,
   nextStepAfterPreparedUsbScan,
+  readPersistedRghDeclaration,
   readPreparedUsbDetection,
   strongestPreparedDeviceState,
+  writePersistedRghDeclaration,
 } = require("../../services/preparedUsbDetection.js");
 
 test("le o estado mais preparado entre os dispositivos enumerados", () => {
@@ -64,4 +67,58 @@ test("sem o perfil do exploit o assistente abre na pergunta do modo do console",
 test("escolha explicita de preparar outro dispositivo nao e interrompida", () => {
   assert.equal(nextStepAfterPreparedUsbScan("unlock", "preparado-bloqueado-lt", true), "unlock");
   assert.equal(nextStepAfterPreparedUsbScan("method", "preparado-bloqueado-lt", false), "method");
+});
+
+test("reabertura com declaracao RGH persistida leva direto a tela de pendrive preparado", () => {
+  assert.equal(
+    nextStepAfterPreparedUsbScan("checking-prepared", "preparado-rgh", false, true),
+    "prepared-detected",
+  );
+  assert.equal(
+    nextStepAfterPreparedUsbScan("unlock", "preparado-rgh", false, true),
+    "prepared-detected",
+  );
+  // Descartar para preparar outro pendrive continua respeitado mesmo com RGH declarado.
+  assert.equal(
+    nextStepAfterPreparedUsbScan("unlock", "preparado-rgh", true, true),
+    "unlock",
+  );
+  // Sem preparacao, declarar RGH nunca autoriza pular.
+  assert.equal(
+    nextStepAfterPreparedUsbScan("checking-prepared", "jogos-apenas", false, true),
+    "unlock",
+  );
+  // Sem declaracao RGH, pendrive RGH nunca pula automaticamente (protege Bloqueado/LT).
+  assert.equal(
+    nextStepAfterPreparedUsbScan("checking-prepared", "preparado-rgh", false, false),
+    "unlock",
+  );
+});
+
+test("leitura e gravacao da declaracao RGH persistida toleram armazenamento ausente ou com erro", () => {
+  const backing = new Map();
+  const storage = {
+    getItem: (key) => (backing.has(key) ? backing.get(key) : null),
+    setItem: (key, value) => backing.set(key, String(value)),
+    removeItem: (key) => backing.delete(key),
+  };
+
+  assert.equal(readPersistedRghDeclaration(storage), false);
+  writePersistedRghDeclaration(true, storage);
+  assert.equal(backing.get(DECLARED_RGH_STORAGE_KEY), "1");
+  assert.equal(readPersistedRghDeclaration(storage), true);
+
+  writePersistedRghDeclaration(false, storage);
+  assert.equal(backing.has(DECLARED_RGH_STORAGE_KEY), false);
+  assert.equal(readPersistedRghDeclaration(storage), false);
+
+  assert.equal(readPersistedRghDeclaration(null), false);
+  const brokenStorage = {
+    getItem() { throw new Error("SecurityError"); },
+    setItem() { throw new Error("SecurityError"); },
+    removeItem() { throw new Error("SecurityError"); },
+  };
+  assert.equal(readPersistedRghDeclaration(brokenStorage), false);
+  assert.doesNotThrow(() => writePersistedRghDeclaration(true, brokenStorage));
+  assert.doesNotThrow(() => writePersistedRghDeclaration(false, brokenStorage));
 });

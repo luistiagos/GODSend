@@ -419,7 +419,7 @@ export default function App() {
   } else if (page === "queue") {
     pageContent = <QueuePage />;
   } else if (page === "browse") {
-    pageContent = <BrowsePage simpleMode={simpleMode} />;
+    pageContent = <BrowsePage simpleMode={simpleMode} onNavigateQueue={navProps.onNavigateQueue} />;
   } else if (page === "iso2god") {
     pageContent = <ISO2GODPage />;
   } else if (page === "iso2xex") {

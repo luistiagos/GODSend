@@ -102,6 +102,9 @@ func FormatErrorForUser(raw string) string {
 	}
 
 	// 5. Network / Download / IA auth
+	if strings.Contains(lower, "minerva sem fontes ativas") {
+		return "Este jogo não tem fontes disponíveis no servidor Minerva no momento (sem seeders ativos). Tente escolher outra versão do jogo na lista ou tente novamente mais tarde."
+	}
 	if strings.Contains(lower, "401") || strings.Contains(lower, "403") || strings.Contains(lower, "unauthorized") {
 		return "O site onde o jogo está hospedado pediu login ou bloqueou o download agora. Entre com sua conta gratuita do Internet Archive em “Configurações” e tente novamente."
 	}

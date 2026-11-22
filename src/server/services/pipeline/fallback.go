@@ -49,8 +49,14 @@ func isDownloadTooSlowError(err error) bool {
 		return false
 	}
 	return errors.Is(err, app.ErrDownloadTooSlow) ||
-		errors.Is(err, app.ErrDownloadStalled) ||
-		strings.Contains(err.Error(), "muito lento") ||
+		strings.Contains(err.Error(), "muito lento")
+}
+
+func isDownloadStalledError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, app.ErrDownloadStalled) ||
 		strings.Contains(err.Error(), "estagnado") ||
 		strings.Contains(err.Error(), "stall")
 }
@@ -225,6 +231,8 @@ func (s *Service) ProcessGameWithFallback(gameName, platform string, providers [
 		}
 		if isDownloadTooSlowError(err) {
 			s.App.Logf("FALLBACK WARNING: %s cancelado por velocidade baixa para %s — alternando provedor", p, gameName)
+		} else if isDownloadStalledError(err) {
+			s.App.Logf("FALLBACK WARNING: %s estagnado sem dados para %s (%v) — alternando provedor", p, gameName, err)
 		} else {
 			s.App.Logf("FALLBACK ERROR: %s falhou para %s: %v — alternando provedor", p, gameName, err)
 		}

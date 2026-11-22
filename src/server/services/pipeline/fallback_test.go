@@ -48,4 +48,10 @@ func TestIsDownloadTooSlowErrorNilSafe(t *testing.T) {
 	if isDownloadTooSlowError(otherErr) {
 		t.Fatal("expected unrelated error to return false")
 	}
+	if isDownloadTooSlowError(app.ErrDownloadStalled) {
+		t.Fatal("expected ErrDownloadStalled not to be treated as retryable slow download")
+	}
+	if !isDownloadStalledError(app.ErrDownloadStalled) {
+		t.Fatal("expected ErrDownloadStalled to match isDownloadStalledError")
+	}
 }

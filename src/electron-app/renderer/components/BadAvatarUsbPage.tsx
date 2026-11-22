@@ -15,6 +15,8 @@ import { Checkbox } from "./ui/checkbox";
 import DriveRepairModal from "./DriveRepairModal";
 import {
   canSkipPreparation,
+  readPersistedRghDeclaration,
+  writePersistedRghDeclaration,
   type PreparedDeviceState,
 } from "../../services/preparedUsbDetection.ts";
 import {
@@ -190,10 +192,14 @@ export default function BadAvatarUsbPage({
     refreshDrives(false);
   }, [refreshDrives]);
 
+  const declaredRghOrPersisted = isRghOnly === false
+    ? false
+    : (isRghOnly === true || readPersistedRghDeclaration());
+
   // Initial step setup once drives are loaded
   useEffect(() => {
     if (hasLoadedOnce && step === null) {
-      const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, isRghOnly));
+      const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, declaredRghOrPersisted));
       if (startAtPreparation && initialIsRghOnly !== null) {
         setStep("preparation");
       } else if (hasPrepared) {
@@ -202,21 +208,21 @@ export default function BadAvatarUsbPage({
         setStep("unlock-selection");
       }
     }
-  }, [hasLoadedOnce, drives, step, startAtPreparation, initialIsRghOnly, isRghOnly]);
+  }, [hasLoadedOnce, drives, step, startAtPreparation, initialIsRghOnly, declaredRghOrPersisted]);
 
   // Redirect to unlock-selection if the prepared device is disconnected
   useEffect(() => {
     if (step === "detect" && hasLoadedOnce && !loading && drives.length > 0 &&
-        !drives.some((d) => canSkipPreparation(d.preparedState, isRghOnly))) {
+        !drives.some((d) => canSkipPreparation(d.preparedState, declaredRghOrPersisted))) {
       setStep("unlock-selection");
     }
-  }, [step, hasLoadedOnce, loading, drives, isRghOnly]);
+  }, [step, hasLoadedOnce, loading, drives, declaredRghOrPersisted]);
 
   // Propagate back action changes up to parent (for custom header alignment)
   useEffect(() => {
     if (!onBackActionChange) return;
 
-    const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, isRghOnly));
+    const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, declaredRghOrPersisted));
 
     if (step === "preparation") {
       onBackActionChange(() => onBackToPrevious || (() => setStep("unlock-selection")));
@@ -231,7 +237,7 @@ export default function BadAvatarUsbPage({
     return () => {
       onBackActionChange(null);
     };
-  }, [step, drives, onBackActionChange, onBackToPrevious, isRghOnly]);
+  }, [step, drives, onBackActionChange, onBackToPrevious, declaredRghOrPersisted]);
 
   useEffect(() => window.godsendApi.onBadAvatarPrepareProgress(
     (progress: { status?: string; percent?: number; detail?: string }) => {
@@ -245,8 +251,8 @@ export default function BadAvatarUsbPage({
     [drives, selectedDrive],
   );
   const skipEligibleState = useMemo(
-    () => drives.find((drive) => canSkipPreparation(drive.preparedState, isRghOnly))?.preparedState,
-    [drives, isRghOnly],
+    () => drives.find((drive) => canSkipPreparation(drive.preparedState, declaredRghOrPersisted))?.preparedState,
+    [drives, declaredRghOrPersisted],
   );
   const deviceAllowed = selectedDevice?.safety?.allowed === true;
   const hasStableVolumeIdentity = /^\\\\\?\\Volume\{[0-9a-f-]+\}\\?$/i.test(
@@ -403,7 +409,7 @@ export default function BadAvatarUsbPage({
 
   // Step 2: Unlock Selection Page
   if (step === "unlock-selection") {
-    const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, isRghOnly));
+    const hasPrepared = drives.some((d) => canSkipPreparation(d.preparedState, declaredRghOrPersisted));
 
     return (
       <main className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
@@ -479,7 +485,12 @@ export default function BadAvatarUsbPage({
             <Button
               variant="primary"
               className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
-              onClick={() => setStep("preparation")}
+              onClick={() => {
+                if (isRghOnly !== null) {
+                  writePersistedRghDeclaration(isRghOnly);
+                }
+                setStep("preparation");
+              }}
               disabled={isRghOnly === null}
             >
               Avançar

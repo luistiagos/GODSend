@@ -60,20 +60,26 @@ Confirmada no codigo:
 
 - Nao trata falhas de rede/API ao enfileirar (`queueFailureReason`), ja tratadas em `closed/electron-browse-queue-game-erro-desconhecido-sem-motivo_2026-09-05T12-00.md`.
 
-## Resolução (vX.Y.Z)
+## Resolução (v2.12.131 / Unreleased)
 
-*(Pendente)*
-
-1. Em `src/electron-app/renderer/components/BrowsePage.tsx` (L666-700):
-   - Substituir `` `Na fila! Status: ${result.status}` `` por mensagem clara em portugues (sem `"Status: triggered"` cru), ex.: `"Adicionado à fila! Acompanhe o download e a gravação na aba Fila até aparecer “Pronto” antes de desconectar o pendrive."` (analogamente para `isMultiDiscGame`).
-   - Substituir o rotulo `"Concluído"` do botao por `"Entendi"` / `"Fechar"` (e, opcionalmente, oferecer atalho direto para abrir a aba **Fila**).
+1. Criado o helper puro `buildQueueSuccessFeedback` em `src/electron-app/infrastructure/browseQueueFeedback.ts` para compor as mensagens de confirmação em português após enfileirar:
+   - Disco único: `"Adicionado à fila!"`
+   - Multidisco: `"Todos os N discos foram adicionados à fila!"`
+   - Orientação para destino USB (`local`): `"O download e a gravação começaram em segundo plano. Acompanhe na aba Fila até aparecer “Pronto” antes de desconectar o pendrive."`
+   - Orientação para destino FTP (`ftp`): `"O download e o envio para o console começaram em segundo plano. Acompanhe o progresso na aba Fila até aparecer “Pronto”."`
+   - Rótulos dos botões: `"Entendi"` (fechar modal) e `"Ir para a Fila"` (atalho direto para a aba **Fila**).
+2. Em `src/electron-app/renderer/components/BrowsePage.tsx` (`QueueDialog`) e `src/electron-app/renderer/App.tsx`:
+   - Removida a interpolação de `result.status` (`"triggered"`) e substituída pelo bloco `role="status"` com `queueSuccessFeedback.headline` e `queueSuccessFeedback.guidance`.
+   - Substituído o botão `"Concluído"` por `"Entendi"`, acompanhado do botão `"Ir para a Fila"` conectado a `navProps.onNavigateQueue`.
 
 ## Testes Automatizados
 
-*(Pendente — cobrir a renderizacao da mensagem amigavel de enfileiramento sem `"triggered"` nem `"Concluído"` em `src/electron-app/tests/unit/` ou teste de componente/E2E.)*
+- `src/electron-app/tests/unit/browseQueueFeedback.test.cjs`: valida as mensagens para disco único (USB), multidisco (USB) e FTP, garantindo ausência de `"triggered"`, `"Status:"` e `"Concluído"`, além de verificação estática de `BrowsePage.tsx`.
+- `src/electron-app/tests/electron/browse-queue-dialog-smoke.cjs`: monta a `BrowsePage` real em Chromium via Electron + Vite, simula enfileiramento com resposta `{"status": "triggered"}` nos fluxos disco único USB e multidisco FTP, confirma a exibição das mensagens e botões corretos e valida a navegação pelo botão `"Ir para a Fila"`.
 
 ## Critérios para fechar
 
-- [ ] Texto `"Na fila! Status: triggered"` substituido por orientacao clara em portugues sem termo tecnico cru
-- [ ] Botao `"Concluído"` substituido por rotulo que nao sugira fim do download/gravacao
-- [ ] `npm run test:safety --prefix src/electron-app` aprovado
+- [x] Texto `"Na fila! Status: triggered"` substituido por orientacao clara em portugues sem termo tecnico cru
+- [x] Botao `"Concluído"` substituido por rotulo que nao sugira fim do download/gravacao
+- [x] `npm run test:safety --prefix src/electron-app` aprovado (447/447 testes unitários + `tsc` + `renderer:typecheck`)
+- [ ] Validação em build publicado / usuário final (movido para `docs/bugs/retest/`)

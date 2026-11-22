@@ -66,17 +66,72 @@ export function canSkipPreparation(
   return state === "preparado-rgh" && declaredRghConsole === true;
 }
 
+export const DECLARED_RGH_STORAGE_KEY = "godsend.declaredRghConsole";
+
+interface StorageReader {
+  getItem(key: string): string | null;
+}
+
+interface StorageWriter {
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+function defaultStorage(): (StorageReader & StorageWriter) | null {
+  try {
+    if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
+      return (globalThis as { localStorage?: StorageReader & StorageWriter }).localStorage ?? null;
+    }
+  } catch {
+    // Restricted environments may throw on localStorage property access.
+  }
+  return null;
+}
+
 /**
- * A varredura automática só desvia o assistente com prova no dispositivo. O preparo RGH depende de
- * uma declaração do usuário, e a declaração é lida no clique dele — não numa varredura de 5 s, que
- * trocaria a tela debaixo de quem acabou de escolher o modo do console.
+ * Lê a declaração persistida de que o console do usuário é RGH. Só retorna `true` quando o
+ * usuário confirmou explicitamente "Xbox Desbloqueado RGH" no assistente — nunca por inferência
+ * de arquivos no pendrive.
+ */
+export function readPersistedRghDeclaration(
+  storage: StorageReader | null | undefined = defaultStorage(),
+): boolean {
+  try {
+    return storage?.getItem(DECLARED_RGH_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writePersistedRghDeclaration(
+  declaredRgh: boolean,
+  storage: StorageWriter | null | undefined = defaultStorage(),
+): void {
+  try {
+    if (!storage) return;
+    if (declaredRgh) {
+      storage.setItem(DECLARED_RGH_STORAGE_KEY, "1");
+    } else {
+      storage.removeItem(DECLARED_RGH_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage failures so navigation still works without localStorage.
+  }
+}
+
+/**
+ * A varredura automática só desvia o assistente com prova no dispositivo (`preparado-bloqueado-lt`)
+ * ou com a declaração explícita persistida de console RGH (`declaredRghConsole === true`). A
+ * seleção provisória de rádio na tela `unlock` não entra aqui, para a varredura de 5 s não trocar a
+ * tela debaixo de quem acabou de clicar antes de confirmar em "Avançar".
  */
 export function nextStepAfterPreparedUsbScan(
   current: PreparedUsbWizardStep,
   state: PreparedDeviceState,
   detectionDismissed: boolean,
+  declaredRghConsole: boolean | null = null,
 ): PreparedUsbWizardStep {
-  const canSkip = canSkipPreparation(state) && !detectionDismissed;
+  const canSkip = canSkipPreparation(state, declaredRghConsole) && !detectionDismissed;
   if (current === "checking-prepared") {
     return canSkip ? "prepared-detected" : "unlock";
   }

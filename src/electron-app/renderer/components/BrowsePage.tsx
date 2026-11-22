@@ -10,6 +10,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "../lib/utils";
 import { errorMessage } from "../../infrastructure/backendFailure.ts";
 import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
+import { buildQueueSuccessFeedback } from "../../infrastructure/browseQueueFeedback.ts";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,7 @@ interface QueueDialogProps {
   installedGames?: InstalledGame[];
   onClose: () => void;
   onQueue?: () => void;
+  onNavigateQueue?: () => void;
   simpleMode?: boolean;
   onXboxConfigured?: () => void;
   /** Whether the disc grouping for this catalog is in yet. */
@@ -273,6 +275,7 @@ function QueueDialog({
   localDrives,
   installedGames = [],
   onClose,
+  onNavigateQueue,
   simpleMode = true,
   onXboxConfigured,
   discInfoState,
@@ -408,6 +411,11 @@ function QueueDialog({
   }
 
   const queued = result?.ok;
+  const queueSuccessFeedback = buildQueueSuccessFeedback({
+    isMultiDisc: isMultiDiscGame,
+    discCount: discsToQueue.length,
+    destinationKind: selectedDest?.kind ?? destType,
+  });
 
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center p-4"
@@ -657,18 +665,19 @@ function QueueDialog({
 
         {/* Result message */}
         {result && (
-          <p className={cn(
-            "text-[11px] px-2 py-1.5 rounded-md text-center leading-snug break-words",
-            result.ok
-              ? "bg-green-500/10 text-green-400 border border-green-500/20"
-              : "bg-red-500/10 text-red-400 border border-red-500/20"
-          )}>
-            {result.ok
-              ? isMultiDiscGame
-                ? `Todos os ${discsToQueue.length} discos foram adicionados à fila com sucesso!`
-                : `Na fila! Status: ${result.status}`
-              : result.error}
-          </p>
+          result.ok ? (
+            <div
+              role="status"
+              className="text-[11px] px-2.5 py-2 rounded-md text-center leading-snug break-words bg-green-500/10 text-green-400 border border-green-500/20 flex flex-col gap-1"
+            >
+              <span className="font-semibold">{queueSuccessFeedback.headline}</span>
+              <span className="text-green-300/90">{queueSuccessFeedback.guidance}</span>
+            </div>
+          ) : (
+            <p className="text-[11px] px-2 py-1.5 rounded-md text-center leading-snug break-words bg-red-500/10 text-red-400 border border-red-500/20">
+              {result.error}
+            </p>
+          )
         )}
 
         {/* Queue button */}
@@ -694,9 +703,26 @@ function QueueDialog({
             }
           </Button>
         ) : (
-          <Button variant="outline" className="w-full" onClick={onClose}>
-            Concluído
-          </Button>
+          <div className="flex gap-2">
+            {onNavigateQueue && (
+              <Button
+                className="flex-1 font-semibold"
+                onClick={() => {
+                  onClose();
+                  onNavigateQueue();
+                }}
+              >
+                {queueSuccessFeedback.goToQueueLabel}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              className={onNavigateQueue ? "flex-1" : "w-full"}
+              onClick={onClose}
+            >
+              {queueSuccessFeedback.dismissLabel}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -1216,9 +1242,10 @@ function LocalGameCard({ name, onClick, isDownloaded, installedInfo, isMultiDisc
 
 interface BrowsePageProps {
   simpleMode?: boolean;
+  onNavigateQueue?: () => void;
 }
 
-export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
+export default function BrowsePage({ simpleMode = true, onNavigateQueue }: BrowsePageProps) {
   const [source,   setSource]   = useState("unified");
   const [platform, setPlatform] = useState("xbox360");
   const [status,   setStatus]   = useState("idle");  // idle|loading|cache-building|ready|empty|error
@@ -1807,6 +1834,7 @@ export default function BrowsePage({ simpleMode = true }: BrowsePageProps) {
           localDrives={localDrives}
           installedGames={installedGames}
           onClose={closeDialog}
+          onNavigateQueue={onNavigateQueue}
           simpleMode={simpleMode}
           onXboxConfigured={refreshDestinations}
           discInfoState={discMembershipState}

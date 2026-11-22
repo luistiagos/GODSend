@@ -46,8 +46,12 @@ test("so o estado com o perfil do exploit afirma que existe desbloqueio", () => 
   }
 });
 
-test("o pendrive preparado em RGH diz ao console travado ou LT o que fazer", () => {
-  const texts = `${PREPARED_DEVICE_NOTICE["preparado-rgh"]} ${DEVICE_STATE_BADGE["preparado-rgh"].detail}`;
+test("o pendrive preparado em RGH orienta tanto RGH quanto console travado ou LT", () => {
+  const notice = PREPARED_DEVICE_NOTICE["preparado-rgh"];
+  const texts = `${notice} ${DEVICE_STATE_BADGE["preparado-rgh"].detail}`;
+  assert.match(notice, /Xbox Desbloqueado RGH/);
+  assert.match(notice, /Avançar/);
+  assert.match(notice, /não tem o perfil do exploit/);
   assert.match(texts, /travado ou LT/);
   assert.match(texts, /Xbox Bloqueado ou LT/);
   assert.match(texts, /não tem o perfil do exploit/);
