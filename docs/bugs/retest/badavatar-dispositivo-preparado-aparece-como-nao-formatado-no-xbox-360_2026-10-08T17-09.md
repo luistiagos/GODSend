@@ -61,7 +61,7 @@
 - **Classe:** fail (o console não lê o dispositivo) + diagnóstico (nenhum dado do layout do disco sai da máquina do cliente)
 - **Severidade:** **P1 — Alto** (matriz de [`bug-triage.md`](../../agents/skills/bug-triage.md)): bloqueio total — sem leitura do pendrive não há perfil `ABadAvatar`, nem Aurora, nem jogo. No #153 a cliente já falou em reembolso (`[134109]`)
 - **Versões:** a cliente não informou; o preparo foi em 2026-10-08, com a série 2.12.10x no ar. Código lido no HEAD `002d3c8` (2.12.109)
-- **Reincidência:** 2 casos confirmados com o mesmo print depois de um preparo concluído (ver "Evidência"). Mesma família de sintoma do bug aberto [`badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md`](badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md): lá o console **lê** o pendrive e o perfil não aparece; aqui o console **não lê** o pendrive
+- **Reincidência:** 2 casos confirmados com o mesmo print depois de um preparo concluído (ver "Evidência"). Mesma família de sintoma do bug aberto [`badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md`](../open/badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md): lá o console **lê** o pendrive e o perfil não aparece; aqui o console **não lê** o pendrive
 
 ## Sintoma
 
@@ -415,7 +415,7 @@ Conferido em 2026-10-08: `git status` sem mudança pendente em `fat32Format.ts`,
 | [`electron-main-falha-no-preparo-…-telemetria_2026-10-04T23-28`](electron-main-falha-no-preparo-do-pendrive-nao-chega-a-telemetria_2026-10-04T23-28.md) — **não implementado** | `reportError` no `catch` de `tools:badavatar-prepare` (`badAvatarHandlers.ts`) | T4 depende dele: implementá-lo primeiro (é pequeno). **Depois de T1:** a reprovação do portão **depois de formatar** já reporta sozinha (`badavatar-layout`). Quando o handler passar a reportar todo erro, essa falha vai sair duas vezes, com componentes diferentes; decidir ali se isso é aceitável. A reprovação **sem formatar** e a falha da conferência do script elevado (T2) só chegam à telemetria por este bug |
 | [`electron-main-varredura-sincrona-…_2026-10-05T17-25`](electron-main-varredura-sincrona-de-jogos-instalados-congela-a-janela-e-gera-falso-timeout-de-usb_2026-10-05T17-25.md) — T1 commitada (`9258bfe`) | `setLoopAwareTimeout` em `windowsUsbDeviceService.ts` | nenhum: não tocar nessa função |
 | [`release-companion-32-bits-…_2026-10-07T23-30`](release-companion-32-bits-nao-publicado-e-atualizador-trocaria-pelo-x64_2026-10-07T23-30.md) | empacotamento (`fat32format.exe` ia32) | sem conflito de código; testar T2 também no build 32 bits (PowerShell em WOW64) |
-| [`badavatar-perfil-do-exploit-nao-aparece-…_2026-09-23T15-20`](badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md) | sem código pendente (correção na 2.12.99) | mesma família de sintoma. A hipótese "Unidade de Memória × Dispositivo USB" de lá deve ser lida com a régua da seção "Evidência" daqui, e o lid `45367823446171` da tabela de lá é o caso 2 |
+| [`badavatar-perfil-do-exploit-nao-aparece-…_2026-09-23T15-20`](../open/badavatar-perfil-do-exploit-nao-aparece-na-tela-de-perfis_2026-09-23T15-20.md) | sem código pendente (correção na 2.12.99) | mesma família de sintoma. A hipótese "Unidade de Memória × Dispositivo USB" de lá deve ser lida com a régua da seção "Evidência" daqui, e o lid `45367823446171` da tabela de lá é o caso 2 |
 
 ## Como reproduzir
 
