@@ -50,7 +50,10 @@ func (s *IAService) SaveCacheToDisk(platform string, games []string, entries map
 	s.App.Logf("CACHE: Saved %s (%d games) to disk", platform, len(games))
 }
 
-// LoadCacheFromDisk returns true if a usable cache was loaded.
+// LoadCacheFromDisk returns true if a usable cache was loaded and still matches
+// app.IACollections. When the IA renames collections, entries of the retired ones
+// are dropped (their URLs 404), the rest is loaded so the catalog is not empty,
+// and false is returned so the caller rebuilds.
 func (s *IAService) LoadCacheFromDisk(platform string) bool {
 	data, err := os.ReadFile(s.cacheFilePath(platform))
 	if err != nil {
@@ -74,10 +77,50 @@ func (s *IAService) LoadCacheFromDisk(platform string) bool {
 		}
 	}
 
+	current := true
+	if colls, ok := app.IACollections[platform]; ok && !strings.HasPrefix(platform, "hf_") {
+		covered := make(map[string]bool, len(colls))
+		for _, c := range colls {
+			covered[c] = false
+		}
+		retired := 0
+		for key, e := range pc.GameEntries {
+			if _, configured := covered[e.CollectionID]; !configured {
+				delete(pc.GameEntries, key)
+				retired++
+				continue
+			}
+			covered[e.CollectionID] = true
+		}
+		if retired > 0 {
+			games := pc.Games[:0]
+			for _, g := range pc.Games {
+				if _, ok := pc.GameEntries[strings.ToLower(g)]; ok {
+					games = append(games, g)
+				}
+			}
+			pc.Games = games
+		}
+		var missing []string
+		for _, c := range colls {
+			if !covered[c] {
+				missing = append(missing, c)
+			}
+		}
+		if retired > 0 || len(missing) > 0 {
+			current = false
+			s.App.Logf("CACHE [%s]: disk cache is stale (%d entries from retired collections dropped, %d configured collection(s) missing: %s); rebuilding",
+				platform, retired, len(missing), strings.Join(missing, ", "))
+		}
+		if len(pc.Games) == 0 {
+			return false
+		}
+	}
+
 	s.replaceMemoryCache(platform, pc.Games, pc.GameEntries)
 
 	s.SetBuildState(platform, "ready", int32(len(pc.Games)), int32(len(pc.Games)))
-	return true
+	return current
 }
 
 func (s *IAService) replaceMemoryCache(platform string, games []string, entries map[string]models.IAGameEntry) {
