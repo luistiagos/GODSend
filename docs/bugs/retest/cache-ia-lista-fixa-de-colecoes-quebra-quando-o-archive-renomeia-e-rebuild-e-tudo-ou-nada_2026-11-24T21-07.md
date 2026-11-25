@@ -117,3 +117,13 @@ Implementado como planejado, sem desvio de desenho. Detalhes que só apareceram 
 1. Abrir a 2.12.136 com o `cache/xbox360.json` de uma versão anterior: o log deve ter `collection list changed on archive.org (38 -> 39); rebuilding` e, no fim, `xbox360 complete`; o `cache/xbox360.json` passa a ter `"collections"` com `microsoft_xbox360_r_part1`.
 2. Reabrir: sem rebuild do IA (só `Loaded xbox360 from disk`).
 3. Telemetria nos dias seguintes: nenhum `not found in Internet Archive` em título de letra dividida.
+
+### Reteste 2026-11-25 (execução local da 2.12.136) — reprovado no passo 1
+
+Os dois caches foram reconstruídos com a lista descoberta (`xbox`: 34 coleções; `xbox360`: 39 coleções, 3.249 jogos, a R com 129 jogos vindos de `microsoft_xbox360_r`). Porém `microsoft_xbox360_r_part1` está **vazia** no archive.org (0 arquivos de jogo; o único `.zip` dela está em `history/`). Por isso:
+
+- o rebuild sai incompleto (grava `cache/xbox360.attempt.json`);
+- ele se repete a cada 6 h;
+- cada rebuild manda um alerta falso de "Coleção IA sumiu" para a telemetria.
+
+A afirmação acima de que o título repetido aponta para a `_part1` está errada: a `_part1` não tem títulos. Correção em [cache-ia-colecao-descoberta-vazia-…](../open/cache-ia-colecao-descoberta-vazia-conta-como-falha-e-refaz-rebuild-a-cada-6h_2026-11-25T10-35.md).
