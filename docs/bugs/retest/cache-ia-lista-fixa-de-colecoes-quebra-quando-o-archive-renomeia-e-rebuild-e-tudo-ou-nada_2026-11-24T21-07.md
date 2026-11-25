@@ -127,3 +127,9 @@ Os dois caches foram reconstruídos com a lista descoberta (`xbox`: 34 coleçõe
 - cada rebuild manda um alerta falso de "Coleção IA sumiu" para a telemetria.
 
 A afirmação acima de que o título repetido aponta para a `_part1` está errada: a `_part1` não tem títulos. Correção em [cache-ia-colecao-descoberta-vazia-…](../open/cache-ia-colecao-descoberta-vazia-conta-como-falha-e-refaz-rebuild-a-cada-6h_2026-11-25T10-35.md).
+
+### Reteste a partir da 2.12.137 (`cfa23a4`): substitui o passo 1
+
+1. Abrir a 2.12.137 com o `cache/xbox360.json` de uma versão anterior. Enquanto só a `_part1` estiver vazia, o fim esperado do log é `microsoft_xbox360_r_part1 (discovered) has no downloadable archives; skipped` e `xbox360 complete`. Não deve haver `cache/xbox360.attempt.json`. O `cache/xbox360.json` passa a ter `"collections"` com `microsoft_xbox360_r_part1` e `"empty_collections": ["microsoft_xbox360_r_part1"]`.
+
+Os passos 2 e 3 seguem iguais.

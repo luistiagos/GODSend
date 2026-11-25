@@ -92,5 +92,49 @@ Encadeamento, aberto no código:
 
 | # | task | commit | estado | modelo | revisor |
 |---|---|---|---|---|---|
-| T1 | coleção vazia só da descoberta não conta como falha, não alerta e não é `missing` | -- | backlog | -- | -- |
-| T2 | `*.attempt.json` fora do `extraResources` do instalador | -- | backlog | -- | -- |
+| T1 | coleção vazia só da descoberta não conta como falha, não alerta e não é `missing` | `cfa23a4` | implementada (2.12.137) | claude-opus-5-5 | -- |
+| T2 | `*.attempt.json` fora do `extraResources` do instalador | `cfa23a4` | implementada (2.12.137) | claude-opus-5-5 | -- |
+
+As duas tasks foram num commit só, como no `2b713ee`: a versão 2.12.137 e a entrada do `CHANGELOG.md` cobrem as duas, e o commit por índice privado é um procedimento por versão.
+
+## Correção aplicada (2.12.137, `cfa23a4`) — aguardando reteste
+
+Implementado como planejado. Detalhes que só apareceram no código:
+
+- **`models/types.go::PlatformCache`:** campo novo `EmptyCollections []string json:"empty_collections,omitempty"`.
+- **`ia.go::saveCacheToDisk`:** ganhou o parâmetro `empty []string`. Chamadores (conferidos por `grep`): `SaveCacheToDisk`, que passa `nil` e serve HF e ROM, e `build`.
+- **`ia.go::build`:** no ramo `len(r.entries) == 0`, uma coleção fora de `app.IACollections[platform]` (helper novo `isConfiguredCollection`) é registrada no log como `(discovered) has no downloadable archives; skipped` e vai para `emptyCollections`. Ela não entra em `failedCollections` e não chama `reportGoneCollection`. `empty_collections` só é gravado nas plataformas com descoberta, como `collections`. Sem falhas, o build cai em `clearIncompleteBuild` e apaga um `attempt.json` antigo.
+- **`ia.go::LoadCacheFromDisk`:** uma coleção de `empty_collections` que esteja na lista em uso e **não** esteja configurada conta como coberta. A condição de "não configurada" também vale na leitura: se uma versão futura puser a coleção na config, ela volta a ser cobrada.
+- **Desvio do plano:** nenhum.
+- **Efeito na primeira abertura:** um `cache/xbox360.json` gravado pela 2.12.136 não tem `empty_collections`. Por isso, vencidas as 6 h do `attempt.json`, ele ainda pede **um** rebuild. Esse rebuild grava o campo, apaga o `attempt.json` e encerra o ciclo.
+- **Quando o IA encher a `_part1`:** confirmado no código. A lista descoberta não muda, então `RebuildIfCollectionsChanged` não reconstrói e `LoadCacheFromDisk` aceita o cache. Os títulos seguem vindo da `_r` até a lista mudar.
+- **T2:** o `src/electron-app/package.json` ganhou `"!**/*.attempt.json"` no filtro do `extraResources` de `../../cache`, e o `.gitignore` ganhou `cache/*.attempt.json` (`git check-ignore -v cache/xbox360.attempt.json` → `.gitignore:59`).
+
+### Testes executados (2026-11-25)
+
+- Testes novos em `src/server/services/cache/ia_discovery_test.go`:
+  - `TestIABuildSkipsEmptyDiscoveredCollectionWithoutFailure`: o build com a `_r_part1` vazia não manda telemetria nem grava `xbox.attempt.json`. Grava `collections` com a parte e `empty_collections = [_r_part1]`. A recarga com um `attempt.json` vencido na mesma lista devolve `true`, e `RebuildIfCollectionsChanged` com a mesma lista não faz nenhum fetch.
+  - `TestIABuildConfiguredEmptyCollectionStillFails`: a coleção configurada vazia é reportada e grava a tentativa com ela em `failed`. `empty_collections` fica vazio.
+  - `TestLoadCacheFromDiskIgnoresEmptyMarkOnConfiguredCollection`: uma coleção configurada sem entradas não fica coberta pela marca.
+- Mutações, uma por vez, com o arquivo restaurado depois:
+  - (M1) build sem a condição de config: reprova `TestIABuildConfiguredEmptyCollectionStillFails` e `TestIABuildReportsGoneCollectionOnce`.
+  - (M2) load ignorando `empty_collections`: reprova `TestIABuildSkipsEmpty…`.
+  - (M3) load sem a condição de config: reprova `TestLoadCacheFromDiskIgnoresEmptyMark…`.
+  - (M4) `empty_collections` não gravado: reprova `TestIABuildSkipsEmpty…`.
+- Suíte e build no worktree limpo do commit `cfa23a4`, com as 4 linhas de versão em 2.12.137:
+  - `go test ./... -count=1` em `src/server`: todos `ok`, incluindo `main_test`, que confere a versão contra o `package.json`.
+  - `go vet ./services/cache ./models`: limpo.
+  - `npm run build:server`: os três binários Windows foram verificados.
+- **Falso vermelho na árvore principal:** `TestPackagedXbox360CatalogResolvesEveryPublishedTitle` reprova ali, com ou sem a correção. Ele lê o `cache/xbox360.json` da raiz, que a execução local das 01:47 regravou com a `_r_part1` e sem `empty_collections`. O `attempt.json` daquela execução já passou de 6 h, e o teste reproduz o próprio sintoma deste bug. Com a semente do HEAD, o teste passa. Não foi mexido no `cache/*.json` (ver a passagem de bastão).
+
+### Reteste
+
+1. Abrir a 2.12.137 com o `cache/xbox360.json` da 2.12.136, enquanto a `_r_part1` ainda estiver vazia. Fim esperado do log: `microsoft_xbox360_r_part1 (discovered) has no downloadable archives; skipped` e `xbox360 complete`. Sem `cache/xbox360.attempt.json`, e o `cache/xbox360.json` com `"empty_collections": ["microsoft_xbox360_r_part1"]`.
+2. Reabrir (e reabrir depois de 6 h): sem rebuild do IA.
+3. Telemetria: nenhum `Coleção IA sumiu: microsoft_xbox360_r_part1` vindo de 2.12.137.
+4. Instalador: o `resources/cache` do pacote não tem nenhum `*.attempt.json`.
+
+### Pendente (decisão do dono)
+
+- `cache/xbox.json` e `cache/xbox360.json` da árvore foram regravados pela execução local da 2.12.136 e continuam sem commit. Se forem para a semente, regere com a 2.12.137 antes (fica `empty_collections`, e o teste do catálogo empacotado volta a passar).
+- `cache/xbox360.attempt.json` (não rastreado, agora ignorado) pode ser apagado.
