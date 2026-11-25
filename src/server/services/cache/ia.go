@@ -3,6 +3,7 @@ package cache
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,8 +14,21 @@ import (
 	"time"
 
 	"godsend/app"
+	"godsend/infrastructure/telemetry"
 	"godsend/models"
 )
+
+// reportTelemetry is telemetry.Report; tests swap it so nothing reaches the
+// production endpoint.
+var reportTelemetry = telemetry.Report
+
+// errIACollectionGone marks a collection id archive.org no longer serves:
+// /metadata/<id> answers 404, or 200 with `{}` (no "files"). Retrying it is
+// pointless and it is a configuration problem worth its own telemetry error.
+var errIACollectionGone = errors.New("HTTP 404")
+
+// iaMetadataBaseURL is overridden in tests.
+var iaMetadataBaseURL = "https://archive.org/metadata/"
 
 // IAService manages the Internet Archive game cache.
 type IAService struct {
@@ -223,7 +237,7 @@ func (s *IAService) DoIAMetaFetch(collectionID string) ([]models.IAGameEntry, er
 	IAFetchSem <- struct{}{} // acquire slot
 	defer func() { <-IAFetchSem }()
 
-	apiURL := "https://archive.org/metadata/" + collectionID
+	apiURL := iaMetadataBaseURL + collectionID
 	client := &http.Client{Timeout: IABaseTimeout}
 	req, _ := http.NewRequest("GET", apiURL, nil)
 	s.App.ApplyArchiveOrgHeaders(req)
@@ -233,6 +247,9 @@ func (s *IAService) DoIAMetaFetch(collectionID string) ([]models.IAGameEntry, er
 		return nil, fmt.Errorf("%s: %w", collectionID, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%s: %w", collectionID, errIACollectionGone)
+	}
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("%s: HTTP %d", collectionID, resp.StatusCode)
 	}
@@ -240,6 +257,10 @@ func (s *IAService) DoIAMetaFetch(collectionID string) ([]models.IAGameEntry, er
 	var meta iaMetaResponse
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
 		return nil, fmt.Errorf("%s: JSON decode: %w", collectionID, err)
+	}
+	if len(meta.Files) == 0 {
+		// archive.org answers 200 `{}` for an id that does not exist.
+		return nil, fmt.Errorf("%s: metadata sem files (200 {}): %w", collectionID, errIACollectionGone)
 	}
 
 	var entries []models.IAGameEntry
@@ -265,8 +286,8 @@ func (s *IAService) FetchIACollectionEntries(collectionID string) ([]models.IAGa
 		return s.FetchCollectionEntriesFn(collectionID)
 	}
 	entries, err := s.DoIAMetaFetch(collectionID)
-	if err == nil {
-		return entries, nil
+	if err == nil || errors.Is(err, errIACollectionGone) {
+		return entries, err
 	}
 	for attempt := 0; attempt < len(IARetryBackoff); attempt++ {
 		wait := IARetryBackoff[attempt]
@@ -334,11 +355,15 @@ func (s *IAService) Build(platform string) {
 		if r.err != nil {
 			s.App.Logf("CACHE WARN [%s]: %v", platform, r.err)
 			failedCollections = append(failedCollections, r.collectionID)
+			if errors.Is(r.err, errIACollectionGone) {
+				s.reportGoneCollection(platform, r.collectionID, r.err.Error())
+			}
 			continue
 		}
 		if len(r.entries) == 0 {
 			s.App.Logf("CACHE WARN [%s]: %s returned no downloadable archives", platform, r.collectionID)
 			failedCollections = append(failedCollections, r.collectionID)
+			s.reportGoneCollection(platform, r.collectionID, "no downloadable archives")
 			continue
 		}
 		for _, e := range r.entries {
@@ -368,6 +393,15 @@ func (s *IAService) Build(platform string) {
 
 	s.replaceMemoryCache(platform, allGames, newEntries)
 	s.SaveCacheToDisk(platform, allGames, newEntries)
+}
+
+// reportGoneCollection sends one telemetry error per dead collection. The
+// message is stable per collection so the session dedup in telemetry.Report
+// and the panel group it, instead of one "not found" per title.
+func (s *IAService) reportGoneCollection(platform, collectionID, reason string) {
+	reportTelemetry("cache", "ia.go", "Build",
+		fmt.Sprintf("Coleção IA sumiu: %s (%s): %s", collectionID, platform, reason),
+		"", nil, false)
 }
 
 // ==========================================
@@ -409,11 +443,18 @@ func (s *IAService) FindEntry(gameName, platform string) (models.IAGameEntry, er
 
 	// Live fetch from the relevant collection page(s)
 	entry, err := s.LiveSearchIA(gameName, platform)
+	if errors.Is(err, errIACollectionUnavailable) {
+		return models.IAGameEntry{}, fmt.Errorf("not found in Internet Archive: %s (%w)", gameName, err)
+	}
 	if err != nil {
 		return models.IAGameEntry{}, fmt.Errorf("not found in Internet Archive: %s", gameName)
 	}
 	return entry, nil
 }
+
+// errIACollectionUnavailable: every candidate collection failed or came back
+// empty, so "no match" would hide that the title was never searched.
+var errIACollectionUnavailable = errors.New("coleção IA indisponível")
 
 // LiveSearchIA searches IA collections via the Metadata API when the cache is cold.
 func (s *IAService) LiveSearchIA(gameName, platform string) (models.IAGameEntry, error) {
@@ -443,9 +484,11 @@ func (s *IAService) LiveSearchIA(gameName, platform string) (models.IAGameEntry,
 	var bestEntry models.IAGameEntry
 	bestName := ""
 	bestScore := -1
+	var unavailable []string
 	for _, coll := range candidates {
 		entries, err := s.DoIAMetaFetch(coll)
-		if err != nil {
+		if err != nil || len(entries) == 0 {
+			unavailable = append(unavailable, coll)
 			continue
 		}
 		for _, e := range entries {
@@ -460,6 +503,9 @@ func (s *IAService) LiveSearchIA(gameName, platform string) (models.IAGameEntry,
 	}
 	if bestScore >= 0 {
 		return bestEntry, nil
+	}
+	if len(candidates) > 0 && len(unavailable) == len(candidates) {
+		return models.IAGameEntry{}, fmt.Errorf("%w: %s", errIACollectionUnavailable, strings.Join(unavailable, ", "))
 	}
 	return models.IAGameEntry{}, fmt.Errorf("no match for '%s'", gameName)
 }
