@@ -126,7 +126,7 @@ Os dois caches foram reconstruídos com a lista descoberta (`xbox`: 34 coleçõe
 - ele se repete a cada 6 h;
 - cada rebuild manda um alerta falso de "Coleção IA sumiu" para a telemetria.
 
-A afirmação acima de que o título repetido aponta para a `_part1` está errada: a `_part1` não tem títulos. Correção em [cache-ia-colecao-descoberta-vazia-…](../open/cache-ia-colecao-descoberta-vazia-conta-como-falha-e-refaz-rebuild-a-cada-6h_2026-11-25T10-35.md).
+A afirmação acima de que o título repetido aponta para a `_part1` está errada: a `_part1` não tem títulos. Correção em [cache-ia-colecao-descoberta-vazia-…](cache-ia-colecao-descoberta-vazia-conta-como-falha-e-refaz-rebuild-a-cada-6h_2026-11-25T10-35.md).
 
 ### Reteste a partir da 2.12.137 (`cfa23a4`): substitui o passo 1
 
