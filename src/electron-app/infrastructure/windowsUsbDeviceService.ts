@@ -314,6 +314,7 @@ try {
         PartitionStyle = [string]$disk.PartitionStyle
         PartitionCount = [int]$partitions.Count
         MbrType = [int]$partition.MbrType
+        PartitionOffset = [int64]$partition.Offset
         LogicalSectorSize = [int]$disk.LogicalSectorSize
         PhysicalSectorSize = [int]$disk.PhysicalSectorSize
         DriveType = if ($volume.DriveType) { [string]$volume.DriveType } else { '' }
@@ -411,6 +412,9 @@ function parsePhysicalDevice(row: any): PhysicalUsbDevice {
     partitionStyle: asString(row.PartitionStyle),
     partitionCount: asNumber(row.PartitionCount),
     mbrType: asNumber(row.MbrType),
+    ...(row.PartitionOffset !== undefined && row.PartitionOffset !== null && row.PartitionOffset !== ""
+      ? { partitionOffsetBytes: asNumber(row.PartitionOffset) }
+      : {}),
     logicalSectorSize: asNumber(row.LogicalSectorSize),
     physicalSectorSize: asNumber(row.PhysicalSectorSize),
     driveType: asString(row.DriveType),

@@ -11,6 +11,7 @@ export type XboxLayoutCode =
   | "NOT_MBR"
   | "PARTITION_COUNT"
   | "MBR_TYPE"
+  | "SUPERFLOPPY"
   | "SECTOR_SIZE"
   | "NOT_FAT32"
   | "VOLUME_TOO_LARGE";
@@ -19,6 +20,8 @@ export interface XboxDiskLayout {
   partitionStyle: string;
   partitionCount: number;
   mbrType: number;
+  /** Starting byte offset of the partition; 0 means superfloppy (no real MBR partition table). */
+  partitionOffsetBytes?: number;
   logicalSectorSize: number;
   fileSystem: string;
   partitionSizeBytes: number;
@@ -64,6 +67,17 @@ export function assessXboxLayout(layout: XboxDiskLayout): XboxLayoutAssessment {
   }
   if (isMbr && !FAT32_MBR_TYPES.includes(layout.mbrType)) {
     reject("MBR_TYPE", `A partição está marcada com o tipo ${layout.mbrType}, e não como FAT32 (11 ou 12).`);
+  }
+  if (
+    isMbr &&
+    typeof layout.partitionOffsetBytes === "number" &&
+    Number.isFinite(layout.partitionOffsetBytes) &&
+    layout.partitionOffsetBytes <= 0
+  ) {
+    reject(
+      "SUPERFLOPPY",
+      "O disco está sem tabela de partições MBR real (formato superfloppy, início no byte 0), e o Xbox 360 precisa de uma tabela MBR válida.",
+    );
   }
   if (layout.logicalSectorSize !== 512) {
     reject(

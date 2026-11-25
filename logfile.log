@@ -1098,3 +1098,103 @@
 2026-11-10 17:13:30,963 ⚠️ [PURCHASE-SIGNALS] lookup de estorno falhou jid=5599999999999@s.whatsapp.net: Connection pool nao inicializado.
 2026-11-10 17:13:30,964 ⚠️ [PURCHASE-SIGNALS] lookup de estorno falhou jid=5599999999999@s.whatsapp.net: Connection pool nao inicializado.
 2026-11-10 17:13:30,964 ⚠️ [PURCHASE-SIGNALS] lookup de estorno falhou jid=5599999999999@s.whatsapp.net: Connection pool nao inicializado.
+2026-11-22 21:02:19,197 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:02:19,258 [CONTA] wpp_conversation_state sem as colunas account_*: resolucao desligada ate o script migr_conversation_state_conta.py rodar
+2026-11-22 21:02:24,513 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:02:33,880 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:02:43,048 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:02:51,551 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:02:51,558 [CONTA] wpp_conversation_state sem as colunas account_*: resolucao desligada ate o script migr_conversation_state_conta.py rodar
+2026-11-22 21:02:56,670 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:03:02,509 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:03:11,389 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:04:25,410 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:04:25,433 [CONTA] wpp_conversation_state sem as colunas account_*: resolucao desligada ate o script migr_conversation_state_conta.py rodar
+2026-11-22 21:04:30,981 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:04:39,312 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:04:49,396 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:04:56,864 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:05:01,276 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:05:07,718 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:05:19,442 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:05:19,486 [CONTA] wpp_conversation_state sem as colunas account_*: resolucao desligada ate o script migr_conversation_state_conta.py rodar
+2026-11-22 21:05:24,846 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:05:30,177 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:05:35,599 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:05:40,228 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:05:44,041 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:05:50,432 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:06:00,166 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:06:00,182 [CONTA] wpp_conversation_state sem as colunas account_*: resolucao desligada ate o script migr_conversation_state_conta.py rodar
+2026-11-22 21:06:05,379 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:06:12,670 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:06:14,426 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:06:17,678 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:06:32,330 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:06:37,082 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:06:40,345 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:06:46,509 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:06:48,449 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:06:51,581 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:06:59,856 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:07:04,468 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:07:07,929 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:07:11,551 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:07:15,755 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:07:18,889 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:07:32,031 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:07:41,368 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:07:44,535 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:07:52,254 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:07:54,976 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:07:58,140 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:08:12,766 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:08:18,248 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:08:21,389 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:08:24,702 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:08:25,186 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:08:28,333 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:08:39,856 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:08:42,044 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:08:45,250 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:08:54,796 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:09:04,393 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:09:07,576 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:09:15,307 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:09:19,663 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:09:22,833 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:09:28,128 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:09:28,283 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:09:31,440 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:09:39,609 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:09:41,390 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:09:44,597 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:09:53,118 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:11:09,180 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:11:09,187 [CONTA] wpp_conversation_state sem as colunas account_*: resolucao desligada ate o script migr_conversation_state_conta.py rodar
+2026-11-22 21:11:14,042 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:11:17,879 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:11:22,106 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:11:25,261 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:11:34,728 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:11:36,471 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:11:39,711 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:11:47,311 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:11:52,907 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:11:56,079 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:12:00,139 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:12:00,668 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:12:03,892 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:12:08,847 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:12:16,231 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:12:19,369 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:12:34,533 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:12:41,613 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:12:44,853 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:12:48,679 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:12:53,901 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:12:57,070 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:13:05,631 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:13:10,188 🧩 [COMPOSER] persona composta ativa p/ XBOX360_AGENT (pos_venda=True, hint=False)
+2026-11-22 21:13:13,369 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-22 21:13:24,891 HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"

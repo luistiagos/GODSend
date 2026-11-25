@@ -26,6 +26,7 @@ import {
   fetchCustomCover,
   hasCustomCover,
   getCachedCoverFromDisk,
+  getCoverStatusHints,
   saveCoverToDisk,
 } from "../services/coverArtService";
 import { scanUsbAndLocalGames } from "../services/localGameScannerService";
@@ -291,6 +292,15 @@ export function register(ipcMain: IpcMain): void {
   };
 
   ipcMain.handle("browse:fetch-cover", (_event, gameName: string) => fetchCover(gameName));
+
+  ipcMain.handle("browse:get-cover-hints", (_event, names: unknown) => {
+    try {
+      const list = Array.isArray(names) ? names.map((n) => String(n || "")).filter(Boolean) : [];
+      return { ok: true, ...getCoverStatusHints(list) };
+    } catch {
+      return { ok: false, hasCover: [], noCover: [], withHint: [] };
+    }
+  });
 
   // ── Cover for an installed game: the folder carries both a name and a TitleID ──
   // A mod or translation runs with the base game's TitleID, so looking it up by TitleID shows

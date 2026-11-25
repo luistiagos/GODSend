@@ -379,6 +379,12 @@ export async function restoreUsbUserProfilesAndSaves(
       const stat = await fsPromises.stat(src);
       const tmpDst = dst + ".tmp";
       await fsPromises.copyFile(src, tmpDst);
+      const handle = await fsPromises.open(tmpDst, "r+");
+      try {
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
       await fsPromises.rename(tmpDst, dst);
       result.restoredFiles++;
       result.totalBytes += stat.size;

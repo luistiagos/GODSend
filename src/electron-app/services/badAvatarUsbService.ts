@@ -511,7 +511,9 @@ export async function listFat32UsbDrives(fresh = false): Promise<UsbDriveInfo[]>
 
   const exploitProfile = readExploitProfileFiles();
   await Promise.all(drives.map(async (drive) => {
-    drive.preparedState = await detectPreparedDeviceState(drive.rootPath, exploitProfile);
+    drive.preparedState = await detectPreparedDeviceState(drive.rootPath, exploitProfile, {
+      requirePayloadDir: true,
+    });
   }));
   return drives;
 }

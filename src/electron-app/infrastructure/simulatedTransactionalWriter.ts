@@ -184,14 +184,14 @@ async function copyAndVerify(
       fs.createReadStream(entry.sourcePath),
       fs.createWriteStream(partialPath, { flags: "wx", mode: 0o600 }),
     );
-    if (!(await fileMatches(partialPath, entry))) {
-      throw new Error(`Falha de verificação ao copiar ${entry.relativePath}.`);
-    }
     const handle = await fsPromises.open(partialPath, "r+");
     try {
       await handle.sync();
     } finally {
       await handle.close();
+    }
+    if (!(await fileMatches(partialPath, entry))) {
+      throw new Error(`Falha de verificação ao copiar ${entry.relativePath}.`);
     }
     await revalidate();
     await fsPromises.rename(partialPath, stagedPath);
@@ -255,6 +255,7 @@ async function loadOrCreateJournal(
         for (const entry of plan.entries) {
           completed = transitionJournalEntry(completed, entry.entryId, "committed");
         }
+        completed = transitionTransactionState(completed, "committing");
         completed = transitionTransactionState(completed, "completed");
         await persistJournal(paths, completed, revalidate);
         return { journal: completed, resumed: true };

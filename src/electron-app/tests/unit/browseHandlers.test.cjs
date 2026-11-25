@@ -207,6 +207,11 @@ function createCoverHandlers({ custom = [], covers = {} } = {}) {
       fetchXboxUnityCoverWithMeta: async () => null,
       tryXboxCdnFromMicrosoftStoreSearch: async () => null,
       fetchWikipediaCover: async () => null,
+      getCoverStatusHints: (names) => ({
+        hasCover: names.filter((n) => n === "Halo 3"),
+        noCover: names.filter((n) => n === "No Cover Game"),
+        withHint: names.filter((n) => n === "GTA 5"),
+      }),
       saveCoverToDisk: () => {},
     },
     "../services/localGameScannerService": {},
@@ -220,7 +225,11 @@ function createCoverHandlers({ custom = [], covers = {} } = {}) {
   loaded.require = (id) => Object.hasOwn(mocks, id) ? mocks[id] : realRequire(id);
   loaded._compile(fs.readFileSync(filename, "utf8"), filename);
   loaded.exports.register({ handle: (name, handler) => handlers.set(name, handler) });
-  return { installedCover: (game) => handlers.get("browse:fetch-installed-cover")(null, game), lookups };
+  return {
+    installedCover: (game) => handlers.get("browse:fetch-installed-cover")(null, game),
+    coverHints: (names) => handlers.get("browse:get-cover-hints")(null, names),
+    lookups,
+  };
 }
 
 test("browse:fetch-installed-cover shows a mod's own cover instead of its base game's TitleID cover", async () => {
@@ -247,4 +256,15 @@ test("browse:fetch-installed-cover falls back to the name when the TitleID has n
   const r = await h.installedCover({ name: "Homebrew X", titleId: "ABCDEF01" });
   assert.equal(r.dataUrl, "data:image/png;base64,HB");
   assert.deepEqual(h.lookups, ["ABCDEF01", "Homebrew X"]);
+});
+
+test("browse:get-cover-hints returns sanitized cover hints from coverArtService", async () => {
+  const h = createCoverHandlers({});
+  const r = await h.coverHints(["Halo 3", "", null, "No Cover Game", "GTA 5"]);
+  assert.deepEqual(r, {
+    ok: true,
+    hasCover: ["Halo 3"],
+    noCover: ["No Cover Game"],
+    withHint: ["GTA 5"],
+  });
 });

@@ -441,6 +441,46 @@ test("tipo fora de 11/12 na chegada recria a tabela em vez de formatar no lugar 
   }
 });
 
+test("superfloppy (offset 0) e FAT32 CHS (tipo 11) acima de 8 GB recriam a tabela MBR", (t) => {
+  if (process.platform !== "win32") {
+    t.skip("execucao PowerShell disponivel somente no Windows");
+    return;
+  }
+  for (const script of [smallDriveScript(), bigDriveScript()]) {
+    const start = script.indexOf("  $arrivalProblem = Get-XboxLayoutProblem");
+    const endNeedle = "$needsNewTable = [bool]$arrivalProblem";
+    assert.ok(start > 0 && script.indexOf(endNeedle, start) > start);
+    const decision = script.slice(start, script.indexOf(endNeedle, start) + endNeedle.length);
+    const executed = runPowerShellCode([
+      psFunction(script, "Get-XboxLayoutProblem"),
+      psFunction(script, "Get-Fat32MbrTypeProblem"),
+      "function Decide($style, $type, $offset, $size) {",
+      "  $disk = [pscustomobject]@{ PartitionStyle = $style }",
+      "  $partition = [pscustomobject]@{ MbrType = [uint16]$type; Offset = [int64]$offset; Size = [uint64]$size }",
+      "  $arrivalPartitions = @($partition)",
+      decision,
+      "  @{ recria = $needsNewTable; motivo = [string]$arrivalProblem }",
+      "}",
+      "[ordered]@{",
+      "  superfloppy = Decide 'MBR' 12 0 31000000000",
+      "  mbrNormal = Decide 'MBR' 12 1048576 31000000000",
+      "  chsGrande = Decide 'MBR' 11 1048576 128000000000",
+      "  chsPequeno = Decide 'MBR' 11 1048576 4000000000",
+      "  lbaGrande = Decide 'MBR' 12 1048576 128000000000",
+      "} | ConvertTo-Json -Compress",
+    ].join("\n"));
+    assert.equal(executed.status, 0, executed.stderr || executed.stdout);
+    const result = JSON.parse(executed.stdout.trim());
+    assert.equal(result.superfloppy.recria, true);
+    assert.match(result.superfloppy.motivo, /superfloppy/i);
+    assert.deepEqual(result.mbrNormal, { recria: false, motivo: "" });
+    assert.equal(result.chsGrande.recria, true);
+    assert.match(result.chsGrande.motivo, /CHS/i);
+    assert.deepEqual(result.chsPequeno, { recria: false, motivo: "" });
+    assert.deepEqual(result.lbaGrande, { recria: false, motivo: "" });
+  }
+});
+
 test("Set-Partition recusado nao mata o preparo: o tipo e gravado pelo diskpart", (t) => {
   const script = bigDriveScript();
   const repair = psFunction(script, "Repair-Fat32MbrType");

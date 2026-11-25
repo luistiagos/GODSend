@@ -58,6 +58,17 @@ test("particao MBR marcada como NTFS/exFAT (tipo 7) reprova", () => {
   assert.equal(result.fixableByFormat, true);
 });
 
+test("particao superfloppy (offset 0) reprova e formatar resolve; offset positivo passa", () => {
+  const superfloppy = assessXboxLayout({ ...readable, partitionOffsetBytes: 0 });
+  assert.equal(superfloppy.verdict, "rejected");
+  assert.deepEqual(superfloppy.codes, ["SUPERFLOPPY"]);
+  assert.equal(superfloppy.fixableByFormat, true);
+  assert.match(superfloppy.reasons[0], /superfloppy/i);
+
+  const normal = assessXboxLayout({ ...readable, partitionOffsetBytes: 1_048_576 });
+  assert.equal(normal.verdict, "ok");
+});
+
 test("setor de 4096 bytes reprova, e formatar nao resolve", () => {
   const alone = assessXboxLayout({ ...readable, logicalSectorSize: 4096 });
   assert.deepEqual(alone.codes, ["SECTOR_SIZE"]);

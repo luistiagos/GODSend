@@ -79,6 +79,12 @@ export async function writePreparationReceipt(
   const segments = PREPARATION_RECEIPT_PATH.split("/");
   const destination = path.join(driveRoot, ...segments);
   await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.writeFile(destination, `${JSON.stringify(receipt, null, 2)}\r\n`, "utf8");
+  const handle = await fs.open(destination, "w");
+  try {
+    await handle.writeFile(`${JSON.stringify(receipt, null, 2)}\r\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
   return destination;
 }

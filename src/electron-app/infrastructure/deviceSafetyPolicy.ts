@@ -34,6 +34,8 @@ export interface PhysicalUsbDevice {
   partitionCount: number;
   /** MBR partition type byte (11/12 = FAT32); 0 on GPT. */
   mbrType: number;
+  /** Starting byte offset of the partition on disk; 0 indicates a superfloppy (no real MBR table). Undefined when unknown. */
+  partitionOffsetBytes?: number;
   logicalSectorSize: number;
   physicalSectorSize: number;
   driveType: string;

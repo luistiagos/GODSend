@@ -198,12 +198,16 @@ export function formatBadAvatarPrepareErrorForUser(
     return formatErrnoMessage(errnoCode, targetPhrase, onTarget);
   }
 
+  if (/^Falha na verificação física pós-gravação/i.test(rawMessage)) {
+    return `Os arquivos do desbloqueio não permaneceram gravados corretamente na memória física do seu ${targetPhrase}. Isso indica pendrive falsificado (capacidade falsa), defeito na memória ou mau contato na porta USB. Tente em outra porta USB sem adaptadores ou use outro pendrive ou HD original.`;
+  }
+
   if (/^Falha de verificação (?:ao copiar|após promover)|^Arquivo confirmado não confere:/i.test(rawMessage)) {
     return `Os arquivos não foram gravados corretamente no seu ${targetPhrase}, o que indica mau contato ou defeito no dispositivo. Tente em outra porta USB ou use outro pendrive ou HD.`;
   }
 
   if (
-    /^Uma transação marcada como falha|^Destino existente não é arquivo regular:|^O destino contém diretório inseguro:|diário transacional/i.test(
+    /^Uma transação marcada como falha|^Transição de (?:transação|arquivo) inválida:|^Estado inesperado para|^Destino existente não é arquivo regular:|^O destino contém diretório inseguro:|diário transacional/i.test(
       rawMessage,
     )
   ) {

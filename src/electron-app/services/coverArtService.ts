@@ -380,21 +380,103 @@ export function resetCoverCachePurgeForTests(): void {
   legacyCachePurged = false;
 }
 
+function getCoverCandidateDirs(): string[] {
+  const dirs = [
+    getDiskCoverCacheDir(),
+    path.join(process.cwd(), "cache", "covers"),
+    path.join(__dirname, "..", "..", "cache", "covers"),
+    path.join(__dirname, "..", "..", "..", "cache", "covers"),
+  ];
+  if ((process as any).resourcesPath) {
+    dirs.unshift(path.join((process as any).resourcesPath, "cache", "covers"));
+  }
+  return dirs;
+}
+
+export function getDiskCoverCacheKeySet(): Set<string> {
+  const keys = new Set<string>();
+  try {
+    purgeCorruptedLegacyCoverCache();
+    for (const dir of getCoverCandidateDirs()) {
+      try {
+        if (!fs.existsSync(dir)) continue;
+        for (const f of fs.readdirSync(dir)) {
+          const m = f.match(/^(.+)\.(jpe?g|png)$/i);
+          if (!m) continue;
+          try {
+            if (fs.statSync(path.join(dir, f)).size >= 100) {
+              keys.add(m[1].toLowerCase());
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+  } catch {}
+  return keys;
+}
+
+export interface CoverStatusHints {
+  hasCover: string[];
+  noCover: string[];
+  withHint: string[];
+}
+
+/**
+ * Inspects local caches and TitleID datasets without making network calls so
+ * the catalog can immediately identify known covers, confirmed misses in this
+ * session, and titles with local cover/TitleID hints.
+ */
+export function getCoverStatusHints(names: string[]): CoverStatusHints {
+  const hasCover: string[] = [];
+  const noCover: string[] = [];
+  const withHint: string[] = [];
+  if (!Array.isArray(names) || names.length === 0) {
+    return { hasCover, noCover, withHint };
+  }
+
+  ensureTitleDatabaseLoaded();
+  loadCustomCovers();
+  const diskKeys = getDiskCoverCacheKeySet();
+
+  for (const rawName of names) {
+    const name = String(rawName || "");
+    if (!name) continue;
+    const base = baseTitleForCover(name);
+    const cached = browseCoverCache.get(base);
+    if (cached) {
+      if (cached.ok && cached.dataUrl) {
+        hasCover.push(name);
+      } else {
+        noCover.push(name);
+      }
+      continue;
+    }
+
+    const safeKey = base.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
+    if (diskKeys.has(safeKey)) {
+      hasCover.push(name);
+      continue;
+    }
+
+    if (hasCustomCover(base)) {
+      withHint.push(name);
+      continue;
+    }
+
+    const cands = generateSearchCandidateEntries(base);
+    if (cands.some((c) => /^[0-9A-F]{8}$/i.test(c.term))) {
+      withHint.push(name);
+    }
+  }
+
+  return { hasCover, noCover, withHint };
+}
+
 export function getCachedCoverFromDisk(key: string): string | null {
   try {
     purgeCorruptedLegacyCoverCache();
     const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
-    const cacheDir = getDiskCoverCacheDir();
-    const candidateDirs = [
-      cacheDir,
-      path.join(process.cwd(), "cache", "covers"),
-      path.join(__dirname, "..", "..", "cache", "covers"),
-      path.join(__dirname, "..", "..", "..", "cache", "covers"),
-    ];
-    if ((process as any).resourcesPath) {
-      candidateDirs.unshift(path.join((process as any).resourcesPath, "cache", "covers"));
-    }
-    for (const dir of candidateDirs) {
+    for (const dir of getCoverCandidateDirs()) {
       try {
         if (!fs.existsSync(dir)) continue;
         const jpgPath = path.join(dir, `${safeKey}.jpg`);

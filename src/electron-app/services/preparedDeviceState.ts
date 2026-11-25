@@ -26,6 +26,16 @@ const MARKER_PATTERN = /^ready-to-play-v\d+\.marker$/i;
 
 const AURORA_EXECUTABLE = "Aurora/default.xex";
 const RGH_BOOT_CONFIGURATION = "launch.ini";
+const BADUPDATE_PAYLOAD_EXECUTABLE = "BadUpdatePayload/default.xex";
+
+export interface DetectPreparedDeviceOptions {
+  /**
+   * Quando `true`, exige também `BadUpdatePayload/default.xex` além do perfil STFS do exploit
+   * para classificar o dispositivo como `preparado-bloqueado-lt`. Evita oferecer "pular a
+   * preparação" quando só o perfil existe mas a pasta do payload foi apagada ou corrompida.
+   */
+  requirePayloadDir?: boolean;
+}
 
 function deviceRoot(driveRoot: string): string {
   const root = String(driveRoot || "").trim();
@@ -49,14 +59,16 @@ async function exists(root: string, relativePath: string): Promise<boolean> {
 const STFS_MAGICS = new Set(["CON ", "LIVE", "PIRS"]);
 const STFS_HEADER_BYTES = 0x3a0;
 const STFS_BLOCK_BYTES = 0x1000;
+const STFS_CONTENT_TYPE_PROFILE = 0x00010000;
 
 /**
  * Endereço do fim do último bloco que o cabeçalho STFS declara alocado
  * (`ComputeBackingDataBlockNumber` do STFS: a cada 0xAA blocos de dados, e a cada 0x70E4, há uma
- * tabela de hash de 1 ou 2 blocos). `null` se o cabeçalho não é de um pacote STFS com blocos.
+ * tabela de hash de 1 ou 2 blocos). `null` se o cabeçalho não é de um pacote STFS de Perfil com blocos.
  */
 function stfsRequiredBytes(header: Buffer): number | null {
   if (header.length < STFS_HEADER_BYTES || !STFS_MAGICS.has(header.toString("latin1", 0, 4))) return null;
+  if (header.readUInt32BE(0x344) !== STFS_CONTENT_TYPE_PROFILE) return null;
   const headerSize = header.readUInt32BE(0x340);
   const hashShift = ~header[0x37b] & 1;
   const allocated = header.readUInt32BE(0x395);
@@ -116,14 +128,21 @@ async function preparedByThisApp(root: string): Promise<boolean> {
 export async function hasLegacyXbox360Container(driveRoot: string): Promise<boolean> {
   const root = deviceRoot(driveRoot);
   if (!root) return false;
+  let matchName: string | undefined;
   try {
     const entries = await fs.readdir(root, { withFileTypes: true });
-    const match = entries.find((e) => e.isDirectory() && e.name.toLowerCase() === "xbox360");
-    if (!match) return false;
-    const subEntries = await fs.readdir(path.join(root, match.name));
-    return subEntries.length > 0;
+    matchName = entries.find((e) => e.isDirectory() && e.name.toLowerCase() === "xbox360")?.name;
   } catch {
     return false;
+  }
+  if (!matchName) return false;
+  try {
+    const subEntries = await fs.readdir(path.join(root, matchName));
+    return subEntries.length > 0;
+  } catch (err: any) {
+    // Se a pasta "Xbox360" existe na raiz mas falhou ao listar (permissão/corrupção),
+    // assume conservadoramente que há container legado em vez de tratá-la como ausente.
+    return err?.code !== "ENOENT";
   }
 }
 
@@ -139,6 +158,7 @@ export async function hasLegacyXbox360Container(driveRoot: string): Promise<bool
 export async function detectPreparedDeviceState(
   driveRoot: string,
   exploitProfile: readonly ExploitProfileFile[],
+  options: DetectPreparedDeviceOptions = {},
 ): Promise<PreparedDeviceState> {
   const root = deviceRoot(driveRoot);
   if (!root) return "sem-preparo";
@@ -152,7 +172,10 @@ export async function detectPreparedDeviceState(
 
   if (exploitProfile.length > 0) {
     const present = await Promise.all(exploitProfile.map((file) => hasCompleteProfilePackage(root, file)));
-    if (present.every(Boolean)) return "preparado-bloqueado-lt";
+    const payloadOk = options.requirePayloadDir
+      ? await exists(root, BADUPDATE_PAYLOAD_EXECUTABLE)
+      : true;
+    if (present.every(Boolean) && payloadOk) return "preparado-bloqueado-lt";
   }
 
   if (await preparedByThisApp(root)) return "preparado-rgh";

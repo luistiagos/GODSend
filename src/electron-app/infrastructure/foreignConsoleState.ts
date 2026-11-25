@@ -3,15 +3,30 @@ import path from "path";
 import { hashFileSha256 } from "./secureComponentStaging";
 import { validateXboxTargetRelativePath } from "./transactionalWritePlan";
 
-// O pacote BadAvatar foi capturado de um console real e carrega o estado dele: logs e crash
-// dumps do Aurora e os bancos do FreeStyle, que descrevem 68 jogos num HD interno cujo serial
-// nao existe no pendrive do usuario. Nada disso tem funcao no destino e o Aurora/FreeStyle
-// recriam o que precisam, entao o estado alheio nao e replicado.
+// O pacote BadAvatar foi capturado de um console real e carrega o estado dele:
+// - logs e crash dumps do Aurora e bancos do FreeStyle (68 jogos num HD interno de outro serial);
+// - caches de sistema assinados (CON) do console de origem sob Content/0000000000000000/:
+//   ContentCache.pkg (índice CDIs.bin do pendrive/console de origem, com DeviceID alheio e
+//   referência à v1.1), asset_refresh_cookie (cache do Editor de Avatar do console de origem),
+//   MicArrayCalibrate.mec (calibragem Kinect alheia), XlfsUploadCache.dat (150 MB de telemetria
+//   alheia), JanusDatastore.dat (direitos DRM alheios) e o save do Netflix (394707D1/00000001);
+// - BadUpdatePayload/OriginalMACAddress.bin (endereço MAC do console de origem, já proibido na
+//   imagem limpa).
+// Nada disso pertence ao console do usuário; o dashboard e a Aurora recriam o que precisam.
+// Manter ContentCache.pkg / asset_refresh_cookie alheios no destino ainda contamina o cache
+// de enumeração de conteúdo do console de destino e grava ~155 MB extras desnecessários em flash.
 const FOREIGN_CONSOLE_STATE_PATTERNS = [
   /^aurora\/data\/logs\//,
   /^apps\/aurora\/data\/logs\//,
   /^apps\/freestyle\/data\/logs\//,
   /^apps\/freestyle\/data\/databases\//,
+  /^content\/0000000000000000\/fffe07df\/00040000\/contentcache\.pkg$/,
+  /^content\/0000000000000000\/584d07d1\/00040000\/asset_refresh_cookie$/,
+  /^content\/0000000000000000\/fffe07df\/00040000\/micarraycalibrate\.mec$/,
+  /^content\/0000000000000000\/fffe07df\/00040000\/xlfsuploadcache\.dat$/,
+  /^content\/0000000000000000\/fffe07df\/000f0000\/janusdatastore\.dat$/,
+  /^content\/0000000000000000\/394707d1\/00000001\/contentfile$/,
+  /^badupdatepayload\/originalmacaddress\.bin$/,
 ];
 
 export function isForeignConsoleStatePath(relativePath: string): boolean {

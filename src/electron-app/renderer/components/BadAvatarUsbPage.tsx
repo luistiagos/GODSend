@@ -5,6 +5,7 @@ import {
   Gamepad2,
   HardDrive,
   Loader2,
+  LogOut,
   RefreshCw,
   ShieldCheck,
   Usb,
@@ -13,6 +14,7 @@ import {
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import DriveRepairModal from "./DriveRepairModal";
+import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 import {
   canSkipPreparation,
   readPersistedRghDeclaration,
@@ -117,6 +119,10 @@ export default function BadAvatarUsbPage({
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [preparedDriveRoot, setPreparedDriveRoot] = useState("");
+  const [ejecting, setEjecting] = useState(false);
+  const [ejected, setEjected] = useState(false);
+  const [ejectError, setEjectError] = useState("");
   const [repairModalOpen, setRepairModalOpen] = useState(false);
 
   // Wizard state: "detect" | "unlock-selection" | "preparation"
@@ -290,6 +296,9 @@ export default function BadAvatarUsbPage({
 
     setBusy(true);
     setDone(false);
+    setPreparedDriveRoot("");
+    setEjected(false);
+    setEjectError("");
     setError("");
     setStatus("Conferindo dispositivo conectado…");
     setPercent(0);
@@ -340,6 +349,7 @@ export default function BadAvatarUsbPage({
         isRghOnly: isRghOnly === true,
       });
       if (!response?.ok) throw new Error(response?.error || "Não foi possível preparar o dispositivo.");
+      setPreparedDriveRoot(latestDevice.rootPath);
       setDone(true);
       setStatus("Pronto! O pendrive está preparado para o Xbox 360.");
       setPercent(100);
@@ -351,6 +361,31 @@ export default function BadAvatarUsbPage({
       }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleEjectPreparedDrive() {
+    const targetRoot = preparedDriveRoot || selectedDevice?.rootPath || selectedDrive;
+    if (!targetRoot || ejecting) return;
+    setEjecting(true);
+    setEjectError("");
+    try {
+      const res = await window.godsendApi.toolsDriveEject(targetRoot);
+      if (res && res.ok) {
+        setEjected(true);
+        await refreshDrives(true);
+      } else {
+        setEjectError(
+          formatErrorForUser(res?.error || "Não foi possível ejetar o dispositivo agora.", {
+            area: "drive-maintenance",
+            driveRoot: targetRoot,
+          }),
+        );
+      }
+    } catch (err: any) {
+      setEjectError(formatErrorForUser(err, { area: "drive-maintenance", driveRoot: targetRoot }));
+    } finally {
+      setEjecting(false);
     }
   }
 
@@ -584,6 +619,9 @@ export default function BadAvatarUsbPage({
                 onChange={(event) => {
                   setSelectedDrive(event.target.value);
                   setDone(false);
+                  setPreparedDriveRoot("");
+                  setEjected(false);
+                  setEjectError("");
                   setStatus("");
                 }}
               >
@@ -785,6 +823,35 @@ export default function BadAvatarUsbPage({
               </div>
             </details>
 
+            <details className="rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
+              <summary className="cursor-pointer font-medium text-foreground">
+                O perfil ABadAvatar não apareceu no Xbox 360? Veja o que conferir
+              </summary>
+              <ol className="mt-2.5 list-decimal space-y-1.5 pl-4 text-muted-foreground">
+                <li>
+                  <strong>Ejete com segurança antes de tirar do PC:</strong> sempre clique em{" "}
+                  <strong>Ejetar pendrive com segurança</strong> ao terminar (ou use &quot;Remover Hardware com Segurança&quot; no Windows). Puxar o pendrive direto pode deixar a gravação incompleta.
+                </li>
+                <li>
+                  <strong>Use a entrada USB frontal e deixe só este pendrive conectado:</strong> desconecte outros pendrives ou HDs USB do console durante a ativação.
+                </li>
+                <li>
+                  <strong>Desative o Login Automático:</strong> aperte o <strong>Botão Guia</strong> do controle &gt;{" "}
+                  <em>Configurações &gt; Perfil &gt; Preferências de Entrada &gt; Login Automático: Desativado</em>, para o Xbox parar na tela de perfis.
+                </li>
+                <li>
+                  <strong>Se não aparecer na 1ª tentativa, troque de porta USB e reinicie:</strong> desligue o console completamente, conecte na outra entrada USB frontal e ligue sem internet. Se preferir, ligue o console primeiro, aguarde a tela de perfis e só então conecte o pendrive.
+                </li>
+                <li>
+                  <strong>Se aparecer &quot;0 KB&quot; em Armazenamento &gt; Dispositivo USB:</strong> teste o pendrive em{" "}
+                  <strong>Jogos Instalados &gt; Testar Capacidade</strong> (para descartar pendrive com capacidade falsificada) ou formate o pendrive pelo próprio Xbox 360 (<em>Configurações &gt; Sistema &gt; Armazenamento &gt; Dispositivo USB &gt; aperte Y &gt; Formatar</em>, <strong>não</strong> escolha &quot;Configurar Agora&quot;) e prepare novamente aqui <strong>sem</strong> marcar &quot;Formatar antes&quot;.
+                </li>
+                <li>
+                  <strong>Console sem Disco Rígido e sem memória interna (4 GB):</strong> modelos sem nenhum armazenamento interno não leem perfis gravados diretamente no pendrive comum.
+                </li>
+              </ol>
+            </details>
+
             <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
               <Checkbox
                 checked={requirementsAccepted}
@@ -857,8 +924,8 @@ export default function BadAvatarUsbPage({
               <>
                 <p className="mt-2 text-[11px] leading-relaxed text-gray-200">
                   {isRghOnly
-                    ? "Concluído! Insira o pendrive/HD no seu Xbox 360 RGH e ligue o videogame para carregar a Aurora automaticamente."
-                    : "Ligue o Xbox com o pendrive conectado e fique parado na tela de escolha de perfis, sem entrar em nenhum perfil. Em até 2 minutos a Aurora abrirá sozinha. Não desbloqueia de forma permanente — repita a cada vez que ligar e mantenha o console sem internet."}
+                    ? "Concluído! Ejete o dispositivo com segurança antes de desconectar, insira no seu Xbox 360 RGH e ligue o videogame para carregar a Aurora automaticamente."
+                    : "Antes de tirar do PC, clique em “Ejetar pendrive com segurança”. Depois, conecte na entrada USB frontal do Xbox 360 (sem internet e sem outros pendrives) e fique parado na tela de escolha de perfis sem entrar em nenhum perfil. Em até 2 minutos a Aurora abrirá sozinha. Não desbloqueia de forma permanente — repita a cada vez que ligar."}
                   {!isRghOnly && " O Aurora abrir\u00e1 automaticamente, configurar\u00e1 as pastas de jogos e iniciar\u00e1 a varredura."}
                 </p>
                 {!isRghOnly && (
@@ -866,10 +933,33 @@ export default function BadAvatarUsbPage({
                     <strong>Dica de segurança para saves:</strong> Se o seu Xbox 360 tiver Disco Rígido interno ou Unidade de Memória interna, mantenha seu perfil de jogador pessoal e seus saves de jogos nessa memória interna. Use o pendrive apenas para carregar o exploit e os jogos. Assim, se o jogo travar ou houver desligamento repentino, seu progresso não será perdido.
                   </p>
                 )}
+                {ejected ? (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg border border-green-500/35 bg-green-500/10 px-3 py-2 text-[11px] font-medium text-green-300">
+                    <Check className="h-4 w-4 shrink-0 text-green-400" />
+                    <span>Pendrive ejetado com segurança! Você já pode removê-lo do computador e conectar no Xbox 360.</span>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-col gap-2">
+                    <Button
+                      variant="outline"
+                      className="h-10 w-full border-green-500/40 bg-green-500/10 text-green-200 hover:bg-green-500/20"
+                      disabled={ejecting || !(preparedDriveRoot || selectedDevice?.rootPath)}
+                      onClick={handleEjectPreparedDrive}
+                    >
+                      {ejecting
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <LogOut className="h-4 w-4" />}
+                      {ejecting ? "Ejetando com segurança…" : "Ejetar pendrive com segurança"}
+                    </Button>
+                    {ejectError && (
+                      <p className="text-[11px] leading-relaxed text-amber-300">{ejectError}</p>
+                    )}
+                  </div>
+                )}
               </>
             )}
-            {done && onBrowseGames && (
-              <Button className="mt-3 h-10 w-full" onClick={onBrowseGames}>
+            {done && onBrowseGames && !ejected && (
+              <Button className="mt-2.5 h-10 w-full" onClick={onBrowseGames}>
                 <Gamepad2 className="h-4 w-4" />
                 Adicionar jogos
               </Button>

@@ -3,6 +3,7 @@ import {
   Search, Loader2, WifiOff, Gamepad2, Download,
   RefreshCw, ChevronDown, X, HardDrive, Usb,
   Wifi, CheckCircle2, AlertTriangle, Check, Disc,
+  Flame, ArrowDownAZ,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -11,6 +12,11 @@ import { cn } from "../lib/utils";
 import { errorMessage } from "../../infrastructure/backendFailure.ts";
 import { formatErrorForUser } from "../../infrastructure/userFriendlyError.ts";
 import { buildQueueSuccessFeedback } from "../../infrastructure/browseQueueFeedback.ts";
+import {
+  sortCatalogItems,
+  type CatalogSortOrder,
+  type CoverStatus,
+} from "../../infrastructure/browseCatalogSort.ts";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1131,6 +1137,7 @@ function useIntersectionObserver<T extends HTMLElement>(): [React.RefObject<T | 
 interface LocalGameCardProps {
   name: string;
   onClick: () => void;
+  onCoverStatus?: (name: string, status: CoverStatus) => void;
   isDownloaded?: boolean;
   installedInfo?: InstalledGame;
   isMultiDisc?: boolean;
@@ -1138,7 +1145,7 @@ interface LocalGameCardProps {
   versionCount?: number;
 }
 
-function LocalGameCard({ name, onClick, isDownloaded, installedInfo, isMultiDisc, totalDiscs, versionCount }: LocalGameCardProps) {
+function LocalGameCard({ name, onClick, onCoverStatus, isDownloaded, installedInfo, isMultiDisc, totalDiscs, versionCount }: LocalGameCardProps) {
   const [cover, setCover] = useState<string | null | undefined>(undefined);
   const [ref, isVisible] = useIntersectionObserver<HTMLButtonElement>();
 
@@ -1149,11 +1156,14 @@ function LocalGameCard({ name, onClick, isDownloaded, installedInfo, isMultiDisc
     const timeoutId = setTimeout(() => {
       window.godsendApi.browseFetchCover(name).then((r: any) => {
         if (active) {
-          setCover(r.ok ? r.dataUrl : null);
+          const has = Boolean(r?.ok && r?.dataUrl);
+          setCover(has ? r.dataUrl : null);
+          onCoverStatus?.(name, has ? "has" : "none");
         }
       }).catch(() => {
         if (active) {
           setCover(null);
+          onCoverStatus?.(name, "none");
         }
       });
     }, 150); // 150ms debounce para evitar requests em rolagem rápida
@@ -1162,7 +1172,7 @@ function LocalGameCard({ name, onClick, isDownloaded, installedInfo, isMultiDisc
       active = false;
       clearTimeout(timeoutId);
     };
-  }, [name, isVisible]);
+  }, [name, isVisible, onCoverStatus]);
 
   return (
     <button
@@ -1257,6 +1267,9 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
   const [discMembershipState, setDiscMembershipState] = useState<DiscMembershipState>("loading");
   const [cacheProgress, setCacheProgress] = useState<{ loaded: number; total: number } | null>(null);
   const [filter,   setFilter]   = useState("");
+  const [sortOrder, setSortOrder] = useState<CatalogSortOrder>("popular");
+  const [coverStatusMap, setCoverStatusMap] = useState<Record<string, CoverStatus>>({});
+  const [coverHintSet, setCoverHintSet] = useState<Set<string>>(() => new Set());
   const [defaultDrive, setDefaultDrive] = useState("");
 
   const [selected,     setSelected]     = useState<string | null>(null);
@@ -1540,10 +1553,56 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
     return map;
   }, [games, discMembership]);
 
+  const handleCoverStatus = useCallback((name: string, nextStatus: CoverStatus) => {
+    setCoverStatusMap((prev) => {
+      if (prev[name] === nextStatus) return prev;
+      return { ...prev, [name]: nextStatus };
+    });
+  }, []);
+
+  useEffect(() => {
+    const names = Array.from(groupedGames.values()).map((item) => item.displayTitle);
+    if (names.length === 0) return;
+
+    let cancelled = false;
+    window.godsendApi.browseGetCoverHints?.(names)
+      ?.then((res: any) => {
+        if (cancelled || !res?.ok) return;
+        if (Array.isArray(res.withHint)) {
+          setCoverHintSet(new Set(res.withHint));
+        }
+        const hasList: string[] = Array.isArray(res.hasCover) ? res.hasCover : [];
+        const noList: string[] = Array.isArray(res.noCover) ? res.noCover : [];
+        if (hasList.length === 0 && noList.length === 0) return;
+        setCoverStatusMap((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const n of hasList) {
+            if (next[n] !== "has") {
+              next[n] = "has";
+              changed = true;
+            }
+          }
+          for (const n of noList) {
+            if (next[n] !== "none") {
+              next[n] = "none";
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      })
+      ?.catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groupedGames]);
+
   const uniqueBaseTitles = useMemo(() => {
     const items = Array.from(groupedGames.values());
-    return items.sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
-  }, [groupedGames]);
+    return sortCatalogItems(items, { sortOrder, coverStatusMap, coverHintSet });
+  }, [groupedGames, sortOrder, coverStatusMap, coverHintSet]);
 
   // The search bar counts every release (each region/version the user can pick), not the
   // grouped cards: a game with EU, JP and USA versions is three titles. A multi-disc release
@@ -1609,7 +1668,7 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
     <div className="relative flex flex-col h-full p-3 gap-2 overflow-hidden">
 
       {/* ── Header ── */}
-      <header className="flex items-center gap-2 shrink-0">
+      <header className="flex items-center justify-between gap-2 shrink-0 flex-wrap">
         <div className="flex gap-1">
           {SOURCES.map((s) => (
             <PillBtn
@@ -1621,6 +1680,44 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
               {s.label}
             </PillBtn>
           ))}
+        </div>
+        <div
+          className="flex items-center gap-0.5 bg-muted/40 p-0.5 rounded-full border border-border/50"
+          role="group"
+          aria-label="Ordenação do catálogo"
+        >
+          <button
+            type="button"
+            aria-pressed={sortOrder === "popular"}
+            onClick={() => setSortOrder("popular")}
+            title="Ordenar pelos mais populares (sem capa por último)"
+            className={cn(
+              "inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] rounded-full whitespace-nowrap transition-colors",
+              "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              sortOrder === "popular"
+                ? "bg-primary text-primary-foreground font-semibold shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Flame className="h-3 w-3" />
+            <span>Mais populares</span>
+          </button>
+          <button
+            type="button"
+            aria-pressed={sortOrder === "alphabetical"}
+            onClick={() => setSortOrder("alphabetical")}
+            title="Ordenar por ordem alfabética (sem capa por último)"
+            className={cn(
+              "inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] rounded-full whitespace-nowrap transition-colors",
+              "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              sortOrder === "alphabetical"
+                ? "bg-primary text-primary-foreground font-semibold shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <ArrowDownAZ className="h-3 w-3" />
+            <span>Ordem alfabética</span>
+          </button>
         </div>
       </header>
 
@@ -1794,6 +1891,7 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
                       key={item.displayTitle}
                       name={item.displayTitle}
                       onClick={() => handleGameClick(item)}
+                      onCoverStatus={handleCoverStatus}
                       isDownloaded={Boolean(inst)}
                       installedInfo={isLocal ? inst : undefined}
                       isMultiDisc={item.isMultiDisc}

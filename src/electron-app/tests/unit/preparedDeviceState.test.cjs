@@ -113,6 +113,36 @@ test("arquivo que nao e pacote STFS nao passa por perfil, nem com o tamanho do m
   assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-rgh");
 });
 
+test("pacote STFS que nao tem ContentType de Perfil (0x00010000) nao passa por perfil do exploit", async (t) => {
+  const root = temp(t);
+  write(root, ".xbox-downloader/ready-to-play-v4.marker", "marker");
+  const notAProfile = stfsProfile(70);
+  notAProfile.writeUInt32BE(0x00007000, 0x344); // Games on Demand em vez de Profile
+  write(root, EXPLOIT_PROFILE[0].path, notAProfile);
+  assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "preparado-rgh");
+});
+
+test("requirePayloadDir exige BadUpdatePayload/default.xex alem do perfil para oferecer pular preparo", async (t) => {
+  const root = temp(t);
+  write(root, "Aurora/default.xex", "aurora");
+  write(root, "launch.ini", "[Paths]");
+  write(root, ".xbox-downloader/ready-to-play-v4.marker", "marker");
+  write(root, EXPLOIT_PROFILE[0].path, stfsProfile(70));
+
+  // Sem BadUpdatePayload/default.xex, o modo estrito nao declara pronto para Bloqueado/LT.
+  assert.equal(
+    await detectPreparedDeviceState(root, EXPLOIT_PROFILE, { requirePayloadDir: true }),
+    "preparado-rgh",
+  );
+
+  // Com BadUpdatePayload/default.xex presente, declara preparado-bloqueado-lt.
+  write(root, "BadUpdatePayload/default.xex", "payload");
+  assert.equal(
+    await detectPreparedDeviceState(root, EXPLOIT_PROFILE, { requirePayloadDir: true }),
+    "preparado-bloqueado-lt",
+  );
+});
+
 // O perfil real do pacote (gitignored; `npm run payload:update` o traz): a conta do cabeçalho tem de
 // dar exatamente o tamanho dele, e ele sem o último bloco tem de ser recusado.
 test("o perfil real do pacote confere pelo proprio cabecalho", async (t) => {

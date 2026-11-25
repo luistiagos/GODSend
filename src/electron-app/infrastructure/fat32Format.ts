@@ -130,12 +130,23 @@ function Get-XboxLayoutProblem($disk, $partitions) {
   if ($style -ne 'MBR') { return "disco $style, nao MBR" }
   $count = if ($null -eq $partitions) { 0 } else { @($partitions).Count }
   if ($count -ne 1) { return "$count particoes no disco" }
+  $first = @($partitions)[0]
+  # Em "superfloppy" o volume FAT32 comeca direto no setor 0 (Offset = 0), sem tabela MBR real:
+  # o Windows sintetiza MBR/1 particao e o fat32format ignora o erro de SetPartitionInfo quando
+  # HiddenSectors == 0, deixando o disco sem MBR real. Recriar a tabela corrige o offset.
+  if ($null -ne $first -and $null -ne $first.PSObject.Properties['Offset'] -and $null -ne $first.Offset -and [int64]$first.Offset -le 0) {
+    return 'particao sem tabela MBR real (superfloppy, offset 0)'
+  }
   return ''
 }
 
 function Get-Fat32MbrTypeProblem($partition) {
   $type = [int]$partition.MbrType
   if ($type -ne 11 -and $type -ne 12) { return "particao com tipo $type, nao FAT32 (11 ou 12)" }
+  # Tipo 11 (0x0B) e FAT32 CHS (limite ~8 GB / 1024*255*63 setores); volumes maiores exigem 12 (0x0C, LBA).
+  if ($type -eq 11 -and $null -ne $partition.PSObject.Properties['Size'] -and $null -ne $partition.Size -and [int64]$partition.Size -gt 8455716864) {
+    return 'particao acima de 8 GB marcada com tipo 11 (FAT32 CHS), precisa de tipo 12 (FAT32 LBA)'
+  }
   return ''
 }
 
@@ -299,7 +310,7 @@ try {
   }
   "Volume GUID validado: $currentVolumeGuid" | Out-File -FilePath $log -Append -Encoding utf8
   "Disco USB validado: $diskNo ($($disk.FriendlyName))" | Out-File -FilePath $log -Append -Encoding utf8
-  "Layout de chegada: $($disk.PartitionStyle), $($arrivalPartitions.Count) particao(oes), tipo $($partition.MbrType), setor $($disk.LogicalSectorSize)" | Out-File -FilePath $log -Append -Encoding utf8
+  "Layout de chegada: $($disk.PartitionStyle), $($arrivalPartitions.Count) particao(oes), tipo $($partition.MbrType), offset $($partition.Offset), setor $($disk.LogicalSectorSize)" | Out-File -FilePath $log -Append -Encoding utf8
   $arrivalProblem = Get-XboxLayoutProblem $disk $arrivalPartitions
   # Formatar no lugar mantem o byte de tipo que chegou (pendrive e HD reais, chamado #254), e o
   # Set-Partition recusou troca-lo nesses dispositivos; so a tabela recriada sai com tipo 12.
@@ -524,7 +535,7 @@ try {
       throw "A formatacao terminou, mas o Xbox 360 nao vai ler o disco: $typeProblem. O Windows recusou corrigir o tipo da particao neste dispositivo; use outro pendrive ou HD."
     }
   }
-  "Layout final: MBR, 1 particao, tipo $($finalPartition.MbrType)." | Out-File -FilePath $log -Append -Encoding utf8
+  "Layout final: MBR, 1 particao, tipo $($finalPartition.MbrType), offset $($finalPartition.Offset)." | Out-File -FilePath $log -Append -Encoding utf8
   # Lida por readFormattedPartitionBytes(): recriar a tabela muda o tamanho que o app confere.
   "Particao final: $([int64]$finalPartition.Size) bytes" | Out-File -FilePath $log -Append -Encoding utf8
   "Formatação FAT32 concluída com sucesso." | Out-File -FilePath $log -Append -Encoding utf8

@@ -149,6 +149,29 @@ test("traduz falha de verificacao na copia como problema no pendrive/HD sem cita
   assert.match(msg, /mau contato ou defeito/i);
 });
 
+test("traduz falha de verificacao fisica pos-gravacao (pendrive falso/defeituoso) sem jargao tecnico", () => {
+  const msg = formatBadAvatarPrepareErrorForUser(
+    new Error(
+      "Falha na verificação física pós-gravação: Content/E0002FF78DFBDE7B/FFFE07D1/00010000/E0002FF78DFBDE7B (hash físico divergente)",
+    ),
+    "E:\\",
+  );
+  assert.match(msg, /pendrive ou HD \(E:\)/);
+  assert.match(msg, /capacidade falsificada|defeito/i);
+  assert.match(msg, /Testar Capacidade|outro pendrive/i);
+  assert.ok(!/SHA|hash|Win32|FILE_FLAG_NO_BUFFERING|E0002FF78DFBDE7B/i.test(msg));
+});
+
+test("traduz erro interno de transicao de transacao sem vazar staging -> completed na UI", () => {
+  const msg = formatBadAvatarPrepareErrorForUser(
+    new Error("Transição de transação inválida: staging -> completed."),
+    "E:\\",
+  );
+  assert.match(msg, /pendrive ou HD \(E:\)/);
+  assert.match(msg, /Formatar antes/i);
+  assert.ok(!/staging|completed|Transição de transação/i.test(msg));
+});
+
 test("simplifica aviso de volume danificado removendo Detalhe/ENOENT/EINVAL mas preservando gatilho Reparar (CHKDSK)", () => {
   const chkdskMsg =
     "O sistema de arquivos do pendrive está danificado e gravar por cima pode falhar ou piorar o dano. " +

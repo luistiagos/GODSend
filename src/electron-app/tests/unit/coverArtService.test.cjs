@@ -17,6 +17,8 @@ const {
   hasCustomCover,
   COVER_CACHE_VERSION,
   resetCoverCachePurgeForTests,
+  browseCoverCache,
+  getCoverStatusHints,
 } = require("../../services/coverArtService.js");
 
 const fs = require("node:fs");
@@ -316,4 +318,30 @@ test("coverArtService: games of the same franchise keep distinct TitleIDs", () =
   assert.equal(generateSearchCandidates("Air Conflicts Vietnam")[0], "413307D9");
   // An exact spelling wins over the spelling-insensitive key.
   assert.equal(generateSearchCandidates("Assassin's Creed II")[0], "5553083B");
+});
+
+test("coverArtService: getCoverStatusHints separates cached covers, confirmed misses, and TitleID hints", () => {
+  fs.mkdirSync(USER_COVERS_DIR, { recursive: true });
+  fs.writeFileSync(path.join(USER_COVERS_DIR, ".cover-cache-version"), COVER_CACHE_VERSION);
+  fs.writeFileSync(path.join(USER_COVERS_DIR, "disk_cached_game.jpg"), FAKE_JPEG);
+  resetCoverCachePurgeForTests();
+
+  browseCoverCache.set("In Memory Cover", { ok: true, dataUrl: "data:image/jpeg;base64,ABC" });
+  browseCoverCache.set("Confirmed No Cover", { ok: false });
+
+  try {
+    const hints = getCoverStatusHints([
+      "In Memory Cover",
+      "Confirmed No Cover",
+      "Disk Cached Game",
+      "Grand Theft Auto V",
+      "Unmapped Obscure Title XYZ 9999",
+    ]);
+    assert.deepEqual(hints.hasCover, ["In Memory Cover", "Disk Cached Game"]);
+    assert.deepEqual(hints.noCover, ["Confirmed No Cover"]);
+    assert.deepEqual(hints.withHint, ["Grand Theft Auto V"]);
+  } finally {
+    browseCoverCache.delete("In Memory Cover");
+    browseCoverCache.delete("Confirmed No Cover");
+  }
 });

@@ -441,6 +441,40 @@ test("repreparo com diário anterior interrompido de plano divergente restaura b
   assert.equal(fs.readFileSync(path.join(target, "Aurora", "old_plugin.xex"), "utf8"), "original-user-plugin");
 });
 
+test("repreparo sem formatar após encolher o plano (ex.: exclusão de caches doadores) conclui transição válida", async (t) => {
+  const target = createSimulationRoot(t);
+  const transactionId = "74444444-4444-4444-8444-444444444444";
+
+  // 1º preparo (versão anterior): gravava também um arquivo do console doador.
+  const oldPlan = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+    { relativePath: "Content/0000000000000000/FFFE07DF/00040000/ContentCache.pkg", contents: "donor-cache" },
+  ], transactionId);
+  const first = await executeTransactionalWriteSimulation(oldPlan, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(first.journal.state, "completed");
+
+  // 2º preparo (versão nova): o cache doador foi colocado em quarentena e saiu do plano,
+  // mas os demais arquivos já existem intactos no pendrive e o transactionId é o mesmo.
+  fs.rmSync(path.join(target, "Content", "0000000000000000", "FFFE07DF", "00040000", "ContentCache.pkg"));
+  const newPlan = await createPlan(t, [
+    { relativePath: "Aurora/default.xex", contents: "aurora" },
+    { relativePath: "launch.ini", contents: "launch" },
+  ], transactionId);
+
+  const second = await executeTransactionalWriteSimulation(newPlan, target, {
+    revalidateTarget: async () => {},
+  });
+  assert.equal(second.journal.state, "completed");
+  assert.equal(second.journal.planHash, newPlan.planHash);
+  assert.equal(second.journal.entries.length, 2);
+  assert.equal(second.resumed, true);
+  assert.equal(second.reusedFiles, 2);
+  assert.equal(second.writtenFiles, 0);
+});
+
 test("repreparo com arquivo de diário truncado ou corrompido no pendrive reseta e conclui com sucesso", async (t) => {
   const target = createSimulationRoot(t);
   const transactionId = crypto.randomUUID();

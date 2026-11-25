@@ -20,6 +20,13 @@ import {
   buildPreparationReceipt,
   writePreparationReceipt,
 } from "../infrastructure/preparationReceipt";
+import {
+  formatPhysicalReadbackFailureSummary,
+  selectCriticalBootFiles,
+  verifyCriticalFilesPhysicalReadback,
+  type CriticalFileExpectation,
+  type PhysicalReadbackResult,
+} from "../infrastructure/physicalFlashVerifier";
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { reportError } from "../infrastructure/telemetry";
 export { isForeignConsoleStatePath } from "../infrastructure/foreignConsoleState";
@@ -460,8 +467,43 @@ function describeDiskLayout(device: PhysicalUsbDevice): string {
     `setor ${device.logicalSectorSize}/${device.physicalSectorSize}`,
     device.fileSystem || "sistema de arquivos ?",
     `${device.partitionSizeBytes} bytes`,
+    typeof device.partitionOffsetBytes === "number" ? `offset ${device.partitionOffsetBytes}` : "",
     `"${device.friendlyName}"`,
-  ].join(", ");
+  ].filter(Boolean).join(", ");
+}
+
+/**
+ * Releitura física sem cache (`FILE_FLAG_NO_BUFFERING`) + limpeza de atributos DOS (`+H/+S/+R`)
+ * dos arquivos críticos de boot/exploit no dispositivo recém-preparado.
+ *
+ * O escritor transacional valida cada arquivo logo após escrevê-lo, o que no Windows costuma ler
+ * do Page Cache em RAM. Em pendrives com capacidade falsificada (wrap-around depois de gravar
+ * centenas de MB), células defeituosas ou porta USB instável, o perfil `ABadAvatar` ficava
+ * corrompido na flash física enquanto o app relatava "Pronto!".
+ */
+export async function verifyWrittenBootFilesOnPhysicalFlash(
+  driveRoot: string,
+  entries: readonly CriticalFileExpectation[],
+  deps: {
+    verify?: (root: string, files: readonly CriticalFileExpectation[]) => Promise<PhysicalReadbackResult>;
+  } = {},
+): Promise<PhysicalReadbackResult> {
+  const critical = selectCriticalBootFiles(entries);
+  const verify = deps.verify ?? verifyCriticalFilesPhysicalReadback;
+  const verification = await verify(driveRoot, critical);
+  if (!verification.ok) {
+    const summary = formatPhysicalReadbackFailureSummary(verification.failures);
+    appendAppEvent(
+      "BADAVATAR",
+      `verificacao fisica pos-gravacao FALHOU em ${driveRoot} (sem-cache=${verification.bypassedCache}): ${summary}`,
+    );
+    throw new Error(`Falha na verificação física pós-gravação: ${summary}`);
+  }
+  appendAppEvent(
+    "BADAVATAR",
+    `verificacao fisica pos-gravacao concluida em ${driveRoot}: ${verification.checkedCount}/${critical.length} arquivo(s) critico(s) validados (sem-cache=${verification.bypassedCache}, atributos-limpos=${verification.clearedAttributeCount})`,
+  );
+  return verification;
 }
 
 /**
@@ -788,6 +830,9 @@ export async function prepareFixedBadAvatarDevice(
         );
       }
     }
+
+    onProgress({ status: "Confirmando gravação física na memória do dispositivo…", percent: 99 });
+    await verifyWrittenBootFilesOnPhysicalFlash(request.driveRoot, plan.entries);
 
     // Fora da transação, e depois dela: o recibo carrega data e versão, e qualquer byte volátil
     // dentro do plano faria toda retomada interrompida falhar (ver preparationReceipt.ts).
