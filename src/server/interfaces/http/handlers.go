@@ -127,7 +127,8 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		loaded := atomic.LoadInt32(&s.Loaded)
 		total := atomic.LoadInt32(&s.Total)
 		if total == 0 {
-			total = int32(len(app.IACollections[platform]))
+			colls, _ := d.IA.CollectionsFor(platform)
+			total = int32(len(colls))
 		}
 		d.App.Logf("BROWSE: IA cache building for %s %d/%d", platform, loaded, total)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -279,7 +280,8 @@ func (d *Deps) handleBrowse(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			loaded = atomic.LoadInt32(&s.Loaded)
 			total = atomic.LoadInt32(&s.Total)
 			if total == 0 {
-				total = int32(len(app.IACollections[platform]))
+				colls, _ := d.IA.CollectionsFor(platform)
+				total = int32(len(colls))
 			}
 		}
 

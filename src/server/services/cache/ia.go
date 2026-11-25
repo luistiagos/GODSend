@@ -47,10 +47,17 @@ func (s *IAService) cacheFilePath(platform string) string {
 }
 
 func (s *IAService) SaveCacheToDisk(platform string, games []string, entries map[string]models.IAGameEntry) {
+	s.saveCacheToDisk(platform, games, entries, nil)
+}
+
+// saveCacheToDisk also records the collection list the cache was built from,
+// so the next start knows it without asking archive.org.
+func (s *IAService) saveCacheToDisk(platform string, games []string, entries map[string]models.IAGameEntry, collections []string) {
 	pc := models.PlatformCache{
 		Games:       games,
 		GameEntries: entries,
 		BuildTime:   time.Now(),
+		Collections: collections,
 	}
 	data, err := json.MarshalIndent(pc, "", "  ")
 	if err != nil {
@@ -65,9 +72,12 @@ func (s *IAService) SaveCacheToDisk(platform string, games []string, entries map
 }
 
 // LoadCacheFromDisk returns true if a usable cache was loaded and still matches
-// app.IACollections. When the IA renames collections, entries of the retired ones
-// are dropped (their URLs 404), the rest is loaded so the catalog is not empty,
-// and false is returned so the caller rebuilds.
+// the platform's collection list (the discovered one saved with the cache, or
+// app.IACollections). When the IA renames collections, entries of the retired
+// ones are dropped (their URLs 404), the rest is loaded so the catalog is not
+// empty, and false is returned so the caller rebuilds — unless a rebuild over
+// the same list already failed less than IARebuildRetryInterval ago, so a
+// collection that stays down does not cost a full rebuild on every start.
 func (s *IAService) LoadCacheFromDisk(platform string) bool {
 	data, err := os.ReadFile(s.cacheFilePath(platform))
 	if err != nil {
@@ -92,7 +102,12 @@ func (s *IAService) LoadCacheFromDisk(platform string) bool {
 	}
 
 	current := true
-	if colls, ok := app.IACollections[platform]; ok && !strings.HasPrefix(platform, "hf_") {
+	if configured, ok := app.IACollections[platform]; ok && !strings.HasPrefix(platform, "hf_") {
+		colls := configured
+		if _, discovers := iaDiscoveryPrefixes[platform]; discovers && len(pc.Collections) > 0 {
+			colls = pc.Collections
+			s.setCollections(platform, colls)
+		}
 		covered := make(map[string]bool, len(colls))
 		for _, c := range colls {
 			covered[c] = false
@@ -122,9 +137,15 @@ func (s *IAService) LoadCacheFromDisk(platform string) bool {
 			}
 		}
 		if retired > 0 || len(missing) > 0 {
-			current = false
-			s.App.Logf("CACHE [%s]: disk cache is stale (%d entries from retired collections dropped, %d configured collection(s) missing: %s); rebuilding",
-				platform, retired, len(missing), strings.Join(missing, ", "))
+			if attempt, recent := s.recentIncompleteBuild(platform); recent && sameCollections(attempt.Collections, colls) {
+				s.App.Logf("CACHE [%s]: disk cache is incomplete (%d retired entries dropped, %d collection(s) missing: %s); the rebuild at %s failed on the same list, next attempt after %s",
+					platform, retired, len(missing), strings.Join(missing, ", "),
+					attempt.At.Format(time.RFC3339), attempt.At.Add(IARebuildRetryInterval).Format(time.RFC3339))
+			} else {
+				current = false
+				s.App.Logf("CACHE [%s]: disk cache is stale (%d entries from retired collections dropped, %d configured collection(s) missing: %s); rebuilding",
+					platform, retired, len(missing), strings.Join(missing, ", "))
+			}
 		}
 		if len(pc.Games) == 0 {
 			return false
@@ -151,12 +172,25 @@ func (s *IAService) replaceMemoryCache(platform string, games []string, entries 
 			}
 		}
 	} else {
-		collections := make(map[string]struct{}, len(app.IACollections[platform]))
+		// Ownership covers the configured list, the list in use before this
+		// call and the platform's Redump pattern: when a collection is renamed
+		// the entries of the retired id must go too.
+		collections := make(map[string]struct{})
 		for _, collectionID := range app.IACollections[platform] {
 			collections[collectionID] = struct{}{}
 		}
+		if inUse, ok := s.CollectionsFor(platform); ok {
+			for _, collectionID := range inUse {
+				collections[collectionID] = struct{}{}
+			}
+		}
+		prefix := iaDiscoveryPrefixes[platform]
 		for key, entry := range s.App.GameEntryMap {
-			if _, owned := collections[entry.CollectionID]; owned {
+			_, owned := collections[entry.CollectionID]
+			if !owned && prefix != "" {
+				_, owned = iaCollectionLetter(prefix, entry.CollectionID)
+			}
+			if owned {
 				delete(s.App.GameEntryMap, key)
 			}
 		}
@@ -302,9 +336,22 @@ func (s *IAService) FetchIACollectionEntries(collectionID string) ([]models.IAGa
 	return nil, fmt.Errorf("%s: gave up after %d attempts: %w", collectionID, MaxIARetries, err)
 }
 
-// Build fetches all collections for a platform sequentially
-// (controlled by the global semaphore) so archive.org isn't overwhelmed.
+// Build fetches all collections for a platform in parallel (capped by the
+// global semaphore) so archive.org isn't overwhelmed. Redump-style platforms
+// first ask archive.org which collections exist (discoverIACollections).
+//
+// The rebuild is partial, not all-or-nothing: collections that answered are
+// published; one that failed with a transient error keeps its previous entries;
+// one that is gone (404, `{}`, no archives) loses them, since their URLs no
+// longer download. An incomplete rebuild is recorded so startup does not
+// repeat it before IARebuildRetryInterval.
 func (s *IAService) Build(platform string) {
+	s.build(platform, nil)
+}
+
+// build uses colls when given (RebuildIfCollectionsChanged already discovered
+// them), otherwise collectionsToBuild.
+func (s *IAService) build(platform string, colls []string) {
 	s.App.IACacheBuildMu.Lock()
 	if s.App.IACacheBuilding[platform] {
 		s.App.IACacheBuildMu.Unlock()
@@ -319,9 +366,11 @@ func (s *IAService) Build(platform string) {
 		s.App.IACacheBuildMu.Unlock()
 	}()
 
-	colls, ok := app.IACollections[platform]
-	if !ok {
+	if _, ok := app.IACollections[platform]; !ok {
 		return
+	}
+	if colls == nil {
+		colls = s.collectionsToBuild(platform)
 	}
 
 	total := int32(len(colls))
@@ -342,21 +391,31 @@ func (s *IAService) Build(platform string) {
 		}(coll)
 	}
 
-	newEntries := map[string]models.IAGameEntry{}
-	var allGames []string
 	var loaded int32
-	var failedCollections []string
-
+	results := make([]result, 0, len(colls))
 	for range colls {
 		r := <-ch
 		loaded++
 		s.SetBuildState(platform, "building", loaded, total)
+		results = append(results, r)
+	}
+	// Deterministic order, with "_x_partN" before "_x": while the IA splits a
+	// letter both ids exist with the same titles, and the part is the one that
+	// stays.
+	sort.Slice(results, func(i, j int) bool { return results[i].collectionID > results[j].collectionID })
 
+	newEntries := map[string]models.IAGameEntry{}
+	var allGames []string
+	var failedCollections, transientCollections []string
+
+	for _, r := range results {
 		if r.err != nil {
 			s.App.Logf("CACHE WARN [%s]: %v", platform, r.err)
 			failedCollections = append(failedCollections, r.collectionID)
 			if errors.Is(r.err, errIACollectionGone) {
 				s.reportGoneCollection(platform, r.collectionID, r.err.Error())
+			} else {
+				transientCollections = append(transientCollections, r.collectionID)
 			}
 			continue
 		}
@@ -373,26 +432,65 @@ func (s *IAService) Build(platform string) {
 				continue
 			}
 			lower := strings.ToLower(name)
+			if _, dup := newEntries[lower]; dup {
+				continue
+			}
 			newEntries[lower] = e
 			allGames = append(allGames, name)
 		}
-		s.App.Logf("CACHE [%s] %d/%d: %s (%d files)", platform, loaded, total, r.collectionID, len(r.entries))
+		s.App.Logf("CACHE [%s]: %s (%d files)", platform, r.collectionID, len(r.entries))
 	}
-	if len(failedCollections) > 0 {
-		s.preserveExistingCache(platform, "INTERNET ARCHIVE", fmt.Errorf("incomplete rebuild: %d/%d collection(s) failed (%s)", len(failedCollections), len(colls), strings.Join(failedCollections, ", ")))
-		return
+
+	// A collection that failed transiently keeps what the cache had for it.
+	kept := 0
+	if len(transientCollections) > 0 {
+		keep := make(map[string]struct{}, len(transientCollections))
+		for _, c := range transientCollections {
+			keep[c] = struct{}{}
+		}
+		s.App.GameEntryMapMu.RLock()
+		for key, e := range s.App.GameEntryMap {
+			if _, ok := keep[e.CollectionID]; !ok {
+				continue
+			}
+			if _, dup := newEntries[key]; dup {
+				continue
+			}
+			newEntries[key] = e
+			allGames = append(allGames, strings.TrimSuffix(e.FileName, filepath.Ext(e.FileName)))
+			kept++
+		}
+		s.App.GameEntryMapMu.RUnlock()
 	}
+
 	if len(allGames) == 0 {
-		s.preserveExistingCache(platform, "INTERNET ARCHIVE", fmt.Errorf("rebuild returned no games"))
+		s.recordIncompleteBuild(platform, colls, failedCollections)
+		cause := fmt.Errorf("rebuild returned no games")
+		if len(failedCollections) > 0 {
+			cause = fmt.Errorf("rebuild failed: %d/%d collection(s) failed (%s)", len(failedCollections), len(colls), strings.Join(failedCollections, ", "))
+		}
+		s.preserveExistingCache(platform, "INTERNET ARCHIVE", cause)
 		return
 	}
 
 	sort.Strings(allGames)
+	s.replaceMemoryCache(platform, allGames, newEntries) // before setCollections: ownership needs the old list
+	var persisted []string
+	if _, discovers := iaDiscoveryPrefixes[platform]; discovers {
+		persisted = colls
+		s.setCollections(platform, colls)
+	}
+	s.saveCacheToDisk(platform, allGames, newEntries, persisted)
 	s.SetBuildState(platform, "ready", total, total)
-	s.App.Logf("CACHE: %s complete — %d games", platform, len(allGames))
 
-	s.replaceMemoryCache(platform, allGames, newEntries)
-	s.SaveCacheToDisk(platform, allGames, newEntries)
+	if len(failedCollections) > 0 {
+		s.recordIncompleteBuild(platform, colls, failedCollections)
+		s.App.Logf("CACHE: %s published partially — %d games; %d/%d collection(s) failed (%s), %d entries kept from the previous cache",
+			platform, len(allGames), len(failedCollections), len(colls), strings.Join(failedCollections, ", "), kept)
+		return
+	}
+	s.clearIncompleteBuild(platform)
+	s.App.Logf("CACHE: %s complete — %d games", platform, len(allGames))
 }
 
 // reportGoneCollection sends one telemetry error per dead collection. The
@@ -458,7 +556,7 @@ var errIACollectionUnavailable = errors.New("coleção IA indisponível")
 
 // LiveSearchIA searches IA collections via the Metadata API when the cache is cold.
 func (s *IAService) LiveSearchIA(gameName, platform string) (models.IAGameEntry, error) {
-	colls, ok := app.IACollections[platform]
+	colls, ok := s.CollectionsFor(platform)
 	if !ok {
 		return models.IAGameEntry{}, fmt.Errorf("unknown platform: %s", platform)
 	}

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,25 +14,22 @@ import (
 	"godsend/models"
 )
 
-func TestIABuildPreservesCompleteCacheWhenOneCollectionFails(t *testing.T) {
+// Until 2.12.135 one failing collection in 34 discarded the other 33. Now the
+// rebuild is partial, and the guarantee this test protects is the one that
+// matters: a new partial build never erases the good old entries of the
+// collection that failed.
+func TestIABuildKeepsOldEntriesOfTransientlyFailedCollection(t *testing.T) {
 	const platform = "test-ia-preserve"
-	previous, existed := app.IACollections[platform]
-	app.IACollections[platform] = []string{"collection-ok", "collection-failed"}
-	t.Cleanup(func() {
-		if existed {
-			app.IACollections[platform] = previous
-		} else {
-			delete(app.IACollections, platform)
-		}
-	})
+	withIACollections(t, platform, []string{"collection-ok", "collection-failed"})
 
 	a := app.NewApp()
 	a.ToolsDir = t.TempDir()
 	if err := os.MkdirAll(filepath.Join(a.ToolsDir, "cache"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	a.IAGameCache[platform] = []string{"Existing Game"}
-	a.GameEntryMap["existing game"] = models.IAGameEntry{CollectionID: "collection-ok", FileName: "Existing Game.zip"}
+	a.IAGameCache[platform] = []string{"Old Failed", "Old Ok"}
+	a.GameEntryMap["old ok"] = models.IAGameEntry{CollectionID: "collection-ok", FileName: "Old Ok.zip"}
+	a.GameEntryMap["old failed"] = models.IAGameEntry{CollectionID: "collection-failed", FileName: "Old Failed.zip"}
 
 	service := &IAService{App: a, FetchCollectionEntriesFn: func(collectionID string) ([]models.IAGameEntry, error) {
 		if collectionID == "collection-failed" {
@@ -41,11 +39,89 @@ func TestIABuildPreservesCompleteCacheWhenOneCollectionFails(t *testing.T) {
 	}}
 	service.Build(platform)
 
-	if games := a.IAGameCache[platform]; len(games) != 1 || games[0] != "Existing Game" {
-		t.Fatalf("partial rebuild replaced complete cache: %#v", games)
+	if games := strings.Join(a.IAGameCache[platform], "|"); games != "Old Failed|Replacement Game" {
+		t.Fatalf("want the fresh collection published and the failed one kept, got %q", games)
 	}
-	if _, ok := a.GameEntryMap["replacement game"]; ok {
-		t.Fatal("partial rebuild leaked an entry into the live catalog")
+	if e, ok := a.GameEntryMap["old failed"]; !ok || e.CollectionID != "collection-failed" {
+		t.Fatalf("entry of the transiently failed collection was erased: %#v", e)
+	}
+	if _, ok := a.GameEntryMap["old ok"]; ok {
+		t.Fatal("stale entry of the collection that answered survived its rebuild")
+	}
+	attempt, recent := service.recentIncompleteBuild(platform)
+	if !recent || strings.Join(attempt.Failed, ",") != "collection-failed" {
+		t.Fatalf("incomplete rebuild not recorded: %#v (recent=%v)", attempt, recent)
+	}
+	reloaded := &IAService{App: app.NewApp()}
+	reloaded.App.ToolsDir = a.ToolsDir
+	if !reloaded.LoadCacheFromDisk(platform) {
+		t.Fatal("partial cache that still covers both collections must load as current")
+	}
+	if len(reloaded.App.IAGameCache[platform]) != 2 {
+		t.Fatalf("partial cache not persisted: %#v", reloaded.App.IAGameCache[platform])
+	}
+}
+
+func TestIABuildDropsEntriesOfGoneCollectionAndPublishesTheRest(t *testing.T) {
+	const platform = "test-ia-gone-partial"
+	withIACollections(t, platform, []string{"collection-ok", "collection-gone"})
+	captureTelemetry(t)
+
+	a := newIATestApp(t)
+	a.IAGameCache[platform] = []string{"Old Gone"}
+	a.GameEntryMap["old gone"] = models.IAGameEntry{CollectionID: "collection-gone", FileName: "Old Gone.zip"}
+
+	service := &IAService{App: a, FetchCollectionEntriesFn: func(collectionID string) ([]models.IAGameEntry, error) {
+		if collectionID == "collection-gone" {
+			return nil, fmt.Errorf("%s: %w", collectionID, errIACollectionGone)
+		}
+		return []models.IAGameEntry{{CollectionID: collectionID, FileName: "Fresh Game.zip"}}, nil
+	}}
+	service.Build(platform)
+
+	if games := strings.Join(a.IAGameCache[platform], "|"); games != "Fresh Game" {
+		t.Fatalf("gone collection must lose its entries (URLs are 404) and the rest be published, got %q", games)
+	}
+	if _, ok := a.GameEntryMap["old gone"]; ok {
+		t.Fatal("entry of a gone collection kept in the catalog")
+	}
+}
+
+// While the IA splits a letter, "_r" and "_r_part1" exist together with the
+// same files: the title must be listed once, pointing at the part.
+func TestIABuildListsTitleOnceWhileALetterIsBeingSplit(t *testing.T) {
+	const platform = "test-ia-split"
+	withIACollections(t, platform, []string{"coll_r", "coll_r_part1"})
+
+	a := newIATestApp(t)
+	service := &IAService{App: a, FetchCollectionEntriesFn: func(collectionID string) ([]models.IAGameEntry, error) {
+		return []models.IAGameEntry{{CollectionID: collectionID, FileName: "Same Game.zip"}}, nil
+	}}
+	for i := 0; i < 5; i++ { // results arrive in random order; the winner must not
+		service.Build(platform)
+		if games := a.IAGameCache[platform]; len(games) != 1 {
+			t.Fatalf("title listed %d times: %#v", len(games), games)
+		}
+		if got := a.GameEntryMap["same game"].CollectionID; got != "coll_r_part1" {
+			t.Fatalf("run %d: entry points at %q, want the part", i, got)
+		}
+	}
+	if _, recent := service.recentIncompleteBuild(platform); recent {
+		t.Fatal("complete rebuild left an incomplete-rebuild record")
+	}
+}
+
+func TestIABuildCompleteClearsIncompleteRecord(t *testing.T) {
+	const platform = "test-ia-clear"
+	withIACollections(t, platform, []string{"coll_a"})
+	a := newIATestApp(t)
+	service := &IAService{App: a, FetchCollectionEntriesFn: func(collectionID string) ([]models.IAGameEntry, error) {
+		return []models.IAGameEntry{{CollectionID: collectionID, FileName: "Alpha.zip"}}, nil
+	}}
+	service.recordIncompleteBuild(platform, []string{"coll_a"}, []string{"coll_a"})
+	service.Build(platform)
+	if _, err := os.Stat(service.attemptFilePath(platform)); !os.IsNotExist(err) {
+		t.Fatalf("record should be gone after a complete rebuild, stat err=%v", err)
 	}
 }
 

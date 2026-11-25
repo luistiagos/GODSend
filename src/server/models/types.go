@@ -14,6 +14,10 @@ type PlatformCache struct {
 	Games       []string               `json:"games"`
 	GameEntries map[string]IAGameEntry `json:"game_entries"` // lower(name) -> entry
 	BuildTime   time.Time              `json:"build_time"`
+	// Collections is the IA collection list the cache was built from (discovered
+	// on archive.org for Redump-style platforms). Empty in caches written before
+	// 2.12.136, which then fall back to app.IACollections.
+	Collections []string `json:"collections,omitempty"`
 }
 
 // BuildState tracks live progress of a cache build.

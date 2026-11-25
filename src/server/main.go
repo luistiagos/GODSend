@@ -24,7 +24,7 @@ import (
 // appVersion is the single source of the backend version: both banners and the
 // telemetry user_agent use it ([[pipeline-report-de-telemetria-do-backend-nao-carrega-versao-do-app_2026-10-10T23-30]]).
 // main_test.go keeps it equal to package.json.
-const appVersion = "2.12.135"
+const appVersion = "2.12.136"
 
 func main() {
 	fmt.Printf("[INFO] Xbox 360 Companion Backend Server v%s\n", appVersion)
@@ -101,6 +101,9 @@ func main() {
 		loaded := iaSvc.LoadCacheFromDisk(platform)
 		if loaded {
 			a.Logf("CACHE: Loaded %s from disk", platform)
+			// One archive.org search: rebuilds only if the IA renamed or split
+			// a collection since this cache was built (xbox and xbox360 only).
+			go iaSvc.RebuildIfCollectionsChanged(platform)
 		} else {
 			go func(p string, d time.Duration) {
 				if d > 0 {

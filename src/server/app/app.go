@@ -73,6 +73,13 @@ type App struct {
 	IACacheBuilding map[string]bool
 	IACacheBuildMu  sync.Mutex
 
+	// IAEffectiveCollections is the collection list each IA cache was last
+	// built from (discovered on archive.org, see services/cache/ia.go). It
+	// overrides IACollections, which stays the fallback; never mutate
+	// IACollections at runtime, it is read without a lock.
+	IAEffectiveCollections   map[string][]string
+	IAEffectiveCollectionsMu sync.RWMutex
+
 	// ── Minerva cache state ───────────────────────────────────────────
 	MinervaGameCache   map[string][]string
 	MinervaGameCacheMu sync.RWMutex

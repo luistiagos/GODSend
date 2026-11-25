@@ -41,10 +41,10 @@ Há sinais de que a divisão ainda está em andamento: os itens novos têm `crea
 
 ## Critérios para fechar
 
-- [ ] Dono decidiu entre descoberta dinâmica e só rebuild parcial
-- [ ] Coleção renomeada no IA não exige versão nova do app para voltar a baixar (ou, no mínimo, não derruba as demais coleções da plataforma)
-- [ ] Rebuild com coleção ausente não se repete a cada abertura
-- [ ] Testes unitários acima verdes
+- [x] Dono decidiu entre descoberta dinâmica e só rebuild parcial (2026-11-25: as três frentes)
+- [ ] (reteste) Coleção renomeada no IA não exige versão nova do app para voltar a baixar (ou, no mínimo, não derruba as demais coleções da plataforma)
+- [ ] (reteste) Rebuild com coleção ausente não se repete a cada abertura
+- [x] Testes unitários acima verdes
 
 ## Análise da correção (2026-11-25, sessão de fix)
 
@@ -86,7 +86,7 @@ Há sinais de que a divisão ainda está em andamento: os itens novos têm `crea
 
 | # | task | commit | estado |
 |---|---|---|---|
-| T1 | descoberta + rebuild parcial + espera + checagem no boot (`ia.go`, `models/types.go`, `handlers.go`, `main.go`) com testes | -- | backlog |
+| T1 | descoberta + rebuild parcial + espera + checagem no boot (`ia.go`, `ia_discovery.go`, `models/types.go`, `handlers.go`, `main.go`) com testes | (este commit, 2.12.136) | implementada |
 
 ### T1 — testes que provam
 
@@ -94,3 +94,26 @@ Há sinais de que a divisão ainda está em andamento: os itens novos têm `crea
 - `refresh_safety_test.go`: coleção com erro transitório preserva as entradas antigas dela e publica as demais; coleção sumida perde as suas; título repetido entre `_r` e `_r_part1` entra uma vez apontando para a parte.
 - `ia_collections_test.go`: tentativa recente com a mesma coleção faltando não pede rebuild; tentativa vencida pede; build completo apaga o registro.
 - Suítes: `go test ./services/cache/ ./interfaces/http/ .` e `npm run build:server`.
+
+## Correção aplicada (2.12.136) — aguardando reteste
+
+Implementado como planejado, sem desvio de desenho. Detalhes que só apareceram no código:
+
+- **Arquivos:** `src/server/services/cache/ia.go` (`Build` → `build(platform, colls)`, `LoadCacheFromDisk`, `replaceMemoryCache`, `LiveSearchIA`, `saveCacheToDisk`), `src/server/services/cache/ia_discovery.go` (novo: `discoverIACollections`, `mergeDiscoveredCollections`, `iaCollectionLetter`, `CollectionsFor`, `RebuildIfCollectionsChanged`, registro `cache/<plataforma>.attempt.json`), `src/server/app/app.go` (`IAEffectiveCollections` + mutex, inicialização preguiçosa no setter), `src/server/models/types.go` (`PlatformCache.Collections`), `src/server/interfaces/http/handlers.go` (total do progresso pela lista em uso), `src/server/main.go` (`go iaSvc.RebuildIfCollectionsChanged(p)` quando o cache carregou válido).
+- **Coleção vazia (`no downloadable archives`)** é tratada como sumida: perde as entradas antigas, como 404 e `{}`.
+- **Build sem nenhum jogo** (todas falharam e não havia entrada antiga) continua em `preserveExistingCache`, e agora também grava o registro de tentativa.
+- **Cache antigo sem `collections`** (anterior à 2.12.136) usa a config; a primeira abertura com a 2.12.136 faz a descoberta, vê a lista diferente no Xbox 360 (`_r_part1`) e reconstrói uma vez.
+- **Limite conhecido:** se o índice do IA listar só `_r_part1` de uma letra enquanto `_r` ainda tiver títulos que não foram para a parte, `_r` sai da lista e esses títulos somem até a próxima descoberta. Hoje o índice lista os dois.
+
+### Testes executados (2026-11-25)
+
+- `go test ./services/cache/` → ok. Novos: `ia_discovery_test.go` (`TestIACollectionLetterAcceptsOnlyThePlatformGameSets`, `TestDiscoverIACollectionsReplacesRenamedAndKeepsLettersTheSearchMissed`, `TestDiscoverIACollectionsFailsOnHTTPErrorAndOnNoMatch`, `TestIABuildUsesDiscoveredCollectionsAndPersistsThem`, `TestIABuildFallsBackToConfigWhenDiscoveryFails`, `TestRebuildIfCollectionsChanged` com 5 subcasos, `TestLoadCacheFromDiskWaitsAfterAFailedRebuildOnTheSameList` com 4 subcasos); `refresh_safety_test.go` (`TestIABuildKeepsOldEntriesOfTransientlyFailedCollection` substitui `TestIABuildPreservesCompleteCacheWhenOneCollectionFails`, `TestIABuildDropsEntriesOfGoneCollectionAndPublishesTheRest`, `TestIABuildListsTitleOnceWhileALetterIsBeingSplit`, `TestIABuildCompleteClearsIncompleteRecord`).
+- Mutações, uma por vez, com o arquivo restaurado depois: espera desligada → reprova `TestLoadCacheFromDiskWaitsAfterAFailedRebuildOnTheSameList`; preservação das entradas da coleção com erro transitório desligada → reprova `TestIABuildKeepsOldEntriesOfTransientlyFailedCollection`; ordem `_partN` antes de `_x` invertida → reprova `TestIABuildListsTitleOnceWhileALetterIsBeingSplit`.
+- `go test ./...` (backend inteiro) → todos `ok`. `go vet ./services/cache/ ./interfaces/http/ .` → limpo. `npm run build:server` → os três binários Windows verificados.
+- Descoberta contra o archive.org real (teste temporário, apagado): `xbox` → 34 coleções, igual à config; `xbox360` → 39, a config mais `microsoft_xbox360_r_part1`.
+
+### Reteste
+
+1. Abrir a 2.12.136 com o `cache/xbox360.json` de uma versão anterior: o log deve ter `collection list changed on archive.org (38 -> 39); rebuilding` e, no fim, `xbox360 complete`; o `cache/xbox360.json` passa a ter `"collections"` com `microsoft_xbox360_r_part1`.
+2. Reabrir: sem rebuild do IA (só `Loaded xbox360 from disk`).
+3. Telemetria nos dias seguintes: nenhum `not found in Internet Archive` em título de letra dividida.
