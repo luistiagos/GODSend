@@ -129,16 +129,41 @@ export function register(ipcMain: IpcMain): void {
     }
   });
 
+  // ── Pick a local destination folder on the PC (standard Windows dialog) ────
+  ipcMain.handle("browse:choose-folder", async () => {
+    try {
+      // Lazy-require Electron UI modules so unit tests loading browseHandlers without
+      // an Electron window harness continue to work.
+      const { dialog, BrowserWindow } = require("electron") as typeof import("electron");
+      const { getMainWindow } = require("../app/window") as typeof import("../app/window");
+      const win = BrowserWindow.getFocusedWindow() || getMainWindow();
+      const result = await dialog.showOpenDialog(win || undefined, {
+        title: "Escolha a pasta onde deseja salvar o jogo",
+        buttonLabel: "Salvar nesta pasta",
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (result.canceled || !result.filePaths.length) {
+        return { ok: false, canceled: true };
+      }
+      return { ok: true, folder: result.filePaths[0] };
+    } catch (err: unknown) {
+      const raw = errorMessage(err);
+      appendAppEvent("BROWSE", `browse:choose-folder falhou: ${raw}`);
+      return { ok: false, error: formatErrorForUser(err, { area: "local-files", isFolder: true }) };
+    }
+  });
+
   // ── Queue a game or disc set (register → trigger on Go backend) ───────────
-  // destinationType: "local" writes directly to a mounted drive on this PC
-  // (localRoot, e.g. a prepared pendrive); "ftp" (default) transfers to a console.
-  ipcMain.handle("browse:queue-game", async (_event, { game, games, platform, source, drive, installType, destinationType, localRoot }) => {
+  // destinationType: "local" writes directly to a mounted drive or chosen folder
+  // on this PC (localRoot); "ftp" (default) transfers to a console.
+  ipcMain.handle("browse:queue-game", async (_event, { game, games, platform, source, drive, installType, destinationType, localRoot, destinationKind }) => {
     try {
       const isLocal = destinationType === "local";
+      const isFolder = destinationKind === "folder";
 
       let xboxIp = "";
       if (isLocal) {
-        if (!localRoot) return { ok: false, error: "Escolha um pendrive ou HD preparado onde o jogo será salvo." };
+        if (!localRoot) return { ok: false, error: "Escolha um pendrive, HD preparado ou pasta no computador onde o jogo será salvo." };
       } else {
         xboxIp = getConfiguredXboxIP();
         if (!xboxIp) return { ok: false, error: "O endereço do seu Xbox 360 ainda não foi configurado. Vá em “Configurações”, informe o IP do videogame e tente novamente." };
@@ -170,7 +195,7 @@ export function register(ipcMain: IpcMain): void {
           const regFailure = backendFailureReason(reg);
           if (regFailure) {
             appendAppEvent("BROWSE", `browse:queue-game register falhou (${g}): ${regFailure}`);
-            return { ok: false, error: formatErrorForUser(regFailure, { area: "queue", gameName: g, driveRoot: localRoot, isLocal }) };
+            return { ok: false, error: formatErrorForUser(regFailure, { area: "queue", gameName: g, driveRoot: localRoot, isLocal, isFolder }) };
           }
 
           const trig = await backendGetWithStatus(
@@ -179,14 +204,14 @@ export function register(ipcMain: IpcMain): void {
           const trigFailure = backendFailureReason(trig);
           if (trigFailure) {
             appendAppEvent("BROWSE", `browse:queue-game trigger falhou (${g}): ${trigFailure}`);
-            return { ok: false, error: formatErrorForUser(trigFailure, { area: "queue", gameName: g, driveRoot: localRoot, isLocal }) };
+            return { ok: false, error: formatErrorForUser(trigFailure, { area: "queue", gameName: g, driveRoot: localRoot, isLocal, isFolder }) };
           }
 
           try { lastStatus = JSON.parse(trig.body).status || "triggered"; } catch { lastStatus = "triggered"; }
         } catch (err: unknown) {
           const raw = errorMessage(err);
           appendAppEvent("BROWSE", `browse:queue-game erro (${g}): ${raw}`);
-          return { ok: false, error: formatErrorForUser(err, { area: "queue", gameName: g, driveRoot: localRoot, isLocal }) };
+          return { ok: false, error: formatErrorForUser(err, { area: "queue", gameName: g, driveRoot: localRoot, isLocal, isFolder }) };
         }
       }
 

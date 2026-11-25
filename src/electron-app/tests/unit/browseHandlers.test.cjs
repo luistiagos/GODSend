@@ -268,3 +268,100 @@ test("browse:get-cover-hints returns sanitized cover hints from coverArtService"
     withHint: ["GTA 5"],
   });
 });
+
+function createFolderAndQueueHandlers({ dialogReply, backendReply } = {}) {
+  const handlers = new Map();
+  const calls = [];
+  const mocks = {
+    electron: {
+      dialog: { showOpenDialog: async () => dialogReply() },
+      BrowserWindow: { getFocusedWindow: () => null },
+    },
+    "../app/window": { getMainWindow: () => null },
+    "../services/settingsService": {
+      getConfiguredXboxIP: () => "",
+      getConfiguredServerPort: () => 8097,
+      getConfiguredProviderPriority: () => ["huggingface", "ia", "minerva"],
+    },
+    "../infrastructure/backendHttp": {
+      backendGetWithStatus: async (url) => {
+        calls.push(url);
+        return backendReply(url);
+      },
+      backendGet: async () => "",
+    },
+    "../infrastructure/serverLog": { appendAppEvent: () => {} },
+    "../infrastructure/telemetry": { reportError: () => {} },
+    "../services/coverArtService": {},
+    "../services/localGameScannerService": {},
+    "../infrastructure/httpHelper": {},
+  };
+  const filename = path.resolve(__dirname, "../../ipc/browseHandlers.js");
+  const loaded = new Module(filename, module);
+  loaded.filename = filename;
+  loaded.paths = Module._nodeModulePaths(path.dirname(filename));
+  const realRequire = loaded.require.bind(loaded);
+  loaded.require = (id) => Object.hasOwn(mocks, id) ? mocks[id] : realRequire(id);
+  loaded._compile(fs.readFileSync(filename, "utf8"), filename);
+  loaded.exports.register({ handle: (name, handler) => handlers.set(name, handler) });
+  return {
+    chooseFolder: () => handlers.get("browse:choose-folder")(null),
+    queueGame: (payload) => handlers.get("browse:queue-game")(null, payload),
+    calls,
+  };
+}
+
+test("browse:choose-folder retorna pasta selecionada, cancelamento ou erro amigavel", async () => {
+  const picked = createFolderAndQueueHandlers({
+    dialogReply: () => ({ canceled: false, filePaths: ["D:\\JogosXbox"] }),
+  });
+  assert.deepEqual(await picked.chooseFolder(), { ok: true, folder: "D:\\JogosXbox" });
+
+  const canceled = createFolderAndQueueHandlers({
+    dialogReply: () => ({ canceled: true, filePaths: [] }),
+  });
+  assert.deepEqual(await canceled.chooseFolder(), { ok: false, canceled: true });
+
+  const failed = createFolderAndQueueHandlers({
+    dialogReply: () => { throw new Error("EACCES: permission denied"); },
+  });
+  const errRes = await failed.chooseFolder();
+  assert.equal(errRes.ok, false);
+  assert.match(errRes.error, /Windows não permitiu gravar na pasta escolhida/i);
+});
+
+test("browse:queue-game aceita pasta no PC via localRoot sem exigir IP do Xbox nem pendrive", async () => {
+  const h = createFolderAndQueueHandlers({
+    backendReply: (url) => {
+      if (url.startsWith("/register")) return { status: 200, body: '{"status":"registered"}' };
+      return { status: 200, body: '{"status":"triggered"}' };
+    },
+  });
+  const r = await h.queueGame({
+    game: "Halo 3 (USA)",
+    games: ["Halo 3 (USA)"],
+    platform: "xbox360",
+    source: "unified",
+    installType: "god",
+    destinationType: "local",
+    destinationKind: "folder",
+    localRoot: "D:\\JogosXbox",
+  });
+  assert.deepEqual(r, { ok: true, status: "triggered", queuedCount: 1 });
+  assert.match(h.calls[0], /^\/register\?.*mode=local.*local_root=D%3A%5CJogosXbox/);
+  assert.match(h.calls[1], /^\/trigger\?game=Halo%203%20\(USA\)/);
+
+  const denied = createFolderAndQueueHandlers({
+    backendReply: () => ({ status: 409, body: '{"state":"Error","message":"O dispositivo local nao esta pronto ou foi desconectado: Access is denied"}' }),
+  });
+  const errRes = await denied.queueGame({
+    game: "Halo 3 (USA)",
+    platform: "xbox360",
+    destinationType: "local",
+    destinationKind: "folder",
+    localRoot: "C:\\Program Files\\Xbox",
+  });
+  assert.equal(errRes.ok, false);
+  assert.doesNotMatch(errRes.error, /pendrive/i);
+  assert.match(errRes.error, /pasta escolhida/i);
+});

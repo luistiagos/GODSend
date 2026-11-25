@@ -3,7 +3,7 @@ import {
   Search, Loader2, WifiOff, Gamepad2, Download,
   RefreshCw, ChevronDown, X, HardDrive, Usb,
   Wifi, CheckCircle2, AlertTriangle, Check, Disc,
-  Flame, ArrowDownAZ,
+  Flame, ArrowDownAZ, FolderOpen, Info,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -123,8 +123,8 @@ interface LocalDrive {
  * unforeseen answered instead — report it to telemetry rather than showing the
  * user a message that tells them nothing.
  */
-function queueFailureReason(result: any, game: string): string {
-  if (result?.error) return formatErrorForUser(result.error, { area: "queue", gameName: game });
+function queueFailureReason(result: any, game: string, ctx?: { isFolder?: boolean }): string {
+  if (result?.error) return formatErrorForUser(result.error, { area: "queue", gameName: game, isFolder: ctx?.isFolder });
 
   let detail: string;
   try { detail = JSON.stringify(result); } catch { detail = String(result); }
@@ -140,7 +140,7 @@ function queueFailureReason(result: any, game: string): string {
     );
   } catch { /* telemetry must never break the dialog */ }
 
-  return formatErrorForUser("", { area: "queue", gameName: game });
+  return formatErrorForUser("", { area: "queue", gameName: game, isFolder: ctx?.isFolder });
 }
 
 // A unified destination shown in the queue dialog dropdown.
@@ -295,6 +295,9 @@ function QueueDialog({
   const [result,  setResult]    = useState<any>(null);
   const [discRec, setDiscRec]   = useState<string | null>(null);
   const selectedDest = destinations.find((d) => d.value === destValue) ?? destinations[0];
+  const [destType, setDestType] = useState<"folder" | "local" | "ftp">(localDrives.length > 0 ? "local" : "folder");
+  const [chosenFolder, setChosenFolder] = useState("");
+  const [showDiscovery, setShowDiscovery] = useState(false);
 
   const discsToQueue = useMemo(() => {
     if (releaseGroup && Array.isArray(releaseGroup.discs) && releaseGroup.discs.length > 0) {
@@ -316,7 +319,7 @@ function QueueDialog({
 
   // Check if this game is already installed on the selected destination drive
   const isAlreadyOnSelectedDest = useMemo(() => {
-    if (!selectedDest || selectedDest.kind !== "local" || !selectedDest.rootPath || !installedGames || installedGames.length === 0) {
+    if (destType !== "local" || !selectedDest || selectedDest.kind !== "local" || !selectedDest.rootPath || !installedGames || installedGames.length === 0) {
       return false;
     }
     const destLetter = selectedDest.rootPath.replace(/[/\\]+$/, "").toUpperCase();
@@ -327,13 +330,11 @@ function QueueDialog({
       if (!matchDrive) return false;
       return getComparisonKey(g.name) === gameKey || (g.titleId && game.toUpperCase().includes(g.titleId));
     });
-  }, [installedGames, selectedDest, game]);
-
-  const [destType, setDestType] = useState<"local" | "ftp">("local");
-  const [showDiscovery, setShowDiscovery] = useState(false);
+  }, [destType, installedGames, selectedDest, game]);
 
   // Keep a valid selection when destinations load/refresh.
   useEffect(() => {
+    if (destType === "folder") return;
     const matching = destinations.filter((d) => d.kind === destType);
     if (matching.length > 0) {
       if (!matching.some((d) => d.value === destValue)) {
@@ -372,9 +373,72 @@ function QueueDialog({
     }).catch(() => {});
   }, [game, discsToQueue, hasMethods, simpleMode]);
 
+  async function handleChooseFolderAndQueue() {
+    if (discInfoState !== "ready") {
+      setResult({ ok: false, error: "Aguarde a leitura dos discos deste lançamento antes de baixar." });
+      return;
+    }
+    if (isIncompleteRelease && !acceptedIncomplete) {
+      setResult({ ok: false, error: "Confirme que entendeu o aviso sobre o disco que falta antes de baixar." });
+      return;
+    }
+    setResult(null);
+
+    let targetFolder = "";
+    try {
+      const pick = await window.godsendApi.browseChooseFolder();
+      if (!pick?.ok || !pick?.folder) {
+        if (pick && !pick.canceled && pick.error) {
+          setResult({ ok: false, error: pick.error });
+        }
+        return;
+      }
+      targetFolder = String(pick.folder);
+      setChosenFolder(targetFolder);
+    } catch (err: any) {
+      setResult({
+        ok: false,
+        error: formatErrorForUser(err, { area: "local-files", isFolder: true }),
+      });
+      return;
+    }
+
+    setQueuing(true);
+    try {
+      const r = await window.godsendApi.browseQueueGame({
+        game,
+        games: discsToQueue,
+        platform,
+        source,
+        installType: hasMethods ? method : "god",
+        destinationType: "local",
+        destinationKind: "folder",
+        localRoot: targetFolder,
+      });
+      setResult(r?.ok ? r : { ok: false, error: queueFailureReason(r, game, { isFolder: true }) });
+    } catch (err: any) {
+      setResult({
+        ok: false,
+        error: formatErrorForUser(err, {
+          area: "queue",
+          gameName: game,
+          driveRoot: targetFolder,
+          isLocal: true,
+          isFolder: true,
+        }),
+      });
+    } finally {
+      setQueuing(false);
+    }
+  }
+
   async function handleQueue() {
+    if (destType === "folder") {
+      await handleChooseFolderAndQueue();
+      return;
+    }
     if (!selectedDest) {
-      setResult({ ok: false, error: "Selecione um destino (pendrive preparado ou console via FTP)." });
+      setResult({ ok: false, error: "Selecione um destino (pasta no PC, pendrive preparado ou console via FTP)." });
       return;
     }
     if (discInfoState !== "ready") {
@@ -420,14 +484,14 @@ function QueueDialog({
   const queueSuccessFeedback = buildQueueSuccessFeedback({
     isMultiDisc: isMultiDiscGame,
     discCount: discsToQueue.length,
-    destinationKind: selectedDest?.kind ?? destType,
+    destinationKind: destType === "folder" ? "folder" : (selectedDest?.kind ?? (destType === "ftp" ? "ftp" : "local")),
   });
 
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
     >
-      <div className="relative bg-background border border-border rounded-xl p-4 w-full max-w-[360px] flex flex-col gap-3 shadow-2xl">
+      <div className="relative bg-background border border-border rounded-xl p-4 w-full max-w-[400px] flex flex-col gap-3 shadow-2xl">
 
         {/* Close */}
         <button
@@ -535,45 +599,73 @@ function QueueDialog({
           </div>
         )}
 
-        {/* Destination selector: Type toggle (USB vs FTP) */}
+        {/* Destination selector: Type toggle (Folder vs USB vs FTP) */}
         {!queued && (
           <div className="flex flex-col gap-2">
             <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Destino do jogo
+              Onde você quer salvar este jogo?
             </label>
-            <div className="flex gap-2 bg-muted/35 p-0.5 rounded-lg border border-border/40">
+            <div className="flex gap-1.5 bg-muted/35 p-0.5 rounded-lg border border-border/40">
               <button
                 type="button"
-                onClick={() => setDestType("local")}
+                onClick={() => { setDestType("folder"); setResult(null); }}
                 className={cn(
-                  "flex-1 py-1 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
+                  "flex-1 py-1.5 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
+                  destType === "folder"
+                    ? "bg-sky-600 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                <span>Pasta no PC</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDestType("local"); setResult(null); }}
+                className={cn(
+                  "flex-1 py-1.5 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
                   destType === "local"
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Usb className="h-3.5 w-3.5" />
-                Pendrive (USB)
+                <Usb className="h-3.5 w-3.5 shrink-0" />
+                <span>Pendrive (USB)</span>
               </button>
               <button
                 type="button"
                 onClick={handleSelectFtp}
                 className={cn(
-                  "flex-1 py-1 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
+                  "flex-1 py-1.5 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
                   destType === "ftp"
                     ? "bg-green-600 text-white shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Wifi className="h-3.5 w-3.5" />
-                Enviar via FTP
+                <Wifi className="h-3.5 w-3.5 shrink-0" />
+                <span>Enviar via FTP</span>
               </button>
             </div>
 
-            {destType === "local" ? (
+            {destType === "folder" ? (
+              <div className="flex flex-col gap-1.5 rounded-lg border border-sky-500/25 bg-sky-500/5 px-3 py-2.5">
+                <p className="text-[11px] font-semibold text-sky-300 flex items-center gap-1.5">
+                  <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                  Salvar direto no computador (sem pendrive)
+                </p>
+                <p className="text-[10.5px] text-muted-foreground leading-relaxed">
+                  Ao clicar no botão abaixo, abrirá a janela padrão do Windows para você escolher qualquer pasta (Downloads, Documentos, HD externo…) e o jogo será adicionado à fila automaticamente.
+                </p>
+                {chosenFolder && (
+                  <p className="text-[10px] text-sky-200/90 font-mono truncate bg-background/60 border border-border/40 rounded px-2 py-1" title={chosenFolder}>
+                    Última pasta selecionada: {chosenFolder}
+                  </p>
+                )}
+              </div>
+            ) : destType === "local" ? (
               localDrives.length === 0 ? (
-                <p className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-md px-2.5 py-2 leading-relaxed">
-                  Nenhum pendrive ou HD local encontrado. Conecte um dispositivo preparado no seu computador.
+                <p className="text-[10.5px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-md px-2.5 py-2 leading-relaxed">
+                  Nenhum pendrive ou HD local encontrado. Conecte um dispositivo preparado no seu computador ou escolha <strong>Pasta no PC</strong> ao lado para salvar direto no computador.
                 </p>
               ) : (
                 <div className="flex flex-col gap-1.5">
@@ -678,6 +770,11 @@ function QueueDialog({
             >
               <span className="font-semibold">{queueSuccessFeedback.headline}</span>
               <span className="text-green-300/90">{queueSuccessFeedback.guidance}</span>
+              {destType === "folder" && chosenFolder && (
+                <span className="text-[10px] font-mono text-green-200/80 break-all pt-0.5">
+                  Pasta: {chosenFolder}
+                </span>
+              )}
             </div>
           ) : (
             <p className="text-[11px] px-2 py-1.5 rounded-md text-center leading-snug break-words bg-red-500/10 text-red-400 border border-red-500/20">
@@ -701,6 +798,10 @@ function QueueDialog({
                 ? <><AlertTriangle className="h-3.5 w-3.5 mr-1.5" />Discos não verificados</>
                 : isIncompleteRelease && !acceptedIncomplete
                 ? <><AlertTriangle className="h-3.5 w-3.5 mr-1.5" />Confirme o aviso acima para continuar</>
+                : destType === "folder"
+                  ? isMultiDiscGame
+                    ? <><FolderOpen className="h-3.5 w-3.5 mr-1.5" />Escolher pasta e baixar todos os {discsToQueue.length} discos</>
+                    : <><FolderOpen className="h-3.5 w-3.5 mr-1.5" />Salvar em uma pasta…</>
                 : isAlreadyOnSelectedDest
                   ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Adicionar à fila novamente</>
                   : isMultiDiscGame
@@ -1063,7 +1164,7 @@ function VersionSelectDialog({ baseTitle, releases, onClose, onSelect }: Version
               {baseTitle}
             </p>
             <p className="text-[10px] text-muted-foreground mt-1">
-              Várias versões disponíveis. Escolha uma para baixar:
+              Várias versões disponíveis (regiões ou edições diferentes). Clique em uma para escolher onde salvar (pasta no PC, pendrive ou Xbox):
             </p>
           </div>
         </div>
@@ -1840,6 +1941,15 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
 
       {status === "ready" && (
         <>
+          {!isLocal && (
+            <div className="flex items-center gap-2 rounded-lg border border-sky-500/20 bg-sky-500/5 px-3 py-1.5 text-[11px] text-muted-foreground shrink-0">
+              <Info className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+              <span>
+                <strong className="text-foreground">Como baixar:</strong> clique em qualquer jogo abaixo para escolher entre <strong className="text-sky-300">Salvar em uma pasta do computador</strong> (sem precisar de pendrive), gravar no <strong className="text-foreground">Pendrive</strong> ou enviar ao <strong className="text-foreground">Xbox pela rede</strong>.
+              </span>
+            </div>
+          )}
+
           {/* Search bar */}
           <div className="relative shrink-0">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />

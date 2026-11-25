@@ -19,9 +19,10 @@ Ao atender um usuário no WhatsApp, mantenha uma linguagem **simples, amigável,
 >    - ( ) Desbloqueado LT (Roda discos piratas em DVD)
 >    - ( ) Desbloqueado RGH / JTAG (Liga com tela azul do XeLL ou entra na Aurora direto)
 > 2. **Onde você quer colocar os seus jogos?**
+>    - ( ) Salvar os arquivos em uma pasta do computador (sem pendrive)
 >    - ( ) Em um Pendrive ou HD Externo USB
 >    - ( ) No HD Interno original do próprio Xbox 360
-> 3. **Você pretende passar os jogos usando Cabo/Wi-Fi pela rede ou gravando direto no Pendrive pelo computador?**
+> 3. **Você pretende baixar para uma pasta do PC, gravar direto no Pendrive pelo computador ou passar pela rede (Cabo/Wi-Fi)?**
 
 ---
 
@@ -43,8 +44,8 @@ Ao atender um usuário no WhatsApp, mantenha uma linguagem **simples, amigável,
 1. **No Computador:**
    * Conecte um pendrive de no mínimo 8 GB (recomendado 32 GB ou mais) no computador.
    * Abra o aplicativo **Xbox 360 Companion** no PC.
-   * Na tela inicial, clique em **Gravar em um Pendrive ou HD** (*Bloqueado / LT / RGH*).
-   * Escolha a opção **Xbox Bloqueado ou LT**.
+   * Na tela inicial, clique em **Preparar Pendrive / HD**.
+   * Escolha a opção **Xbox Bloqueado ou LT**, clique em **Avançar** e escolha **Gravar em um Pendrive ou HD**.
    * Selecione a letra do seu pendrive na lista e marque a caixinha **Formatar antes** (o próprio app vai formatar em FAT32 sozinho).
    * Marque a confirmação dos requisitos e clique no botão **Preparar pendrive/HD**. Aguarde chegar a 100%.
 
@@ -63,7 +64,7 @@ Ao atender um usuário no WhatsApp, mantenha uma linguagem **simples, amigável,
 
 #### 🛠️ Opção 1: Primeira Instalação da Aurora via USB
 1. Conecte o pendrive no PC.
-2. No Xbox Companion, escolha **Gravar em um Pendrive ou HD** ➔ **Xbox Desbloqueado RGH**.
+2. No Xbox Companion, clique em **Preparar Pendrive / HD** ➔ **Xbox Desbloqueado RGH** ➔ **Avançar** ➔ **Gravar em um Pendrive ou HD**.
 3. Marque **Formatar antes** e selecione o pendrive.
 4. Clique em **Preparar pendrive/HD**.
 5. Coloque o pendrive no Xbox RGH e ligue: ele abrirá a Aurora automaticamente pelo arquivo `launch.ini`.
@@ -73,7 +74,20 @@ Ao atender um usuário no WhatsApp, mantenha uma linguagem **simples, amigável,
 
 ---
 
-## 📌 MÓDULO 3: Métodos de Transferência de Jogos
+## 📌 MÓDULO 3: Métodos de Transferência e Download de Jogos
+
+---
+
+### 📁 Método 0: Baixar Direto em uma Pasta do Computador (Sem Pendrive)
+
+> **Ideal para:** Quem quer baixar e preparar os arquivos dos jogos de Xbox 360 direto no computador (Downloads, Documentos, HD externo) sem precisar de pendrive conectado.
+
+#### 🛠️ Passo a Passo para Enviar ao Cliente:
+1. Abra o **Xbox 360 Companion** no PC e, na tela inicial, clique em **Catálogo de Jogos** (*Sem precisar de pendrive*).
+2. Procure e clique no jogo desejado (escolha a versão se houver mais de uma).
+3. Em **Onde você quer salvar este jogo?**, escolha **Pasta no PC** (já selecionada por padrão quando não há pendrive).
+4. Clique em **Salvar em uma pasta…**, escolha qualquer pasta na janela do Windows e confirme.
+5. O download entra na aba **Fila** automaticamente e salva os arquivos prontos na pasta escolhida.
 
 ---
 
@@ -88,7 +102,7 @@ Ao atender um usuário no WhatsApp, mantenha uma linguagem **simples, amigável,
    * Observe o número de **IP** que aparece no canto inferior esquerdo da tela da TV (exemplo: `192.168.1.100`).
 
 2. **No Computador (Xbox Companion):**
-   * Abra o Xbox Companion no PC e clique em **Enviar direto para o Xbox (Rede)**.
+   * Abra o Xbox Companion no PC, clique em **Preparar Pendrive / HD** ➡️ **Xbox Desbloqueado RGH** ➡️ **Avançar** ➡️ **Enviar direto para o Xbox (Rede)**.
    * Clique em **Procurar Xbox na Rede** ou digite o IP do console no campo e clique em **Conectar**.
    * O aplicativo enviará os scripts de comunicação para a Aurora no videogame automaticamente.
 
@@ -107,10 +121,10 @@ Ao atender um usuário no WhatsApp, mantenha uma linguagem **simples, amigável,
 
 #### 🛠️ Passo a Passo para Enviar ao Cliente:
 1. Espete o pendrive/HD USB (já preparado com a Aurora) no computador.
-2. No Xbox Companion no PC, clique no ícone de engrenagem (**⚙️ Configurações / Settings**).
-3. Altere o caminho de **Local Transfer folder** (ou Pasta Local) apontando para a letra do seu pendrive/HD USB.
-4. Ao navegar e baixar os jogos no app no PC, selecione a opção de gravação local. Os jogos serão baixados e salvos diretamente no seu pendrive/HD externo!
-5. Depois é só plugar a mídia no Xbox 360 e jogar.
+2. No Xbox Companion no PC, clique em **Catálogo de Jogos** (ou **Baixar Jogos** no menu superior).
+3. Clique no jogo desejado, selecione **Pendrive (USB)**, escolha a unidade do seu pendrive na lista e clique em **Adicionar à fila**.
+4. Os jogos serão baixados, convertidos e gravados diretamente no seu pendrive/HD externo!
+5. Quando aparecer **Pronto** na aba **Fila**, use **Ejetar** antes de tirar a mídia e plugar no Xbox 360.
 
 ---
 
@@ -292,6 +306,28 @@ Utilize as respostas prontas abaixo para enviar diretamente ao cliente quando el
 > 3. *Clique em **Testar Capacidade** e aguarde terminar para confirmar se a capacidade do pendrive/HD é real ou falsificada. Me mande foto do resultado.*
 > 4. *Depois clique em **Abrir** (na mesma tela) e me mande foto do que aparece dentro das pastas **`Games`** e **`Content\0000000000000000`**.*
 > 5. *(Dica importante: sempre clique em **Ejetar** no aplicativo antes de tirar o pendrive/HD do computador!)"*
+
+---
+
+#### ❓ 9. "Preparei o pendrive, liguei o Xbox 360 e apareceu a tela preta 'System Error — E 71' (com luz vermelha piscando)."
+
+> **⚠️ Atenção do atendente:** o erro **E 71** (código secundário `1013`) **não é defeito físico nem console brickado** — é falha de inicialização do painel (`dash.xex`) ou de atualização do sistema.
+> - **1º passo obrigatório (teste eliminatório):** pedir ao cliente para desligar o console, **retirar o pendrive** e ligar novamente.
+>   - **Ligou normal sem o pendrive:** console 100% íntegro; a causa está na raiz do pendrive — quase sempre um arquivo **`default.xex` solto na raiz** (resto de pacote antigo/terceiro) ou pasta **`$SystemUpdate` / `$$ystemUpdate`** deixada na raiz em um preparo feito **sem marcar "Formatar antes"**, ou gravação corrompida por remoção sem **Ejetar**.
+>   - **Continua em E 71 sem o pendrive:** o problema está no cache de atualização ou no HD interno do console (ex.: atualização `17559` interrompida ou aplicada em RGH). Orientar o reset de atualização segurando o botão **Sync** ao ligar; se persistir, testar ligando sem o HD interno.
+> - Pedir **foto da raiz do pendrive no PC** e confirmar se o console é **Travado/LT** ou **RGH/JTAG** antes de mandar formatar.
+> - Em versões atualizadas do Companion, o preparador detecta e isola automaticamente `default.xex` e `$SystemUpdate`/`$$ystemUpdate` da raiz em quarentena mesmo sem formatar — vale confirmar se o cliente está na versão mais recente.
+
+> **Resposta Pronta:**
+> *"Fica tranquilo! O erro **E 71** não estraga o videogame — ele acontece quando o Xbox 360 encontra algum arquivo antigo de inicialização ou de atualização na raiz do pendrive (como um `default.xex` solto ou a pasta `$SystemUpdate`) e trava antes de abrir o menu.*
+>
+> **Vamos testar e resolver rapidinho:**
+> 1. *Desligue o Xbox 360, **retire o pendrive** da entrada USB e ligue o videogame sem nada plugado. Me diga se ele ligou normalmente.*
+> 2. *Se ligou normal sem o pendrive, conecte o pendrive no computador, abra a pasta principal (raiz) dele e **me mande uma foto** do que aparece lá dentro.*
+> 3. *Se houver algum arquivo **`default.xex`** solto direto na raiz ou uma pasta **`$SystemUpdate`** / **`$$ystemUpdate`**, apague esses itens da raiz — ou abra o **Xbox 360 Companion** atualizado e prepare o pendrive novamente (de preferência marcando **Formatar antes**, pois o app faz backup automático dos seus perfis e saves antes de formatar).*
+> 4. *Ao terminar, clique em **Ejetar pendrive com segurança** antes de tirar do PC e teste novamente no Xbox 360!*
+>
+> *(Caso o erro **E 71** continue aparecendo mesmo **sem o pendrive** conectado: desligue o console, segure apertado o botão pequeno de **sincronizar controle (Sync)** na frente do Xbox e, mantendo ele segurado, aperte **Power** para ligar — só solte quando o console terminar de iniciar. Isso limpa atualizações travadas na memória.)"*
 
 ---
 

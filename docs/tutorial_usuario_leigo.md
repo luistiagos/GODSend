@@ -1,12 +1,26 @@
 # Guia Definitivo: Como Usar o Xbox 360 Companion (Para Iniciantes) 🎮
 
-O **Xbox 360 Companion** é um aplicativo completo para computadores que permite preparar pendrives ou HDs externos para rodar jogos no Xbox 360, além de enviar jogos, DLCs e atualizações diretamente pela rede local.
+O **Xbox 360 Companion** é um aplicativo completo para computadores que permite baixar jogos de Xbox 360 diretamente em qualquer pasta do PC (sem precisar de pendrive), preparar pendrives ou HDs externos para rodar no console e enviar jogos, DLCs e atualizações pela rede local.
 
-Existem duas formas principais de usar o Xbox 360 Companion, e você pode combinar as duas:
-1. **Método USB**: Para formatar e instalar o menu **Aurora** no seu pendrive/HD externo (com suporte a consoles destravados com RGH ou travados/LT usando o exploit BadAvatar).
-2. **Método Rede (FTP)**: Para transferir jogos e conteúdos do computador direto para o videogame por Wi-Fi ou cabo de rede.
+Logo ao abrir o aplicativo, você verá duas opções claras na tela inicial:
+1. **Catálogo de Jogos (*Sem precisar de pendrive*)**: Para ir direto para a lista de jogos e salvar os arquivos em **qualquer pasta do seu computador** (ou em um pendrive já preparado).
+2. **Preparar Pendrive / HD (*Passo a passo guiado*)**: Para formatar e instalar o menu **Aurora** no seu pendrive/HD externo (com suporte a consoles destravados com RGH ou travados/LT usando o exploit BadAvatar) ou configurar o envio por **Rede (FTP)** em consoles RGH.
 
-Abaixo está o passo a passo completo para ambas as funções.
+Abaixo está o passo a passo completo de todas as opções.
+
+---
+
+## 📁 PASSO A PASSO 1: Baixando Jogos Direto em uma Pasta do Computador (Sem Pendrive)
+Use esta função se você quer apenas baixar os arquivos dos jogos para o seu computador ou HD externo, sem obrigar a ter um pendrive conectado.
+
+1. Abra o **Xbox 360 Companion** no computador.
+2. Na tela inicial, clique em **Catálogo de Jogos** (*Sem precisar de pendrive*).
+3. Procure o jogo desejado na lista ou digite o nome na barra de pesquisa.
+4. Clique no jogo (se houver várias regiões/edições, clique na versão que preferir).
+5. Em **Onde você quer salvar este jogo?**, selecione **Pasta no PC** (essa opção já fica marcada sozinha quando não há pendrive conectado).
+6. Clique em **Salvar em uma pasta…** (ou **Escolher pasta e baixar todos os N discos** em jogos de mais de 1 disco).
+7. O Windows abrirá a janela padrão de pastas: escolha onde quer salvar (Downloads, Documentos, HD externo, etc.) e confirme.
+8. O download começa automaticamente em segundo plano! Acompanhe na aba **Fila** até aparecer **Pronto**.
 
 ---
 
@@ -20,16 +34,17 @@ Use esta função para preparar o dispositivo que vai guardar os seus jogos e ca
 
 ### 🛠️ Passo a Passo da Preparação:
 1. Abra o **Xbox 360 Companion** no computador.
-2. Na tela inicial, selecione a opção **Gravar em um Pendrive ou HD** (identificada pela etiqueta *Bloqueado / LT / RGH*).
-3. **Selecione o tipo de desbloqueio do seu Xbox 360** (o painel de preparação do pendrive abrirá):
+2. Na tela inicial, clique em **Preparar Pendrive / HD** (*Passo a passo guiado*).
+3. **Selecione o tipo de desbloqueio do seu Xbox 360** e clique em **Avançar**:
    * **Xbox Desbloqueado RGH**: Se o seu videogame liga na tela azul do XeLL ao ligar pelo botão de ejetar CD. O instalador vai gravar a Aurora e o arquivo de boot automático (`launch.ini`).
    * **Xbox Bloqueado ou LT**: Se o seu videogame é travado ou roda jogos piratas apenas em mídia física (DVD). O instalador vai configurar o **BadAvatar** (exploit temporário que inicia a Aurora de forma segura).
-4. Conecte o pendrive ou HD externo na porta USB do computador e clique em **Atualizar**.
-5. Selecione a unidade correspondente ao seu pendrive/HD na lista.
-6. **Formatar antes (Altamente Recomendado)**: Marque a caixinha **Formatar antes** para apagar todos os dados antigos e formatar o dispositivo no padrão **FAT32** (o único que o Xbox 360 reconhece).
+4. Na tela seguinte, selecione a opção **Gravar em um Pendrive ou HD** (identificada pela etiqueta *Bloqueado / LT / RGH*).
+5. Conecte o pendrive ou HD externo na porta USB do computador e clique em **Atualizar**.
+6. Selecione a unidade correspondente ao seu pendrive/HD na lista.
+7. **Formatar antes (Altamente Recomendado)**: Marque a caixinha **Formatar antes** para apagar todos os dados antigos e formatar o dispositivo no padrão **FAT32** (o único que o Xbox 360 reconhece).
    * *Atenção:* O Windows abrirá uma janela do Controle de Conta de Usuário (UAC) pedindo permissão de administrador para rodar o formatador. Clique em "Sim".
-7. Se escolheu o modo **Bloqueado/LT**, marque a caixinha confirmando que aceita os requisitos (sua dashboard deve ser a versão 17559 e os avatares dos perfis devem estar coloridos, não cinzas).
-8. Clique no botão **Preparar pendrive/HD** e aguarde a barra de progresso chegar a 100%.
+8. Se escolheu o modo **Bloqueado/LT**, marque a caixinha confirmando que aceita os requisitos (sua dashboard deve ser a versão 17559 e os avatares dos perfis devem estar coloridos, não cinzas).
+9. Clique no botão **Preparar pendrive/HD** e aguarde a barra de progresso chegar a 100%.
 
 ### 📺 Como usar o Pendrive/HD no Xbox 360:
 * **Se o seu console é RGH**: 
@@ -54,7 +69,7 @@ Depois que a Aurora estiver rodando no seu Xbox (seja por RGH ou pelo exploit Ba
 * Ative o FTP na Aurora: **Start** no controle ➡️ **Settings** ➡️ **Network** ➡️ Marcar **Enable FTP Server**.
 
 ### 🛠️ Passo a Passo da Transferência:
-1. No menu principal do Xbox 360 Companion no computador, selecione a opção **Enviar direto para o Xbox (Rede)** (identificada pela etiqueta *Apenas RGH + Aurora*).
+1. Na tela inicial do Xbox 360 Companion no computador, clique em **Preparar Pendrive / HD**, escolha **Xbox Desbloqueado RGH** ➡️ **Avançar** ➡️ e selecione **Enviar direto para o Xbox (Rede)** (identificada pela etiqueta *Apenas RGH + Aurora*).
    * *Importante:* Consoles Bloqueados ou destravados por LT não suportam conexões FTP de rede e devem usar a transferência via pendrive (Método 1).
 2. Clique em **Procurar Xbox na Rede**. O programa varrerá sua rede local para encontrar o videogame sozinho.
 3. Se ele não achar automaticamente, olhe o IP do videogame no canto inferior esquerdo da tela da Aurora e digite-o no campo **Digitar IP manualmente**. Clique em **Conectar**.
@@ -66,13 +81,13 @@ Depois que a Aurora estiver rodando no seu Xbox (seja por RGH ou pelo exploit Ba
 
 ---
 
-## 📂 Opção de Cópia Direta (Mais Rápido para Grandes Volumes)
-Se você não quiser usar a rede para passar os jogos (o que pode ser lento no Wi-Fi), você pode baixar os jogos no PC e gravá-los direto no seu pendrive/HD USB usando o computador:
+## 📂 Opção de Cópia Direta no Pendrive (Mais Rápido para Grandes Volumes)
+Se você não quiser usar a rede para passar os jogos (o que pode ser lento no Wi-Fi), você pode baixar e gravar os jogos direto no seu pendrive/HD USB preparado usando o computador:
 
 1. Conecte o pendrive/HD já preparado no computador.
-2. No Xbox 360 Companion no PC, clique no menu de engrenagem (**⚙️ Settings**).
-3. Mude a pasta **Local Transfer folder** ou **Local storage path** para apontar diretamente para a pasta de jogos do seu pendrive/HD USB (por exemplo, na pasta `GOD` ou `XEX` criada dentro da unidade do pendrive).
-4. Baixe ou converta os jogos usando as ferramentas do aplicativo (como o **ISO to GOD** ou **Browse & Download** no PC). Os jogos serão gravados diretamente no USB, economizando tempo de rede.
+2. Abra o **Catálogo de Jogos** (ou clique em **Baixar Jogos** no topo).
+3. Clique no jogo desejado, escolha **Pendrive (USB)**, selecione a unidade do seu pendrive na lista e clique em **Adicionar à fila**.
+4. Os jogos serão baixados, convertidos e gravados diretamente no pendrive preparado, sem precisar usar a rede! (Se quiser apenas guardar os arquivos no computador, escolha **Pasta no PC** -> **Salvar em uma pasta…**).
 
 ---
 

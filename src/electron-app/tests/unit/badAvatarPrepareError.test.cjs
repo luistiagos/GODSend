@@ -5,6 +5,7 @@ const {
   formatBadAvatarListErrorForUser,
   formatBadAvatarPrepareErrorForUser,
 } = require("../../infrastructure/badAvatarPrepareError.js");
+const { hasTechnicalErrorLeak } = require("../../infrastructure/userFriendlyError.js");
 const {
   isSamePhysicalUsbSelection,
 } = require("../../infrastructure/usbSelectionIdentity.js");
@@ -138,6 +139,18 @@ test("traduz erros de layout, FAT32/exFAT, espaco, elevacao e container legado s
   );
   assert.match(legacyXbox, /Formatar antes/i);
   assert.ok(!/exploit|Content|FAT32/i.test(legacyXbox));
+
+  const rootConflict = formatBadAvatarPrepareErrorForUser(
+    new Error(
+      "Não foi possível isolar arquivo conflitante na raiz do dispositivo (default.xex): EBUSY: resource busy or locked, rename 'D:\\default.xex' -> 'D:\\.xbox-downloader\\quarantine\\root-boot-conflicts-abc\\default.xex'",
+    ),
+    "D:\\",
+  );
+  assert.match(rootConflict, /pendrive ou HD \(D:\)/);
+  assert.match(rootConflict, /E71/);
+  assert.match(rootConflict, /Formatar antes/i);
+  assert.ok(!/EBUSY|resource busy|\.xbox-downloader|quarantine/i.test(rootConflict));
+  assert.equal(hasTechnicalErrorLeak(rootConflict), false);
 });
 
 test("traduz falha de verificacao na copia como problema no pendrive/HD sem citar hash/SHA", () => {

@@ -53,6 +53,21 @@ test("mensagem pos-enfileiramento via FTP explica envio para o console na aba Fi
   assert.doesNotMatch(`${fb.headline} ${fb.guidance} ${fb.dismissLabel}`, /triggered|status:|conclu[ií]do/i);
 });
 
+test("mensagem pos-enfileiramento via pasta no PC orienta acompanhar na aba Fila sem mencionar pendrive", () => {
+  const fb = buildQueueSuccessFeedback({
+    isMultiDisc: false,
+    discCount: 1,
+    destinationKind: "folder",
+  });
+
+  assert.equal(fb.headline, "Adicionado à fila!");
+  assert.match(fb.guidance, /pasta escolhida/i);
+  assert.match(fb.guidance, /aba Fila/i);
+  assert.match(fb.guidance, /Pronto/);
+  assert.doesNotMatch(fb.guidance, /pendrive/i);
+  assert.doesNotMatch(`${fb.headline} ${fb.guidance} ${fb.dismissLabel}`, /triggered|status:|conclu[ií]do/i);
+});
+
 test("BrowsePage usa buildQueueSuccessFeedback e nao interpola result.status nem exibe botao Concluido no modal", () => {
   const browsePagePath = path.resolve(__dirname, "../../renderer/components/BrowsePage.tsx");
   const source = fs.readFileSync(browsePagePath, "utf-8");

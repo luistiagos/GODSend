@@ -213,3 +213,40 @@ test("pasta legada Xbox360 com dados impede que o pendrive seja considerado prep
   write(root, "Xbox360/Data0000", "legacy-container");
   assert.equal(await detectPreparedDeviceState(root, EXPLOIT_PROFILE), "jogos-apenas");
 });
+
+test("default.xex ou $SystemUpdate na raiz impedem declarar dispositivo pronto e pular preparacao", async (t) => {
+  const root = temp(t);
+  write(root, "Aurora/default.xex", "aurora");
+  write(root, "launch.ini", "[Paths]");
+  write(root, ".xbox-downloader/ready-to-play-v7.marker", "marker");
+  write(root, "BadUpdatePayload/default.xex", "payload");
+  write(root, EXPLOIT_PROFILE[0].path, stfsProfile(70));
+  assert.equal(
+    await detectPreparedDeviceState(root, EXPLOIT_PROFILE, { requirePayloadDir: true }),
+    "preparado-bloqueado-lt",
+  );
+
+  // Um default.xex solto na raiz gera E71 no boot — nao pode oferecer pular preparacao.
+  write(root, "default.xex", "stray-root-xex");
+  assert.equal(
+    await detectPreparedDeviceState(root, EXPLOIT_PROFILE, { requirePayloadDir: true }),
+    "jogos-apenas",
+  );
+  fs.rmSync(path.join(root, "default.xex"));
+  assert.equal(
+    await detectPreparedDeviceState(root, EXPLOIT_PROFILE, { requirePayloadDir: true }),
+    "preparado-bloqueado-lt",
+  );
+
+  // Pasta $SystemUpdate na raiz tambem rebaixa ate ser isolada no preparo.
+  write(root, "$SystemUpdate/su20076000_00000000", "update");
+  assert.equal(
+    await detectPreparedDeviceState(root, EXPLOIT_PROFILE, { requirePayloadDir: true }),
+    "jogos-apenas",
+  );
+  fs.rmSync(path.join(root, "$SystemUpdate"), { recursive: true, force: true });
+  assert.equal(
+    await detectPreparedDeviceState(root, EXPLOIT_PROFILE, { requirePayloadDir: true }),
+    "preparado-bloqueado-lt",
+  );
+});

@@ -31,6 +31,7 @@ export interface UserErrorContext {
   gameName?: string;
   driveRoot?: string;
   isLocal?: boolean;
+  isFolder?: boolean;
 }
 
 const TECHNICAL_LEAK_PATTERN = new RegExp(
@@ -291,21 +292,36 @@ export function formatErrorForUser(error: unknown, ctx: UserErrorContext = {}): 
 
   // 8. Storage, Disk space, FAT32, Permissions, Disconnected drive
   if (/dispositivo local nao esta pronto|dispositivo local não está pronto|local_root|não está pronto ou foi desconectado/i.test(raw)) {
+    if (ctx.isFolder) {
+      return "A pasta escolhida no computador não está acessível no momento. Escolha outra pasta (como Downloads ou Documentos) e tente novamente.";
+    }
     return `O pendrive ou HD${drive} não está pronto ou foi desconectado. Desconecte e conecte ele em outra porta USB do computador e tente novamente.`;
   }
   if (/excede o limite.*4 GB|limite maximo de 4 GB|incompativel com pendrive FAT32|4 GB/i.test(raw)) {
+    if (ctx.isFolder) {
+      return "Este jogo possui um arquivo grande demais para o formato FAT32 da unidade onde a pasta está. Escolha outro disco no computador ou instale no formato GOD.";
+    }
     return "Este jogo possui um arquivo grande demais para caber neste formato de pendrive. Escolha a instalação no formato GOD (ou outra versão do jogo) e tente novamente.";
   }
   if (/espaço insuficiente no destino|ENOSPC|no space left|not enough space/i.test(raw)) {
     if (/disco do PC|armazenamento temporario|Temp/i.test(raw)) {
       return "O disco do seu computador ficou sem espaço livre suficiente para preparar o jogo. Apague alguns arquivos do computador para liberar espaço e tente novamente.";
     }
+    if (ctx.isFolder) {
+      return `Não há espaço livre suficiente no disco${drive} da pasta escolhida. Libere espaço no computador ou escolha uma pasta em outro disco e tente novamente.`;
+    }
     return `Não há espaço livre suficiente no pendrive ou HD${drive}. Apague alguns arquivos dele ou use um dispositivo com mais espaço e tente novamente.`;
   }
   if (/EROFS|read-only/i.test(raw)) {
+    if (ctx.isFolder) {
+      return "A pasta escolhida está protegida somente para leitura. Escolha outra pasta (como Downloads ou Documentos) e tente novamente.";
+    }
     return `O pendrive ou HD${drive} está travado contra gravação. Verifique se há alguma trava física nele e destrave, ou tente com outro pendrive ou HD.`;
   }
   if (/EPERM|EACCES|EBUSY|Access is denied|acesso negado|being used by another process|sendo usado por outro processo/i.test(raw)) {
+    if (ctx.isFolder) {
+      return "O Windows não permitiu gravar na pasta escolhida (pasta protegida ou em uso). Tente criar uma pasta dentro de Downloads ou Documentos e tente novamente.";
+    }
     return `O Windows ou o antivírus bloqueou o acesso aos arquivos${drive ? ` no dispositivo${drive}` : ""}. Feche qualquer pasta aberta desse dispositivo, pause o antivírus por alguns minutos e tente novamente.`;
   }
   if (/ENOENT|ENODEV|ENXIO|EIO/i.test(raw)) {

@@ -40,6 +40,15 @@ const harness = `
         ok: true,
         games: scenario.games || ["Call of Duty - Black Ops III (USA)"],
       }),
+      browseChooseFolder: async () => {
+        if (typeof scenario.chooseFolderIndex === "number") {
+          const replies = scenario.chooseFolderReplies || [];
+          const reply = replies[scenario.chooseFolderIndex] ?? { ok: false, canceled: true };
+          scenario.chooseFolderIndex += 1;
+          return reply;
+        }
+        return scenario.chooseFolderReply || { ok: true, folder: "D:\\MeusJogosXbox" };
+      },
       browseQueueGame: async (payload) => {
         mock.queuedRequests.push(payload);
         return scenario.queueResponse || { ok: true, status: "triggered", source: "unified" };
@@ -170,6 +179,34 @@ async function main() {
     assert.equal(await page.getByRole("button", { name: "Concluído", exact: true }).count(), 0);
     await page.getByRole("button", { name: "Entendi", exact: true }).click();
     process.stdout.write("PASS: multi-disc FTP queue confirmation guides user cleanly\n");
+
+    // 3. PC folder queue flow when no USB drive is connected (cancel first, then select folder)
+    await page.evaluate(() => window.mountBrowseQueue({
+      localDrives: [],
+      chooseFolderIndex: 0,
+      chooseFolderReplies: [
+        { ok: false, canceled: true },
+        { ok: true, folder: "D:\\MeusJogosXbox" },
+      ],
+    }));
+    await page.getByRole("button", { name: "Call of Duty - Black Ops III", exact: true }).click();
+    const chooseFolderBtn = page.getByRole("button", { name: "Salvar em uma pasta…", exact: true });
+    await chooseFolderBtn.waitFor({ state: "visible" });
+    await chooseFolderBtn.click();
+    assert.equal(await page.evaluate(() => window.browseQueueMock.queuedRequests.length), 0, "canceling Windows folder dialog does not queue");
+
+    await chooseFolderBtn.click();
+    await statusBanner.waitFor({ state: "visible" });
+    const folderText = await statusBanner.innerText();
+    assert.ok(folderText.includes("Adicionado à fila!"), `unexpected folder status text: ${folderText}`);
+    assert.match(folderText, /pasta escolhida/i);
+    assert.ok(folderText.includes("D:\\MeusJogosXbox"), `chosen folder missing in confirmation: ${folderText}`);
+    assert.doesNotMatch(folderText, /pendrive/i);
+    const queuedFolderReq = await page.evaluate(() => window.browseQueueMock.queuedRequests[0]);
+    assert.equal(queuedFolderReq.destinationType, "local");
+    assert.equal(queuedFolderReq.destinationKind, "folder");
+    assert.equal(queuedFolderReq.localRoot, "D:\\MeusJogosXbox");
+    process.stdout.write("PASS: PC folder option defaults without USB, respects cancel, and queues chosen folder\n");
 
     assert.deepEqual(pageErrors, [], "no unhandled renderer errors");
   } finally {

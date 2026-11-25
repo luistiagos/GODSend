@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { hasConflictingRootBootEntries } from "../infrastructure/rootBootConflicts";
 import type { ExploitProfileFile } from "./fixedBadAvatarPreparationService";
 import type { PreparedDeviceState } from "./preparedUsbDetection";
 
@@ -167,6 +168,13 @@ export async function detectPreparedDeviceState(
   // sem armazenamento interno), a dashboard original do Xbox 360 prioriza essa pasta e ignora
   // totalmente o Content/ da raiz FAT32. Nesse caso, o exploit ABadAvatar nunca é lido pelo console.
   if (await hasLegacyXbox360Container(root)) {
+    return "jogos-apenas";
+  }
+
+  // Se houver arquivos conflitantes na raiz (como default.xex solto ou pasta $SystemUpdate),
+  // o console pode travar em erro E71 ao iniciar. Rebaixamos o estado para não oferecer
+  // "pular a preparação"; ao preparar (mesmo sem formatar), o preparador isola esses itens.
+  if (await hasConflictingRootBootEntries(root)) {
     return "jogos-apenas";
   }
 

@@ -163,6 +163,10 @@ export function formatBadAvatarPrepareErrorForUser(
     return `Este ${targetPhrase} já foi configurado antes pelo próprio Xbox 360 e, desse jeito, o videogame não mostra o desbloqueio. Marque “Formatar antes” acima e clique em “Preparar pendrive/HD” (isso apaga tudo nesse dispositivo). Se quiser guardar saves importantes dele, apague o armazenamento pelo menu do Xbox 360 antes.`;
   }
 
+  if (rawMessage.startsWith("Não foi possível isolar arquivo conflitante na raiz do dispositivo")) {
+    return `Encontramos arquivos antigos na raiz do seu ${targetPhrase} (como default.xex ou pasta de atualização) que causam o erro E71 no Xbox 360, mas o Windows não deixou movê-los. Feche todas as pastas abertas desse dispositivo, apague esses arquivos da raiz ou marque “Formatar antes” acima e tente novamente.`;
+  }
+
   if (/^Formatação cancelada/i.test(rawMessage)) {
     return "A formatação foi cancelada porque você não autorizou a janela de permissão do Windows. Clique em “Preparar pendrive/HD” novamente e clique em “Sim” quando o Windows perguntar.";
   }

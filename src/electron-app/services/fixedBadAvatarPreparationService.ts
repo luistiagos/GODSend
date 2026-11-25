@@ -16,6 +16,7 @@ import { hasLegacyXbox360Container } from "./preparedDeviceState";
 import { isExploitProfilePath } from "../infrastructure/exploitProfile";
 import { getBundledResourcesRoot, getRepoRoot } from "../infrastructure/fileSystem";
 import { isForeignConsoleStatePath, quarantineForeignConsoleState } from "../infrastructure/foreignConsoleState";
+import { quarantineConflictingRootBootEntries } from "../infrastructure/rootBootConflicts";
 import {
   buildPreparationReceipt,
   writePreparationReceipt,
@@ -788,6 +789,24 @@ export async function prepareFixedBadAvatarDevice(
       effectiveDeviceFingerprint,
     );
     await revalidateTarget();
+
+    onProgress({ status: "Verificando arquivos conflitantes na raiz do dispositivo…", percent: 22 });
+    const quarantinedRootConflicts = await quarantineConflictingRootBootEntries(
+      request.driveRoot,
+      revalidateTarget,
+    );
+    if (quarantinedRootConflicts.length > 0) {
+      const names = quarantinedRootConflicts.map((item) => item.originalName).join(", ");
+      appendAppEvent(
+        "BADAVATAR",
+        `arquivos conflitantes na raiz isolados em quarentena (prevencao de E71): ${names}`,
+      );
+      onProgress({
+        status: `Arquivos conflitantes na raiz isolados para evitar erro E71 (${names}).`,
+        percent: 22,
+        detail: `${quarantinedRootConflicts.length} item(ns)`,
+      });
+    }
 
     onProgress({ status: "Preservando em quarentena o estado antigo do pacote…", percent: 23 });
     await quarantineForeignConsoleState(

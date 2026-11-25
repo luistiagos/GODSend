@@ -1,4 +1,5 @@
 export type PreparedUsbWizardStep =
+  | "welcome-choice"
   | "checking-prepared"
   | "prepared-detected"
   | "unlock"

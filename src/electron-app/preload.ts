@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld("godsendApi", {
   browseFetchCover:         (name: string) => ipcRenderer.invoke("browse:fetch-cover", name),
   browseGetCoverHints:      (names: string[]) => ipcRenderer.invoke("browse:get-cover-hints", names),
   browseFetchInstalledCover: (game: { name?: string; titleId?: string }) => ipcRenderer.invoke("browse:fetch-installed-cover", game),
+  browseChooseFolder:       () => ipcRenderer.invoke("browse:choose-folder"),
   browseQueueGame:          (payload: any) => ipcRenderer.invoke("browse:queue-game", payload),
   browseGetDiscInfo:        (game: string) => ipcRenderer.invoke("browse:get-disc-info", game),
 

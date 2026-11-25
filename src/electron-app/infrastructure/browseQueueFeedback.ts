@@ -1,7 +1,7 @@
 export interface QueueSuccessFeedbackInput {
   isMultiDisc?: boolean;
   discCount?: number;
-  destinationKind?: "local" | "ftp";
+  destinationKind?: "local" | "ftp" | "folder";
 }
 
 export interface QueueSuccessFeedback {
@@ -21,15 +21,17 @@ export function buildQueueSuccessFeedback(
 ): QueueSuccessFeedback {
   const isMultiDisc = Boolean(input.isMultiDisc);
   const discCount = typeof input.discCount === "number" && input.discCount > 1 ? input.discCount : 2;
-  const isLocal = input.destinationKind !== "ftp";
+  const destinationKind = input.destinationKind ?? "local";
 
   const headline = isMultiDisc
     ? `Todos os ${discCount} discos foram adicionados à fila!`
     : "Adicionado à fila!";
 
-  const guidance = isLocal
-    ? "O download e a gravação começaram em segundo plano. Acompanhe na aba Fila até aparecer “Pronto” antes de desconectar o pendrive."
-    : "O download e o envio para o console começaram em segundo plano. Acompanhe o progresso na aba Fila até aparecer “Pronto”.";
+  const guidance = destinationKind === "ftp"
+    ? "O download e o envio para o console começaram em segundo plano. Acompanhe o progresso na aba Fila até aparecer “Pronto”."
+    : destinationKind === "folder"
+      ? "O download e a preparação começaram em segundo plano e os arquivos serão salvos na pasta escolhida. Acompanhe na aba Fila até aparecer “Pronto”."
+      : "O download e a gravação começaram em segundo plano. Acompanhe na aba Fila até aparecer “Pronto” antes de desconectar o pendrive.";
 
   return {
     headline,

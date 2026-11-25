@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Usb, Wifi, Search, Loader2, CheckCircle2, AlertTriangle, Terminal,
-  ArrowRight, Settings, Play, HardDrive, RefreshCw, Gamepad2, ArrowLeft
+  ArrowRight, Settings, Play, HardDrive, RefreshCw, Gamepad2, ArrowLeft,
+  Store, FolderOpen, ListOrdered, HelpCircle
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -76,7 +77,7 @@ export default function HomePage({
   const outputRef = useRef<HTMLPreElement>(null);
   
   // Simple Mode state
-  const [wizardStep, setWizardStep] = useState<PreparedUsbWizardStep>("checking-prepared");
+  const [wizardStep, setWizardStep] = useState<PreparedUsbWizardStep>("welcome-choice");
   const [preparedDeviceState, setPreparedDeviceState] = useState<PreparedDeviceState>("sem-preparo");
   const [detectedGamesCount, setDetectedGamesCount] = useState<number | null>(null);
   const [preparedCheckBusy, setPreparedCheckBusy] = useState(false);
@@ -363,6 +364,13 @@ export default function HomePage({
     setWizardStep("method");
   }, []);
 
+  const startPreparationFlow = useCallback(() => {
+    preparedDetectionDismissed.current = false;
+    setPreparedCheckNotice("");
+    setWizardStep("checking-prepared");
+    void checkPreparedDevice(false);
+  }, [checkPreparedDevice]);
+
   // ── Render Advanced Mode (Legacy terminal logs) ───────────────────────────
   if (!simpleMode) {
     return (
@@ -472,7 +480,154 @@ export default function HomePage({
         ? "mx-auto w-full max-w-4xl"
         : "card-surface mx-auto flex min-h-[350px] w-full max-w-4xl flex-col justify-between p-5"}
       >
-        {wizardStep === "checking-prepared" ? (
+        {wizardStep === "welcome-choice" ? (
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-1 py-1 sm:px-3">
+            <header className="text-center">
+              <h2 className="font-display text-xl font-bold text-foreground">
+                O que você deseja fazer agora?
+              </h2>
+              <p className="mx-auto mt-1.5 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
+                Escolha uma das opções abaixo. Você não precisa entender termos técnicos — cada caminho mostra o que fazer passo a passo.
+              </p>
+            </header>
+
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {/* Fluxo 1: Catálogo de Jogos */}
+              <button
+                type="button"
+                onClick={onNavigateBrowse}
+                className="group flex flex-col justify-between text-left p-5 rounded-xl border border-border bg-surface/60 hover:bg-surface hover:border-sky-500/70 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/60"
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="p-2.5 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                      <Store className="h-6 w-6" />
+                    </div>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                      Sem precisar de pendrive
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="font-display text-[16px] font-bold text-foreground group-hover:text-sky-300 transition-colors">
+                      Catálogo de Jogos
+                    </h3>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                      Vá direto para a lista de jogos de Xbox 360 e baixe os arquivos <strong className="text-foreground">para qualquer pasta do seu computador</strong> (ou para um pendrive já preparado).
+                    </p>
+                  </div>
+
+                  <ul className="space-y-2 rounded-lg bg-background/60 border border-border/50 p-3 text-[11.5px] leading-snug text-muted-foreground">
+                    <li className="flex items-start gap-2">
+                      <FolderOpen className="h-3.5 w-3.5 text-sky-400 shrink-0 mt-0.5" />
+                      <span>
+                        <strong className="text-foreground">Salvar em pasta no PC:</strong> clique em qualquer jogo e escolha <em>Pasta no PC</em> para salvar em Downloads, Documentos ou onde preferir.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-sky-400 shrink-0 mt-0.5" />
+                      <span>
+                        <strong className="text-foreground">Tudo automático:</strong> o programa baixa, extrai e prepara os arquivos prontos para o Xbox 360.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Gamepad2 className="h-3.5 w-3.5 text-sky-400 shrink-0 mt-0.5" />
+                      <span>
+                        <strong className="text-foreground">Use como quiser depois:</strong> guarde sua coleção no PC ou copie para um pendrive quando for jogar.
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between text-[12.5px] font-semibold text-sky-400">
+                  <span>Abrir catálogo de jogos</span>
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </div>
+              </button>
+
+              {/* Fluxo 2: Preparar Pendrive / HD */}
+              <button
+                type="button"
+                onClick={startPreparationFlow}
+                className="group flex flex-col justify-between text-left p-5 rounded-xl border border-border bg-surface/60 hover:bg-surface hover:border-[#22c55e]/70 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#22c55e]/60"
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="p-2.5 rounded-xl bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20">
+                      <Usb className="h-6 w-6" />
+                    </div>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#22c55e]/10 text-green-300 border border-[#22c55e]/20">
+                      Passo a passo guiado
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="font-display text-[16px] font-bold text-foreground group-hover:text-green-300 transition-colors">
+                      Preparar Pendrive / HD
+                    </h3>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                      Configure seu pendrive ou HD externo do zero para rodar jogos no Xbox 360 (Travado, LT ou RGH), ou conecte o PC direto ao console pela rede.
+                    </p>
+                  </div>
+
+                  <ul className="space-y-2 rounded-lg bg-background/60 border border-border/50 p-3 text-[11.5px] leading-snug text-muted-foreground">
+                    <li className="flex items-start gap-2">
+                      <HelpCircle className="h-3.5 w-3.5 text-[#22c55e] shrink-0 mt-0.5" />
+                      <span>
+                        <strong className="text-foreground">Ajuda a identificar seu Xbox:</strong> explica de forma simples a diferença entre console Travado/LT e RGH.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <HardDrive className="h-3.5 w-3.5 text-[#22c55e] shrink-0 mt-0.5" />
+                      <span>
+                        <strong className="text-foreground">Prepara o USB sozinho:</strong> formata no padrão correto (FAT32) e instala os arquivos do sistema (Aurora / BadAvatar).
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Wifi className="h-3.5 w-3.5 text-[#22c55e] shrink-0 mt-0.5" />
+                      <span>
+                        <strong className="text-foreground">Ou envio pela rede (RGH):</strong> encontra seu Xbox 360 no Wi-Fi/cabo para mandar os jogos sem tirar o HD.
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between text-[12.5px] font-semibold text-[#22c55e]">
+                  <span>Iniciar preparação do pendrive/HD</span>
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </div>
+              </button>
+            </section>
+
+            {/* Dica rápida para leigos */}
+            <div className="rounded-lg border border-border/50 bg-muted/25 px-4 py-3 text-[11.5px] leading-relaxed text-muted-foreground">
+              <span className="font-semibold text-foreground block mb-1">
+                Na dúvida sobre qual clicar?
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <p>
+                  • Quer apenas <strong className="text-foreground">baixar os arquivos dos jogos para o computador</strong> (sem plugar pendrive)? Clique em <strong className="text-sky-300">Catálogo de Jogos</strong>.
+                </p>
+                <p>
+                  • Vai <strong className="text-foreground">usar um pendrive ou HD novo no Xbox 360 pela primeira vez</strong>? Clique em <strong className="text-green-300">Preparar Pendrive / HD</strong>.
+                </p>
+              </div>
+            </div>
+
+            {Array.isArray(queueJobs) && queueJobs.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-4 py-2.5 text-[12px]">
+                <span className="text-amber-200 flex items-center gap-2">
+                  <ListOrdered className="h-4 w-4 text-amber-400 shrink-0" />
+                  Você tem <strong>{queueJobs.length}</strong> {queueJobs.length === 1 ? "jogo/tarefa na fila de downloads" : "jogos/tarefas na fila de downloads"}.
+                </span>
+                <Button size="sm" variant="outline" onClick={onNavigateQueue} className="h-7 text-[11px]">
+                  Acompanhar Fila
+                  <ArrowRight className="h-3 w-3 ml-1" />
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : wizardStep === "checking-prepared" ? (
           <div className="mx-auto flex h-[300px] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-5 text-muted-foreground sm:px-7">
             <Loader2 className="h-7 w-7 animate-spin text-primary" />
             <p className="text-[13px]">Verificando se já existe um pendrive ou HD preparado...</p>
@@ -536,6 +691,16 @@ export default function HomePage({
                   <HardDrive className="h-4 w-4" />
                   Preparar outro pendrive/HD
                 </Button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-8 text-[12px] text-muted-foreground hover:text-foreground flex items-center justify-center gap-1.5"
+                  onClick={() => setWizardStep("welcome-choice")}
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Voltar para a tela inicial
+                </Button>
               </section>
             </div>
           </div>
@@ -543,23 +708,27 @@ export default function HomePage({
           <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
             <div className="animate-fade-in flex flex-col gap-4">
               <header className="mb-5 text-center relative">
-                {canSkipPreparation(
-                  preparedDeviceState,
-                  selectedUnlockMode === false ? false : (selectedUnlockMode === true || readPersistedRghDeclaration()),
-                ) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="absolute left-0 top-1 text-muted-foreground hover:text-foreground text-[12px] flex items-center gap-1.5 p-0"
-                    onClick={() => {
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-1 text-muted-foreground hover:text-foreground text-[12px] flex items-center gap-1.5 p-0"
+                  onClick={() => {
+                    if (
+                      canSkipPreparation(
+                        preparedDeviceState,
+                        selectedUnlockMode === false ? false : (selectedUnlockMode === true || readPersistedRghDeclaration()),
+                      )
+                    ) {
                       preparedDetectionDismissed.current = false;
                       setWizardStep("prepared-detected");
-                    }}
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" />
-                    Voltar
-                  </Button>
-                )}
+                    } else {
+                      setWizardStep("welcome-choice");
+                    }
+                  }}
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Voltar
+                </Button>
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-green-500/10 text-green-400">
                   <Gamepad2 className="h-6 w-6" />
                 </div>

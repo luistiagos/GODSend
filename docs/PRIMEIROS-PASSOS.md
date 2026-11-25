@@ -5,9 +5,9 @@ Xbox 360. Não é necessário entender de programação.
 
 ## O que este aplicativo faz
 
-Ele prepara um pendrive ou HD USB com o **BadAvatar** e o **Aurora** já
-incluídos e configurados. Depois é só conectar o dispositivo no Xbox 360 e
-ativar pelo perfil.
+Ele oferece dois caminhos logo na tela inicial:
+1. **Catálogo de Jogos (*Sem precisar de pendrive*):** permite baixar jogos de Xbox 360 já convertidos diretamente para qualquer pasta do seu computador (ou para um pendrive já preparado).
+2. **Preparar Pendrive / HD (*Passo a passo guiado*):** prepara um pendrive ou HD USB com o **BadAvatar** e o **Aurora** já incluídos e configurados para rodar direto no Xbox 360 (ou conecta o PC ao console RGH pela rede).
 
 ## O que ele **não** faz
 
@@ -36,16 +36,25 @@ No **computador** você vai precisar de:
 
 ## Passo a passo
 
+### Para baixar jogos direto em uma pasta do PC (sem pendrive)
+
+1. Na tela inicial, clique em **Catálogo de Jogos**.
+2. Escolha o jogo desejado e, em **Onde você quer salvar este jogo?**, deixe marcada a opção **Pasta no PC**.
+3. Clique em **Salvar em uma pasta…**, escolha a pasta no Windows e acompanhe o progresso na aba **Fila** até aparecer **Pronto**.
+
+### Para preparar o pendrive/HD (BadAvatar ou Aurora)
+
 1. **Conecte** o pendrive ou HD numa porta USB do computador.
-2. Na tela inicial, em **"Dispositivo conectado"**, confira se ele apareceu. Se
+2. Na tela inicial, clique em **Preparar Pendrive / HD**, escolha o tipo de desbloqueio do console e avance para a tela de preparação.
+3. Em **"Dispositivo conectado"**, confira se o pendrive apareceu. Se
    não apareceu, clique em **Atualizar**.
-3. (Opcional) Marque **"Formatar antes"** para apagar tudo e deixar o
+4. (Opcional) Marque **"Formatar antes"** para apagar tudo e deixar o
    dispositivo em FAT32. O Windows vai pedir sua autorização antes de começar.
    > Formatar **apaga todos os arquivos** do dispositivo. Faça backup antes.
-4. Marque a confirmação de que o console está no **dashboard 17559**, com os
+5. Marque a confirmação de que o console está no **dashboard 17559**, com os
    **dados de Avatar** e ficará **sem internet**.
-5. Clique em **"Preparar pendrive/HD"** e aguarde a barra de progresso terminar.
-6. Quando aparecer **"Pronto!"**, leve o dispositivo para o Xbox 360.
+6. Clique em **"Preparar pendrive/HD"** e aguarde a barra de progresso terminar.
+7. Quando aparecer **"Pronto!"**, leve o dispositivo para o Xbox 360.
 
 ## No Xbox 360
 

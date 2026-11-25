@@ -2,6 +2,12 @@
 
 Each item is a **high-level capability**, **how you use it**, and **how it works** under the hood.
 
+## Initial flow choice & Save to PC folder (`HomePage` / `BrowsePage`)
+
+- **What:** A layman-friendly two-path welcome screen (**Catálogo de Jogos** vs **Preparar Pendrive / HD**) and a **Pasta no PC** destination option on every catalog item so users can download and prepare Xbox 360 games straight into any computer folder without needing a USB drive.
+- **How:** On startup in Simple Mode, pick **Catálogo de Jogos** to go straight to the catalog (or **Preparar Pendrive / HD** to enter the existing USB/network preparation wizard). In the catalog, click any game, select **Pasta no PC** (selected automatically when no USB drive is plugged in), and click **Salvar em uma pasta…** to open the standard Windows folder picker and immediately enqueue the download into the background **Fila**.
+- **How it works:** `HomePage.tsx` starts at `wizardStep = "welcome-choice"` (preserved across the 5 s USB detection poll by `preparedUsbDetection.ts::nextStepAfterPreparedUsbScan`). In `BrowsePage.tsx`, `QueueDialog` invokes `window.godsendApi.browseChooseFolder()` (`browse:choose-folder` in `ipc/browseHandlers.ts`, calling Electron `dialog.showOpenDialog`) and passes the chosen path as `localRoot` to `browse:queue-game` (`destinationType: "local"`, `destinationKind: "folder"`). Confirmation copy (`browseQueueFeedback.ts`) and error translation (`userFriendlyError.ts` `isFolder`) avoid USB-specific wording when saving to a PC folder.
+
 ## Desktop app (Electron) + backend
 
 - **What:** Run the Go HTTP server with a full desktop UI — **Windows** (NSIS installer), **macOS** (DMG), or **Linux** (AppImage). Includes Xbox Library, FTP Manager, Aurora Asset Editor, ISO conversion tools, unified job queue, and one-click Aurora script deployment.

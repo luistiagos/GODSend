@@ -291,6 +291,7 @@ export function buildGodsendEnv(writableRoot: string): NodeJS.ProcessEnv {
 The React UI is isolated and cannot import Node modules. It communicates with the main process via IPC channels defined in `preload.ts`:
 
 * **`config:*`**: Handles setting and reading paths, port values, and Internet Archive credentials.
+* **`browse:*`**: Handles catalog listing (`browse:get-games`), multi-disc grouping (`browse:get-release-groups`), cover lookup/hints (`browse:fetch-cover`, `browse:get-cover-hints`), installed games scanning (`browse:get-installed-games`), native OS folder selection for saving directly to a PC folder (`browse:choose-folder`), and queueing downloads (`browse:queue-game` supporting `destinationType: "local"` for both prepared USB drives and arbitrary PC folders via `destinationKind: "folder"`, or `"ftp"` for console transfers).
 * **`xbox:*`**: Handles console pings, FTP directory queries, Aurora asset operations, and Title Update selection.
 * **`tools:*`**: Handles ISO conversions, BadAvatar formatting, and raw file manipulation.
 * **`saves:*`**: Handles save management triggers and backup progress reporting.

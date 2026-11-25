@@ -67,6 +67,8 @@ test("sem o perfil do exploit o assistente abre na pergunta do modo do console",
 test("escolha explicita de preparar outro dispositivo nao e interrompida", () => {
   assert.equal(nextStepAfterPreparedUsbScan("unlock", "preparado-bloqueado-lt", true), "unlock");
   assert.equal(nextStepAfterPreparedUsbScan("method", "preparado-bloqueado-lt", false), "method");
+  assert.equal(nextStepAfterPreparedUsbScan("welcome-choice", "preparado-bloqueado-lt", false), "welcome-choice");
+  assert.equal(nextStepAfterPreparedUsbScan("welcome-choice", "preparado-rgh", false, true), "welcome-choice");
 });
 
 test("reabertura com declaracao RGH persistida leva direto a tela de pendrive preparado", () => {
