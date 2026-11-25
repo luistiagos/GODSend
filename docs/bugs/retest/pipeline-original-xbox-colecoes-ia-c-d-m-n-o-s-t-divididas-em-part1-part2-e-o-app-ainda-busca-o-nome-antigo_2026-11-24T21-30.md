@@ -109,4 +109,7 @@ Logs anexos do 14764 (`telemetria.py logs 14764`), um por fonte:
   - Teste temporário (apagado): `FindEntry(..., "xbox")` com cache frio devolve `microsoft_xbox_c_part2` para os 3 títulos do #437/14566. `LoadCacheFromDisk("xbox")` sobre o `cache/xbox.json` do repositório devolve `false` (14 coleções faltando), então a inicialização reconstrói.
   - `GET` com o `IAHTTPClient` autenticado do app em `microsoft_xbox_c_part2/Crash Nitro Kart (USA).zip` com `Range: bytes=0-1023` → **206** (`0-1023/6548029041`), igual a `microsoft_xbox_a`. Anônimo dá 401 nas duas, então não é diferença das coleções novas.
 - **Reteste de campo:** com a 2.12.132, baixar *Crash Nitro Kart (USA)* como Original Xbox e ver a tarefa chegar a "Pronto". No log da primeira abertura deve aparecer `CACHE [xbox]: disk cache is stale ... rebuilding` e, depois, `CACHE: xbox complete — N games` com N > 1.093.
-- Fora deste bug, não feito (decidir com o dono): descobrir as coleções por `identifier:microsoft_xbox_<letra>*` em vez de lista fixa, alerta de telemetria quando uma coleção some, e a mensagem genérica de internet/VPN para "não encontrado em nenhuma fonte".
+- Fora deste bug, registrados como bugs próprios em `docs/bugs/open/`:
+  - [lista fixa de coleções / rebuild tudo-ou-nada](../open/cache-ia-lista-fixa-de-colecoes-quebra-quando-o-archive-renomeia-e-rebuild-e-tudo-ou-nada_2026-11-24T21-07.md)
+  - [coleção que some não gera alerta na telemetria](../open/telemetria-colecao-ia-que-some-nao-gera-alerta-proprio-so-erros-por-titulo_2026-11-24T21-07.md)
+  - ["não encontrado" mostra mensagem de internet/VPN/antivírus](../open/pipeline-jogo-nao-encontrado-em-nenhuma-fonte-mostra-mensagem-de-internet-vpn-antivirus_2026-11-24T21-07.md)
