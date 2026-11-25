@@ -45,3 +45,52 @@ Há sinais de que a divisão ainda está em andamento: os itens novos têm `crea
 - [ ] Coleção renomeada no IA não exige versão nova do app para voltar a baixar (ou, no mínimo, não derruba as demais coleções da plataforma)
 - [ ] Rebuild com coleção ausente não se repete a cada abertura
 - [ ] Testes unitários acima verdes
+
+## Análise da correção (2026-11-25, sessão de fix)
+
+**Decisão do dono (2026-11-25):** as três frentes — descoberta dinâmica por `advancedsearch`, rebuild parcial e espera entre tentativas.
+
+### Símbolos abertos
+
+- `app/config.go::IACollections` — `map[string][]string` global, lido sem lock por `ia.go` e `interfaces/http/handlers.go` (só `len(...)` para o total do progresso e `range`/`ok` sobre as **chaves**). Mutá-lo em runtime seria corrida de dados: a lista descoberta fica num registro próprio com mutex, e a config vira fallback.
+- `services/cache/ia.go::Build` — busca todas as coleções em paralelo; qualquer erro ou coleção vazia vai para `failedCollections` e, se houver uma, chama `preserveExistingCache` e não publica nada (tudo-ou-nada). Resultados chegam em ordem não determinística pelo canal.
+- `ia.go::LoadCacheFromDisk` — descarta entradas de coleção fora de `IACollections[platform]` e devolve `false` quando falta coleção configurada; `main.go` então chama `Build` a cada abertura. Não lê `BuildTime`.
+- `ia.go::replaceMemoryCache` — apaga do `GameEntryMap` as entradas cujo `CollectionID` está em `IACollections[platform]`. Se a lista efetiva mudar (`_r` → `_r_part1`), as entradas da coleção aposentada não seriam apagadas: a posse tem que cobrir lista antiga, nova e o padrão da plataforma.
+- `ia.go::LiveSearchIA` — estreita por letra (`_<l>`, `_<l>_part`, `_numberssymbols`) sobre `IACollections[platform]`. O item 4 da causa raiz já foi corrigido na 2.12.135 (`errIACollectionUnavailable`).
+- `ia.go::DoIAMetaFetch` / `FetchIACollectionEntries` — 404 e 200 `{}` viram `errIACollectionGone` (sem retry); 5xx/rede tentam 4 vezes.
+- `models/types.go::PlatformCache` — `Games`, `GameEntries`, `BuildTime`. Sem campo para a lista de coleções.
+- `main.go` — no boot, `LoadCacheFromDisk` por plataforma; `false` → `go Build(p)` com atraso escalonado.
+- Testes: `refresh_safety_test.go::TestIABuildPreservesCompleteCacheWhenOneCollectionFails` fixa o tudo-ou-nada como correto (vai ser reescrito para a garantia nova: entrada antiga da coleção que falhou não some); `ia_collections_test.go` (`withIACollections`, `writeIADiskCache`); `ia_gone_test.go` (`fakeIAMetadata`, `captureTelemetry`, `newIATestApp`).
+
+### Medições (2026-11-25)
+
+- `curl "https://archive.org/advancedsearch.php?q=identifier%3Amicrosoft_xbox_*&fl%5B%5D=identifier&rows=300&output=json"` → `numFound: 36`: as 34 coleções da config + `microsoft_xbox_devkit_hdds` + `Microsoft_XBOX_360_Remote_Recovery_Software_Archive` (não são jogo).
+- Mesma busca com `microsoft_xbox360_*` → `numFound: 52`. Além das 38 da config: `microsoft_xbox360_digital_part1..7` (plataforma `digital`), `microsoft_xbox360_title-updates`, `microsoft_xbox360_TRAD_BR_2026_romsbrasil_parte1..5` e **`microsoft_xbox360_r_part1` ao lado de `microsoft_xbox360_r`**: a divisão do R do Xbox 360 está em andamento agora.
+
+### Hipóteses descartadas
+
+- **Trocar a lista pela busca inteira:** perderia letra quando o índice do IA estiver atrasado ou incompleto, e com `_r` e `_r_part1` coexistindo, escolher só as partes cortaria metade da letra R. Fica: por letra, a união do que a busca achou; letra que a busca não achou usa a config.
+- **Mutar `app.IACollections` com o resultado:** leitura sem lock em handlers e em `ia.go`; corrida de dados.
+- **Filtrar por prefixo simples (`microsoft_xbox360_`):** traria `digital`, `title-updates` e `TRAD_BR`. Fica o padrão estrito `^<prefixo>(numberssymbols|[a-z])(_part\d+)?$`.
+- **Preservar entradas antigas também de coleção sumida (404/`{}`/vazia):** as URLs delas são 404; preservar manteria no catálogo jogos que não baixam. Só erro transitório (rede/5xx) preserva.
+- **Rebuild por idade do cache (ex.: 7 dias):** detectaria renomeação com até uma semana de atraso. Fica uma descoberta por abertura (1 requisição) comparada com a lista gravada no cache.
+
+### Correção planejada
+
+1. **Descoberta** (`ia.go`): `discoverIACollections(platform)` só para `xbox` e `xbox360`; busca `advancedsearch`, filtra pelo padrão estrito, agrupa por letra e mescla com a config por letra. Falha da busca → config. Resultado num registro com mutex (`IACollectionsFor`), gravado em `PlatformCache.Collections` e restaurado pelo `LoadCacheFromDisk`.
+2. **Rebuild parcial** (`Build`): publica as coleções que responderam; coleção com erro transitório mantém as entradas antigas do cache em memória; coleção sumida perde as suas. Títulos repetidos entre coleções da mesma letra (divisão em andamento) entram uma vez, com preferência para `_partN`, em ordem determinística.
+3. **Sem tempestade** (`Build`/`LoadCacheFromDisk`): build incompleto grava `cache/<plataforma>.attempt.json` (coleções que falharam + horário); sucesso completo apaga. `LoadCacheFromDisk` com coleção faltando que está no registro de tentativa recente (< `IARebuildRetryInterval` = 6 h) devolve `true`.
+4. **Renomeação sem versão nova** (`main.go` + `ia.go::RebuildIfCollectionsChanged`): com cache válido carregado, uma descoberta em segundo plano; lista diferente da gravada → `Build` (respeitando a espera do item 3).
+
+## Tasks
+
+| # | task | commit | estado |
+|---|---|---|---|
+| T1 | descoberta + rebuild parcial + espera + checagem no boot (`ia.go`, `models/types.go`, `handlers.go`, `main.go`) com testes | -- | backlog |
+
+### T1 — testes que provam
+
+- `services/cache/ia_discovery_test.go` (novo): busca simulada (`httptest`) com `_c_part1`/`_c_part2` substitui `_c`; `_r` + `_r_part1` ficam os dois; `devkit_hdds`/`digital`/`TRAD_BR` excluídos; letra ausente na busca mantém a config; busca com erro → config.
+- `refresh_safety_test.go`: coleção com erro transitório preserva as entradas antigas dela e publica as demais; coleção sumida perde as suas; título repetido entre `_r` e `_r_part1` entra uma vez apontando para a parte.
+- `ia_collections_test.go`: tentativa recente com a mesma coleção faltando não pede rebuild; tentativa vencida pede; build completo apaga o registro.
+- Suítes: `go test ./services/cache/ ./interfaces/http/ .` e `npm run build:server`.
