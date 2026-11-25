@@ -54,3 +54,6 @@ graphify-out/
 r2-config.json
 .env
 build.properties
+
+# Registro de rebuild incompleto do cache IA (gerado em runtime; nao vai no instalador)
+cache/*.attempt.json

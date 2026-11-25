@@ -280,3 +280,113 @@ func TestLoadCacheFromDiskWaitsAfterAFailedRebuildOnTheSameList(t *testing.T) {
 		}
 	})
 }
+
+// fetchWithEmpty answers like recordFetches, but with no archive for empty.
+func fetchWithEmpty(empty string) func(string) ([]models.IAGameEntry, error) {
+	return func(id string) ([]models.IAGameEntry, error) {
+		if id == empty {
+			return nil, nil
+		}
+		return []models.IAGameEntry{{CollectionID: id, FileName: id + " Game.zip"}}, nil
+	}
+}
+
+// microsoft_xbox360_r_part1 (2026-11-25): indexed by advancedsearch, but its
+// one .zip was deleted. Only discovery brings it, so it is not a failure: no
+// attempt record, no "Coleção IA sumiu" alert, and the cache stays current
+// on reload even after IARebuildRetryInterval.
+func TestIABuildSkipsEmptyDiscoveredCollectionWithoutFailure(t *testing.T) {
+	fakeIASearch(t, 200, []string{"microsoft_xbox_a", "microsoft_xbox_r", "microsoft_xbox_r_part1"})
+	withIACollections(t, "xbox", []string{"microsoft_xbox_a", "microsoft_xbox_r"})
+	reported := captureTelemetry(t)
+	a := newIATestApp(t)
+	service := &IAService{App: a, FetchCollectionEntriesFn: fetchWithEmpty("microsoft_xbox_r_part1")}
+
+	service.Build("xbox")
+
+	if got := reported(); len(got) != 0 {
+		t.Fatalf("empty discovered collection reported to telemetry: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(a.ToolsDir, "cache", "xbox.attempt.json")); !os.IsNotExist(err) {
+		t.Fatalf("empty discovered collection recorded an incomplete rebuild (stat err %v)", err)
+	}
+	data, err := os.ReadFile(filepath.Join(a.ToolsDir, "cache", "xbox.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pc models.PlatformCache
+	if err := json.Unmarshal(data, &pc); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(pc.Collections, ","); got != "microsoft_xbox_a,microsoft_xbox_r,microsoft_xbox_r_part1" {
+		t.Fatalf("persisted list %s must keep the empty part, or the next discovery sees a change", got)
+	}
+	if got := strings.Join(pc.EmptyCollections, ","); got != "microsoft_xbox_r_part1" {
+		t.Fatalf("empty_collections = %q", got)
+	}
+
+	// An old attempt record on the same list must not matter either.
+	old, _ := json.Marshal(iaBuildAttempt{At: time.Now().Add(-IARebuildRetryInterval - time.Hour), Collections: pc.Collections, Failed: []string{"microsoft_xbox_r_part1"}})
+	if err := os.WriteFile(filepath.Join(a.ToolsDir, "cache", "xbox.attempt.json"), old, 0644); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := &IAService{App: newIATestApp(t)}
+	reloaded.App.ToolsDir = a.ToolsDir
+	if !reloaded.LoadCacheFromDisk("xbox") {
+		t.Fatal("cache with an empty discovered collection asked a rebuild after the retry interval")
+	}
+
+	// And the next discovery returns the same list: nothing to rebuild.
+	fetches := 0
+	reloaded.FetchCollectionEntriesFn = func(id string) ([]models.IAGameEntry, error) { fetches++; return nil, nil }
+	reloaded.RebuildIfCollectionsChanged("xbox")
+	if fetches != 0 {
+		t.Fatalf("unchanged list rebuilt (%d fetches)", fetches)
+	}
+}
+
+// A configured collection that comes back empty is what the alert is for.
+func TestIABuildConfiguredEmptyCollectionStillFails(t *testing.T) {
+	fakeIASearch(t, 200, []string{"microsoft_xbox_a", "microsoft_xbox_r"})
+	withIACollections(t, "xbox", []string{"microsoft_xbox_a", "microsoft_xbox_r"})
+	reported := captureTelemetry(t)
+	a := newIATestApp(t)
+	service := &IAService{App: a, FetchCollectionEntriesFn: fetchWithEmpty("microsoft_xbox_r")}
+
+	service.Build("xbox")
+
+	if got := strings.Join(reported(), "\n"); !strings.Contains(got, "microsoft_xbox_r") {
+		t.Fatalf("configured empty collection not reported: %q", got)
+	}
+	attempt, recent := service.recentIncompleteBuild("xbox")
+	if !recent || strings.Join(attempt.Failed, ",") != "microsoft_xbox_r" {
+		t.Fatalf("configured empty collection must record the incomplete rebuild, got %+v (recent %v)", attempt, recent)
+	}
+	data, _ := os.ReadFile(filepath.Join(a.ToolsDir, "cache", "xbox.json"))
+	var pc models.PlatformCache
+	_ = json.Unmarshal(data, &pc)
+	if len(pc.EmptyCollections) != 0 {
+		t.Fatalf("configured collection marked as harmlessly empty: %v", pc.EmptyCollections)
+	}
+}
+
+// A cache whose empty_collections names a collection that a newer version
+// configured must not hide it: a configured collection without entries is
+// missing.
+func TestLoadCacheFromDiskIgnoresEmptyMarkOnConfiguredCollection(t *testing.T) {
+	withIACollections(t, "xbox", []string{"microsoft_xbox_a", "microsoft_xbox_r"})
+	a := newIATestApp(t)
+	pc := models.PlatformCache{
+		Games:            []string{"A Game"},
+		GameEntries:      map[string]models.IAGameEntry{"a game": {CollectionID: "microsoft_xbox_a", FileName: "A Game.zip"}},
+		Collections:      []string{"microsoft_xbox_a", "microsoft_xbox_r"},
+		EmptyCollections: []string{"microsoft_xbox_r"},
+	}
+	data, _ := json.Marshal(pc)
+	if err := os.WriteFile(filepath.Join(a.ToolsDir, "cache", "xbox.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if (&IAService{App: a}).LoadCacheFromDisk("xbox") {
+		t.Fatal("configured collection without entries was treated as covered")
+	}
+}

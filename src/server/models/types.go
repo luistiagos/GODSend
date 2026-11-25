@@ -18,6 +18,11 @@ type PlatformCache struct {
 	// on archive.org for Redump-style platforms). Empty in caches written before
 	// 2.12.136, which then fall back to app.IACollections.
 	Collections []string `json:"collections,omitempty"`
+	// EmptyCollections are discovered collections (not in app.IACollections)
+	// that answered with no downloadable archive, e.g. a "_partN" the IA
+	// created and emptied. They stay in Collections, so the discovered list
+	// still matches, but count as covered: no rebuild, no alert. Since 2.12.137.
+	EmptyCollections []string `json:"empty_collections,omitempty"`
 }
 
 // BuildState tracks live progress of a cache build.

@@ -1,6 +1,6 @@
 {
   "name": "xbox-360-companion-electron",
-  "version": "2.12.136",
+  "version": "2.12.137",
   "description": "Full Electron UI for configuring, monitoring, and managing Xbox 360 Companion",
   "main": "main.js",
   "scripts": {
@@ -122,7 +122,8 @@
         "filter": [
           "**/*",
           "!**/*.iso",
-          "!**/*.ISO"
+          "!**/*.ISO",
+          "!**/*.attempt.json"
         ]
       },
       {

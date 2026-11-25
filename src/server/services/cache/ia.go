@@ -47,17 +47,19 @@ func (s *IAService) cacheFilePath(platform string) string {
 }
 
 func (s *IAService) SaveCacheToDisk(platform string, games []string, entries map[string]models.IAGameEntry) {
-	s.saveCacheToDisk(platform, games, entries, nil)
+	s.saveCacheToDisk(platform, games, entries, nil, nil)
 }
 
 // saveCacheToDisk also records the collection list the cache was built from,
-// so the next start knows it without asking archive.org.
-func (s *IAService) saveCacheToDisk(platform string, games []string, entries map[string]models.IAGameEntry, collections []string) {
+// so the next start knows it without asking archive.org, and which of those
+// were discovered empty (see models.PlatformCache.EmptyCollections).
+func (s *IAService) saveCacheToDisk(platform string, games []string, entries map[string]models.IAGameEntry, collections, empty []string) {
 	pc := models.PlatformCache{
-		Games:       games,
-		GameEntries: entries,
-		BuildTime:   time.Now(),
-		Collections: collections,
+		Games:            games,
+		GameEntries:      entries,
+		BuildTime:        time.Now(),
+		Collections:      collections,
+		EmptyCollections: empty,
 	}
 	data, err := json.MarshalIndent(pc, "", "  ")
 	if err != nil {
@@ -111,6 +113,11 @@ func (s *IAService) LoadCacheFromDisk(platform string) bool {
 		covered := make(map[string]bool, len(colls))
 		for _, c := range colls {
 			covered[c] = false
+		}
+		for _, c := range pc.EmptyCollections {
+			if _, inList := covered[c]; inList && !isConfiguredCollection(platform, c) {
+				covered[c] = true
+			}
 		}
 		retired := 0
 		for key, e := range pc.GameEntries {
@@ -406,7 +413,7 @@ func (s *IAService) build(platform string, colls []string) {
 
 	newEntries := map[string]models.IAGameEntry{}
 	var allGames []string
-	var failedCollections, transientCollections []string
+	var failedCollections, transientCollections, emptyCollections []string
 
 	for _, r := range results {
 		if r.err != nil {
@@ -420,6 +427,14 @@ func (s *IAService) build(platform string, colls []string) {
 			continue
 		}
 		if len(r.entries) == 0 {
+			// Only discovery brought it (e.g. microsoft_xbox360_r_part1, whose
+			// one .zip the IA deleted): nothing was lost, so no failure and no
+			// alert; the letter still comes from the configured collection.
+			if !isConfiguredCollection(platform, r.collectionID) {
+				s.App.Logf("CACHE [%s]: %s (discovered) has no downloadable archives; skipped", platform, r.collectionID)
+				emptyCollections = append(emptyCollections, r.collectionID)
+				continue
+			}
 			s.App.Logf("CACHE WARN [%s]: %s returned no downloadable archives", platform, r.collectionID)
 			failedCollections = append(failedCollections, r.collectionID)
 			s.reportGoneCollection(platform, r.collectionID, "no downloadable archives")
@@ -475,12 +490,14 @@ func (s *IAService) build(platform string, colls []string) {
 
 	sort.Strings(allGames)
 	s.replaceMemoryCache(platform, allGames, newEntries) // before setCollections: ownership needs the old list
-	var persisted []string
+	var persisted, persistedEmpty []string
 	if _, discovers := iaDiscoveryPrefixes[platform]; discovers {
 		persisted = colls
+		sort.Strings(emptyCollections)
+		persistedEmpty = emptyCollections
 		s.setCollections(platform, colls)
 	}
-	s.saveCacheToDisk(platform, allGames, newEntries, persisted)
+	s.saveCacheToDisk(platform, allGames, newEntries, persisted, persistedEmpty)
 	s.SetBuildState(platform, "ready", total, total)
 
 	if len(failedCollections) > 0 {
@@ -491,6 +508,17 @@ func (s *IAService) build(platform string, colls []string) {
 	}
 	s.clearIncompleteBuild(platform)
 	s.App.Logf("CACHE: %s complete — %d games", platform, len(allGames))
+}
+
+// isConfiguredCollection reports whether collectionID is in the shipped
+// app.IACollections list (as opposed to one only discovery found).
+func isConfiguredCollection(platform, collectionID string) bool {
+	for _, c := range app.IACollections[platform] {
+		if c == collectionID {
+			return true
+		}
+	}
+	return false
 }
 
 // reportGoneCollection sends one telemetry error per dead collection. The
