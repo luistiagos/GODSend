@@ -234,3 +234,43 @@ func (a *App) EnsureIAAuthSession() error {
 	a.Logf("[INFO] Internet Archive: automatic shared-account login succeeded")
 	return nil
 }
+
+// RefreshIAAuthSession forces a fresh shared-account login when an active
+// archive.org download receives 401/403 (e.g. session cookie expired after >1h).
+// Respects explicit user credentials (IAAuthorizationHeader / IACookieHeader)
+// and rate-limits retries via archiveAutoLoginCooldown.
+func (a *App) RefreshIAAuthSession() error {
+	if a == nil {
+		return fmt.Errorf("nil app")
+	}
+	if a.IAAuthorizationHeader != "" || a.IACookieHeader != "" {
+		return nil
+	}
+	a.iaAutoLoginMu.Lock()
+	defer a.iaAutoLoginMu.Unlock()
+
+	if time.Since(a.iaAutoLoginLastAttempt) < archiveAutoLoginCooldown {
+		if a.hasArchiveSessionCookie() {
+			return nil
+		}
+		return a.iaAutoLoginLastErr
+	}
+	// Expire session cookies in place inside the existing thread-safe CookieJar
+	// rather than reassigning a.IAHTTPClient.Jar (which net/http reads unlocked
+	// from concurrent worker goroutines).
+	if a.IAHTTPClient != nil && a.IAHTTPClient.Jar != nil {
+		a.IAHTTPClient.Jar.SetCookies(archiveBaseParsedURL(), []*http.Cookie{
+			{Name: "logged-in-sig", Value: "", Path: "/", Domain: ".archive.org", MaxAge: -1, Expires: time.Unix(0, 0)},
+			{Name: "logged-in-user", Value: "", Path: "/", Domain: ".archive.org", MaxAge: -1, Expires: time.Unix(0, 0)},
+		})
+	}
+	err := a.loginArchiveWithSharedCredentials()
+	a.iaAutoLoginLastAttempt = time.Now()
+	a.iaAutoLoginLastErr = err
+	if err != nil {
+		a.Logf("[WARN] Internet Archive: session refresh failed: %v", err)
+		return err
+	}
+	a.Logf("[INFO] Internet Archive: session refreshed after 401/403")
+	return nil
+}

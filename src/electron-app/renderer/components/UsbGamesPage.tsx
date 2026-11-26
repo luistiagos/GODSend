@@ -22,6 +22,7 @@ export interface InstalledGame {
 }
 
 interface UsbGamesPageProps {
+  initialDriveRoot?: string;
   onNavigateBrowse?: () => void;
   onNavigateHome?: () => void;
   onGamesCountChange?: (count: number) => void;
@@ -203,12 +204,13 @@ function InstalledGameCard({ game, onOpenFolder, onDelete }: InstalledGameCardPr
 
 // ── Main Page Component ──────────────────────────────────────────────────────
 export default function UsbGamesPage({
+  initialDriveRoot,
   onNavigateBrowse,
   onNavigateHome,
   onGamesCountChange,
 }: UsbGamesPageProps) {
   const [drives, setDrives] = useState<any[]>([]);
-  const [selectedDrive, setSelectedDrive] = useState<string>("ALL");
+  const [selectedDrive, setSelectedDrive] = useState<string>(initialDriveRoot || "ALL");
   const [games, setGames] = useState<InstalledGame[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -220,6 +222,13 @@ export default function UsbGamesPage({
   const [showRepairModal, setShowRepairModal] = useState(false);
   const [showProbeModal, setShowProbeModal] = useState(false);
   const [ejecting, setEjecting] = useState(false);
+  const [fixingXeniaPerms, setFixingXeniaPerms] = useState(false);
+
+  useEffect(() => {
+    if (initialDriveRoot) {
+      setSelectedDrive(initialDriveRoot);
+    }
+  }, [initialDriveRoot]);
 
   // Load drives and installed games
   const refreshAll = useCallback(async (manual = false) => {
@@ -351,6 +360,44 @@ export default function UsbGamesPage({
     }
   }
 
+  async function handleRepairXeniaPermissions(drive: any) {
+    if (!drive?.rootPath || !drive?.fingerprint || fixingXeniaPerms) return;
+    setFixingXeniaPerms(true);
+    setActionFeedback(null);
+    try {
+      const res = await window.godsendApi.toolsXeniaRepairPermissions({
+        driveRoot: drive.rootPath,
+        expectedDeviceFingerprint: drive.fingerprint,
+      });
+      if (res?.ok) {
+        setActionFeedback({
+          msg: `Permissões do Xbox One / Series (Xenia) reaplicadas e verificadas com sucesso em ${drive.rootPath} sem apagar nenhum jogo!`,
+          type: "success",
+        });
+        await refreshAll(true);
+      } else {
+        setActionFeedback({
+          msg: formatErrorForUser(res?.error || "Não foi possível corrigir as permissões do Xenia.", {
+            area: "drive-maintenance",
+            driveRoot: drive.rootPath,
+          }),
+          type: "error",
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        msg: formatErrorForUser(err, { area: "drive-maintenance", driveRoot: drive.rootPath }),
+        type: "error",
+      });
+    } finally {
+      setFixingXeniaPerms(false);
+    }
+  }
+
+  const isActiveDriveNtfs = Boolean(
+    activeDriveInfo && String(activeDriveInfo.fileSystem || "").trim().toUpperCase() === "NTFS",
+  );
+
   const xexCount = games.filter((g) => g.format === "xex").length;
   const godCount = games.filter((g) => g.format === "god").length;
   const totalSizeBytes = games.reduce((acc, g) => acc + (g.sizeBytes || 0), 0);
@@ -390,11 +437,19 @@ export default function UsbGamesPage({
                   aria-label="Selecionar Unidade"
                 >
                   <option value="ALL">Todas as unidades USB ({games.length})</option>
-                  {drives.map((d) => (
-                    <option key={d.rootPath} value={d.rootPath}>
-                      {d.rootPath} {d.label ? `[${d.label}]` : ""} ({formatBytes(d.sizeBytes)})
-                    </option>
-                  ))}
+                  {drives.map((d) => {
+                    const consoleTag =
+                      d.xboxOneSeriesState === "preparado-xenia"
+                        ? " · Xbox One/Series (Xenia)"
+                        : d.preparedState === "preparado-bloqueado-lt" || d.preparedState === "preparado-rgh"
+                          ? " · Xbox 360"
+                          : "";
+                    return (
+                      <option key={d.rootPath} value={d.rootPath}>
+                        {d.rootPath} {d.label ? `[${d.label}]` : ""} ({formatBytes(d.sizeBytes)}){consoleTag}
+                      </option>
+                    );
+                  })}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               </div>
@@ -416,12 +471,30 @@ export default function UsbGamesPage({
             {/* Drive Tools Actions */}
             {activeDriveInfo?.rootPath && (
               <>
+                {isActiveDriveNtfs && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={fixingXeniaPerms || !activeDriveInfo.fingerprint}
+                    onClick={() => handleRepairXeniaPermissions(activeDriveInfo)}
+                    className="gap-1.5 h-9 px-2.5 text-xs text-sky-400 border-sky-500/35 hover:bg-sky-500/10 cursor-pointer"
+                    title="Reaplicar permissões NTFS do Modo Desenvolvedor (ALL APPLICATION PACKAGES) sem apagar seus jogos"
+                  >
+                    <ShieldCheck className={cn("h-3.5 w-3.5", fixingXeniaPerms && "animate-pulse")} />
+                    <span className="hidden sm:inline">
+                      {fixingXeniaPerms ? "Corrigindo permissões…" : "Corrigir permissões (Xenia)"}
+                    </span>
+                  </Button>
+                )}
+
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => setShowRepairModal(true)}
                   className="gap-1.5 h-9 px-2.5 text-xs text-amber-400 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer"
-                  title="Executar verificação e reparo de sistema de arquivos FAT32 (CHKDSK)"
+                  title={isActiveDriveNtfs
+                    ? "Executar verificação e reparo do sistema de arquivos NTFS (CHKDSK)"
+                    : "Executar verificação e reparo de sistema de arquivos FAT32 (CHKDSK)"}
                 >
                   <Wrench className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Reparar (CHKDSK)</span>

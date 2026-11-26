@@ -19,7 +19,9 @@ import { powerShellExe, system32Exe } from "../infrastructure/windowsSystemExecu
 import { appendAppEvent } from "../infrastructure/serverLog";
 import { exploitProfileFiles, type ExploitProfileFile } from "./fixedBadAvatarPreparationService";
 import { detectPreparedDeviceState } from "./preparedDeviceState";
-import type { PreparedDeviceState } from "./preparedUsbDetection";
+import { detectXboxOneSeriesDeviceState } from "./xboxOneSeriesDeviceState";
+import { quickCheckXeniaDriveAcl } from "../infrastructure/ntfsAclVerifier";
+import type { PreparedDeviceState, XboxOneSeriesDeviceState } from "./preparedUsbDetection";
 
 // The inherited writer downloads unpinned archives and extracts them directly
 // onto the target. Keep it impossible to invoke until the trusted-manifest and
@@ -49,6 +51,7 @@ export interface UsbDriveInfo {
     reasons: string[];
   };
   preparedState?: PreparedDeviceState;
+  xboxOneSeriesState?: XboxOneSeriesDeviceState;
 }
 
 export interface BadAvatarPackage {
@@ -383,6 +386,11 @@ let usbListLastGood: UsbDriveInfo[] | null = null;
 let usbListGeneration = 0;
 let usbListInFlight: { generation: number; drives: Promise<UsbDriveInfo[]> } | null = null;
 let usbPreparationActive = false;
+/**
+ * Cache do resultado da verificação rápida de ACL NTFS por assinatura de volume (`root|mountedVolumes`),
+ * garantindo que o polling de 5 s da Home NUNCA abra PowerShell repetidamente quando o dispositivo não mudou.
+ */
+const xeniaAclCache = new Map<string, boolean>();
 
 /**
  * While a preparation runs, the Home list and the game counter keep polling, and on a slow
@@ -401,6 +409,7 @@ export function setUsbPreparationActive(active: boolean): void {
  */
 export function invalidateUsbDriveListCache(): void {
   usbListCache = null;
+  xeniaAclCache.clear();
   usbListGeneration++;
 }
 
@@ -513,6 +522,21 @@ export async function listFat32UsbDrives(fresh = false): Promise<UsbDriveInfo[]>
   await Promise.all(drives.map(async (drive) => {
     drive.preparedState = await detectPreparedDeviceState(drive.rootPath, exploitProfile, {
       requirePayloadDir: true,
+      fileSystem: drive.fileSystem,
+    });
+    const aclCacheKey = `${normalizeRoot(drive.rootPath).toUpperCase()}|${mountedVolumes}`;
+    const checkAclCached = async (root: string): Promise<boolean> => {
+      if (!fresh && xeniaAclCache.has(aclCacheKey)) {
+        return xeniaAclCache.get(aclCacheKey) === true;
+      }
+      const ok = await quickCheckXeniaDriveAcl(root);
+      xeniaAclCache.set(aclCacheKey, ok);
+      return ok;
+    };
+    drive.xboxOneSeriesState = await detectXboxOneSeriesDeviceState(drive.rootPath, {
+      fileSystem: drive.fileSystem,
+      xbox360PreparedState: drive.preparedState,
+      checkAcl: checkAclCached,
     });
   }));
   return drives;

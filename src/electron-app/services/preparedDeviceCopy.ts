@@ -1,4 +1,4 @@
-import type { PreparedDeviceState } from "./preparedUsbDetection";
+import type { PreparedDeviceState, XboxOneSeriesDeviceState } from "./preparedUsbDetection";
 
 /**
  * O texto que o usuário lê sobre o dispositivo dele, um por estado, num só lugar — porque foi o
@@ -64,5 +64,49 @@ export const DEVICE_STATE_BADGE: Record<
     tone: "green",
     title: "Desbloqueio BadAvatar encontrado",
     detail: "O perfil ABadAvatar está gravado neste dispositivo.",
+  },
+};
+
+/**
+ * Avisos explícitos de console trocado (isolamento total entre Xbox 360 e Xbox One/Series).
+ * Nunca confundir um console com o outro — ambos são explicados em linguagem direta para leigos.
+ */
+export const CROSS_CONSOLE_NOTICE = {
+  /** Exibido no fluxo do Xbox 360 quando há um pendrive/HD preparado para Xbox One / Series. */
+  xeniaDriveInXbox360Flow: {
+    title: "Este pendrive/HD está preparado para o Xbox One / Series (e não para o Xbox 360)",
+    detail:
+      "Ele está formatado em NTFS para rodar jogos no Xenia (Modo Desenvolvedor do Xbox One / Series). O Xbox 360 só lê pendrives em FAT32. Se quiser usar este mesmo dispositivo no Xbox 360, marque “Formatar antes” na preparação (isso apagará o preparo do Xbox One / Series), ou conecte outro pendrive/HD.",
+  },
+  /** Exibido no fluxo do Xbox One / Series quando há um pendrive/HD preparado para Xbox 360. */
+  xbox360DriveInXeniaFlow: {
+    title: "Este pendrive/HD está preparado para o Xbox 360 (e não para o Xbox One / Series)",
+    detail:
+      "Ele está formatado em FAT32 para o Xbox 360 (Aurora / BadAvatar). Para usar no Xbox One ou Xbox Series (Xenia), você precisa formatá-lo em NTFS e aplicar as permissões do Modo Desenvolvedor abaixo (isso apagará os arquivos do Xbox 360), ou conectar outro pendrive/HD.",
+  },
+};
+
+/** Badges e textos exclusivos do fluxo Xbox One / Xbox Series X|S (Modo Desenvolvedor / Xenia). */
+export const XENIA_DEVICE_STATE_BADGE: Record<
+  XboxOneSeriesDeviceState,
+  { tone: "green" | "amber"; title: string; detail: string } | null
+> = {
+  "sem-preparo": null,
+  "preparado-outro-console": {
+    tone: "amber",
+    title: CROSS_CONSOLE_NOTICE.xbox360DriveInXeniaFlow.title,
+    detail: CROSS_CONSOLE_NOTICE.xbox360DriveInXeniaFlow.detail,
+  },
+  "ntfs-sem-permissoes": {
+    tone: "amber",
+    title: "Dispositivo NTFS sem as permissões do Xbox One / Series",
+    detail:
+      "Este dispositivo já está em NTFS, mas ainda não tem todas as permissões do Modo Desenvolvedor (ou as pastas do Xenia). Você pode corrigir as permissões sem apagar seus jogos, ou formatar do zero.",
+  },
+  "preparado-xenia": {
+    tone: "green",
+    title: "Pronto para Xbox One / Series (Xenia)",
+    detail:
+      "Este dispositivo está em NTFS com as permissões do Modo Desenvolvedor conferidas e as pastas do Xenia prontas.",
   },
 };

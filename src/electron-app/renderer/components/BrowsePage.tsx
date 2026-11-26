@@ -17,18 +17,23 @@ import {
   type CatalogSortOrder,
   type CoverStatus,
 } from "../../infrastructure/browseCatalogSort.ts";
+import {
+  ALL_CATALOG_PLATFORMS,
+  assessDriveForCatalogContext,
+  catalogPlatformsForContext,
+  normalizePlatformForContext,
+  pickDefaultDriveForCatalogContext,
+  shouldAllowFtpInCatalogContext,
+} from "../../infrastructure/catalogConsolePolicy.ts";
+import type {
+  CatalogConsoleContext,
+  PreparedDeviceState,
+  XboxOneSeriesDeviceState,
+} from "../../services/preparedUsbDetection.ts";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const PLATFORMS = [
-  { id: "xbox360", label: "Xbox 360",      methods: true  },
-  { id: "xbox",    label: "Original Xbox", methods: true  },
-  { id: "xbla",   label: "XBLA",          methods: false },
-  { id: "digital", label: "Digital",       methods: false },
-  { id: "dlc",    label: "DLC",           methods: false },
-  { id: "xblig",  label: "Indie",         methods: false },
-  { id: "games",  label: "Games Archive", methods: true  },
-];
+const PLATFORMS = ALL_CATALOG_PLATFORMS;
 
 const SOURCES = [
   { id: "unified", label: "Catálogo Online" },
@@ -115,6 +120,9 @@ interface LocalDrive {
   rootPath: string;       // e.g. "F:/"
   label: string;          // volume label, e.g. "BADAVATAR"
   freeBytes?: number;
+  fileSystem?: string;
+  preparedState?: PreparedDeviceState;
+  xboxOneSeriesState?: XboxOneSeriesDeviceState;
 }
 
 /**
@@ -165,11 +173,18 @@ function freeLabel(freeBytes?: number): string {
   return gb >= 1 ? ` · ${gb.toFixed(1)} GB livres` : ` · ${Math.round(freeBytes / (1024 ** 2))} MB livres`;
 }
 
-function buildDestinations(localDrives: LocalDrive[], defaultDrive: string, ftpDrives: string[]): Destination[] {
+function buildDestinations(
+  localDrives: LocalDrive[],
+  defaultDrive: string,
+  ftpDrives: string[],
+  catalogContext: CatalogConsoleContext = "all",
+): Destination[] {
   const dests: Destination[] = [];
   for (const d of localDrives) {
     const letter = driveLetterOf(d.rootPath);
-    const name = (d.label ? `${letter} — ${d.label}` : `${letter} (pendrive)`) + freeLabel(d.freeBytes);
+    const compat = assessDriveForCatalogContext(d, catalogContext);
+    const tag = compat.consoleTag ? ` [${compat.consoleTag}]` : "";
+    const name = (d.label ? `${letter} — ${d.label}` : `${letter} (pendrive)`) + tag + freeLabel(d.freeBytes);
     dests.push({ value: `local:${d.rootPath}`, label: name, kind: "local", rootPath: d.rootPath });
   }
   const ftp = [...ftpDrives];
@@ -263,6 +278,7 @@ interface QueueDialogProps {
   onQueue?: () => void;
   onNavigateQueue?: () => void;
   simpleMode?: boolean;
+  catalogContext?: CatalogConsoleContext;
   onXboxConfigured?: () => void;
   /** Whether the disc grouping for this catalog is in yet. */
   discInfoState: DiscMembershipState;
@@ -283,13 +299,17 @@ function QueueDialog({
   onClose,
   onNavigateQueue,
   simpleMode = true,
+  catalogContext = "all",
   onXboxConfigured,
   discInfoState,
   onRetryDiscInfo,
 }: QueueDialogProps) {
   const hasMethods = source === "local" || (PLATFORMS.find((p) => p.id === platform)?.methods ?? false);
-  const destinations = buildDestinations(localDrives, defaultDrive, drives);
-  const [destValue, setDestValue] = useState(destinations[0]?.value ?? "");
+  const allowFtp = shouldAllowFtpInCatalogContext(catalogContext);
+  const destinations = buildDestinations(localDrives, defaultDrive, drives, catalogContext);
+  const preferredLocal = pickDefaultDriveForCatalogContext(localDrives, catalogContext);
+  const initialDestValue = preferredLocal ? `local:${preferredLocal.rootPath}` : (destinations[0]?.value ?? "");
+  const [destValue, setDestValue] = useState(initialDestValue);
   const [method, setMethod] = useState("god");
   const [queuing, setQueuing]   = useState(false);
   const [result,  setResult]    = useState<any>(null);
@@ -298,6 +318,18 @@ function QueueDialog({
   const [destType, setDestType] = useState<"folder" | "local" | "ftp">(localDrives.length > 0 ? "local" : "folder");
   const [chosenFolder, setChosenFolder] = useState("");
   const [showDiscovery, setShowDiscovery] = useState(false);
+
+  const selectedLocalDrive = useMemo(
+    () => (destType === "local" && selectedDest?.rootPath
+      ? localDrives.find((d) => d.rootPath === selectedDest.rootPath)
+      : undefined),
+    [destType, selectedDest, localDrives],
+  );
+  const selectedDriveCompatibility = useMemo(
+    () => assessDriveForCatalogContext(selectedLocalDrive, catalogContext),
+    [selectedLocalDrive, catalogContext],
+  );
+  const isBlockedCrossConsoleDrive = destType === "local" && selectedDriveCompatibility.compatible === false;
 
   const discsToQueue = useMemo(() => {
     if (releaseGroup && Array.isArray(releaseGroup.discs) && releaseGroup.discs.length > 0) {
@@ -378,6 +410,13 @@ function QueueDialog({
       setResult({ ok: false, error: "Aguarde a leitura dos discos deste lançamento antes de baixar." });
       return;
     }
+    if (isBlockedCrossConsoleDrive) {
+      setResult({
+        ok: false,
+        error: selectedDriveCompatibility.blockReason || "Este dispositivo pertence a outro console.",
+      });
+      return;
+    }
     if (isIncompleteRelease && !acceptedIncomplete) {
       setResult({ ok: false, error: "Confirme que entendeu o aviso sobre o disco que falta antes de baixar." });
       return;
@@ -445,6 +484,13 @@ function QueueDialog({
       setResult({ ok: false, error: "Aguarde a leitura dos discos deste lançamento antes de baixar." });
       return;
     }
+    if (isBlockedCrossConsoleDrive) {
+      setResult({
+        ok: false,
+        error: selectedDriveCompatibility.blockReason || "Este dispositivo pertence a outro console.",
+      });
+      return;
+    }
     if (isIncompleteRelease && !acceptedIncomplete) {
       setResult({ ok: false, error: "Confirme que entendeu o aviso sobre o disco que falta antes de baixar." });
       return;
@@ -481,10 +527,15 @@ function QueueDialog({
   }
 
   const queued = result?.ok;
+  const effectiveConsoleTarget =
+    catalogContext === "xbox-one-series" || selectedLocalDrive?.xboxOneSeriesState === "preparado-xenia"
+      ? "xbox-one-series"
+      : "xbox360";
   const queueSuccessFeedback = buildQueueSuccessFeedback({
     isMultiDisc: isMultiDiscGame,
     discCount: discsToQueue.length,
     destinationKind: destType === "folder" ? "folder" : (selectedDest?.kind ?? (destType === "ftp" ? "ftp" : "local")),
+    consoleTarget: effectiveConsoleTarget,
   });
 
   return (
@@ -630,21 +681,23 @@ function QueueDialog({
                 )}
               >
                 <Usb className="h-3.5 w-3.5 shrink-0" />
-                <span>Pendrive (USB)</span>
+                <span>{catalogContext === "xbox-one-series" ? "HD / Pendrive (Xenia)" : "Pendrive (USB)"}</span>
               </button>
-              <button
-                type="button"
-                onClick={handleSelectFtp}
-                className={cn(
-                  "flex-1 py-1.5 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
-                  destType === "ftp"
-                    ? "bg-green-600 text-white shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Wifi className="h-3.5 w-3.5 shrink-0" />
-                <span>Enviar via FTP</span>
-              </button>
+              {allowFtp && (
+                <button
+                  type="button"
+                  onClick={handleSelectFtp}
+                  className={cn(
+                    "flex-1 py-1.5 px-2 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all",
+                    destType === "ftp"
+                      ? "bg-green-600 text-white shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Wifi className="h-3.5 w-3.5 shrink-0" />
+                  <span>Enviar via FTP</span>
+                </button>
+              )}
             </div>
 
             {destType === "folder" ? (
@@ -689,6 +742,12 @@ function QueueDialog({
                     <Usb className="h-3 w-3 shrink-0 text-muted-foreground" />
                     O jogo será gravado direto no dispositivo USB conectado.
                   </p>
+                  {isBlockedCrossConsoleDrive && (
+                    <div className="rounded-md border border-amber-500/45 bg-amber-950/30 px-2.5 py-2 text-[10.5px] leading-snug text-amber-200 flex items-start gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400 mt-0.5" />
+                      <span>{selectedDriveCompatibility.blockReason}</span>
+                    </div>
+                  )}
                 </div>
               )
             ) : (
@@ -787,7 +846,7 @@ function QueueDialog({
         {!queued ? (
           <Button
             className="w-full font-semibold"
-            disabled={queuing || discInfoState !== "ready" || (isIncompleteRelease && !acceptedIncomplete)}
+            disabled={queuing || discInfoState !== "ready" || isBlockedCrossConsoleDrive || (isIncompleteRelease && !acceptedIncomplete)}
             onClick={handleQueue}
           >
             {queuing
@@ -1353,12 +1412,27 @@ function LocalGameCard({ name, onClick, onCoverStatus, isDownloaded, installedIn
 
 interface BrowsePageProps {
   simpleMode?: boolean;
+  catalogContext?: CatalogConsoleContext;
   onNavigateQueue?: () => void;
+  onNavigateHome?: () => void;
 }
 
-export default function BrowsePage({ simpleMode = true, onNavigateQueue }: BrowsePageProps) {
+export default function BrowsePage({
+  simpleMode = true,
+  catalogContext = "all",
+  onNavigateQueue,
+  onNavigateHome,
+}: BrowsePageProps) {
+  const visiblePlatforms = useMemo(
+    () => catalogPlatformsForContext(catalogContext),
+    [catalogContext],
+  );
   const [source,   setSource]   = useState("unified");
-  const [platform, setPlatform] = useState("xbox360");
+  const [platform, setPlatform] = useState(() => normalizePlatformForContext("xbox360", catalogContext));
+
+  useEffect(() => {
+    setPlatform((current) => normalizePlatformForContext(current, catalogContext));
+  }, [catalogContext]);
   const [status,   setStatus]   = useState("idle");  // idle|loading|cache-building|ready|empty|error
   const [loadError, setLoadError] = useState("");
   const [games,    setGames]    = useState<string[]>([]);
@@ -1392,6 +1466,9 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
         rootPath: String(d.rootPath || ""),
         label: String(d.label || ""),
         freeBytes: typeof d.freeBytes === "number" ? d.freeBytes : undefined,
+        fileSystem: typeof d.fileSystem === "string" ? d.fileSystem : undefined,
+        preparedState: d.preparedState,
+        xboxOneSeriesState: d.xboxOneSeriesState,
       })).filter((d: LocalDrive) => d.rootPath));
     }).catch(() => setLocalDrives([]));
 
@@ -1825,7 +1902,7 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
       {/* ── Platform tabs (hidden for local library) ── */}
       {!isLocal && (
         <div className="flex gap-1 overflow-x-auto shrink-0 pb-0.5 no-scrollbar">
-          {PLATFORMS.map((p) => (
+          {visiblePlatforms.map((p) => (
             <PillBtn
               key={p.id}
               active={platform === p.id}
@@ -2044,6 +2121,7 @@ export default function BrowsePage({ simpleMode = true, onNavigateQueue }: Brows
           onClose={closeDialog}
           onNavigateQueue={onNavigateQueue}
           simpleMode={simpleMode}
+          catalogContext={catalogContext}
           onXboxConfigured={refreshDestinations}
           discInfoState={discMembershipState}
           onRetryDiscInfo={() => loadDiscMembership(effectivePlatform)}

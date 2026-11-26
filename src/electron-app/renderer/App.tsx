@@ -8,11 +8,13 @@ import ISO2GODPage from "./components/ISO2GODPage";
 import ISO2XEXPage from "./components/ISO2XEXPage";
 import FTPManagerPage from "./components/FTPManagerPage";
 import BadAvatarUsbPage from "./components/BadAvatarUsbPage";
+import XboxOneSeriesUsbPage from "./components/XboxOneSeriesUsbPage";
 import UsbGamesPage from "./components/UsbGamesPage";
 import AppUpdateModal, { type UpdateInfo } from "./components/AppUpdateModal";
 import MainNav from "./components/MainNav";
+import type { CatalogConsoleContext } from "../services/preparedUsbDetection.ts";
 
-type PageId = "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb" | "usb-games";
+type PageId = "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb" | "xboxoneseriesusb" | "usb-games";
 
 const PAGE_TITLES: Record<string, string> = {
   settings:   "Configurações",
@@ -21,13 +23,16 @@ const PAGE_TITLES: Record<string, string> = {
   iso2god:    "ISO para GOD",
   iso2xex:    "ISO para XEX",
   ftpmanager: "Gerenciador FTP",
-  badavatarusb: "Preparar dispositivo",
+  badavatarusb: "Preparar USB (Xbox 360)",
+  xboxoneseriesusb: "Preparar USB (Xbox One / Series)",
   "usb-games": "Jogos Instalados",
 };
 
 export default function App() {
   const [page, setPage] = useState<PageId>("home");
   const [simpleMode, setSimpleMode] = useState(true);
+  const [catalogContext, setCatalogContext] = useState<CatalogConsoleContext>("all");
+  const [initialUsbGamesDrive, setInitialUsbGamesDrive] = useState<string | undefined>(undefined);
 
   // ── Auto Update modal state ───────────────────────────────────────────────
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
@@ -284,6 +289,18 @@ export default function App() {
 
   const navigateTo = useCallback((id: PageId) => setPage(id), []);
 
+  const navigateToBrowse = useCallback((context?: CatalogConsoleContext) => {
+    if (context) {
+      setCatalogContext(context);
+    }
+    setPage("browse");
+  }, []);
+
+  const navigateToUsbGames = useCallback((driveRoot?: string) => {
+    setInitialUsbGamesDrive(driveRoot);
+    setPage("usb-games");
+  }, []);
+
   // ── Installed USB games count ─────────────────────────────────────────────
   const [usbGamesCount, setUsbGamesCount] = useState<number>(0);
 
@@ -312,14 +329,15 @@ export default function App() {
     onReconnect: pingFtp,
     onLibraryToggle: handleLibraryToggle,
     onNavigateHome:       () => navigateTo("home"),
-    onNavigateUsbGames:   () => navigateTo("usb-games"),
+    onNavigateUsbGames:   () => navigateToUsbGames(undefined),
     onNavigateQueue:      () => navigateTo("queue"),
-    onNavigateBrowse:     () => navigateTo("browse"),
+    onNavigateBrowse:     () => navigateToBrowse(),
     onNavigateSettings:   () => navigateTo("settings"),
     onNavigateIso2God:    () => navigateTo("iso2god"),
     onNavigateIso2Xex:    () => navigateTo("iso2xex"),
     onNavigateFtpManager: () => navigateTo("ftpmanager"),
     onNavigateBadAvatarUsb: () => navigateTo("badavatarusb"),
+    onNavigateXboxOneSeriesUsb: () => navigateTo("xboxoneseriesusb"),
     simpleMode,
   };
 
@@ -372,12 +390,13 @@ export default function App() {
           ftpStatus={ftpStatus}
           onNavigateSettings={navProps.onNavigateSettings}
           onNavigateQueue={navProps.onNavigateQueue}
-          onNavigateBrowse={navProps.onNavigateBrowse}
+          onNavigateBrowse={navigateToBrowse}
           onNavigateIso2God={navProps.onNavigateIso2God}
           onNavigateIso2Xex={navProps.onNavigateIso2Xex}
           onNavigateFtpManager={navProps.onNavigateFtpManager}
           onNavigateBadAvatarUsb={navProps.onNavigateBadAvatarUsb}
-          onNavigateUsbGames={navProps.onNavigateUsbGames}
+          onNavigateXboxOneSeriesUsb={navProps.onNavigateXboxOneSeriesUsb}
+          onNavigateUsbGames={navigateToUsbGames}
           onNavigateHome={navProps.onNavigateHome}
           usbGamesCount={usbGamesCount}
           onLibraryToggle={handleLibraryToggle}
@@ -419,7 +438,14 @@ export default function App() {
   } else if (page === "queue") {
     pageContent = <QueuePage />;
   } else if (page === "browse") {
-    pageContent = <BrowsePage simpleMode={simpleMode} onNavigateQueue={navProps.onNavigateQueue} />;
+    pageContent = (
+      <BrowsePage
+        simpleMode={simpleMode}
+        catalogContext={catalogContext}
+        onNavigateQueue={navProps.onNavigateQueue}
+        onNavigateHome={navProps.onNavigateHome}
+      />
+    );
   } else if (page === "iso2god") {
     pageContent = <ISO2GODPage />;
   } else if (page === "iso2xex") {
@@ -427,10 +453,18 @@ export default function App() {
   } else if (page === "ftpmanager") {
     pageContent = <FTPManagerPage />;
   } else if (page === "badavatarusb") {
-    pageContent = <BadAvatarUsbPage onBrowseGames={navProps.onNavigateBrowse} />;
+    pageContent = <BadAvatarUsbPage onBrowseGames={() => navigateToBrowse("xbox360")} />;
+  } else if (page === "xboxoneseriesusb") {
+    pageContent = (
+      <XboxOneSeriesUsbPage
+        onBrowseGames={() => navigateToBrowse("xbox-one-series")}
+        onBackToPrevious={navProps.onNavigateHome}
+      />
+    );
   } else if (page === "usb-games") {
     pageContent = (
       <UsbGamesPage
+        initialDriveRoot={initialUsbGamesDrive}
         onNavigateBrowse={navProps.onNavigateBrowse}
         onNavigateHome={navProps.onNavigateHome}
         onGamesCountChange={(count) => setUsbGamesCount(count)}

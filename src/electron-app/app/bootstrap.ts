@@ -97,6 +97,7 @@ import * as auroraAssetHandlers   from "../ipc/auroraAssetHandlers";
 import * as browseHandlers        from "../ipc/browseHandlers";
 import * as toolsHandlers         from "../ipc/toolsHandlers";
 import * as badAvatarHandlers     from "../ipc/badAvatarHandlers";
+import * as xboxOneSeriesHandlers from "../ipc/xboxOneSeriesHandlers";
 import * as driveMaintenanceHandlers from "../ipc/driveMaintenanceHandlers";
 import * as contentHandlers       from "../ipc/contentHandlers";
 import * as saveHandlers          from "../ipc/saveHandlers";
@@ -138,6 +139,7 @@ function registerIpcHandlers(): void {
   browseHandlers.register(ipcMain);
   toolsHandlers.register(ipcMain);
   badAvatarHandlers.register(ipcMain);
+  xboxOneSeriesHandlers.register(ipcMain);
   driveMaintenanceHandlers.register(ipcMain);
   contentHandlers.register(ipcMain);
   saveHandlers.register(ipcMain);

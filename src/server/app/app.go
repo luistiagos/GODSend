@@ -52,6 +52,7 @@ type App struct {
 	IAAuthorizationHeader  string
 	IADownloadMaxParallel  int
 	IAHTTPClient           *http.Client
+	DownloadHTTPClient     *http.Client
 	EdgeEmuHTTPClient      *http.Client
 	iaAutoLoginMu          sync.Mutex
 	iaAutoLoginLastAttempt time.Time
@@ -130,7 +131,8 @@ func NewApp() *App {
 		MinervaCacheBuilding: make(map[string]bool),
 		ROMGameCache:         make(map[string][]string),
 		ROMURLMap:            make(map[string]string),
-		EdgeEmuHTTPClient:    &http.Client{Timeout: 0},
+		DownloadHTTPClient:   NewDownloadHTTPClient(nil),
+		EdgeEmuHTTPClient:    NewDownloadHTTPClient(nil),
 	}
 }
 

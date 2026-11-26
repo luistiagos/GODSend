@@ -139,6 +139,14 @@ contextBridge.exposeInMainWorld("godsendApi", {
   toolsBadAvatarPreview:    (payload: any) => ipcRenderer.invoke("tools:badavatar-preview", payload),
   toolsBadAvatarPreviewCancel: () => ipcRenderer.invoke("tools:badavatar-preview-cancel"),
   toolsBadAvatarPrepare:    (payload: any) => ipcRenderer.invoke("tools:badavatar-prepare", payload),
+  toolsXeniaListDrives:     (options?: { fresh?: boolean }) => ipcRenderer.invoke("tools:xenia-list-drives", options),
+  toolsXeniaPrepare:        (payload: any) => ipcRenderer.invoke("tools:xenia-prepare", payload),
+  toolsXeniaRepairPermissions: (payload: any) => ipcRenderer.invoke("tools:xenia-repair-permissions", payload),
+  onXeniaPrepareProgress: (callback: (data: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on("tools:xenia-prepare-progress", handler);
+    return () => ipcRenderer.removeListener("tools:xenia-prepare-progress", handler);
+  },
   toolsDriveDiagnose:       (rootPath: string) => ipcRenderer.invoke("tools:drive-diagnose", rootPath),
   toolsDriveRepair:         (rootPath: string) => ipcRenderer.invoke("tools:drive-repair", rootPath),
   toolsDriveProbeFake:      (rootPath: string, fastMode?: boolean) => ipcRenderer.invoke("tools:drive-probe-fake", rootPath, fastMode),

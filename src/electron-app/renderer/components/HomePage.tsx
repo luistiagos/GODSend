@@ -7,17 +7,27 @@ import {
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import BadAvatarUsbPage from "./BadAvatarUsbPage";
+import XboxOneSeriesUsbPage from "./XboxOneSeriesUsbPage";
 import MainNav from "./MainNav";
+import xbox360ConsoleImg from "../assets/consoles/xbox-360.webp";
+import xboxOneSeriesConsoleImg from "../assets/consoles/xbox-one-series.webp";
 import {
   canSkipPreparation,
+  canSkipXeniaPreparation,
+  hasXboxOneSeriesPreparedDrive,
   nextStepAfterPreparedUsbScan,
+  nextStepAfterXeniaUsbScan,
   readPersistedRghDeclaration,
   readPreparedUsbDetection,
+  readPreparedXeniaDetection,
   writePersistedRghDeclaration,
+  type CatalogConsoleContext,
   type PreparedDeviceState,
   type PreparedUsbWizardStep,
+  type XboxOneSeriesDeviceState,
 } from "../../services/preparedUsbDetection.ts";
 import {
+  CROSS_CONSOLE_NOTICE,
   PREPARED_DEVICE_NOTICE,
   PREPARED_DEVICE_SUMMARY,
   PREPARED_DEVICE_TITLE,
@@ -35,12 +45,13 @@ interface HomePageProps {
   ftpStatus: string;
   onNavigateSettings: () => void;
   onNavigateQueue: () => void;
-  onNavigateBrowse: () => void;
+  onNavigateBrowse: (context?: CatalogConsoleContext) => void;
   onNavigateIso2God: () => void;
   onNavigateIso2Xex: () => void;
   onNavigateFtpManager: () => void;
   onNavigateBadAvatarUsb: () => void;
-  onNavigateUsbGames?: () => void;
+  onNavigateXboxOneSeriesUsb?: () => void;
+  onNavigateUsbGames?: (initialDriveRoot?: string) => void;
   onNavigateHome?: () => void;
   usbGamesCount?: number;
   onLibraryToggle: () => void;
@@ -63,6 +74,7 @@ export default function HomePage({
   onNavigateIso2Xex,
   onNavigateFtpManager,
   onNavigateBadAvatarUsb,
+  onNavigateXboxOneSeriesUsb,
   onNavigateUsbGames,
   onNavigateHome,
   usbGamesCount,
@@ -79,11 +91,15 @@ export default function HomePage({
   // Simple Mode state
   const [wizardStep, setWizardStep] = useState<PreparedUsbWizardStep>("welcome-choice");
   const [preparedDeviceState, setPreparedDeviceState] = useState<PreparedDeviceState>("sem-preparo");
+  const [xeniaDeviceState, setXeniaDeviceState] = useState<XboxOneSeriesDeviceState>("sem-preparo");
+  const [detectedDrives, setDetectedDrives] = useState<any[]>([]);
   const [detectedGamesCount, setDetectedGamesCount] = useState<number | null>(null);
+  const [detectedXeniaGamesCount, setDetectedXeniaGamesCount] = useState<number | null>(null);
   const [preparedCheckBusy, setPreparedCheckBusy] = useState(false);
   const [preparedCheckNotice, setPreparedCheckNotice] = useState("");
   const preparedCheckInFlight = useRef(false);
   const preparedDetectionDismissed = useRef(false);
+  const xeniaDetectionDismissed = useRef(false);
   const preparedDetectionMounted = useRef(false);
   const [selectedUnlockMode, setSelectedUnlockMode] = useState<boolean | null>(null);
   const selectedUnlockModeRef = useRef<boolean | null>(null);
@@ -125,12 +141,19 @@ export default function HomePage({
       // The 5 s poll reuses the cached list; only the user's own check re-enumerates.
       const result = await window.godsendApi.toolsBadAvatarListDrives({ fresh: manual });
       if (!preparedDetectionMounted.current) return;
+      const drivesList = result?.ok === true && Array.isArray(result.drives) ? result.drives : [];
+      setDetectedDrives(drivesList);
       const detectedState = readPreparedUsbDetection(result);
+      const detectedXeniaState = readPreparedXeniaDetection(result);
       if (detectedState === null) {
         if (manual) {
           setPreparedCheckNotice(result?.error || "O Windows ainda não disponibilizou o pendrive. Reconecte-o e tente novamente.");
         }
-        setWizardStep((current) => current === "checking-prepared" ? "unlock" : current);
+        setWizardStep((current) => {
+          if (current === "checking-prepared") return "unlock";
+          if (current === "checking-prepared-xenia") return "usb-xenia";
+          return current;
+        });
         return;
       }
 
@@ -138,23 +161,38 @@ export default function HomePage({
         ? false
         : readPersistedRghDeclaration();
       setPreparedDeviceState(detectedState);
-      setWizardStep((current) => nextStepAfterPreparedUsbScan(
-        current,
-        detectedState,
-        preparedDetectionDismissed.current,
-        declaredRgh,
-      ));
+      const safeXeniaState: XboxOneSeriesDeviceState = detectedXeniaState ?? "sem-preparo";
+      setXeniaDeviceState(safeXeniaState);
+      setWizardStep((current) => {
+        if (current === "checking-prepared-xenia") {
+          return nextStepAfterXeniaUsbScan(current, safeXeniaState, xeniaDetectionDismissed.current);
+        }
+        return nextStepAfterPreparedUsbScan(
+          current,
+          detectedState,
+          preparedDetectionDismissed.current,
+          declaredRgh,
+        );
+      });
       if (canSkipPreparation(detectedState, declaredRgh)) {
         setPreparedCheckNotice("");
       } else if (manual) {
-        setPreparedCheckNotice(PREPARED_DEVICE_NOTICE[detectedState]);
+        setPreparedCheckNotice(
+          hasXboxOneSeriesPreparedDrive(drivesList)
+            ? CROSS_CONSOLE_NOTICE.xeniaDriveInXbox360Flow.title
+            : PREPARED_DEVICE_NOTICE[detectedState],
+        );
       }
     } catch (error: any) {
       if (!preparedDetectionMounted.current) return;
       if (manual) {
         setPreparedCheckNotice(formatErrorForUser(error, { area: "drive-maintenance" }));
       }
-      setWizardStep((current) => current === "checking-prepared" ? "unlock" : current);
+      setWizardStep((current) => {
+        if (current === "checking-prepared") return "unlock";
+        if (current === "checking-prepared-xenia") return "usb-xenia";
+        return current;
+      });
     } finally {
       preparedCheckInFlight.current = false;
       if (preparedDetectionMounted.current) setPreparedCheckBusy(false);
@@ -174,13 +212,34 @@ export default function HomePage({
   }, [simpleMode, checkPreparedDevice]);
 
   useEffect(() => {
-    if (!simpleMode || wizardStep !== "prepared-detected") return;
+    if (!simpleMode || (wizardStep !== "prepared-detected" && wizardStep !== "prepared-detected-xenia")) return;
     window.godsendApi.browseGetInstalledGames().then((r: any) => {
-      if (r?.ok && Array.isArray(r.games)) {
-        setDetectedGamesCount(r.games.length);
+      if (!r?.ok || !Array.isArray(r.games)) return;
+      if (wizardStep === "prepared-detected") {
+        const xbox360Letters = new Set(
+          detectedDrives
+            .filter((d) => d?.preparedState === "preparado-bloqueado-lt" || d?.preparedState === "preparado-rgh")
+            .map((d) => String(d.rootPath || "").charAt(0).toUpperCase())
+            .filter(Boolean),
+        );
+        const filtered = xbox360Letters.size > 0
+          ? r.games.filter((g: any) => xbox360Letters.has(String(g?.path || "").charAt(0).toUpperCase()))
+          : r.games;
+        setDetectedGamesCount(filtered.length);
+      } else {
+        const xeniaLetters = new Set(
+          detectedDrives
+            .filter((d) => d?.xboxOneSeriesState === "preparado-xenia")
+            .map((d) => String(d.rootPath || "").charAt(0).toUpperCase())
+            .filter(Boolean),
+        );
+        const filtered = xeniaLetters.size > 0
+          ? r.games.filter((g: any) => xeniaLetters.has(String(g?.path || "").charAt(0).toUpperCase()))
+          : [];
+        setDetectedXeniaGamesCount(filtered.length);
       }
     }).catch(() => {});
-  }, [simpleMode, wizardStep]);
+  }, [simpleMode, wizardStep, detectedDrives]);
 
   // Auto-scan when switching to network mode
   useEffect(() => {
@@ -365,10 +424,22 @@ export default function HomePage({
   }, []);
 
   const startPreparationFlow = useCallback(() => {
+    setPreparedCheckNotice("");
+    setWizardStep("console-choice");
+  }, []);
+
+  const startXbox360Flow = useCallback(() => {
     preparedDetectionDismissed.current = false;
     setPreparedCheckNotice("");
     setWizardStep("checking-prepared");
     void checkPreparedDevice(false);
+  }, [checkPreparedDevice]);
+
+  const startXboxOneSeriesFlow = useCallback(() => {
+    xeniaDetectionDismissed.current = false;
+    setPreparedCheckNotice("");
+    setWizardStep("checking-prepared-xenia");
+    void checkPreparedDevice(true);
   }, [checkPreparedDevice]);
 
   // ── Render Advanced Mode (Legacy terminal logs) ───────────────────────────
@@ -393,7 +464,8 @@ export default function HomePage({
             onNavigateIso2Xex={onNavigateIso2Xex}
             onNavigateFtpManager={onNavigateFtpManager}
             onNavigateBadAvatarUsb={onNavigateBadAvatarUsb}
-            onNavigateUsbGames={onNavigateUsbGames}
+            onNavigateXboxOneSeriesUsb={onNavigateXboxOneSeriesUsb}
+            onNavigateUsbGames={onNavigateUsbGames ? () => onNavigateUsbGames() : undefined}
             simpleMode={false}
           />
         </header>
@@ -443,8 +515,8 @@ export default function HomePage({
           Bem-vindo ao Xbox 360 Companion
         </h1>
         <p className="text-[13px] text-muted-foreground mt-1 max-w-lg mx-auto leading-relaxed">
-          Prepare seus jogos de Xbox 360 no computador e envie de forma extremamente simples
-          para o seu videogame.
+          Prepare seus jogos e pendrives/HDs para <strong className="text-foreground">Xbox 360</strong> ou{" "}
+          <strong className="text-foreground">Xbox One / Series (Modo Desenvolvedor / Xenia)</strong> de forma simples e guiada.
         </p>
       </header>
 
@@ -476,7 +548,7 @@ export default function HomePage({
       )}
 
       {/* Main Mode View */}
-      <div className={wizardStep === "usb"
+      <div className={wizardStep === "usb" || wizardStep === "usb-xenia"
         ? "mx-auto w-full max-w-4xl"
         : "card-surface mx-auto flex min-h-[350px] w-full max-w-4xl flex-col justify-between p-5"}
       >
@@ -495,7 +567,7 @@ export default function HomePage({
               {/* Fluxo 1: Catálogo de Jogos */}
               <button
                 type="button"
-                onClick={onNavigateBrowse}
+                onClick={() => onNavigateBrowse("all")}
                 className="group flex flex-col justify-between text-left p-5 rounded-xl border border-border bg-surface/60 hover:bg-surface hover:border-sky-500/70 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/60"
               >
                 <div className="flex flex-col gap-3">
@@ -566,7 +638,7 @@ export default function HomePage({
                       Preparar Pendrive / HD
                     </h3>
                     <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-                      Configure seu pendrive ou HD externo do zero para rodar jogos no Xbox 360 (Travado, LT ou RGH), ou conecte o PC direto ao console pela rede.
+                      Configure seu pendrive ou HD externo do zero para o seu <strong className="text-foreground">Console</strong>.
                     </p>
                   </div>
 
@@ -574,13 +646,13 @@ export default function HomePage({
                     <li className="flex items-start gap-2">
                       <HelpCircle className="h-3.5 w-3.5 text-[#22c55e] shrink-0 mt-0.5" />
                       <span>
-                        <strong className="text-foreground">Ajuda a identificar seu Xbox:</strong> explica de forma simples a diferença entre console Travado/LT e RGH.
+                        <strong className="text-foreground">Escolha seu videogame:</strong> primeiro você escolhe entre Xbox 360 ou Xbox One / Series.
                       </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <HardDrive className="h-3.5 w-3.5 text-[#22c55e] shrink-0 mt-0.5" />
                       <span>
-                        <strong className="text-foreground">Prepara o USB sozinho:</strong> formata no padrão correto (FAT32) e instala os arquivos do sistema (Aurora / BadAvatar).
+                        <strong className="text-foreground">Prepara o USB sozinho:</strong> FAT32 + Aurora/BadAvatar no 360, ou NTFS + permissões do Xenia no Xbox One / Series.
                       </span>
                     </li>
                     <li className="flex items-start gap-2">
@@ -609,7 +681,7 @@ export default function HomePage({
                   • Quer apenas <strong className="text-foreground">baixar os arquivos dos jogos para o computador</strong> (sem plugar pendrive)? Clique em <strong className="text-sky-300">Catálogo de Jogos</strong>.
                 </p>
                 <p>
-                  • Vai <strong className="text-foreground">usar um pendrive ou HD novo no Xbox 360 pela primeira vez</strong>? Clique em <strong className="text-green-300">Preparar Pendrive / HD</strong>.
+                  • Vai <strong className="text-foreground">preparar um pendrive ou HD para Xbox 360 ou Xbox One / Series</strong>? Clique em <strong className="text-green-300">Preparar Pendrive / HD</strong>.
                 </p>
               </div>
             </div>
@@ -626,6 +698,225 @@ export default function HomePage({
                 </Button>
               </div>
             )}
+          </div>
+        ) : wizardStep === "console-choice" ? (
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-1 py-1 sm:px-3 animate-fade-in">
+            <header className="text-center relative">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="sm:absolute left-0 top-1 mb-2 sm:mb-0 text-muted-foreground hover:text-foreground text-[12px] flex items-center gap-1.5 px-2"
+                onClick={() => setWizardStep("welcome-choice")}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Voltar
+              </Button>
+              <h2 className="font-display text-xl font-bold text-foreground">
+                Qual é o seu videogame Xbox?
+              </h2>
+              <p className="mx-auto mt-1.5 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
+                Clique na foto do videogame que você vai usar. Cada console precisa de um formato diferente no pendrive ou HD — nós fazemos tudo no padrão certo para você.
+              </p>
+            </header>
+
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {/* Opção 1: Xbox 360 */}
+              <button
+                type="button"
+                onClick={startXbox360Flow}
+                className="group flex flex-col justify-between text-left overflow-hidden rounded-xl border border-border bg-surface/60 hover:bg-surface hover:border-[#22c55e]/80 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#22c55e]/60"
+              >
+                <div>
+                  <div className="relative w-full aspect-video overflow-hidden border-b border-border/50 bg-[#14181f]">
+                    <img
+                      src={xbox360ConsoleImg}
+                      alt="Consoles Xbox 360 (Fat e Slim) com controle"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                      draggable={false}
+                    />
+                    <span className="absolute top-2.5 left-2.5 rounded-full bg-black/75 border border-[#22c55e]/45 px-2.5 py-0.5 text-[10px] font-semibold text-green-300 backdrop-blur-xs">
+                      Xbox 360 · FAT32
+                    </span>
+                  </div>
+
+                  <div className="p-4 flex flex-col gap-2">
+                    <h3 className="font-display text-[17px] font-bold text-foreground group-hover:text-green-300 transition-colors">
+                      Se quer para Xbox 360 — clique aqui
+                    </h3>
+                    <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                      Para qualquer <strong className="text-foreground">Xbox 360</strong> (Fat, Slim ou Super Slim — Travado, LT ou RGH).
+                    </p>
+                    <p className="text-[11.5px] leading-snug text-muted-foreground/90 rounded-lg bg-background/60 border border-border/50 p-2.5">
+                      Prepara o pendrive/HD em <strong className="text-foreground">FAT32</strong> com a dashboard <strong className="text-foreground">Aurora / BadAvatar</strong> pronta para rodar jogos no Xbox 360.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mx-4 mb-4 pt-3 border-t border-border/40 flex items-center justify-between text-[12.5px] font-semibold text-[#22c55e]">
+                  <span>Continuar para Xbox 360</span>
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </div>
+              </button>
+
+              {/* Opção 2: Xbox One / Xbox Series X|S */}
+              <button
+                type="button"
+                onClick={startXboxOneSeriesFlow}
+                className="group flex flex-col justify-between text-left overflow-hidden rounded-xl border border-border bg-surface/60 hover:bg-surface hover:border-sky-500/80 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/60"
+              >
+                <div>
+                  <div className="relative w-full aspect-video overflow-hidden border-b border-border/50 bg-[#14181f]">
+                    <img
+                      src={xboxOneSeriesConsoleImg}
+                      alt="Consoles Xbox One, Xbox Series S e Xbox Series X com controle"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                      draggable={false}
+                    />
+                    <span className="absolute top-2.5 left-2.5 rounded-full bg-black/75 border border-sky-400/50 px-2.5 py-0.5 text-[10px] font-semibold text-sky-300 backdrop-blur-xs">
+                      Xbox One / Series · Modo Desenvolvedor (Xenia)
+                    </span>
+                  </div>
+
+                  <div className="p-4 flex flex-col gap-2">
+                    <h3 className="font-display text-[17px] font-bold text-foreground group-hover:text-sky-300 transition-colors">
+                      Se quer para Xbox One ou Xbox Series — clique aqui
+                    </h3>
+                    <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                      Para <strong className="text-foreground">Xbox One, One S/X, Xbox Series S ou Series X</strong> já com o <strong className="text-foreground">Modo Desenvolvedor</strong> e <strong className="text-foreground">Xenia</strong>.
+                    </p>
+                    <p className="text-[11.5px] leading-snug text-muted-foreground/90 rounded-lg bg-background/60 border border-border/50 p-2.5">
+                      Formata em <strong className="text-foreground">NTFS</strong> e aplica automaticamente todas as permissões do console (substitui o XboxMediaUSB) — é só baixar os jogos e abrir pelo Xenia.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mx-4 mb-4 pt-3 border-t border-border/40 flex items-center justify-between text-[12.5px] font-semibold text-sky-400">
+                  <span>Continuar para Xbox One / Series</span>
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </div>
+              </button>
+            </section>
+
+            <div className="rounded-lg border border-border/50 bg-muted/25 px-4 py-3 text-[11.5px] leading-relaxed text-muted-foreground">
+              <span className="font-semibold text-foreground block mb-1">
+                Atenção: um pendrive preparado para um console não serve no outro
+              </span>
+              <p>
+                O <strong className="text-green-300">Xbox 360</strong> usa formato FAT32 (Aurora/BadAvatar), enquanto o{" "}
+                <strong className="text-sky-300">Xbox One e Xbox Series</strong> usam formato NTFS com permissões do Modo Desenvolvedor (Xenia).
+                Escolha sempre exatamente o videogame em que você vai plugar este pendrive ou HD.
+              </p>
+            </div>
+          </div>
+        ) : wizardStep === "checking-prepared-xenia" ? (
+          <div className="mx-auto flex h-[300px] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-5 text-muted-foreground sm:px-7">
+            <Loader2 className="h-7 w-7 animate-spin text-sky-400" />
+            <p className="text-[13px]">Verificando se já existe um pendrive ou HD preparado para Xbox One / Series (Xenia)...</p>
+          </div>
+        ) : wizardStep === "prepared-detected-xenia" ? (
+          <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pt-1 pb-6 sm:px-7">
+            <div className="animate-fade-in flex flex-col gap-4">
+              <header className="mb-5 text-center">
+                <div className="mx-auto mb-2 inline-flex items-center gap-1.5 rounded-full border border-sky-500/35 bg-sky-500/10 px-3 py-1 text-[11px] font-semibold text-sky-300">
+                  <Gamepad2 className="h-3.5 w-3.5" />
+                  Xbox One / Xbox Series X|S · Modo Desenvolvedor (Xenia)
+                </div>
+                <div className="mx-auto mb-3 mt-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-400">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <h1 className="font-display text-xl font-bold text-foreground">
+                  Pendrive/HD preparado para Xbox One / Series encontrado!
+                </h1>
+                <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+                  {detectedXeniaGamesCount !== null && detectedXeniaGamesCount > 0
+                    ? `Encontramos seu pendrive ou HD preparado em NTFS (com permissões do Modo Desenvolvedor) e ${detectedXeniaGamesCount} jogo${detectedXeniaGamesCount !== 1 ? "s" : ""} pronto${detectedXeniaGamesCount !== 1 ? "s" : ""} para o Xenia. Você pode ver os jogos já gravados ou ir direto ao catálogo para adicionar mais títulos.`
+                    : `Encontramos seu pendrive ou HD preparado em NTFS com as permissões do Modo Desenvolvedor conferidas para o Xenia. Você já pode ir direto ao catálogo para baixar jogos ou ver o conteúdo gravado.`}
+                </p>
+                <p className="mx-auto mt-2 max-w-xl text-[12px] leading-relaxed text-muted-foreground/90">
+                  Este dispositivo serve exclusivamente para <strong>Xbox One e Xbox Series X|S</strong> (Modo Desenvolvedor / Xenia) — não é compatível com Xbox 360.
+                </p>
+              </header>
+
+              <section className="card-surface p-5 flex flex-col gap-3">
+                {onNavigateUsbGames && (
+                  <Button
+                    variant="primary"
+                    className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-500 text-white"
+                    onClick={() => {
+                      const xeniaDrive = detectedDrives.find((d) => d?.xboxOneSeriesState === "preparado-xenia");
+                      onNavigateUsbGames(xeniaDrive?.rootPath);
+                    }}
+                  >
+                    <Usb className="h-4 w-4" />
+                    {detectedXeniaGamesCount !== null && detectedXeniaGamesCount > 0
+                      ? `Ver Jogos Instalados (${detectedXeniaGamesCount})`
+                      : "Abrir Jogos Instalados"}
+                  </Button>
+                )}
+
+                <Button
+                  variant="default"
+                  className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
+                  onClick={() => onNavigateBrowse("xbox-one-series")}
+                >
+                  <Gamepad2 className="h-4 w-4" />
+                  Ir para o catálogo de jogos (Xbox One / Series)
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  className="h-11 w-full text-sm font-medium flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    xeniaDetectionDismissed.current = true;
+                    setWizardStep("usb-xenia");
+                  }}
+                >
+                  <HardDrive className="h-4 w-4" />
+                  Preparar novamente / Preparar outro pendrive ou HD
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-8 text-[12px] text-muted-foreground hover:text-foreground flex items-center justify-center gap-1.5"
+                  onClick={() => setWizardStep("console-choice")}
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Voltar para a escolha de console
+                </Button>
+              </section>
+            </div>
+          </div>
+        ) : wizardStep === "usb-xenia" ? (
+          <div className="flex flex-col">
+            <div className="border-b border-border/40 pb-3 mb-4 flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-foreground flex items-center gap-1.5">
+                <HardDrive className="h-4 w-4 text-sky-400" />
+                Preparação USB — Xbox One / Series (Xenia)
+              </span>
+              <Button
+                variant="default"
+                size="sm"
+                className="rounded-full px-3.5 h-7 text-[12px] font-medium"
+                onClick={() => {
+                  if (canSkipXeniaPreparation(xeniaDeviceState) && !xeniaDetectionDismissed.current) {
+                    setWizardStep("prepared-detected-xenia");
+                  } else {
+                    setWizardStep("console-choice");
+                  }
+                }}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Voltar
+              </Button>
+            </div>
+            <div>
+              <XboxOneSeriesUsbPage
+                embedded
+                onBrowseGames={() => onNavigateBrowse("xbox-one-series")}
+                onBackToPrevious={() => setWizardStep("console-choice")}
+              />
+            </div>
           </div>
         ) : wizardStep === "checking-prepared" ? (
           <div className="mx-auto flex h-[300px] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-5 text-muted-foreground sm:px-7">
@@ -660,7 +951,12 @@ export default function HomePage({
                   <Button
                     variant="primary"
                     className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
-                    onClick={onNavigateUsbGames}
+                    onClick={() => {
+                      const x360Drive = detectedDrives.find(
+                        (d) => d?.preparedState === "preparado-bloqueado-lt" || d?.preparedState === "preparado-rgh",
+                      );
+                      onNavigateUsbGames(x360Drive?.rootPath);
+                    }}
                   >
                     <Usb className="h-4 w-4" />
                     {detectedGamesCount !== null && detectedGamesCount > 0
@@ -673,7 +969,7 @@ export default function HomePage({
                 <Button
                   variant="default"
                   className="h-11 w-full text-sm font-semibold flex items-center justify-center gap-2"
-                  onClick={onNavigateBrowse}
+                  onClick={() => onNavigateBrowse("xbox360")}
                 >
                   <Gamepad2 className="h-4 w-4" />
                   Ir para o catálogo de jogos
@@ -696,10 +992,10 @@ export default function HomePage({
                   variant="ghost"
                   size="sm"
                   className="mt-1 h-8 text-[12px] text-muted-foreground hover:text-foreground flex items-center justify-center gap-1.5"
-                  onClick={() => setWizardStep("welcome-choice")}
+                  onClick={() => setWizardStep("console-choice")}
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
-                  Voltar para a tela inicial
+                  Voltar para a escolha de console
                 </Button>
               </section>
             </div>
@@ -722,7 +1018,7 @@ export default function HomePage({
                       preparedDetectionDismissed.current = false;
                       setWizardStep("prepared-detected");
                     } else {
-                      setWizardStep("welcome-choice");
+                      setWizardStep("console-choice");
                     }
                   }}
                 >
@@ -733,12 +1029,24 @@ export default function HomePage({
                   <Gamepad2 className="h-6 w-6" />
                 </div>
                 <h1 className="font-display text-xl font-bold text-foreground">
-                  Modo de Instalação
+                  Modo de Instalação (Xbox 360)
                 </h1>
                 <p className="mx-auto mt-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
                   Primeiro selecione o tipo de desbloqueio do seu console Xbox 360.
                 </p>
               </header>
+
+              {hasXboxOneSeriesPreparedDrive(detectedDrives) && (
+                <div className="rounded-lg border border-amber-500/45 bg-amber-950/25 px-3.5 py-3 text-[12px] text-amber-100 flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                  <div>
+                    <span className="font-semibold block text-amber-300">
+                      {CROSS_CONSOLE_NOTICE.xeniaDriveInXbox360Flow.title}
+                    </span>
+                    {CROSS_CONSOLE_NOTICE.xeniaDriveInXbox360Flow.detail}
+                  </div>
+                </div>
+              )}
 
               <section className="card-surface p-4 sm:p-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
@@ -921,7 +1229,7 @@ export default function HomePage({
             </div>
             <div>
               <BadAvatarUsbPage
-                onBrowseGames={onNavigateBrowse}
+                onBrowseGames={() => onNavigateBrowse("xbox360")}
                 initialIsRghOnly={selectedUnlockMode}
                 startAtPreparation
                 onBackToPrevious={goToMethod}
@@ -994,7 +1302,7 @@ export default function HomePage({
                     <p className="text-[11px] text-muted-foreground max-w-sm leading-relaxed">
                       Conexão de rede testada e scripts do Aurora configurados. Agora você pode ir ao catálogo e enviar jogos diretamente para o console!
                     </p>
-                    <Button onClick={onNavigateBrowse} className="mt-2" size="sm">
+                    <Button onClick={() => onNavigateBrowse("xbox360")} className="mt-2" size="sm">
                       <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
                       Ir para o catálogo de jogos
                     </Button>

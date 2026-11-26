@@ -1,11 +1,30 @@
+export type ConsoleTarget = "xbox360" | "xbox-one-series";
+
+export type CatalogConsoleContext = "all" | "xbox360" | "xbox-one-series";
+
 export type PreparedUsbWizardStep =
   | "welcome-choice"
+  | "console-choice"
   | "checking-prepared"
   | "prepared-detected"
   | "unlock"
   | "method"
   | "usb"
-  | "network";
+  | "network"
+  | "checking-prepared-xenia"
+  | "prepared-detected-xenia"
+  | "usb-xenia";
+
+/**
+ * Estado exclusivo sob a ótica do Xbox One / Xbox Series X|S (Modo Desenvolvedor / Xenia).
+ * Mantido separado de `PreparedDeviceState` (Xbox 360) para garantir isolamento absoluto entre
+ * consoles e evitar que qualquer regra de um console vaze para o outro.
+ */
+export type XboxOneSeriesDeviceState =
+  | "sem-preparo"
+  | "preparado-outro-console"
+  | "ntfs-sem-permissoes"
+  | "preparado-xenia";
 
 /**
  * O que o dispositivo realmente tem. Antes isto era um booleano `alreadyPrepared`, que respondia
@@ -140,4 +159,78 @@ export function nextStepAfterPreparedUsbScan(
     return "prepared-detected";
   }
   return current;
+}
+
+const XBOX_ONE_SERIES_STATE_RANK: Record<XboxOneSeriesDeviceState, number> = {
+  "sem-preparo": 0,
+  "preparado-outro-console": 1,
+  "ntfs-sem-permissoes": 2,
+  "preparado-xenia": 3,
+};
+
+function isXboxOneSeriesDeviceState(value: any): value is XboxOneSeriesDeviceState {
+  return typeof value === "string" && value in XBOX_ONE_SERIES_STATE_RANK;
+}
+
+/**
+ * Com vários dispositivos conectados no fluxo Xbox One/Series, prioriza um drive já preparado
+ * para Xenia (`preparado-xenia`). Um drive de Xbox 360 (`preparado-outro-console`) nunca conta
+ * como preparado aqui.
+ */
+export function strongestXboxOneSeriesDeviceState(
+  states: readonly any[],
+): XboxOneSeriesDeviceState {
+  let strongest: XboxOneSeriesDeviceState = "sem-preparo";
+  for (const state of states) {
+    if (!isXboxOneSeriesDeviceState(state)) continue;
+    if (XBOX_ONE_SERIES_STATE_RANK[state] > XBOX_ONE_SERIES_STATE_RANK[strongest]) {
+      strongest = state;
+    }
+  }
+  return strongest;
+}
+
+export function readPreparedXeniaDetection(result: any): XboxOneSeriesDeviceState | null {
+  if (result?.ok !== true || !Array.isArray(result.drives)) return null;
+  return strongestXboxOneSeriesDeviceState(
+    result.drives.map((drive: any) => drive?.xboxOneSeriesState),
+  );
+}
+
+/**
+ * Só existe caminho "pular a preparação" no fluxo Xbox One / Series quando o dispositivo passou
+ * por TODAS as provas reais de Xenia (NTFS + marcador exclusivo + pastas + ACL S-1-15-2-1).
+ */
+export function canSkipXeniaPreparation(
+  state: XboxOneSeriesDeviceState | null | undefined,
+): boolean {
+  return state === "preparado-xenia";
+}
+
+export function nextStepAfterXeniaUsbScan(
+  current: PreparedUsbWizardStep,
+  state: XboxOneSeriesDeviceState,
+  detectionDismissed: boolean,
+): PreparedUsbWizardStep {
+  const canSkip = canSkipXeniaPreparation(state) && !detectionDismissed;
+  if (current === "checking-prepared-xenia") {
+    return canSkip ? "prepared-detected-xenia" : "usb-xenia";
+  }
+  return current;
+}
+
+/** Verifica se a lista de dispositivos contém pelo menos um drive preparado para Xbox One/Series. */
+export function hasXboxOneSeriesPreparedDrive(drives: readonly any[] | null | undefined): boolean {
+  if (!Array.isArray(drives)) return false;
+  return drives.some((drive) => drive?.xboxOneSeriesState === "preparado-xenia");
+}
+
+/** Verifica se a lista de dispositivos contém pelo menos um drive preparado para Xbox 360. */
+export function hasXbox360PreparedDrive(drives: readonly any[] | null | undefined): boolean {
+  if (!Array.isArray(drives)) return false;
+  return drives.some(
+    (drive) =>
+      drive?.preparedState === "preparado-bloqueado-lt" ||
+      drive?.preparedState === "preparado-rgh",
+  );
 }

@@ -20,8 +20,10 @@ import {
   readPersistedRghDeclaration,
   writePersistedRghDeclaration,
   type PreparedDeviceState,
+  type XboxOneSeriesDeviceState,
 } from "../../services/preparedUsbDetection.ts";
 import {
+  CROSS_CONSOLE_NOTICE,
   DEVICE_STATE_BADGE,
   SKIP_SCREEN_TEXT,
 } from "../../services/preparedDeviceCopy.ts";
@@ -47,6 +49,7 @@ interface UsbDrive {
     reasons: string[];
   };
   preparedState?: PreparedDeviceState;
+  xboxOneSeriesState?: XboxOneSeriesDeviceState;
   needsRepair?: boolean;
   healthStatus?: string;
   operationalStatus?: string;
@@ -643,6 +646,18 @@ export default function BadAvatarUsbPage({
                   <span className={deviceAllowed ? "text-green-400" : "text-red-300"}>
                     {deviceAllowed ? "Pronto para uso" : "Não pode ser usado"}
                   </span>
+                </div>
+              )}
+
+              {selectedDevice?.xboxOneSeriesState === "preparado-xenia" && (
+                <div className="mt-3 rounded-lg border border-amber-500/45 bg-amber-950/25 px-3 py-3 text-[12px] text-gray-200 flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                  <div>
+                    <span className="font-semibold block text-amber-400">
+                      {CROSS_CONSOLE_NOTICE.xeniaDriveInXbox360Flow.title}
+                    </span>
+                    {CROSS_CONSOLE_NOTICE.xeniaDriveInXbox360Flow.detail}
+                  </div>
                 </div>
               )}
 

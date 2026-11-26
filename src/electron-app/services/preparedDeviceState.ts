@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { hasConflictingRootBootEntries } from "../infrastructure/rootBootConflicts";
+import { hasXeniaDevModeMarker } from "../infrastructure/xeniaPreparationReceipt";
 import type { ExploitProfileFile } from "./fixedBadAvatarPreparationService";
 import type { PreparedDeviceState } from "./preparedUsbDetection";
 
@@ -36,6 +37,12 @@ export interface DetectPreparedDeviceOptions {
    * preparação" quando só o perfil existe mas a pasta do payload foi apagada ou corrompida.
    */
   requirePayloadDir?: boolean;
+  /**
+   * Sistema de arquivos do volume (ex.: "FAT32", "NTFS", "exFAT"). O Xbox 360 só lê FAT32:
+   * volumes NTFS/exFAT (inclusive preparados para Xbox One / Series) nunca podem ser classificados
+   * como preparados para Xbox 360.
+   */
+  fileSystem?: string;
 }
 
 function deviceRoot(driveRoot: string): string {
@@ -163,6 +170,17 @@ export async function detectPreparedDeviceState(
 ): Promise<PreparedDeviceState> {
   const root = deviceRoot(driveRoot);
   if (!root) return "sem-preparo";
+
+  // Isolamento absoluto com Xbox One / Series (Xenia): um dispositivo preparado para Xbox One/Series
+  // (marcador xenia-devmode-v*.marker) ou formatado fora de FAT32 (NTFS/exFAT/RAW) NUNCA pode ser
+  // reconhecido como preparado para Xbox 360.
+  if (await hasXeniaDevModeMarker(root)) {
+    return "sem-preparo";
+  }
+  const fsUpper = String(options.fileSystem ?? "").trim().toUpperCase();
+  if (fsUpper && fsUpper !== "FAT32") {
+    return "sem-preparo";
+  }
 
   // Se o pendrive contiver a pasta oculta legada "Xbox360" com dados (formato pré-2015 ou de console
   // sem armazenamento interno), a dashboard original do Xbox 360 prioriza essa pasta e ignora

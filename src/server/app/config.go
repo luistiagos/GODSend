@@ -2,9 +2,11 @@
 package app
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,12 +40,13 @@ const (
 	MinervaBrowseBase = "https://minerva-archive.org/browse/"
 
 	// Internet Archive / HTTP range downloads
-	IAChunkRetries       = 5
-	IAChunkRetryBase     = 6 * time.Second
-	IAParallelThreshold  = 32 * 1024 * 1024 // below this size, use a single HTTP stream
-	IASegmentSize        = 4 * 1024 * 1024  // bytes per queued range job
-	IAParallelMaxDefault = 16               // default concurrent range GETs
-	IAParallelMaxCap     = 32               // upper bound for env-tuned parallelism
+	IAChunkRetries          = 5
+	IAChunkRetryBase        = 6 * time.Second
+	IAParallelThreshold     = 32 * 1024 * 1024 // below this size, use a single HTTP stream
+	IASegmentSize           = 4 * 1024 * 1024  // minimum dynamic split size / legacy v1 segment size
+	IAParallelMaxDefault    = 8                // default concurrent range GETs for archive.org (HTTP/1.1 per worker)
+	DefaultHostMaxParallel  = 4                // default concurrent range GETs for non-IA hosts (HuggingFace, EdgeEmu, etc.)
+	IAParallelMaxCap        = 32               // upper bound for env-tuned parallelism
 
 	// Download speed monitoring & fallback thresholds
 	MinDownloadSpeedThreshold        = 512 * 1024       // 512 KB/s default fallback threshold
@@ -63,6 +66,53 @@ var ErrDownloadStalled = fmt.Errorf("download estagnado sem dados, alternando pa
 
 // ErrJobCancelled is returned when the user removes a running queue item.
 var ErrJobCancelled = fmt.Errorf("tarefa cancelada pelo usuario")
+
+// NewDownloadHTTPTransport builds an HTTP/1.1 transport tuned for parallel
+// range downloads (MDM-style): one independent TCP socket per worker (disabling
+// HTTP/2 ALPN multiplexing so a single throttled socket or stream reset cannot
+// drag down all workers), generous per-host keep-alive pooling, and compression
+// disabled so byte ranges and Content-Length stay exact.
+func NewDownloadHTTPTransport() *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: TCPKeepAlive,
+	}
+	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     false,
+		TLSNextProto:          make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+		MaxIdleConns:          64,
+		MaxIdleConnsPerHost:   32,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   20 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DisableCompression:    true,
+	}
+}
+
+// NewDownloadHTTPClient creates a download client backed by NewDownloadHTTPTransport.
+func NewDownloadHTTPClient(jar http.CookieJar) *http.Client {
+	return &http.Client{
+		Transport: NewDownloadHTTPTransport(),
+		Jar:       jar,
+		Timeout:   0,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			if len(via) > 0 {
+				for key, vals := range via[0].Header {
+					if _, set := req.Header[key]; !set {
+						req.Header[key] = vals
+					}
+				}
+			}
+			return nil
+		},
+	}
+}
 
 // ClampIAParallel clamps an IA parallel download count to valid range.
 func ClampIAParallel(c int) int {
@@ -646,25 +696,9 @@ func (a *App) LoadIAAuthFromEnv() {
 		}
 	}
 
-	// Shared IA HTTP client: forwards auth headers across redirects.
+	// Shared IA HTTP client: dedicated HTTP/1.1 transport + forwards auth headers across redirects.
 	jar := newIACookieJar()
-	a.IAHTTPClient = &http.Client{
-		Jar:     jar,
-		Timeout: 0,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			if len(via) > 0 {
-				for key, vals := range via[0].Header {
-					if _, set := req.Header[key]; !set {
-						req.Header[key] = vals
-					}
-				}
-			}
-			return nil
-		},
-	}
+	a.IAHTTPClient = NewDownloadHTTPClient(jar)
 	a.seedIACookieJar(a.IACookieHeader)
 
 	if a.IACookieHeader != "" {

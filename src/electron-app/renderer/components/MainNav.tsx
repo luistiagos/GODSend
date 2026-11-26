@@ -36,6 +36,7 @@ interface ToolboxDropdownProps {
   onIso2Xex: () => void;
   onFtpManager: () => void;
   onBadAvatarUsb: () => void;
+  onXboxOneSeriesUsb?: () => void;
   onBrowse?: () => void;
   onSettings?: () => void;
   simpleMode?: boolean;
@@ -47,6 +48,7 @@ export function ToolboxDropdown({
   onIso2Xex,
   onFtpManager,
   onBadAvatarUsb,
+  onXboxOneSeriesUsb,
   onBrowse,
   onSettings,
   simpleMode = false,
@@ -118,13 +120,24 @@ export function ToolboxDropdown({
             ISO para XEX
           </button>
           {!simpleMode && (
-            <button
-              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
-              onClick={() => { setOpen(false); onBadAvatarUsb(); }}
-            >
-              <Usb className="h-3.5 w-3.5 text-orange-400" />
-              Preparar dispositivo
-            </button>
+            <>
+              <button
+                className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+                onClick={() => { setOpen(false); onBadAvatarUsb(); }}
+              >
+                <Usb className="h-3.5 w-3.5 text-green-400" />
+                Preparar USB (Xbox 360)
+              </button>
+              {onXboxOneSeriesUsb && (
+                <button
+                  className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+                  onClick={() => { setOpen(false); onXboxOneSeriesUsb(); }}
+                >
+                  <Usb className="h-3.5 w-3.5 text-sky-400" />
+                  Preparar USB (Xbox One / Series)
+                </button>
+              )}
+            </>
           )}
           <button
             className="flex items-center gap-2 w-full px-3 py-2 text-left text-[12px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
@@ -141,7 +154,7 @@ export function ToolboxDropdown({
 
 export interface MainNavProps {
   ftpStatus: string;
-  currentPage: "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb" | "usb-games";
+  currentPage: "home" | "library" | "settings" | "queue" | "browse" | "iso2god" | "iso2xex" | "ftpmanager" | "badavatarusb" | "xboxoneseriesusb" | "usb-games";
   libraryAvailable?: boolean;
   libraryLoading: boolean;
   queueJobs: any[];
@@ -157,6 +170,7 @@ export interface MainNavProps {
   onNavigateIso2Xex: () => void;
   onNavigateFtpManager: () => void;
   onNavigateBadAvatarUsb: () => void;
+  onNavigateXboxOneSeriesUsb?: () => void;
   simpleMode?: boolean;
 }
 
@@ -178,6 +192,7 @@ export default function MainNav({
   onNavigateIso2Xex,
   onNavigateFtpManager,
   onNavigateBadAvatarUsb,
+  onNavigateXboxOneSeriesUsb,
   simpleMode = true,
 }: MainNavProps) {
   const ftpChecking  = ftpStatus === "checking";
@@ -187,7 +202,7 @@ export default function MainNav({
 
   const activeBtnClass = "ring-1 ring-accent ring-offset-1 ring-offset-background";
 
-  if (currentPage === "badavatarusb" && !simpleMode) {
+  if ((currentPage === "badavatarusb" || currentPage === "xboxoneseriesusb") && !simpleMode) {
     return (
       <div className="flex items-center">
         <ToolboxDropdown
@@ -195,6 +210,7 @@ export default function MainNav({
           onIso2Xex={onNavigateIso2Xex}
           onFtpManager={onNavigateFtpManager}
           onBadAvatarUsb={onNavigateBadAvatarUsb}
+          onXboxOneSeriesUsb={onNavigateXboxOneSeriesUsb}
           onBrowse={onNavigateBrowse}
           onSettings={onNavigateSettings}
           simpleMode
@@ -432,7 +448,8 @@ export default function MainNav({
         onIso2Xex={onNavigateIso2Xex}
         onFtpManager={onNavigateFtpManager}
         onBadAvatarUsb={onNavigateBadAvatarUsb}
-        active={currentPage === "iso2god" || currentPage === "iso2xex" || currentPage === "ftpmanager" || currentPage === "badavatarusb"}
+        onXboxOneSeriesUsb={onNavigateXboxOneSeriesUsb}
+        active={currentPage === "iso2god" || currentPage === "iso2xex" || currentPage === "ftpmanager" || currentPage === "badavatarusb" || currentPage === "xboxoneseriesusb"}
       />
 
       <Button

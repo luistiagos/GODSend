@@ -380,13 +380,11 @@ func TestChunkedDownloadKeepsResumeMapUntilCompletionMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := readResumeMap(t, dest)
-	if marker.Mode != "chunked" || len(marker.Completed) != 3 {
+	if marker.Mode != "dynamic" || !finishedResume(dest, server.URL) {
 		t.Fatalf("mapa inesperado: %+v", marker)
 	}
-	for index, done := range marker.Completed {
-		if !done || marker.SegmentHashes[index] == "" {
-			t.Fatalf("segmento %d nao ficou confirmado no mapa: %+v", index, marker)
-		}
+	if got := durableDownloadBytes(dest, server.URL); got != int64(len(payload)) {
+		t.Fatalf("bytes duraveis = %d, esperado %d", got, len(payload))
 	}
 }
 
@@ -674,5 +672,439 @@ func TestResumeWhileProgressingDoesNotRetryNonTransientErrors(t *testing.T) {
 		if !isResumableDownloadInterruption(errors.New(transient)) {
 			t.Fatalf("interrupcao de producao nao reconhecida como retomavel: %s", transient)
 		}
+	}
+}
+
+func makeDeterministicPayload(size int) []byte {
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte((i*31 + 17) & 0xFF)
+	}
+	return payload
+}
+
+// Lab test 1 (MDM rule #3): ~20% HTTP 500 responses on range requests are
+// retried per segment without aborting the parallel download.
+func TestDynamicParallelSurvivesInjected500WithoutAborting(t *testing.T) {
+	payload := makeDeterministicPayload(256 * 1024) // 256 KiB
+	var reqCount atomic.Int32
+	var injected500 atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := reqCount.Add(1)
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if n%5 == 2 {
+			injected500.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(payload[start : end+1])
+	}))
+	defer server.Close()
+
+	service := newResumeTestService(server)
+	service.App.IADownloadMaxParallel = 4
+	dest := filepath.Join(t.TempDir(), "inject500.bin")
+
+	if err := service.IADownloadChunkedParallel(server.URL, dest, "Inject500", server.URL, int64(len(payload))); err != nil {
+		t.Fatalf("download should survive transient 500s, got: %v", err)
+	}
+	if injected500.Load() == 0 {
+		t.Fatal("expected at least one injected 500")
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch after 500 retries (len=%d err=%v)", len(got), err)
+	}
+}
+
+// Lab test 2 (MDM rule #3 cursor resume): a dropped mid-segment connection
+// resumes from seg.cursor instead of discarding already-written bytes.
+func TestDynamicParallelMidSegmentDropResumesFromCursor(t *testing.T) {
+	payload := makeDeterministicPayload(128 * 1024)
+	var mu sync.Mutex
+	var requestedStarts []int
+	var droppedOnce atomic.Bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requestedStarts = append(requestedStarts, start)
+		mu.Unlock()
+
+		w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+
+		if start == 0 && droppedOnce.CompareAndSwap(false, true) {
+			half := (end - start + 1) / 2
+			_, _ = w.Write(payload[start : start+half])
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			// Abruptly sever TCP connection mid-stream.
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+					return
+				}
+			}
+			return
+		}
+		_, _ = w.Write(payload[start : end+1])
+	}))
+	defer server.Close()
+
+	service := newResumeTestService(server)
+	service.App.IADownloadMaxParallel = 1
+	dest := filepath.Join(t.TempDir(), "cursor-resume.bin")
+
+	if err := service.IADownloadChunkedParallel(server.URL, dest, "CursorResume", server.URL, int64(len(payload))); err != nil {
+		t.Fatalf("mid-segment drop should resume from cursor, got: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch after cursor resume (len=%d err=%v)", len(got), err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requestedStarts) < 2 {
+		t.Fatalf("expected >=2 requests (initial + cursor resume), got %v", requestedStarts)
+	}
+	if requestedStarts[0] != 0 || requestedStarts[1] == 0 {
+		t.Fatalf("expected second request to resume past byte 0, got starts=%v", requestedStarts)
+	}
+}
+
+// Lab test 3 (MDM rule #4): a throttled slow connection is cut and replaced
+// with a fast connection instead of stalling the download.
+func TestDynamicParallelCutsSlowConnectionAndFinishesFast(t *testing.T) {
+	origWindow, origMinRem, origCooldown, origFastMin := slowEvalWindow, slowCutMinRemainingSec, slowCutCooldown, slowFastSampleMinDur
+	slowEvalWindow = 120 * time.Millisecond
+	slowCutMinRemainingSec = 0.2
+	slowCutCooldown = 150 * time.Millisecond
+	slowFastSampleMinDur = 20 * time.Millisecond
+	defer func() {
+		slowEvalWindow, slowCutMinRemainingSec, slowCutCooldown, slowFastSampleMinDur = origWindow, origMinRem, origCooldown, origFastMin
+	}()
+
+	payload := makeDeterministicPayload(2 * 1024 * 1024) // 2 MiB
+	var reqSeq atomic.Int32
+	var slowAborted atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seq := reqSeq.Add(1)
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+		fl, _ := w.(http.Flusher)
+
+		// Request #2 is severely throttled (~32 KB/s); without slow-cut it would
+		// take >15s for 512 KiB. With slow-cut it gets aborted in ~150ms.
+		if seq == 2 {
+			for pos := start; pos <= end; pos += 1024 {
+				select {
+				case <-r.Context().Done():
+					slowAborted.Add(1)
+					return
+				default:
+				}
+				hi := pos + 1024
+				if hi > end+1 {
+					hi = end + 1
+				}
+				if _, err := w.Write(payload[pos:hi]); err != nil {
+					slowAborted.Add(1)
+					return
+				}
+				if fl != nil {
+					fl.Flush()
+				}
+				time.Sleep(30 * time.Millisecond)
+			}
+			return
+		}
+
+		// Fast connections drip at ~10 MB/s (fast enough to finish quickly, slow
+		// enough to exceed slowFastSampleMinDur and establish a clear yardstick).
+		for pos := start; pos <= end; pos += 64 * 1024 {
+			hi := pos + 64*1024
+			if hi > end+1 {
+				hi = end + 1
+			}
+			if _, err := w.Write(payload[pos:hi]); err != nil {
+				return
+			}
+			if fl != nil {
+				fl.Flush()
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+
+	service := newResumeTestService(server)
+	service.App.IADownloadMaxParallel = 4
+	dest := filepath.Join(t.TempDir(), "slowcut.bin")
+
+	started := time.Now()
+	if err := service.IADownloadChunkedParallel(server.URL, dest, "SlowCut", server.URL, int64(len(payload))); err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+	elapsed := time.Since(started)
+	if elapsed > 4*time.Second {
+		t.Fatalf("download took %s; slow connection was not cut quickly", elapsed)
+	}
+	if slowAborted.Load() == 0 {
+		t.Fatalf("expected throttled connection #2 to be cut by slow-connection tracker")
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch after slow-cut (len=%d err=%v)", len(got), err)
+	}
+}
+
+// Lab test 4 (MDM rule #5 + Retry-After): server returns 429 with Retry-After
+// when concurrency exceeds 2; download adapts and completes intact.
+func TestDynamicParallelHonorsRetryAfterAndAdaptsHostLimit(t *testing.T) {
+	payload := makeDeterministicPayload(512 * 1024)
+	var active atomic.Int32
+	var got429 atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cur := active.Add(1)
+		defer active.Add(-1)
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if cur > 2 {
+			got429.Add(1)
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+		time.Sleep(40 * time.Millisecond)
+		_, _ = w.Write(payload[start : end+1])
+	}))
+	defer server.Close()
+
+	// Isolate globalHostLimits for this test.
+	prevLimits := globalHostLimits
+	globalHostLimits = newHostConnectionLimits()
+	defer func() { globalHostLimits = prevLimits }()
+
+	service := newResumeTestService(server)
+	service.App.IADownloadMaxParallel = 4
+	dest := filepath.Join(t.TempDir(), "retry429.bin")
+
+	if err := service.IADownloadChunkedParallel(server.URL, dest, "Retry429", server.URL, int64(len(payload))); err != nil {
+		t.Fatalf("download should adapt to 429 Retry-After, got: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch after 429 adaptation (len=%d err=%v)", len(got), err)
+	}
+	if got429.Load() == 0 {
+		t.Log("note: workers completed before hitting >2 simultaneous connections")
+	}
+}
+
+// Lab test 5: dynamic resume marker restores partial mid-segment progress
+// without re-requesting bytes already written before Cursor.
+func TestDynamicResumePreservesMidSegmentCursor(t *testing.T) {
+	payload := makeDeterministicPayload(64 * 1024)
+	var mu sync.Mutex
+	var requested []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requested = append(requested, r.Header.Get("Range"))
+		mu.Unlock()
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(payload[start : end+1])
+	}))
+	defer server.Close()
+
+	dest := filepath.Join(t.TempDir(), "dynamic-resume.bin")
+	// Pre-populate bytes [0, 20000) and [32768, 40000) as durable on disk.
+	partial := make([]byte, len(payload))
+	copy(partial[0:20000], payload[0:20000])
+	copy(partial[32768:40000], payload[32768:40000])
+	if err := os.WriteFile(dest, partial, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeResumeMarker(dest, &downloadResumeMarker{
+		Mode:      "dynamic",
+		URL:       server.URL,
+		TotalSize: int64(len(payload)),
+		Ranges: []resumeRange{
+			{Start: 0, Cursor: 20000, End: 32768},
+			{Start: 32768, Cursor: 40000, End: int64(len(payload))},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := newResumeTestService(server)
+	service.App.IADownloadMaxParallel = 2
+	if err := service.IADownloadChunkedParallel(server.URL, dest, "DynResume", server.URL, int64(len(payload))); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("resumed dynamic file corrupted (len=%d err=%v)", len(got), err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, rng := range requested {
+		if strings.HasPrefix(rng, "bytes=0-") || strings.HasPrefix(rng, "bytes=32768-") {
+			t.Fatalf("already-durable bytes were re-requested: %v", requested)
+		}
+	}
+}
+
+// Lab test 6: non-IA hosts (HuggingFace, EdgeEmu, mirrors) also use the
+// dedicated HTTP/1.1 transport and dynamic parallel range engine.
+func TestDownloadHTTPTransportDisablesHTTP2AndPoolsConnections(t *testing.T) {
+	tr := app.NewDownloadHTTPTransport()
+	if tr.ForceAttemptHTTP2 {
+		t.Fatal("ForceAttemptHTTP2 must be false so each worker gets an independent TCP socket")
+	}
+	if tr.TLSNextProto == nil || len(tr.TLSNextProto) != 0 {
+		t.Fatalf("TLSNextProto must be non-nil empty map to disable HTTP/2 ALPN, got %#v", tr.TLSNextProto)
+	}
+	if tr.MaxIdleConnsPerHost < 16 {
+		t.Fatalf("MaxIdleConnsPerHost = %d, want >= 16", tr.MaxIdleConnsPerHost)
+	}
+	if !tr.DisableCompression {
+		t.Fatal("DisableCompression must be true for exact byte-range offsets")
+	}
+}
+
+func TestEdgeEmuUsesUnifiedDynamicEngineAndCleansSidecars(t *testing.T) {
+	payload := makeDeterministicPayload(64 * 1024)
+	server, _ := rangeTestServer(t, payload)
+
+	a := app.NewApp()
+	a.EdgeEmuHTTPClient = server.Client()
+	a.DownloadHTTPClient = server.Client()
+	a.IADownloadMaxParallel = 4
+	service := &Service{App: a}
+	dest := filepath.Join(t.TempDir(), "rom.zip")
+
+	if err := service.DownloadEdgeEmuWithProgress(server.URL, dest, "TestROM"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("edgeemu payload mismatch (len=%d err=%v)", len(got), err)
+	}
+	if _, err := os.Stat(completedMarkerPath(dest)); !os.IsNotExist(err) {
+		t.Fatalf("temporary completion marker should be removed by DownloadEdgeEmuWithProgress")
+	}
+	if _, err := os.Stat(resumeMarkerPath(dest)); !os.IsNotExist(err) {
+		t.Fatalf("temporary resume marker should be removed by DownloadEdgeEmuWithProgress")
+	}
+}
+
+func TestDynamicParallelUpgradesSingleStreamPartialWithoutLosingBytes(t *testing.T) {
+	payload := makeDeterministicPayload(64 * 1024)
+	var mu sync.Mutex
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requested = append(requested, r.Header.Get("Range"))
+		mu.Unlock()
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(payload[start : end+1])
+	}))
+	defer server.Close()
+
+	dest := filepath.Join(t.TempDir(), "upgrade-single.bin")
+	// Simulate 24 KiB written by a previous single-stream attempt.
+	if err := os.WriteFile(dest, payload[:24*1024], 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeResumeMarker(dest, &downloadResumeMarker{
+		Mode:      "single",
+		URL:       server.URL,
+		TotalSize: int64(len(payload)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := newResumeTestService(server)
+	service.App.IADownloadMaxParallel = 4
+	if err := service.IADownloadChunkedParallel(server.URL, dest, "UpgradeSingle", server.URL, int64(len(payload))); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("upgraded download payload mismatch (len=%d err=%v)", len(got), err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, rng := range requested {
+		var s, e int
+		if _, err := fmt.Sscanf(rng, "bytes=%d-%d", &s, &e); err == nil && s < 24*1024 {
+			t.Fatalf("bytes from preserved single-stream prefix [0, 24576) were re-downloaded: %v", requested)
+		}
+	}
+}
+
+func TestSingleDownloadFailsFastOn404WithoutRetrying(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	service := newResumeTestService(server)
+	dest := filepath.Join(t.TempDir(), "missing.zip")
+	started := time.Now()
+	err := service.IADownloadSingle(server.URL, dest, "Missing404", server.URL)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("expected HTTP 404 error, got: %v", err)
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("expected 1 attempt on deterministic 404, got %d", got)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("expected fast fail on 404, took %s", elapsed)
 	}
 }

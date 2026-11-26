@@ -2,6 +2,7 @@ export interface QueueSuccessFeedbackInput {
   isMultiDisc?: boolean;
   discCount?: number;
   destinationKind?: "local" | "ftp" | "folder";
+  consoleTarget?: "xbox360" | "xbox-one-series";
 }
 
 export interface QueueSuccessFeedback {
@@ -22,6 +23,7 @@ export function buildQueueSuccessFeedback(
   const isMultiDisc = Boolean(input.isMultiDisc);
   const discCount = typeof input.discCount === "number" && input.discCount > 1 ? input.discCount : 2;
   const destinationKind = input.destinationKind ?? "local";
+  const isXeniaTarget = input.consoleTarget === "xbox-one-series";
 
   const headline = isMultiDisc
     ? `Todos os ${discCount} discos foram adicionados à fila!`
@@ -31,7 +33,9 @@ export function buildQueueSuccessFeedback(
     ? "O download e o envio para o console começaram em segundo plano. Acompanhe o progresso na aba Fila até aparecer “Pronto”."
     : destinationKind === "folder"
       ? "O download e a preparação começaram em segundo plano e os arquivos serão salvos na pasta escolhida. Acompanhe na aba Fila até aparecer “Pronto”."
-      : "O download e a gravação começaram em segundo plano. Acompanhe na aba Fila até aparecer “Pronto” antes de desconectar o pendrive.";
+      : isXeniaTarget
+        ? "O download e a gravação para o Xbox One / Series (Xenia) começaram em segundo plano. Acompanhe na aba Fila até aparecer “Pronto”, ejete o dispositivo com segurança e abra pelo Xenia no console."
+        : "O download e a gravação começaram em segundo plano. Acompanhe na aba Fila até aparecer “Pronto” antes de desconectar o pendrive.";
 
   return {
     headline,

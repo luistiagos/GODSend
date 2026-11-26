@@ -1,4 +1,4 @@
-// ia.go — Internet Archive HTTP downloads (single-stream and parallel range).
+// ia.go — HTTP downloads (single-stream and MDM-style dynamic parallel range).
 package download
 
 import (
@@ -29,12 +29,67 @@ type Service struct {
 
 const downloadSpaceMargin = 64 * 1024 * 1024
 
-var iaSegmentSize int64 = app.IASegmentSize
+var (
+	iaSegmentSize          int64 = app.IASegmentSize
+	checkpointInterval           = 15 * time.Second
+	checkpointBytes        int64 = 64 * 1024 * 1024
+	downloadResumeWait           = 10 * time.Second
+	probeTimeout                 = 30 * time.Second
+)
 
 type completedDownloadMarker struct {
 	URL    string `json:"url"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+}
+
+type downloadProbeInfo struct {
+	size        int64
+	rangeOK     bool
+	resolvedURL string
+	validator   string
+	ttfb        time.Duration
+}
+
+func isIAURL(rawURL string) bool {
+	return strings.Contains(strings.ToLower(rawURL), "archive.org")
+}
+
+func isEdgeEmuURL(rawURL string) bool {
+	return strings.Contains(strings.ToLower(rawURL), "edgeemu.net")
+}
+
+func (s *Service) httpClientForURL(rawURL string) *http.Client {
+	if isIAURL(rawURL) && s.App.IAHTTPClient != nil {
+		return s.App.IAHTTPClient
+	}
+	if isEdgeEmuURL(rawURL) && s.App.EdgeEmuHTTPClient != nil {
+		return s.App.EdgeEmuHTTPClient
+	}
+	// Support TLS httptest servers in unit tests that configure only App.IAHTTPClient.
+	host := normalizedHostKey(rawURL)
+	if (host == "127.0.0.1" || host == "localhost" || host == "::1") && s.App.IAHTTPClient != nil {
+		return s.App.IAHTTPClient
+	}
+	if s.App.DownloadHTTPClient != nil {
+		return s.App.DownloadHTTPClient
+	}
+	if s.App.IAHTTPClient != nil {
+		return s.App.IAHTTPClient
+	}
+	return http.DefaultClient
+}
+
+func (s *Service) applyDownloadHeaders(req *http.Request, rawURL, ref string) {
+	if ref != "" {
+		req.Header.Set("Referer", ref)
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	if isIAURL(rawURL) {
+		s.App.ApplyArchiveOrgHeaders(req)
+	} else {
+		req.Header.Set("User-Agent", "Mozilla/5.0")
+	}
 }
 
 func completedMarkerPath(dest string) string {
@@ -156,30 +211,42 @@ func ensureDownloadSpace(dest string, totalSize int64) error {
 	return nil
 }
 
-// iaHTTPError turns an archive.org HTTP status into an actionable message.
-// 401/403 almost always mean the item is restricted to logged-in accounts.
+// iaHTTPError turns an HTTP status into an actionable message.
+// 401/403 on archive.org almost always mean the item is restricted to logged-in accounts.
 func iaHTTPError(status int, urlStr string) error {
-	if status == 401 || status == 403 {
+	if (status == 401 || status == 403) && isIAURL(urlStr) {
 		return fmt.Errorf("HTTP %d — este item do Internet Archive exige conta logada. Em Configurações → Conta do Internet Archive, entre com seu login do archive.org e tente novamente", status)
 	}
 	return fmt.Errorf("HTTP %d from %s", status, urlStr)
 }
 
-// downloadResumeWait is the pause before resuming an interrupted download in place.
-var downloadResumeWait = 10 * time.Second
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(value); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(value); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
 
 // downloadMaxAttemptsWithoutProgress bounds the resumes that add no durable byte.
 const downloadMaxAttemptsWithoutProgress = 3
 
-// DownloadWithProgress downloads urlStr to dest. For Internet Archive URLs it uses a
-// Gopeed-style segment queue (fixed-size ranges, worker pool) when Range is supported.
+// DownloadWithProgress downloads urlStr to dest. When the server supports HTTP
+// byte ranges and the file exceeds IAParallelThreshold, it uses an MDM-style
+// dynamic parallel range engine (dedicated HTTP/1.1 connections, dynamic
+// work-stealing splits, slow-connection cutting, adaptive checkpoints, and
+// sparse/bounded-window disk allocation).
 //
-// A transient interruption (45 s without data, HTTP/2 stream reset, dropped
-// connection) resumes the partial file in place for as long as each attempt adds
-// durable bytes. Without this, the fallback chain switched provider or gave up
-// on the first interruption and the partial download was deleted — 43 of the 56
-// unrestricted retries in the telemetry died that way, one after 6.5 GB
-// ([[pipeline-download-falha-em-todas-as-fontes-por-lentidao-e-estagnacao-cliente-perde-13-titulos_2026-11-06T16-40]]).
+// A transient interruption (stall, stream reset, dropped connection) resumes
+// the partial file in place for as long as each attempt adds durable bytes.
 func (s *Service) DownloadWithProgress(urlStr, dest, name, ref string) error {
 	return s.resumeWhileProgressing(dest, urlStr, name, func() error {
 		return s.downloadWithProgressOnce(urlStr, dest, name, ref)
@@ -233,7 +300,7 @@ func isResumableDownloadInterruption(err error) bool {
 	msg := strings.ToLower(err.Error())
 	for _, marker := range []string{
 		"stream error", "read after", "interrupted after", "request failed", "request:",
-		"connection reset", "forcibly closed", "unexpected eof", "http 5",
+		"connection reset", "forcibly closed", "unexpected eof", "http 5", "http 429",
 	} {
 		if strings.Contains(msg, marker) {
 			return true
@@ -243,8 +310,8 @@ func isResumableDownloadInterruption(err error) bool {
 }
 
 // durableDownloadBytes is how much of dest is already safe to resume from: the
-// file size of a single-stream download, or the confirmed segments of a chunked
-// one. Zero when there is no resume map for urlStr.
+// file size of a single-stream download, the confirmed segments of a legacy
+// chunked download, or the written bytes across ranges of a dynamic download.
 func durableDownloadBytes(dest, urlStr string) int64 {
 	data, err := os.ReadFile(resumeMarkerPath(dest))
 	if err != nil {
@@ -272,6 +339,14 @@ func durableDownloadBytes(dest, urlStr string) int64 {
 			total += size
 		}
 		return total
+	case "dynamic":
+		var total int64
+		for _, r := range marker.Ranges {
+			if r.Cursor > r.Start && r.Cursor <= r.End {
+				total += r.Cursor - r.Start
+			}
+		}
+		return total
 	}
 	return 0
 }
@@ -288,9 +363,8 @@ func (s *Service) downloadWithProgressOnce(urlStr, dest, name, ref string) error
 	}
 	// A process can stop after the last byte is durable but before publishing
 	// the completion marker, whose full-file hash takes minutes on a
-	// multi-gigabyte file. Promote that full single-stream or chunked file
-	// instead of truncating it and issuing the whole download again
-	// ([[pipeline-download-chunked-concluido-perdido-ao-fechar-durante-o-hash-final-recomeca-do-zero_2026-10-07T21-48]]).
+	// multi-gigabyte file. Promote that full single-stream, chunked, or dynamic
+	// file instead of truncating it and issuing the whole download again.
 	if finishedResume(dest, urlStr) {
 		s.App.Logf("DOWNLOAD RESUME [%s]: promovendo arquivo integral sincronizado", name)
 		err := s.finalizeDownload(dest, urlStr, name)
@@ -303,22 +377,28 @@ func (s *Service) downloadWithProgressOnce(urlStr, dest, name, ref string) error
 	_ = os.Remove(completedMarkerPath(dest))
 
 	var downloadErr error
-	isIA := strings.Contains(strings.ToLower(urlStr), "archive.org")
-	if isIA && s.App.IADownloadMaxParallel > 1 {
-		size, rangeOK, err := s.IAProbeDownload(urlStr, ref)
+	if s.App.IADownloadMaxParallel > 1 {
+		probe, err := s.probeDownload(urlStr, ref)
 		if err != nil {
 			s.App.Logf("WARN [%s]: probe failed (%v), using single stream", name, err)
-		} else if rangeOK && size >= app.IAParallelThreshold {
-			nSeg := (size + iaSegmentSize - 1) / iaSegmentSize
-			s.App.Logf("[%s] Chunked download: %.0f MB, %d segments (~%d MiB each), up to %d parallel HTTP",
-				name, float64(size)/1048576, nSeg, iaSegmentSize/(1024*1024), s.App.IADownloadMaxParallel)
-			downloadErr = s.IADownloadChunkedParallel(urlStr, dest, name, ref, size)
-			if downloadErr == nil {
-				if err := s.finalizeDownload(dest, urlStr, name); err != nil {
-					return fmt.Errorf("persistir conclusao do download: %w", err)
+		} else if probe.rangeOK && probe.size >= app.IAParallelThreshold {
+			baseWorkers := defaultHostCeiling(urlStr, s.App.IADownloadMaxParallel)
+			workers := globalHostLimits.effectiveLimit(probe.resolvedURL, baseWorkers, time.Now())
+			if workers > 1 {
+				nodeHost := normalizedHostKey(probe.resolvedURL)
+				if nodeHost == "" {
+					nodeHost = normalizedHostKey(urlStr)
 				}
+				s.App.Logf("[%s] Dynamic parallel HTTP: %.0f MB, up to %d HTTP/1.1 connections (host=%s, probe TTFB=%s)",
+					name, float64(probe.size)/1048576, workers, nodeHost, probe.ttfb.Round(time.Millisecond))
+				downloadErr = s.downloadDynamicParallel(urlStr, probe, dest, name, ref, workers)
+				if downloadErr == nil {
+					if err := s.finalizeDownload(dest, urlStr, name); err != nil {
+						return fmt.Errorf("persistir conclusao do download: %w", err)
+					}
+				}
+				return downloadErr
 			}
-			return downloadErr
 		}
 	}
 	downloadErr = s.IADownloadSingle(urlStr, dest, name, ref)
@@ -332,11 +412,7 @@ func (s *Service) downloadWithProgressOnce(urlStr, dest, name, ref string) error
 }
 
 // finalizeDownload publishes the completion marker of a full download and only
-// then drops its resume map. The map is the one durable proof that the file is
-// complete while the full-file hash runs; dropping it first left a window in
-// which closing the app threw the whole download away
-// ([[pipeline-download-chunked-concluido-perdido-ao-fechar-durante-o-hash-final-recomeca-do-zero_2026-10-07T21-48]]).
-// On error the map stays, so the next run promotes or resumes the file.
+// then drops its resume map.
 func (s *Service) finalizeDownload(dest, urlStr, name string) error {
 	var size int64
 	if st, err := os.Stat(dest); err == nil {
@@ -356,32 +432,86 @@ func (s *Service) finalizeDownload(dest, urlStr, name string) error {
 // IAProbeDownload sends a GET request with Range: bytes=0-0 and returns (Content-Length, Accept-Ranges, error).
 // Using GET Range: bytes=0-0 is significantly more reliable than HEAD on Internet Archive edge servers and CDNs.
 func (s *Service) IAProbeDownload(urlStr, ref string) (size int64, rangeOK bool, err error) {
-	req, err := http.NewRequest("GET", urlStr, nil)
+	info, err := s.probeDownload(urlStr, ref)
 	if err != nil {
 		return 0, false, err
 	}
-	req.Header.Set("Range", "bytes=0-0")
-	req.Header.Set("Referer", ref)
-	s.App.ApplyArchiveOrgHeaders(req)
-	resp, err := s.App.IAHTTPClient.Do(req)
-	if err != nil {
-		return 0, false, err
-	}
-	defer resp.Body.Close()
+	return info.size, info.rangeOK, nil
+}
 
-	if resp.StatusCode == http.StatusPartialContent { // 206 Partial Content
-		start, end, total, parseErr := parseHTTPContentRange(resp.Header.Get("Content-Range"))
-		if parseErr == nil && start == 0 && end == 0 {
-			return total, true, nil
+func (s *Service) probeDownload(urlStr, ref string) (downloadProbeInfo, error) {
+	client := s.httpClientForURL(urlStr)
+	for attempt := 0; attempt < 2; attempt++ {
+		started := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+		req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
+		if err != nil {
+			cancel()
+			return downloadProbeInfo{}, err
 		}
-		if resp.ContentLength > 0 {
-			return resp.ContentLength, true, nil
-		}
-	} else if resp.StatusCode == http.StatusOK { // 200 OK (range not supported, full body returned)
-		return resp.ContentLength, false, nil
-	}
+		req.Header.Set("Range", "bytes=0-0")
+		s.applyDownloadHeaders(req, urlStr, ref)
 
-	return 0, false, fmt.Errorf("probe HTTP %d", resp.StatusCode)
+		resp, err := client.Do(req)
+		if err != nil {
+			cancel()
+			return downloadProbeInfo{}, err
+		}
+		ttfb := time.Since(started)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		cancel()
+
+		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && isIAURL(urlStr) && attempt == 0 {
+			if refreshErr := s.App.RefreshIAAuthSession(); refreshErr == nil {
+				continue
+			}
+		}
+
+		resolved := urlStr
+		if resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.String() != "" {
+			resolved = resp.Request.URL.String()
+		}
+		// Prefer Last-Modified as cross-node validator (MDM rule #8: per-node ETags
+		// on CDNs like archive.org can vary between edge nodes for the same file).
+		validator := resp.Header.Get("Last-Modified")
+		if validator == "" {
+			validator = resp.Header.Get("ETag")
+		}
+
+		if resp.StatusCode == http.StatusPartialContent {
+			start, end, total, parseErr := parseHTTPContentRange(resp.Header.Get("Content-Range"))
+			if parseErr == nil && start == 0 && end == 0 {
+				return downloadProbeInfo{
+					size:        total,
+					rangeOK:     true,
+					resolvedURL: resolved,
+					validator:   validator,
+					ttfb:        ttfb,
+				}, nil
+			}
+			if resp.ContentLength > 0 {
+				return downloadProbeInfo{
+					size:        resp.ContentLength,
+					rangeOK:     true,
+					resolvedURL: resolved,
+					validator:   validator,
+					ttfb:        ttfb,
+				}, nil
+			}
+		} else if resp.StatusCode == http.StatusOK {
+			return downloadProbeInfo{
+				size:        resp.ContentLength,
+				rangeOK:     false,
+				resolvedURL: resolved,
+				validator:   validator,
+				ttfb:        ttfb,
+			}, nil
+		}
+
+		return downloadProbeInfo{}, fmt.Errorf("probe HTTP %d", resp.StatusCode)
+	}
+	return downloadProbeInfo{}, fmt.Errorf("probe failed")
 }
 
 func parseHTTPContentRange(value string) (start, end, total int64, err error) {
@@ -412,98 +542,211 @@ func parseHTTPContentRange(value string) (start, end, total int64, err error) {
 	return start, end, total, nil
 }
 
-// IADownloadChunkedParallel downloads the file into a single pre-sized destination using a
-// queue of fixed-size byte ranges and a bounded worker pool.
+// IADownloadChunkedParallel downloads urlStr into dest using the MDM-style
+// dynamic parallel range engine (with full backward compatibility for resuming
+// legacy v1 chunked segment markers and custom test segment sizes).
 func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, totalSize int64) error {
+	workers := s.App.IADownloadMaxParallel
+	if workers < 1 {
+		workers = 1
+	}
+	probe := downloadProbeInfo{
+		size:        totalSize,
+		rangeOK:     true,
+		resolvedURL: urlStr,
+	}
+	return s.downloadDynamicParallel(urlStr, probe, dest, name, ref, workers)
+}
+
+func (s *Service) downloadDynamicParallel(urlStr string, probe downloadProbeInfo, dest, name, ref string, workers int) error {
+	totalSize := probe.size
 	if err := ensureDownloadSpace(dest, totalSize); err != nil {
 		return err
 	}
-	type seg struct {
-		index      int
-		start, end int64
-	}
-	var segments []seg
-	for off := int64(0); off < totalSize; off += iaSegmentSize {
-		end := off + iaSegmentSize - 1
-		if end >= totalSize {
-			end = totalSize - 1
-		}
-		segments = append(segments, seg{index: len(segments), start: off, end: end})
+	if workers < 1 {
+		workers = 1
 	}
 
-	marker, resumed := loadResumeMarker(dest, urlStr, "chunked", totalSize, iaSegmentSize)
-	if !resumed || len(marker.Completed) != len(segments) || len(marker.SegmentHashes) != len(segments) {
-		marker = &downloadResumeMarker{
-			Mode: "chunked", URL: urlStr, TotalSize: totalSize,
-			SegmentSize: iaSegmentSize, Completed: make([]bool, len(segments)), SegmentHashes: make([]string, len(segments)),
+	resumedRanges, resumedValidator, resumed := loadDynamicResume(dest, urlStr, totalSize)
+	if resumed && probe.validator != "" && resumedValidator != "" && probe.validator != resumedValidator {
+		s.App.Logf("DOWNLOAD RESUME [%s]: arquivo remoto alterado (%q -> %q); reiniciando do zero", name, resumedValidator, probe.validator)
+		resumed = false
+		resumedRanges = nil
+	}
+
+	var out *os.File
+	var err error
+	var isSparse, boundedWindow bool
+	if resumed {
+		out, err = os.OpenFile(dest, os.O_RDWR, 0644)
+		if err != nil {
+			return fmt.Errorf("open dest: %w", err)
 		}
-		out, err := os.Create(dest)
+		isSparse, boundedWindow = prepareSparseDestFile(out)
+		if isSparse {
+			if st, statErr := out.Stat(); statErr == nil && st.Size() < totalSize {
+				if truncErr := out.Truncate(totalSize); truncErr != nil {
+					out.Close()
+					return fmt.Errorf("truncate: %w", truncErr)
+				}
+			}
+		}
+	} else {
+		if mkErr := os.MkdirAll(filepath.Dir(dest), 0755); mkErr != nil {
+			return fmt.Errorf("mkdir dest: %w", mkErr)
+		}
+		out, err = os.OpenFile(dest, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 		if err != nil {
 			return fmt.Errorf("create dest: %w", err)
 		}
-		if err := out.Truncate(totalSize); err != nil {
-			out.Close()
-			return fmt.Errorf("truncate: %w", err)
-		}
-		if err := out.Close(); err != nil {
-			return err
-		}
-		if err := writeResumeMarker(dest, marker); err != nil {
-			return fmt.Errorf("persistir mapa de segmentos: %w", err)
-		}
-	}
-	out, err := os.OpenFile(dest, os.O_RDWR, 0644)
-	if err != nil {
-		return fmt.Errorf("open dest: %w", err)
-	}
-	if resumed {
-		changed := false
-		for _, ss := range segments {
-			if !marker.Completed[ss.index] {
-				continue
-			}
-			hash, hashErr := sha256FileRange(out, ss.start, ss.end-ss.start+1)
-			if hashErr != nil || hash != marker.SegmentHashes[ss.index] {
-				marker.Completed[ss.index] = false
-				marker.SegmentHashes[ss.index] = ""
-				changed = true
-			}
-		}
-		if changed {
-			if err := writeResumeMarker(dest, marker); err != nil {
+		isSparse, boundedWindow = prepareSparseDestFile(out)
+		// Only pre-size when sparse holes are supported (NTFS / Linux / macOS /
+		// Android). On exFAT, Truncate + far-ahead WriteAt triggers synchronous
+		// zero-fill, so we grow the file inside a bounded window instead.
+		if isSparse {
+			if truncErr := out.Truncate(totalSize); truncErr != nil {
 				out.Close()
-				return fmt.Errorf("reparar mapa de segmentos: %w", err)
+				return fmt.Errorf("truncate: %w", truncErr)
 			}
 		}
 	}
 
-	jobs := make(chan seg, len(segments))
-	for _, ss := range segments {
-		if !marker.Completed[ss.index] {
-			jobs <- ss
-		}
+	// Build planner config. When a test shrinks iaSegmentSize below the default
+	// 4 MiB, honor its exact segment boundaries; otherwise use full MDM dynamic
+	// splitting (or bounded-window splitting on exFAT).
+	cfg := plannerConfig{
+		totalSize:        totalSize,
+		workers:          workers,
+		minSplit:         app.IASegmentSize,
+		splitAlign:       defaultSplitAlignBytes,
+		boundedWindow:    boundedWindow,
+		boundedChunkSize: defaultBoundedChunk,
 	}
-	close(jobs)
+	if iaSegmentSize > 0 && iaSegmentSize != app.IASegmentSize {
+		cfg.fixedChunkSize = iaSegmentSize
+		cfg.minSplit = 0
+		cfg.boundedWindow = false
+	} else if totalSize < 2*cfg.minSplit {
+		minDynamic := totalSize / int64(workers*2)
+		if minDynamic < 1 {
+			minDynamic = 1
+		}
+		cfg.minSplit = minDynamic
+		cfg.splitAlign = 0
+	}
+	if app.DownloadStallTimeout >= 2*time.Second {
+		stealAfter := 5 * time.Second
+		if probe.ttfb > 0 && 2*probe.ttfb > stealAfter {
+			stealAfter = 2 * probe.ttfb
+		}
+		if stealAfter > 15*time.Second {
+			stealAfter = 15 * time.Second
+		}
+		cfg.stealPendingAfter = stealAfter
+	}
+
+	planner := newSegmentPlanner(cfg, resumedRanges)
+	initialWritten := planner.initialWritten()
+	if initialWritten > 0 {
+		s.App.Logf("DOWNLOAD RESUME [%s]: %.1f MB ja confirmados", name, float64(initialWritten)/1048576)
+	}
+
+	validator := probe.validator
+	if validator == "" {
+		validator = resumedValidator
+	}
+
+	// Persist initial dynamic map immediately so a restart knows this file owns
+	// a valid dynamic resume layout.
+	if err := writeResumeMarker(dest, &downloadResumeMarker{
+		Mode:      "dynamic",
+		URL:       urlStr,
+		Validator: validator,
+		TotalSize: totalSize,
+		Ranges:    planner.snapshotRanges(),
+	}); err != nil {
+		out.Close()
+		return fmt.Errorf("persistir mapa de segmentos: %w", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var written int64
-	for _, ss := range segments {
-		if marker.Completed[ss.index] {
-			written += ss.end - ss.start + 1
-		}
-	}
-	if written > 0 {
-		s.App.Logf("DOWNLOAD RESUME [%s]: %.1f MB ja confirmados em %d segmentos", name, float64(written)/1048576, len(segments)-len(jobs))
-	}
-	initialWritten := written
+	var written int64 = initialWritten
 	var lastChunkActivity int64
 	atomic.StoreInt64(&lastChunkActivity, time.Now().UnixNano())
+	var receiving atomic.Int32
+	var authRefreshed atomic.Bool
+
+	var activeURLMu sync.RWMutex
+	activeURL := probe.resolvedURL
+	if activeURL == "" {
+		activeURL = urlStr
+	}
+	getActiveURL := func() string {
+		activeURLMu.RLock()
+		u := activeURL
+		activeURLMu.RUnlock()
+		return u
+	}
+	resetActiveURL := func() {
+		activeURLMu.Lock()
+		activeURL = urlStr
+		activeURLMu.Unlock()
+	}
+
+	// Adaptive unlocked checkpointing (MDM rule #7): never holds planner.mu
+	// during out.Sync() or JSON writes, so network reads and WriteAt keep running.
+	var checkpointMu sync.Mutex
+	lastCheckpointTime := time.Now()
+	lastCheckpointWritten := initialWritten
+	flushCheckpoint := func(force bool) error {
+		checkpointMu.Lock()
+		defer checkpointMu.Unlock()
+		curWritten := atomic.LoadInt64(&written)
+		if !force && curWritten-lastCheckpointWritten < checkpointBytes && time.Since(lastCheckpointTime) < checkpointInterval {
+			return nil
+		}
+		if !force && curWritten == lastCheckpointWritten {
+			return nil
+		}
+		ranges := planner.snapshotRanges()
+		if syncErr := out.Sync(); syncErr != nil {
+			return syncErr
+		}
+		if writeErr := writeResumeMarker(dest, &downloadResumeMarker{
+			Mode:      "dynamic",
+			URL:       urlStr,
+			Validator: validator,
+			TotalSize: totalSize,
+			Ranges:    ranges,
+		}); writeErr != nil {
+			return writeErr
+		}
+		lastCheckpointWritten = curWritten
+		lastCheckpointTime = time.Now()
+		return nil
+	}
+
+	var firstErr error
+	var errMu sync.Mutex
+	setFatalErr := func(e error) {
+		if e == nil {
+			return
+		}
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = e
+			cancel()
+		}
+		errMu.Unlock()
+	}
+
 	var lowSpeedErr error
 	var lowSpeedErrMu sync.Mutex
-	var resumeMu sync.Mutex
 	startTime := time.Now()
+	slowTracker := newSlowConnectionTracker(startTime, initialWritten)
+
 	progressDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
@@ -545,17 +788,17 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 					fmt.Sprintf("Downloading: %.0f%% (%.0f/%.0f MB) @ %.1f MB/s | %s",
 						pct, wMB, tMB, speedMBs, etaStr))
 				if now.Sub(lastConsole) > 15*time.Second {
-					s.App.Logf("Download [%s]: %.1f%% (%.1f/%.1f MB) @ %.1f MB/s (chunked HTTP)",
-						name, pct, wMB, tMB, speedMBs)
+					s.App.Logf("Download [%s]: %.1f%% (%.1f/%.1f MB) @ %.1f MB/s (dynamic HTTP, %d active)",
+						name, pct, wMB, tMB, speedMBs, receiving.Load())
 					lastConsole = now
 				}
 
-				// Stall monitoring: check if any chunk data arrived within DownloadStallTimeout
+				// Global stall monitoring: no byte received by any worker within DownloadStallTimeout.
 				lastProgNano := atomic.LoadInt64(&lastChunkActivity)
 				if lastProgNano > 0 {
 					lastProg := time.Unix(0, lastProgNano)
 					if now.Sub(lastProg) > app.DownloadStallTimeout {
-						s.App.Logf("WARN [%s]: Download chunked estagnado (nenhum dado recebido por %s) — abortando",
+						s.App.Logf("WARN [%s]: Download estagnado (nenhum dado recebido por %s) — abortando",
 							name, app.DownloadStallTimeout)
 						lowSpeedErrMu.Lock()
 						lowSpeedErr = app.ErrDownloadStalled
@@ -565,7 +808,7 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 					}
 				}
 
-				// Speed monitoring: check if download speed is sustained below threshold
+				// Speed monitoring: check if aggregate download speed is sustained below threshold.
 				threshold := s.App.MinDownloadSpeedThreshold
 				if threshold > 0 && !s.App.IsSpeedCheckBypassed(name) && !firstDataTime.IsZero() && now.Sub(firstDataTime) > app.LowSpeedGracePeriod && pct < 95 {
 					activeElapsed := now.Sub(firstDataTime).Seconds()
@@ -576,7 +819,7 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 								lowSpeedStart = now
 							} else if now.Sub(lowSpeedStart) >= app.LowSpeedSustainedDuration {
 								s.App.Logf("WARN [%s]: Download speed sustained below threshold (%.2f MB/s < %.2f MB/s) — aborting for provider switch",
-									name, speedMBs, float64(threshold)/1048576)
+									name, currentSpeedBytesPerSec/1048576, float64(threshold)/1048576)
 								lowSpeedErrMu.Lock()
 								lowSpeedErr = app.ErrDownloadTooSlow
 								lowSpeedErrMu.Unlock()
@@ -592,56 +835,107 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 		}
 	}()
 
-	workers := s.App.IADownloadMaxParallel
-	if workers < 1 {
-		workers = 1
+	checkpointDone := make(chan struct{})
+	go func() {
+		defer close(checkpointDone)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-progressDone:
+				return
+			case <-ticker.C:
+				if cpErr := flushCheckpoint(false); cpErr != nil {
+					setFatalErr(fmt.Errorf("checkpoint do download: %w", cpErr))
+					return
+				}
+			}
+		}
+	}()
+
+	// Per-worker read stall timeout: recovers an individually wedged TCP socket
+	// without waiting for the global 45s stall timeout. Only active when the
+	// global stall timeout is at least 10s (so short unit tests see deterministic
+	// global ErrDownloadStalled).
+	var workerReadStall time.Duration
+	if app.DownloadStallTimeout >= 10*time.Second {
+		workerReadStall = app.DownloadStallTimeout / 2
+		if workerReadStall > 20*time.Second {
+			workerReadStall = 20 * time.Second
+		}
 	}
+
+	client := s.httpClientForURL(urlStr)
+	isIA := isIAURL(urlStr)
+
 	var wg sync.WaitGroup
-	var firstErr error
-	var errMu sync.Mutex
-	for i := 0; i < workers; i++ {
+	for workerID := 0; workerID < workers; workerID++ {
 		wg.Add(1)
-		go func() {
+		go func(wid int) {
 			defer wg.Done()
-			for ss := range jobs {
+			buf := make([]byte, 256*1024)
+			for {
 				if ctx.Err() != nil {
 					return
 				}
-				if err := s.iaDownloadRange(ctx, urlStr, ref, out, ss.start, ss.end, totalSize, &written, &lastChunkActivity); err != nil {
-					errMu.Lock()
-					if firstErr == nil {
-						firstErr = err
-						cancel()
+				// Respect learned per-host connection caps (MDM rule #5).
+				if wid > 0 {
+					capNow := globalHostLimits.effectiveLimit(getActiveURL(), workers, time.Now())
+					if wid >= capNow {
+						if planner.isComplete() {
+							return
+						}
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(500 * time.Millisecond):
+							continue
+						}
 					}
-					errMu.Unlock()
+				}
+
+				seg, more := planner.assign(wid, time.Now())
+				if !more {
 					return
 				}
-				resumeMu.Lock()
-				checkpointErr := out.Sync()
-				if checkpointErr == nil {
-					marker.SegmentHashes[ss.index], checkpointErr = sha256FileRange(out, ss.start, ss.end-ss.start+1)
-				}
-				if checkpointErr == nil {
-					marker.Completed[ss.index] = true
-					checkpointErr = writeResumeMarker(dest, marker)
-				}
-				if checkpointErr != nil {
-					errMu.Lock()
-					if firstErr == nil {
-						firstErr = fmt.Errorf("checkpoint do segmento %d: %w", ss.index, checkpointErr)
-						cancel()
+				if seg == nil {
+					select {
+					case <-ctx.Done():
+						return
+					case <-planner.waitCh():
+					case <-time.After(250 * time.Millisecond):
 					}
-					errMu.Unlock()
-					resumeMu.Unlock()
+					continue
+				}
+
+				fetchErr, waitAfter, fatal := s.fetchDynamicSegment(
+					ctx, client, wid, seg, planner, slowTracker,
+					urlStr, getActiveURL, resetActiveURL, ref, isIA, totalSize,
+					out, buf, workers, workerReadStall,
+					&written, &lastChunkActivity, &receiving, &authRefreshed, name,
+				)
+				if fatal != nil {
+					setFatalErr(fatal)
 					return
 				}
-				resumeMu.Unlock()
+				if fetchErr != nil && ctx.Err() == nil {
+					if waitAfter > 0 {
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(waitAfter):
+						}
+					}
+				}
 			}
-		}()
+		}(workerID)
 	}
+
 	wg.Wait()
 	close(progressDone)
-	out.Close()
+	<-checkpointDone
 
 	lowSpeedErrMu.Lock()
 	if lowSpeedErr != nil {
@@ -649,130 +943,365 @@ func (s *Service) IADownloadChunkedParallel(urlStr, dest, name, ref string, tota
 	}
 	lowSpeedErrMu.Unlock()
 
+	if firstErr == nil && !planner.isComplete() {
+		firstErr = fmt.Errorf("download paralelo encerrou antes de concluir todos os segmentos")
+	}
+
 	if firstErr != nil {
 		if errors.Is(firstErr, app.ErrJobCancelled) {
-			os.Remove(dest)
+			out.Close()
+			_ = os.Remove(dest)
 			removeDownloadResume(dest)
+			return firstErr
 		}
+		// Flush every byte written so far so resumeWhileProgressing can resume
+		// from the exact cursors without losing progress.
+		_ = flushCheckpoint(true)
+		out.Close()
 		return firstErr
 	}
-	// The segment map stays until DownloadWithProgress publishes the completion
-	// marker (finalizeDownload).
+
+	if isSparse {
+		clearSparseDestFile(out)
+	}
+	if cpErr := flushCheckpoint(true); cpErr != nil {
+		out.Close()
+		return fmt.Errorf("checkpoint final do download: %w", cpErr)
+	}
+	if st, statErr := out.Stat(); statErr == nil && st.Size() != totalSize {
+		out.Close()
+		return fmt.Errorf("download paralelo com tamanho final divergente: esperado %d, obtido %d bytes", totalSize, st.Size())
+	}
+	if closeErr := out.Close(); closeErr != nil {
+		return fmt.Errorf("close dest: %w", closeErr)
+	}
+
+	elapsed := time.Since(startTime)
+	if elapsed < time.Millisecond {
+		elapsed = time.Millisecond
+	}
+	stats := planner.stats()
+	sessionMB := float64(atomic.LoadInt64(&written)-initialWritten) / 1048576
+	speedMiBs := sessionMB / elapsed.Seconds()
+	nodeHost := normalizedHostKey(getActiveURL())
+	if nodeHost == "" {
+		nodeHost = normalizedHostKey(urlStr)
+	}
+	s.App.Logf("[%s] Dynamic HTTP done: %.1f MB in %s (%.1f MiB/s) | host=%s workers=%d splits=%d steals=%d retries=%d slow_cuts=%d",
+		name, sessionMB, elapsed.Round(time.Millisecond), speedMiBs, nodeHost, workers,
+		stats.splits, stats.steals, stats.retries, slowTracker.totalCuts())
 	return nil
 }
 
-// iaDownloadRange downloads the inclusive byte range [start,end] into out at the same file offsets.
-func (s *Service) iaDownloadRange(ctx context.Context, urlStr, ref string, out *os.File, start, end, totalSize int64, writtenAtomic *int64, lastActivity *int64) error {
-	expect := end - start + 1
-	var lastErr error
-	for attempt := 0; attempt <= app.IAChunkRetries; attempt++ {
-		if attempt > 0 {
-			wait := time.Duration(attempt) * app.IAChunkRetryBase
-			s.App.Logf("RETRY chunk bytes=%d-%d (attempt %d/%d): %v — waiting %s",
-				start, end, attempt, app.IAChunkRetries, lastErr, wait)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(wait):
-			}
-		}
+// fetchDynamicSegment executes one HTTP range attempt for seg, writing directly
+// at seg.cursor via out.WriteAt.
+// Returns (retryableErr, waitDuration, fatalErr).
+func (s *Service) fetchDynamicSegment(
+	ctx context.Context,
+	client *http.Client,
+	workerID int,
+	seg *segment,
+	planner *segmentPlanner,
+	slowTracker *slowConnectionTracker,
+	originalURL string,
+	getActiveURL func() string,
+	resetActiveURL func(),
+	ref string,
+	isIA bool,
+	totalSize int64,
+	out *os.File,
+	buf []byte,
+	workers int,
+	workerReadStall time.Duration,
+	writtenAtomic *int64,
+	lastActivity *int64,
+	receiving *atomic.Int32,
+	authRefreshed *atomic.Bool,
+	name string,
+) (retryErr error, waitAfter time.Duration, fatalErr error) {
+	// Guarantee segment ownership is always released when this attempt exits.
+	defer planner.release(seg, workerID, false)
 
-		req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
-		req.Header.Set("Referer", ref)
-		s.App.ApplyArchiveOrgHeaders(req)
-
-		resp, err := s.App.IAHTTPClient.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("request: %w", err)
-			continue
-		}
-		if resp.StatusCode != 206 {
-			resp.Body.Close()
-			lastErr = fmt.Errorf("HTTP %d (expected 206 Partial Content)", resp.StatusCode)
-			continue
-		}
-		responseStart, responseEnd, responseTotal, rangeErr := parseHTTPContentRange(resp.Header.Get("Content-Range"))
-		if rangeErr != nil || responseStart != start || responseEnd != end || responseTotal != totalSize {
-			resp.Body.Close()
-			lastErr = fmt.Errorf("resposta de faixa divergente: pedido %d-%d/%d, recebido %q", start, end, totalSize, resp.Header.Get("Content-Range"))
-			continue
-		}
-
-		var chunkWritten int64
-		buf := make([]byte, 256*1024)
-		var readErr error
-		for {
-			select {
-			case <-ctx.Done():
-				resp.Body.Close()
-				atomic.AddInt64(writtenAtomic, -chunkWritten)
-				return ctx.Err()
-			default:
-			}
-			remaining := expect - chunkWritten
-			if remaining == 0 {
-				break
-			}
-			readBuf := buf
-			if int64(len(readBuf)) > remaining {
-				readBuf = readBuf[:remaining]
-			}
-			var n int
-			n, readErr = resp.Body.Read(readBuf)
-			if n > 0 {
-				off := start + chunkWritten
-				if _, wErr := out.WriteAt(buf[:n], off); wErr != nil {
-					resp.Body.Close()
-					atomic.AddInt64(writtenAtomic, -chunkWritten)
-					lastErr = fmt.Errorf("write at +%d: %w", chunkWritten, wErr)
-					chunkWritten = 0
-					goto nextAttempt
-				}
-				atomic.AddInt64(writtenAtomic, int64(n))
-				if lastActivity != nil {
-					atomic.StoreInt64(lastActivity, time.Now().UnixNano())
-				}
-				chunkWritten += int64(n)
-			}
-			if readErr == io.EOF {
-				break
-			}
-			if readErr != nil {
-				break
-			}
-		}
-		resp.Body.Close()
-		if readErr != nil && readErr != io.EOF {
-			atomic.AddInt64(writtenAtomic, -chunkWritten)
-			lastErr = fmt.Errorf("read after %d bytes: %w", chunkWritten, readErr)
-			continue
-		}
-		if chunkWritten != expect {
-			atomic.AddInt64(writtenAtomic, -chunkWritten)
-			lastErr = fmt.Errorf("range incomplete: got %d want %d bytes", chunkWritten, expect)
-			continue
-		}
-		return nil
-	nextAttempt:
+	start, end, ok := planner.segmentBounds(seg, workerID)
+	if !ok {
+		return nil, 0, nil
 	}
-	return lastErr
+
+	reqCtx, reqCancel := context.WithCancel(ctx)
+	defer reqCancel()
+	if !planner.setRequestCancel(seg, workerID, reqCancel) {
+		return nil, 0, nil
+	}
+
+	targetURL := getActiveURL()
+	req, err := http.NewRequestWithContext(reqCtx, "GET", targetURL, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end-1))
+	s.applyDownloadHeaders(req, originalURL, ref)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil || reqCtx.Err() != nil {
+			return nil, 0, nil
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "connection refused") {
+			if capVal, learned := globalHostLimits.recordRefusal(targetURL, int(receiving.Load()), time.Now()); learned {
+				s.App.Logf("[%s] Host limit learned for %s: capping to %d connections", name, normalizedHostKey(targetURL), capVal)
+			}
+		}
+		failures, _, pending := planner.release(seg, workerID, true)
+		if !pending {
+			return nil, 0, nil
+		}
+		wrapped := fmt.Errorf("request: %w", err)
+		if failures > app.IAChunkRetries {
+			return nil, 0, wrapped
+		}
+		wait := retryBackoff(failures, 0)
+		s.App.Logf("RETRY range bytes=%d-%d (attempt %d/%d): %v — waiting %s", start, end-1, failures, app.IAChunkRetries, wrapped, wait)
+		return wrapped, wait, nil
+	}
+
+	if resp.StatusCode != http.StatusPartialContent {
+		status := resp.StatusCode
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+
+		// Deterministic 4xx handling: don't waste 90 s retrying permanent rejections.
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			if isIA && authRefreshed.CompareAndSwap(false, true) {
+				if refreshErr := s.App.RefreshIAAuthSession(); refreshErr == nil {
+					resetActiveURL()
+					planner.release(seg, workerID, false)
+					return fmt.Errorf("HTTP %d after session refresh", status), 500 * time.Millisecond, nil
+				}
+			}
+			if targetURL != originalURL {
+				// Resolved/signed CDN URL may have expired (MDM rule #9): re-resolve via original URL once.
+				resetActiveURL()
+				failures, _, pending := planner.release(seg, workerID, true)
+				if pending && failures <= 2 {
+					return fmt.Errorf("HTTP %d on resolved node; refreshing URL", status), 500 * time.Millisecond, nil
+				}
+			}
+			return nil, 0, iaHTTPError(status, originalURL)
+		}
+		if status == http.StatusNotFound || status == http.StatusGone {
+			if targetURL != originalURL {
+				resetActiveURL()
+				failures, _, pending := planner.release(seg, workerID, true)
+				if pending && failures <= 1 {
+					return fmt.Errorf("HTTP %d on resolved node; falling back to original URL", status), 0, nil
+				}
+			}
+			return nil, 0, iaHTTPError(status, originalURL)
+		}
+
+		// Rate limit / overload (429 / 503): learn host connection cap + honor Retry-After.
+		if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable {
+			if capVal, learned := globalHostLimits.recordRefusal(targetURL, int(receiving.Load()), time.Now()); learned {
+				s.App.Logf("[%s] Host limit learned for %s (HTTP %d): capping to %d connections", name, normalizedHostKey(targetURL), status, capVal)
+			}
+		}
+
+		failures, _, pending := planner.release(seg, workerID, true)
+		if !pending {
+			return nil, 0, nil
+		}
+		wrapped := fmt.Errorf("HTTP %d (expected 206 Partial Content)", status)
+		if failures > app.IAChunkRetries {
+			return nil, 0, wrapped
+		}
+		wait := retryBackoff(failures, retryAfter)
+		s.App.Logf("RETRY range bytes=%d-%d (attempt %d/%d): %v — waiting %s", start, end-1, failures, app.IAChunkRetries, wrapped, wait)
+		return wrapped, wait, nil
+	}
+
+	respStart, respEnd, respTotal, rangeErr := parseHTTPContentRange(resp.Header.Get("Content-Range"))
+	if rangeErr != nil || respStart != start || respEnd != end-1 || respTotal != totalSize {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		failures, _, pending := planner.release(seg, workerID, true)
+		wrapped := fmt.Errorf("resposta de faixa divergente: pedido %d-%d/%d, recebido %q", start, end-1, totalSize, resp.Header.Get("Content-Range"))
+		if !pending || failures > app.IAChunkRetries {
+			return nil, 0, wrapped
+		}
+		return wrapped, retryBackoff(failures, 0), nil
+	}
+
+	// Stream body directly into out via WriteAt.
+	receiving.Add(1)
+	defer receiving.Add(-1)
+
+	var stallTimer *time.Timer
+	var workerStalled atomic.Bool
+	if workerReadStall > 0 {
+		stallTimer = time.AfterFunc(workerReadStall, func() {
+			workerStalled.Store(true)
+			reqCancel()
+		})
+		defer stallTimer.Stop()
+	}
+
+	var (
+		responseBytes int64
+		firstByteAt   time.Time
+		windowStart   time.Time
+		windowBytes   int64
+		abandoned     bool
+		slowCut       bool
+		readErr       error
+	)
+
+	for {
+		n, rErr := resp.Body.Read(buf)
+		if n > 0 {
+			if stallTimer != nil {
+				stallTimer.Reset(workerReadStall)
+			}
+			now := time.Now()
+			off, keep, okWrite := planner.beginWrite(seg, workerID, int64(n))
+			if !okWrite {
+				// Segment reached its shortened end (split) or was stolen.
+				abandoned = true
+				reqCancel()
+				break
+			}
+			if _, wErr := out.WriteAt(buf[:keep], off); wErr != nil {
+				planner.abortWrite(seg, workerID)
+				reqCancel()
+				resp.Body.Close()
+				planner.release(seg, workerID, false)
+				return nil, 0, fmt.Errorf("write at +%d: %w", off, wErr)
+			}
+			done, rem, totalW := planner.commitWrite(seg, workerID, keep, now)
+			atomic.StoreInt64(writtenAtomic, totalW)
+			if lastActivity != nil {
+				atomic.StoreInt64(lastActivity, now.UnixNano())
+			}
+
+			if firstByteAt.IsZero() {
+				firstByteAt = now
+				windowStart = now
+			} else {
+				responseBytes += keep
+				windowBytes += keep
+			}
+
+			if done {
+				slowTracker.recordFastCompletion(responseBytes, now.Sub(firstByteAt))
+				// If a dynamic split shortened seg.end, abort the leftover response
+				// stream immediately rather than draining gigabytes.
+				if off+keep < end {
+					abandoned = true
+					reqCancel()
+				}
+				break
+			}
+
+			// MDM rule #4: evaluate slow-connection cut every slowEvalWindow (2 s).
+			if workers > 1 && !windowStart.IsZero() && now.Sub(windowStart) >= slowEvalWindow &&
+				globalHostLimits.effectiveLimit(targetURL, workers, now) > 1 {
+				rate := float64(windowBytes) / now.Sub(windowStart).Seconds()
+				windowStart = now
+				windowBytes = 0
+				if slowTracker.shouldCut(rate, rem, int(receiving.Load()), planner.lastSlowCut(seg), totalW, now) {
+					planner.markSlowCut(seg, workerID, now)
+					slowCut = true
+					abandoned = true
+					// Cancel request context so Go closes the slow TCP socket
+					// instead of putting it back into the keep-alive idle pool.
+					reqCancel()
+					break
+				}
+			}
+		}
+
+		if rErr != nil {
+			readErr = rErr
+			break
+		}
+	}
+
+	resp.Body.Close()
+
+	if slowCut {
+		if isIA && slowTracker.totalCuts()%4 == 0 {
+			// Periodically re-resolve archive.org/download/ after repeated slow
+			// cuts so a sluggish edge node can rotate to a faster node.
+			resetActiveURL()
+		}
+		return nil, 0, nil
+	}
+	if abandoned || ctx.Err() != nil {
+		return nil, 0, nil
+	}
+
+	// Check if we completed the segment cleanly.
+	_, _, stillOpen := planner.segmentBounds(seg, workerID)
+	if !stillOpen {
+		return nil, 0, nil
+	}
+
+	// Incomplete read (network drop, EOF early, or per-worker stall): preserve
+	// all bytes already written up to seg.cursor and retry from there!
+	var reason error
+	if workerStalled.Load() {
+		reason = fmt.Errorf("read after %d bytes: per-worker stall (%s)", responseBytes, workerReadStall)
+	} else if readErr != nil && readErr != io.EOF {
+		reason = fmt.Errorf("read after %d bytes: %w", responseBytes, readErr)
+	} else {
+		reason = fmt.Errorf("range incomplete after %d bytes (eof before end)", responseBytes)
+	}
+
+	// Because commitWrite reset seg.failures to 0 whenever bytes arrived, a
+	// connection that delivered data before dropping gets fresh retries from its
+	// new cursor instead of burning the retry budget.
+	failures, cursor, pending := planner.release(seg, workerID, true)
+	if !pending {
+		return nil, 0, nil
+	}
+	if failures > app.IAChunkRetries {
+		return nil, 0, reason
+	}
+	wait := retryBackoff(failures, 0)
+	s.App.Logf("RETRY range at offset %d (attempt %d/%d): %v — waiting %s", cursor, failures, app.IAChunkRetries, reason, wait)
+	return reason, wait, nil
+}
+
+func isDeterministicHTTPFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, code := range []string{"HTTP 401", "HTTP 403", "HTTP 404", "HTTP 410"} {
+		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return false
 }
 
 // IADownloadSingle is a single-stream download with up to IAChunkRetries retries.
 func (s *Service) IADownloadSingle(urlStr, dest, name, ref string) error {
-	isIA := strings.Contains(strings.ToLower(urlStr), "archive.org")
+	isIA := isIAURL(urlStr)
 	var lastErr error
 	for attempt := 0; attempt <= app.IAChunkRetries; attempt++ {
 		if attempt > 0 {
 			wait := time.Duration(attempt) * app.IAChunkRetryBase
 			s.App.Logf("RETRY download [%s] (attempt %d/%d): %v — waiting %s",
 				name, attempt, app.IAChunkRetries, lastErr, wait)
-			time.Sleep(wait)
+			for slept := time.Duration(0); slept < wait; slept += 250 * time.Millisecond {
+				if s.App.IsGameJobCancelled(name) {
+					os.Remove(dest)
+					removeDownloadResume(dest)
+					return app.ErrJobCancelled
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
 		}
 		lastErr = s.iaDownloadSingleAttempt(urlStr, dest, name, ref, isIA)
 		if lastErr == nil {
@@ -786,6 +1315,14 @@ func (s *Service) IADownloadSingle(urlStr, dest, name, ref string) error {
 			removeDownloadResume(dest)
 			return lastErr
 		}
+		// Do not waste 90 s retrying deterministic 404/410 or permanent 401/403
+		// (allow 1 retry on IA 401/403 in case RefreshIAAuthSession renewed cookies).
+		if isDeterministicHTTPFailure(lastErr) {
+			if isIA && (strings.Contains(lastErr.Error(), "HTTP 401") || strings.Contains(lastErr.Error(), "HTTP 403")) && attempt == 0 {
+				continue
+			}
+			return lastErr
+		}
 		if errors.Is(lastErr, app.ErrDownloadStalled) && attempt >= 1 {
 			return lastErr
 		}
@@ -794,10 +1331,7 @@ func (s *Service) IADownloadSingle(urlStr, dest, name, ref string) error {
 }
 
 func (s *Service) iaDownloadSingleAttempt(urlStr, dest, name, ref string, isIA bool) error {
-	client := s.App.IAHTTPClient
-	if !isIA {
-		client = &http.Client{Timeout: 0}
-	}
+	client := s.httpClientForURL(urlStr)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -805,7 +1339,6 @@ func (s *Service) iaDownloadSingleAttempt(urlStr, dest, name, ref string, isIA b
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Referer", ref)
 	resumeMarker, resumeOffset, resumeOK := loadSingleResume(dest, urlStr)
 	if resumeOK {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", resumeOffset))
@@ -814,16 +1347,15 @@ func (s *Service) iaDownloadSingleAttempt(urlStr, dest, name, ref string, isIA b
 		}
 		s.App.Logf("DOWNLOAD RESUME [%s]: retomando a partir de %.1f MB", name, float64(resumeOffset)/1048576)
 	}
-	if isIA {
-		s.App.ApplyArchiveOrgHeaders(req)
-	} else {
-		req.Header.Set("User-Agent", "Mozilla/5.0")
-	}
+	s.applyDownloadHeaders(req, urlStr, ref)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && isIA {
+		_ = s.App.RefreshIAAuthSession()
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		return iaHTTPError(resp.StatusCode, urlStr)
 	}

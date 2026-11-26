@@ -584,7 +584,7 @@ export function writePowerShellScript(filePath: string, script: string): void {
   fs.writeFileSync(filePath, "\uFEFF" + script, "utf8");
 }
 
-function readLogTail(logPath: string, limit = 1500): string {
+export function readLogTail(logPath: string, limit = 1500): string {
   try {
     const data = fs.readFileSync(logPath, "utf8").trim();
     const lines = data.split("\n").map((l) => l.trimEnd()).filter((l) => l);
@@ -612,7 +612,7 @@ export function buildElevationScript(ps1Path: string, psExe: string): string {
 }
 
 /** Runs a .ps1 file elevated (UAC). Returns exit code and whether UAC was cancelled. */
-async function runPs1Elevated(
+export async function runPs1Elevated(
   ps1Path: string,
 ): Promise<{ code: number; stdout: string; stderr: string; cancelled: boolean }> {
   const psExe = powerShellExe();
